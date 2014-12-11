@@ -17,12 +17,12 @@ class CdrDatabaseSearcher {
 
     public CdrDatabaseSearcher(CdrDatabase database,
                                int maxSubstitutions, int maxInsertions, int maxDeletions,
-                               int maxMismatches, int depth) {
+                               int maxMutations, int depth) {
         this.stm = new SequenceTreeMap<>(AminoAcidSequence.ALPHABET)
         database.each {
             stm.put(new AminoAcidSequence(it.cdr3aa), it)
         }
-        this.params = new TreeSearchParameters(maxSubstitutions, maxInsertions, maxDeletions, maxMismatches)
+        this.params = new TreeSearchParameters(maxSubstitutions, maxInsertions, maxDeletions, maxMutations)
         this.depth = depth
     }
 
@@ -46,7 +46,7 @@ class CdrDatabaseSearcher {
                 def alignment = ni.getCurrentAlignment()
                 def match = entry.cdr3aa
                 if (!prevCdr.contains(match)) {
-                    results.add(new CdrSearchResult(alignment, entry))
+                    results.add(new CdrSearchResult(cdr3aa, alignment, entry))
                     prevCdr.add(match)
                 }
             } else {

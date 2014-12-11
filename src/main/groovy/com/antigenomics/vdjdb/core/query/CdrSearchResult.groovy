@@ -5,10 +5,13 @@ import com.milaboratory.core.alignment.Alignment
 import com.milaboratory.core.sequence.AminoAcidSequence
 
 class CdrSearchResult implements Comparable<CdrSearchResult> {
+    private final AminoAcidSequence query
     private final Alignment<AminoAcidSequence> alignment
     private final CdrEntrySet cdrEntrySet
 
-    CdrSearchResult(Alignment<AminoAcidSequence> alignment, CdrEntrySet cdrEntrySet) {
+    CdrSearchResult(AminoAcidSequence query,
+                    Alignment<AminoAcidSequence> alignment,
+                    CdrEntrySet cdrEntrySet) {
         this.alignment = alignment
         this.cdrEntrySet = cdrEntrySet
     }
@@ -19,11 +22,15 @@ class CdrSearchResult implements Comparable<CdrSearchResult> {
     }
 
     public Alignment<AminoAcidSequence> getAlignment() {
-        return alignment
+        alignment
+    }
+
+    public AminoAcidSequence getQuery() {
+        query
     }
 
     public CdrEntrySet getCdrEntrySet() {
-        return cdrEntrySet
+        cdrEntrySet
     }
 
     @Override
@@ -31,5 +38,20 @@ class CdrSearchResult implements Comparable<CdrSearchResult> {
         "Alignment:\n" + alignment.getAlignmentHelper().toString() + "\nDatabase hits:\n" +
                 "v\tj\t" + cdrEntrySet.parent.ANNOTATION_HEADER + "\n" +
                 cdrEntrySet.collect { it.toString() }.join("\n")
+    }
+
+    @Override
+    boolean equals(o) {
+        if (this.is(o)) return true
+        if (getClass() != o.class) return false
+
+        CdrSearchResult that = (CdrSearchResult) o
+
+        cdrEntrySet == that.cdrEntrySet && query == that.query
+    }
+
+    @Override
+    int hashCode() {
+        31 * query.hashCode() + cdrEntrySet.hashCode()
     }
 }
