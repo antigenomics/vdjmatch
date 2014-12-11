@@ -19,8 +19,11 @@ class QueryTest {
             println it
         }
 
-        println "Testing exact match"
+        println "Testing top match"
         assert searcher.lucky(seq).cdrEntrySet == db[seq]
         println "fine"
+
+        println "Testing exact match"
+        println searcher.exact(seq)
     }
 }

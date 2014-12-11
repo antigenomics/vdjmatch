@@ -35,7 +35,7 @@ class CdrSearchResult implements Comparable<CdrSearchResult> {
 
     @Override
     public String toString() {
-        "Alignment:\n" + alignment.getAlignmentHelper().toString() + "\nDatabase hits:\n" +
+        "Alignment:\n" + alignment.getAlignmentHelper().toString() + "\nDatabase entries:\n" +
                 "v\tj\t" + cdrEntrySet.parent.ANNOTATION_HEADER + "\n" +
                 cdrEntrySet.collect { it.toString() }.join("\n")
     }
