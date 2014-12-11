@@ -11,23 +11,28 @@ import com.milaboratory.core.tree.TreeSearchParameters
 
 class CdrDatabaseSearcher {
     private final SequenceTreeMap<AminoAcidSequence, CdrEntrySet> stm
-    private final TreeSearchParameters params
+    private final TreeSearchParameters treeSearchParameters
     private final int depth
     private final CdrDatabase database
 
     public CdrDatabaseSearcher(CdrDatabase database) {
-        this(database, 2, 1, 1, 3, 10)
+        this(database, new TreeSearchParameters(2, 1, 1, 3), -1)
     }
 
     public CdrDatabaseSearcher(CdrDatabase database,
-                               int maxSubstitutions, int maxInsertions, int maxDeletions,
-                               int maxMutations, int depth) {
+                               TreeSearchParameters treeSearchParameters) {
+        this(database, treeSearchParameters, -1)
+    }
+
+    public CdrDatabaseSearcher(CdrDatabase database,
+                               TreeSearchParameters treeSearchParameters,
+                               int depth) {
         this.stm = new SequenceTreeMap<>(AminoAcidSequence.ALPHABET)
         this.database = database
         database.each {
             stm.put(new AminoAcidSequence(it.cdr3aa), it)
         }
-        this.params = new TreeSearchParameters(maxSubstitutions, maxInsertions, maxDeletions, maxMutations)
+        this.treeSearchParameters = treeSearchParameters
         this.depth = depth
     }
 
@@ -36,8 +41,8 @@ class CdrDatabaseSearcher {
     }
 
     public List<CdrSearchResult> search(AminoAcidSequence cdr3aa) {
-        def results = new ArrayList<CdrSearchResult>(depth)
-        def ni = stm.getNeighborhoodIterator(cdr3aa, params)
+        def results = new ArrayList<CdrSearchResult>()
+        def ni = stm.getNeighborhoodIterator(cdr3aa, treeSearchParameters)
 
         // This hack excludes duplicates like
         //
