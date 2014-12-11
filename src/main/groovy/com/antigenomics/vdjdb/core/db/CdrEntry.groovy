@@ -2,7 +2,7 @@ package com.antigenomics.vdjdb.core.db
 
 
 class CdrEntry {
-    public final String v, j
+    public final String v, j, key
     private final String[] annotation
     public final CdrEntrySet parent
 
@@ -11,6 +11,7 @@ class CdrEntry {
         this.j = j
         this.annotation = annotation
         this.parent = parent
+        this.key = v + "\t" + j + "\t" + annotation.collect().join("\t")
     }
 
     public String getAt(String field) {
@@ -25,6 +26,10 @@ class CdrEntry {
         annotation[index]
     }
 
+    public List<String> getAnnotation() {
+        annotation.collect()
+    }
+
     public String getCdr3aa() {
         parent.cdr3aa
     }
@@ -34,7 +39,22 @@ class CdrEntry {
     }
 
     @Override
+    public boolean equals(o) {
+        if (this.is(o)) return true
+        if (getClass() != o.class) return false
+
+        CdrEntry cdrEntry = (CdrEntry) o
+
+        key == cdrEntry.key && parent == cdrEntry.parent
+    }
+
+    @Override
+    public int hashCode() {
+        31 * key.hashCode() + parent.hashCode()
+    }
+
+    @Override
     public String toString() {
-        v + "\t" + j + "\t" + annotation.collect().join("\t")
+        key
     }
 }

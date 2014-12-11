@@ -16,7 +16,7 @@ class CdrDatabaseSearcher {
     private final CdrDatabase database
 
     public CdrDatabaseSearcher(CdrDatabase database) {
-        this(database, new TreeSearchParameters(2, 1, 1, 3), -1)
+        this(database, new TreeSearchParameters(3, 2, 2, 3), -1)
     }
 
     public CdrDatabaseSearcher(CdrDatabase database,

@@ -5,7 +5,7 @@ import groovy.transform.PackageScope
 
 class CdrEntrySet implements Iterable<CdrEntry> {
     private final CdrDatabase parent
-    private final List<CdrEntry> entries = new LinkedList<>()
+    private final Set<CdrEntry> entries = new HashSet<>()
     private final String cdr3aa
 
     public CdrEntrySet(CdrDatabase parent, String cdr3aa) {
@@ -17,7 +17,10 @@ class CdrEntrySet implements Iterable<CdrEntry> {
     void addEntry(String v, String j, String[] annotation) {
         if (parent.annotationHeader.length != annotation.length)
             throw new IndexOutOfBoundsException("Annotation header length don't match provided annotation row")
-        entries.add(new CdrEntry(v, j, annotation, this))
+        def entry = new CdrEntry(v, j, annotation, this)
+        if (entries.contains(entry))
+            throw new Exception("Error adding $entry to database. Duplicat entries not allowed")
+        entries.add(entry)
     }
 
     String getCdr3aa() {
