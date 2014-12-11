@@ -3,7 +3,6 @@ package com.antigenomics.vdjdb.core.query
 import com.antigenomics.vdjdb.core.db.CdrDatabase
 import org.junit.Test
 
-
 class QueryTest {
     @Test
     public void infamousLapgatTest() {
