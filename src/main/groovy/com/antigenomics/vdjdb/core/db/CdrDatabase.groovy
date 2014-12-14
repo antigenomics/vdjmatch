@@ -29,6 +29,7 @@ class CdrDatabase implements Iterable<CdrEntrySet> {
                                DEFAULT_DB_NAME = "db/vdjdb"
 
     private final BigInteger md5sum
+    private final String fileName
 
     private final Map<String, CdrEntrySet> entriesByCdr = new HashMap<>()
     private final Map<String, Integer> field2Index = new HashMap<>()
@@ -41,14 +42,15 @@ class CdrDatabase implements Iterable<CdrEntrySet> {
     }
 
     public CdrDatabase(String filter) {
-        this(Util.resourceStreamReader("${DEFAULT_DB_NAME}.txt"), filter)
+        this(Util.resourceStreamReader("${DEFAULT_DB_NAME}.txt"), "${DEFAULT_DB_NAME}.txt", filter)
     }
 
     public CdrDatabase(String fileName, String filter) {
-        this(new InputStreamReader(new FileInputStream(fileName)), filter)
+        this(new InputStreamReader(new FileInputStream(fileName)), fileName, filter)
     }
 
-    public CdrDatabase(InputStreamReader dbReader, String filter) {
+    public CdrDatabase(InputStreamReader dbReader, String fileName, String filter) {
+
         def headerLine = dbReader.readLine()
         if (!headerLine.startsWith("#"))
             throw new Exception("Header line SHOULD start with '#'")
@@ -88,6 +90,7 @@ class CdrDatabase implements Iterable<CdrEntrySet> {
         if (cdr3aaInd < 0 || vInd < 0 || jInd < 0)
             throw new Exception("The following columns are MANDATORY: cdr3aa, v and j columns")
 
+        this.fileName = fileName
         this.annotationHeader = annotationHeader as String[]
         this.ANNOTATION_HEADER = annotationHeader.join("\t")
         annotationHeader.eachWithIndex { it, ind -> field2Index.put(it, ind) }
@@ -139,7 +142,11 @@ class CdrDatabase implements Iterable<CdrEntrySet> {
     }
 
     public int getEntryCount() {
-        return entryCount
+        entryCount
+    }
+
+    String getFileName() {
+        fileName
     }
 
     @Override
@@ -149,11 +156,12 @@ class CdrDatabase implements Iterable<CdrEntrySet> {
 
         CdrDatabase that = (CdrDatabase) o
 
-        ANNOTATION_HEADER == that.ANNOTATION_HEADER && md5sum == that.md5sum
+        ANNOTATION_HEADER == that.ANNOTATION_HEADER && fileName == that.fileName
     }
 
     @Override
     public int hashCode() {
-        31 * md5sum.hashCode() + ANNOTATION_HEADER.hashCode()
+        31 * fileName.hashCode() +
+                ANNOTATION_HEADER.hashCode()
     }
 }
