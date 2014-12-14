@@ -63,6 +63,10 @@ class CdrDatabase implements Iterable<CdrEntrySet> {
                 if (columnIndex >= 0)
                     filter = filter.replaceAll("$FILTER_MARK$token$FILTER_MARK", "x[$columnIndex]")
             }
+
+            if (filter.contains(FILTER_MARK))
+                throw new Exception("Failed to parse filter, " +
+                        "perhaps some of the columns do not exist in the database")
         }
 
         def cdr3aaInd = -1, vInd = -1, jInd = -1

@@ -17,9 +17,17 @@
 
 package com.antigenomics.vdjdb.util
 
+import com.milaboratory.core.sequence.AminoAcidSequence
+
 class Util {
-    static InputStreamReader resourceStreamReader(String resourceName) {
+    public static InputStreamReader resourceStreamReader(String resourceName) {
         new InputStreamReader(Util.class.classLoader.getResourceAsStream(resourceName))
+    }
+
+    public static AminoAcidSequence convert(String aaSeq) {
+        if (aaSeq =~ /[FLSYCWPHQRIMTNKVADEG]/)
+            return new AminoAcidSequence(aaSeq)
+        throw new Exception("Illegal character in amino acid sequence string $aaSeq")
     }
 
     /**

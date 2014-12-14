@@ -2,6 +2,7 @@ package com.antigenomics.vdjdb.core.query
 
 import com.antigenomics.vdjdb.core.db.CdrDatabase
 import com.antigenomics.vdjdb.core.db.CdrEntrySet
+import com.antigenomics.vdjdb.util.Util
 import com.milaboratory.core.Range
 import com.milaboratory.core.alignment.Alignment
 import com.milaboratory.core.mutations.Mutations
@@ -30,14 +31,14 @@ class CdrDatabaseSearcher {
         this.stm = new SequenceTreeMap<>(AminoAcidSequence.ALPHABET)
         this.database = database
         database.each {
-            stm.put(new AminoAcidSequence(it.cdr3aa), it)
+            stm.put(Util.convert(it.cdr3aa), it)
         }
         this.treeSearchParameters = treeSearchParameters
         this.depth = depth
     }
 
     public List<CdrSearchResult> search(String cdr3aa) {
-        search(new AminoAcidSequence(cdr3aa))
+        search(Util.convert(cdr3aa))
     }
 
     public List<CdrSearchResult> search(AminoAcidSequence cdr3aa) {
@@ -82,7 +83,7 @@ class CdrDatabaseSearcher {
         if (!match)
             return null
 
-        def query = new AminoAcidSequence(cdr3aa)
+        def query = Util.convert(cdr3aa)
 
         def dummyRange = new Range(0, cdr3aa.length())
         def dummyAlignment = new Alignment(query,
