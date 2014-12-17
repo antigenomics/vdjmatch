@@ -12,6 +12,7 @@ class CdrSearchResult implements Comparable<CdrSearchResult> {
     CdrSearchResult(AminoAcidSequence query,
                     Alignment<AminoAcidSequence> alignment,
                     CdrEntrySet cdrEntrySet) {
+        this.query = query
         this.alignment = alignment
         this.cdrEntrySet = cdrEntrySet
     }
