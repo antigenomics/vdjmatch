@@ -25,7 +25,7 @@ class Util {
     }
 
     public static AminoAcidSequence convert(String aaSeq) {
-        if (aaSeq =~ /[FLSYCWPHQRIMTNKVADEG]/)
+        if (aaSeq =~ /^[FLSYCWPHQRIMTNKVADEG]+$/)
             return new AminoAcidSequence(aaSeq)
         throw new Exception("Illegal character in amino acid sequence string $aaSeq")
     }
