@@ -10,7 +10,6 @@
     <name>vdjdb</name>
     <url>http://maven.apache.org</url>
 
-
     <description>
         A manually curated database of T-cell receptor sequences with known antigen specificity supplied with a query
         framework.
@@ -186,7 +185,7 @@
         <dependency>
             <groupId>com.milaboratory</groupId>
             <artifactId>milib</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
@@ -194,12 +193,5 @@
             <version>4.11</version>
             <scope>test</scope>
         </dependency>
-        <!--
-<dependency>
-    <groupId>org.codehaus.jsr166-mirror</groupId>
-    <artifactId>jsr166y</artifactId>
-    <version>1.7.0</version>
-</dependency>
--->
     </dependencies>
 </project>
