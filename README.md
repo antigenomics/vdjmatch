@@ -7,8 +7,8 @@ The repository also contains API for database browsing, see [Vdjtools](https://g
 
 ## Installation
 
-The only required dependency is [MiLib](https://github.com/milaboratory/milib)
-Installation is performed via [Apache Maven](http://maven.apache.org/)
+The only required dependency is [MiLib](https://github.com/milaboratory/milib).
+Installation is performed via [Apache Maven](http://maven.apache.org/). Should be installed under Java v1.7.
 
 ```bash
 git clone --branch 1.0 --depth 1 https://github.com/milaboratory/milib.git
