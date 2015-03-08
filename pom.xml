@@ -124,6 +124,7 @@
                     <stacktrace>true</stacktrace>
                     <defaultScriptExtension>.groovy</defaultScriptExtension>
                     <providerSelection>2.0</providerSelection>
+                    <source/>
                 </configuration>
                 <executions>
                     <execution>
