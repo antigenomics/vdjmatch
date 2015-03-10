@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/mikessh/vdjdb.svg?branch=master)](https://travis-ci.org/mikessh/vdjdb)
+
 # VDJdb: a curated databased of annotated V(D)J junctions
 
 ## Purpose
