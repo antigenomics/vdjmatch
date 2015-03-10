@@ -4,6 +4,11 @@ import com.antigenomics.vdjdb.core.db.CdrEntrySet
 import com.milaboratory.core.alignment.Alignment
 import com.milaboratory.core.sequence.AminoAcidSequence
 
+/**
+ * A match between query CDR3 amino acid sequence and a subject sequence from the database.
+ * Note that the subject sequence can represent multiple database records.
+ * {@see com.antigenomics.vdjdb.core.db.CdrEntrySet}
+ */
 class CdrSearchResult implements Comparable<CdrSearchResult> {
     private final AminoAcidSequence query
     private final Alignment<AminoAcidSequence> alignment
@@ -17,28 +22,41 @@ class CdrSearchResult implements Comparable<CdrSearchResult> {
         this.cdrEntrySet = cdrEntrySet
     }
 
-    @Override
-    public int compareTo(CdrSearchResult o) {
-        alignment.score.compareTo(o.alignment.score)
-    }
-
-    public Alignment<AminoAcidSequence> getAlignment() {
+    /**
+     * Gets the alignment of query sequence ({@link com.milaboratory.core.alignment.Alignment#getSequence1()}) and
+     * a subject sequence from the database. 
+     * @return local alignment.
+     */
+    Alignment<AminoAcidSequence> getAlignment() {
         alignment
     }
 
-    public AminoAcidSequence getQuery() {
+    /**
+     * Gets the query CDR3 amino acid sequence. 
+     * @return CDR3 amino acid sequence.
+     */
+    AminoAcidSequence getQuery() {
         query
     }
 
-    public CdrEntrySet getCdrEntrySet() {
+    /**
+     * Gets a database entry set that correspond to a subject sequence.
+     * @return database entries.
+     */
+    CdrEntrySet getCdrEntrySet() {
         cdrEntrySet
     }
 
     @Override
-    public String toString() {
+    String toString() {
         "Alignment:\n" + alignment.getAlignmentHelper().toString() + "\nDatabase entries:\n" +
                 "v\tj\t" + cdrEntrySet.parent.ANNOTATION_HEADER + "\n" +
                 cdrEntrySet.collect { it.toString() }.join("\n")
+    }
+
+    @Override
+    int compareTo(CdrSearchResult o) {
+        alignment.score.compareTo(o.alignment.score)
     }
 
     @Override
