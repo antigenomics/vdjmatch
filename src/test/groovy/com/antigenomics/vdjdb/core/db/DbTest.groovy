@@ -18,5 +18,7 @@ class DbTest {
         //assert cdrDatabase.md5sum == storedMd5
 
         assert cdrDatabase.entryCount == (Util.resourceStreamReader("${CdrDatabase.DEFAULT_DB_NAME}.txt").readLines().size() - 1)
+        
+        new File("src/main/resources/db/vdjdb.md5").write(cdrDatabase.md5sum)
     }
 }
