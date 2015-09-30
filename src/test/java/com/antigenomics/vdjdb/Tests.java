@@ -4,6 +4,7 @@ import com.antigenomics.vdjdb.filters.MatchFilter;
 import com.antigenomics.vdjdb.filters.PatternFilter;
 import com.antigenomics.vdjdb.models.CdrEntrySetDB;
 import com.antigenomics.vdjdb.models.EntryDB;
+import com.antigenomics.vdjdb.util.PGUtil;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -58,6 +59,13 @@ public class Tests {
             Assert.assertNotEquals(entrySetDB.getCdr3(), cdrString);
         }
         database.close();
+        System.out.println("Passed");
+    }
+
+    @Test
+    public void initializationTest() {
+        System.out.println("Installing database test");
+        PGUtil.installPGDataBase("postgres", "postgres");
         System.out.println("Passed");
     }
 }
