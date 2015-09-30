@@ -80,7 +80,7 @@
                     <archive>
                         <manifest>
                             <addClasspath>true</addClasspath>
-                            <mainClass>com.antigenomics.vdjtools.VdjTools</mainClass>
+                            <mainClass>com.antigenomics.browsing.ScanDatabase</mainClass>
                             <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
                         </manifest>
                     </archive>
@@ -120,6 +120,11 @@
     </build>
 
     <dependencies>
+        <dependency>
+            <groupId>com.antigenomics</groupId>
+            <artifactId>vdjtools</artifactId>
+            <version>1.0.2</version>
+        </dependency>
         <dependency>
             <groupId>org.codehaus.groovy</groupId>
             <artifactId>groovy-all</artifactId>
