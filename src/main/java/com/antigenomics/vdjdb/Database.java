@@ -42,7 +42,7 @@ public class Database {
         List<EntryDB> list = new ArrayList<EntryDB>();
         try {
             StringBuilder query = new StringBuilder("select * from " + EntryDB.DB_TABLE_NAME);
-            if (filters.size() > 0) query.append("where");
+            if (filters.size() > 0) query.append(" where");
             for (int i = 0; i < filters.size(); i++) {
                 query.append(filters.get(i).getStatement());
                 if (i != filters.size() - 1) query.append(" and ");
@@ -128,7 +128,7 @@ public class Database {
         List<CdrEntrySetDB> list = new ArrayList<CdrEntrySetDB>();
         try {
             StringBuilder query = new StringBuilder("select * from " + CdrEntrySetDB.DB_TABLE_NAME);
-            if (setFilters.size() > 0) query.append("where");
+            if (setFilters.size() > 0) query.append(" where");
             for (int i = 0; i < setFilters.size(); i++) {
                 query.append(setFilters.get(i).getStatement());
                 if (i != setFilters.size() - 1) query.append(" and ");
@@ -142,7 +142,8 @@ public class Database {
                 StringBuilder queryBuilder = new StringBuilder("select * from ");
                 queryBuilder.append(EntryDB.DB_TABLE_NAME)
                             .append(" where parent_id = '")
-                            .append(entrySetDB.getId()).append("' ");
+                            .append(entrySetDB.getId())
+                            .append("' ");
                 for (Filter entryFilter : entryFilters) {
                     queryBuilder.append(" and ").append(entryFilter.getStatement());
                 }
