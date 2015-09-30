@@ -1,7 +1,5 @@
 package com.antigenomics.vdjdb;
 
-import com.antigenomics.vdjdb.core.db.CdrEntry;
-import com.antigenomics.vdjdb.core.db.CdrEntrySet;
 import com.antigenomics.vdjdb.filters.Filter;
 import com.antigenomics.vdjdb.models.CdrEntrySetDB;
 import com.antigenomics.vdjdb.models.EntryDB;
@@ -17,7 +15,7 @@ import java.util.logging.Logger;
  * Created by bvdmitri on 23.09.15.
  */
 
-public class Database {
+public class DatabaseSearcher {
     private final static String url = "jdbc:postgresql://127.0.0.1:5432/";
     private final String dbName;
     private final String user;
@@ -26,7 +24,7 @@ public class Database {
     private Connection connection = null;
     private Statement statement = null;
 
-    public Database(String dbName, String user, String password) {
+    public DatabaseSearcher(String dbName, String user, String password) {
         this.dbName = dbName;
         this.user = user;
         this.password = password;
@@ -59,7 +57,7 @@ public class Database {
             }
             return list;
         } catch (SQLException ex) {
-            Logger lgr = Logger.getLogger(Database.class.getName());
+            Logger lgr = Logger.getLogger(DatabaseSearcher.class.getName());
             lgr.log(Level.SEVERE, ex.getMessage(), ex);
             return null;
         } finally {
@@ -71,7 +69,7 @@ public class Database {
                     setResult.close();
                 }
             } catch (SQLException ex) {
-                Logger lgr = Logger.getLogger(Database.class.getName());
+                Logger lgr = Logger.getLogger(DatabaseSearcher.class.getName());
                 lgr.log(Level.WARNING, ex.getMessage(), ex);
             }
         }
@@ -104,7 +102,7 @@ public class Database {
             }
             return list;
         } catch (SQLException ex) {
-            Logger lgr = Logger.getLogger(Database.class.getName());
+            Logger lgr = Logger.getLogger(DatabaseSearcher.class.getName());
             lgr.log(Level.SEVERE, ex.getMessage(), ex);
             return null;
         } finally {
@@ -116,7 +114,7 @@ public class Database {
                     entryResult.close();
                 }
             } catch (SQLException ex) {
-                Logger lgr = Logger.getLogger(Database.class.getName());
+                Logger lgr = Logger.getLogger(DatabaseSearcher.class.getName());
                 lgr.log(Level.WARNING, ex.getMessage(), ex);
             }
         }
@@ -155,7 +153,7 @@ public class Database {
             }
             return filteredList;
         } catch (SQLException ex) {
-            Logger lgr = Logger.getLogger(Database.class.getName());
+            Logger lgr = Logger.getLogger(DatabaseSearcher.class.getName());
             lgr.log(Level.SEVERE, ex.getMessage(), ex);
             return null;
         } finally {
@@ -167,7 +165,7 @@ public class Database {
                     entryResult.close();
                 }
             } catch (SQLException ex) {
-                Logger lgr = Logger.getLogger(Database.class.getName());
+                Logger lgr = Logger.getLogger(DatabaseSearcher.class.getName());
                 lgr.log(Level.WARNING, ex.getMessage(), ex);
             }
         }
@@ -183,7 +181,7 @@ public class Database {
             connection.setReadOnly(true);
             statement = connection.createStatement();
         } catch (SQLException ex) {
-            Logger logger = Logger.getLogger(Database.class.getName());
+            Logger logger = Logger.getLogger(DatabaseSearcher.class.getName());
             logger.log(Level.SEVERE, ex.getMessage(), ex);
         }
     }
@@ -197,7 +195,7 @@ public class Database {
                 connection.close();
             }
         } catch (SQLException ex) {
-            Logger logger = Logger.getLogger(Database.class.getName());
+            Logger logger = Logger.getLogger(DatabaseSearcher.class.getName());
             logger.log(Level.WARNING, ex.getMessage(), ex);
         }
     }

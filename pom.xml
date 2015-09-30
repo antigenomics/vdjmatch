@@ -68,6 +68,7 @@
                 <includes>
                     <include>db/vdjdb.txt</include>
                     <include>db/vdjdb.md5</include>
+                    <include>db/vdjdb.pgdump</include>
                 </includes>
             </resource>
         </resources>
@@ -80,7 +81,7 @@
                     <archive>
                         <manifest>
                             <addClasspath>true</addClasspath>
-                            <mainClass>com.antigenomics.browsing.ScanDatabase</mainClass>
+                            <mainClass>com.antigenomics.vdjdb.browsing.SearchDatabase</mainClass>
                             <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
                         </manifest>
                     </archive>
@@ -123,7 +124,7 @@
         <dependency>
             <groupId>com.antigenomics</groupId>
             <artifactId>vdjtools</artifactId>
-            <version>1.0.2</version>
+            <version>1.0.0</version>
         </dependency>
         <dependency>
             <groupId>org.codehaus.groovy</groupId>

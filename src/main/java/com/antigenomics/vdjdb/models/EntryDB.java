@@ -192,24 +192,20 @@ public class EntryDB {
         return result;
     }
 
+    public void printEntry() {
+        String parentString = parent != null ? parent.getCdr3() : " ";
+        System.out.printf("%10s %10s %10s %20s %10s %10s %10s %20s %20s %20s %20s %30s %s", v, j, chain, mhc, nature, disease, origin, antigen_seq, antigen_name, method, genbank, parentString, reference);
+        System.out.println();
+    }
+
+    public static void printHeader() {
+        System.out.printf("%10s %10s %10s %20s %10s %10s %10s %20s %20s %20s %20s %30s %s", "v", "j", "chain", "mhc", "nature", "disease", "origin", "antigen_seq", "antigen_name", "method", "genbank", "cdr3", "reference");
+        System.out.println();
+    }
+
     @Override
     public String toString() {
         String parentString = parent != null ? parent.getCdr3() : " ";
-        return "EntryDB{" +
-                "v='" + v + '\'' +
-                ", j='" + j + '\'' +
-                ", chain='" + chain + '\'' +
-                ", mhc='" + mhc + '\'' +
-                ", nature='" + nature + '\'' +
-                ", disease='" + disease + '\'' +
-                ", origin='" + origin + '\'' +
-                ", antigen_seq='" + antigen_seq + '\'' +
-                ", antigen_name='" + antigen_name + '\'' +
-                ", method='" + method + '\'' +
-                ", genbank='" + genbank + '\'' +
-                ", reference='" + reference + '\'' +
-                ", parentId='" + parentId + '\'' +
-                ", parent=" + parentString +
-                '}';
+        return v + "\t" + j + "\t" + chain + "\t" + mhc + "\t" + nature + "\t" + disease + "\t" + origin + "\t" + antigen_seq + "\t" + antigen_name + "\t" + method + "\t" + genbank + "\t" + reference + "\t" + parentString + "\n";
     }
 }
