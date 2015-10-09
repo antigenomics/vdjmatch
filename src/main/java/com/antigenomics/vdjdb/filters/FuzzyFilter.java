@@ -36,4 +36,14 @@ public class FuzzyFilter implements Filter{
     public String getStatement() {
         return " levenshtein(" + fieldName + ",'" + fieldValue + "'," + insertionCost + "," + deletionCost + "," + substitutionCost + ") <= " + distance + " ";
     }
+
+    @Override
+    public String getFieldName() {
+        return fieldName;
+    }
+
+    @Override
+    public String getFieldValue() {
+        return fieldValue;
+    }
 }

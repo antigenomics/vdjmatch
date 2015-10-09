@@ -25,17 +25,23 @@ public class Tests {
             String jPattern = "TRBJ1-_";
             PatternFilter VFilter = new PatternFilter(EntryDB.Fields.V.getFieldName(), vPattern);
             PatternFilter JFilter = new PatternFilter(EntryDB.Fields.J.getFieldName(), jPattern);
-            List<EntryDB> entries = database.findEntries(VFilter, JFilter);
-            for (EntryDB entry : entries) {
-                Assert.assertTrue(Pattern.matches("^TRBV29-[a-zA-Z0-9]$", entry.getV()));
-                Assert.assertTrue(Pattern.matches("^TRBJ1-[a-zA-Z0-9]$", entry.getJ()));
+            List<CdrEntrySetDB> setentries = database.findEntries(VFilter, JFilter);
+            for (CdrEntrySetDB setentry : setentries) {
+                List<EntryDB> entries = setentry.getCdrEntries();
+                for (EntryDB entry : entries) {
+                    Assert.assertTrue(Pattern.matches("^TRBV29-[a-zA-Z0-9]$", entry.getV()));
+                    Assert.assertTrue(Pattern.matches("^TRBJ1-[a-zA-Z0-9]$", entry.getJ()));
+                }
             }
             VFilter.setMatch(false);
             JFilter.setMatch(false);
-            List<EntryDB> otherEntries = database.findEntries(VFilter, JFilter);
-            for (EntryDB otherEntry : otherEntries) {
-                Assert.assertFalse(Pattern.matches("^TRBV29-[a-zA-Z0-9]$", otherEntry.getV()));
-                Assert.assertFalse(Pattern.matches("^TRBJ1-[a-zA-Z0-9]$", otherEntry.getJ()));
+            List<CdrEntrySetDB> otherEntries = database.findEntries(VFilter, JFilter);
+            for (CdrEntrySetDB otherEntry : otherEntries) {
+                List<EntryDB> entries = otherEntry.getCdrEntries();
+                for (EntryDB entry : entries) {
+                    Assert.assertFalse(Pattern.matches("^TRBV29-[a-zA-Z0-9]$", entry.getV()));
+                    Assert.assertFalse(Pattern.matches("^TRBJ1-[a-zA-Z0-9]$", entry.getJ()));
+                }
             }
             database.close();
             System.out.println("Passed");
@@ -43,7 +49,6 @@ public class Tests {
             System.out.println();
             System.out.println("Failed");
         }
-
     }
 
     @org.junit.Test

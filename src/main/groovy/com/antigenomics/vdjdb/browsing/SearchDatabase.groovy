@@ -9,6 +9,9 @@ import com.antigenomics.vdjdb.models.CdrEntrySetDB
 import com.antigenomics.vdjdb.models.EntryDB
 import groovyjarjarcommonscli.Option
 
+import java.util.logging.Level
+import java.util.logging.Logger
+
 /**
  * Created by bvdmitri on 30.09.15.
  */
@@ -26,14 +29,14 @@ def printEntries(List<EntryDB> entries) {
 
 def cli = new CliBuilder(usage: "SearchDatabase [options] ")
 cli.h("display help message")
-cli.d(longOpt: "database", argName: "string", args: 1, "PostgreSQL database name")
-cli.u(longOpt: "user", argName: "string", args: 1, "PostgreSQL user name")
-cli.p(longOpt: "password", argName: "string", args: 1, "PostgreSQL user password")
+cli.d(longOpt: "database", argName: "string", args: 1, "PostgreSQL database name", required: true)
+cli.u(longOpt: "user", argName: "string", args: 1, "PostgreSQL user name", required: true)
+cli.p(longOpt: "password", argName: "string", args: 1, "PostgreSQL user password", required: true)
 cli.fm(longOpt: "filterMatch", args: Option.UNLIMITED_VALUES, valueSeparator: ',', required: false, "Match Filters")
 cli.fp(longOpt: "filterPattern", args: Option.UNLIMITED_VALUES, valueSeparator: ',', required: false, "Pattern Filters")
 cli.ff(longOpt: "filterFuzzy", args: Option.UNLIMITED_VALUES, valueSeparator: ',', required: false, "Fuzzy Filters")
 cli.sf(longOpt: "showFields", "Show available fields")
-cli.init(longOpt: "init", "Initialize database")
+cli.e(longOpt: "errors", "Show detailed information about errors")
 
 def opt = cli.parse(args)
 
@@ -44,11 +47,6 @@ if (opt == null) {
 if (opt.h) {
     cli.usage()
     System.exit(-1)
-}
-
-if (opt.init) {
-    println "Initialization not implemented"
-    System.exit(0)
 }
 
 if (opt.sf) {
@@ -172,28 +170,49 @@ filtersFuzzy.each {
         }
 }
 
-DatabaseSearcher databaseSearcher = new DatabaseSearcher(dbName, userName, password)
-databaseSearcher.open()
+DatabaseSearcher databaseSearcher;
 
-printHeader()
-if (entryFilterList.size() > 0 && setFilterList.size() > 0) {
-    List<CdrEntrySetDB> entries = databaseSearcher.findSetAndEntries(setFilterList, entryFilterList)
-    for (CdrEntrySetDB cdrEntrySetDB: entries) {
-        printEntries(cdrEntrySetDB.cdrEntries)
+try {
+    databaseSearcher = new DatabaseSearcher(dbName, userName, password)
+    databaseSearcher.open()
+} catch (Exception ex) {
+    if (opt.e) {
+        Logger logger = Logger.getLogger(DatabaseSearcher.class.getName());
+        logger.log(Level.WARNING, ex.getMessage(), ex);
+    } else {
+        println "An error has occurred while accessing PostgreSQL database. Use '-e' option if you want to see detailed information about this error"
     }
-} else if (entryFilterList.size() > 0) {
-    List<EntryDB> entries = databaseSearcher.findEntries(entryFilterList)
-    printEntries(entries)
-} else if (setFilterList.size() > 0) {
-    List<CdrEntrySetDB> entries = databaseSearcher.findSet(setFilterList)
-    for (CdrEntrySetDB cdrEntrySetDB: entries) {
-        printEntries(cdrEntrySetDB.cdrEntries)
-    }
-} else {
-    List<CdrEntrySetDB> entries = databaseSearcher.findSet()
-    for (CdrEntrySetDB cdrEntrySetDB: entries) {
-        printEntries(cdrEntrySetDB.cdrEntries)
-    }
+    System.exit(-1);
 }
 
-databaseSearcher.close()
+try {
+    printHeader()
+    if (entryFilterList.size() > 0 && setFilterList.size() > 0) {
+        List<CdrEntrySetDB> entries = databaseSearcher.findSetAndEntries(setFilterList, entryFilterList)
+        for (CdrEntrySetDB cdrEntrySetDB : entries) {
+            printEntries(cdrEntrySetDB.cdrEntries)
+        }
+    } else if (entryFilterList.size() > 0) {
+        List<EntryDB> entries = databaseSearcher.findEntries(entryFilterList)
+        printEntries(entries)
+    } else if (setFilterList.size() > 0) {
+        List<CdrEntrySetDB> entries = databaseSearcher.findSet(setFilterList)
+        for (CdrEntrySetDB cdrEntrySetDB : entries) {
+            printEntries(cdrEntrySetDB.cdrEntries)
+        }
+    } else {
+        List<CdrEntrySetDB> entries = databaseSearcher.findSet()
+        for (CdrEntrySetDB cdrEntrySetDB : entries) {
+            printEntries(cdrEntrySetDB.cdrEntries)
+        }
+    }
+    databaseSearcher.close()
+} catch (Exception ex) {
+    if (opt.e) {
+        Logger logger = Logger.getLogger(DatabaseSearcher.class.getName());
+        logger.log(Level.WARNING, ex.getMessage(), ex);
+    } else {
+        println "An error has occurred. Use '-e' option if you want to see detailed information about errors"
+    }
+    System.exit(-1);
+}

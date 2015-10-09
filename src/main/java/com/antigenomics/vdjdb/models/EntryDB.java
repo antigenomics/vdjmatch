@@ -141,7 +141,9 @@ public class EntryDB {
     }
 
     public String getCdr3() {
-        return parent.getCdr3();
+        if (parent != null)
+            return parent.getCdr3();
+        return "undefined";
     }
 
     public void setParent(CdrEntrySetDB parent) {

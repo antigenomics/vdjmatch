@@ -27,4 +27,14 @@ public class MatchFilter implements Filter {
         String matchStatement = match ? "='" : "!='";
         return " " + fieldName + matchStatement + fieldValue + "'";
     }
+
+    @Override
+    public String getFieldName() {
+        return fieldName;
+    }
+
+    @Override
+    public String getFieldValue() {
+        return fieldValue;
+    }
 }

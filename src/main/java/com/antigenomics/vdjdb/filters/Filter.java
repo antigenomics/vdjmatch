@@ -6,5 +6,7 @@ package com.antigenomics.vdjdb.filters;
 
 public interface Filter {
     public String getStatement();
+    public String getFieldName();
+    public String getFieldValue();
 }
 

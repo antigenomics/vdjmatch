@@ -28,4 +28,14 @@ public class PatternFilter implements Filter{
         String matchStatement = match ? " like '" : " not like '";
         return " " + fieldName + matchStatement + fieldValue + "'";
     }
+
+    @Override
+    public String getFieldName() {
+        return fieldName;
+    }
+
+    @Override
+    public String getFieldValue() {
+        return fieldValue;
+    }
 }
