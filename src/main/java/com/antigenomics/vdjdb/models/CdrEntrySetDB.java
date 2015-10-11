@@ -15,14 +15,16 @@ public class CdrEntrySetDB {
     private static final int CDR_FIELD_NUM = 2;
 
     public static enum Fields {
-        ID("id", ID_FIELD_NUM),
-        CDR3("cdr3", CDR_FIELD_NUM);
+        ID("id", "ID",ID_FIELD_NUM),
+        CDR3("cdr3", "CDR3",CDR_FIELD_NUM);
 
         private String fieldName;
+        private String name;
         private int columnNum;
 
-        private Fields(String fieldName, int columnNum) {
+        private Fields(String fieldName, String name, int columnNum) {
             this.fieldName = fieldName;
+            this.name = name;
             this.columnNum = columnNum;
         }
 
@@ -32,6 +34,10 @@ public class CdrEntrySetDB {
 
         public int getColumnNum() {
             return columnNum;
+        }
+
+        public String getName() {
+            return name;
         }
     }
 

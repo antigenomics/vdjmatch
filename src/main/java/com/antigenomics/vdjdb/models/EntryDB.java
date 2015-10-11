@@ -24,25 +24,28 @@ public class EntryDB {
     public static final int PARENT_ID_FIELD_NUM = 14;
 
     public static enum Fields {
-        V("v", V_FIELD_NUM),
-        J("j", J_FIELD_NUM),
-        CHAIN("chain", CHAIN_FIELD_NUM),
-        MHC("mhc", MHC_FIELD_NUM),
-        NATURE("nature", NATURE_FIELD_NUM),
-        DISEASE("disease", DISEASE_FIELD_NUM),
-        ORIGIN("origin", ORIGIN_FIELD_NUM),
-        ANTIGEN_SEQ("antigen_seq", ANTIGEN_SEQ_FIELD_NUM),
-        ANTIGEN_NAME("antigen_name", ANTIGEN_NAME_FIELD_NUM),
-        METHOD("method", METHOD_FIELD_NUM),
-        GENBANK("genbank", GENBANK_FIELD_NUM),
-        REFERENCE("reference", REFERENCE_FIELD_NUM),
-        PARENT_ID("parent_id", PARENT_ID_FIELD_NUM);
+        V("v", "V", V_FIELD_NUM),
+        J("j", "J",J_FIELD_NUM),
+        CHAIN("chain", "Chain",CHAIN_FIELD_NUM),
+        MHC("mhc", "mhc",MHC_FIELD_NUM),
+        NATURE("nature", "Nature",NATURE_FIELD_NUM),
+        DISEASE("disease", "Disease",DISEASE_FIELD_NUM),
+        ORIGIN("origin", "Origin",ORIGIN_FIELD_NUM),
+        ANTIGEN_SEQ("antigen_seq", "Antigen sequence",ANTIGEN_SEQ_FIELD_NUM),
+        ANTIGEN_NAME("antigen_name", "Antigen name",ANTIGEN_NAME_FIELD_NUM),
+        METHOD("method", "Method",METHOD_FIELD_NUM),
+        GENBANK("genbank", "Genbank",GENBANK_FIELD_NUM),
+        REFERENCE("reference", "Refernce",REFERENCE_FIELD_NUM),
+        PARENT_ID("parent_id", "Parent ID",PARENT_ID_FIELD_NUM);
 
         private String fieldName;
+        //TODO fieldName name
+        private String name;
         private int columnNum;
 
-        private Fields(String fieldName, int columnNum) {
+        private Fields(String fieldName, String name, int columnNum) {
             this.fieldName = fieldName;
+            this.name = name;
             this.columnNum = columnNum;
         }
 
@@ -52,6 +55,10 @@ public class EntryDB {
 
         public String getFieldName() {
             return fieldName;
+        }
+
+        public String getName() {
+            return name;
         }
     }
 
