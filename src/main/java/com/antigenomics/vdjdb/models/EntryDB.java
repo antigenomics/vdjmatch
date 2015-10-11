@@ -35,7 +35,7 @@ public class EntryDB {
         ANTIGEN_NAME("antigen_name", "Antigen name",ANTIGEN_NAME_FIELD_NUM),
         METHOD("method", "Method",METHOD_FIELD_NUM),
         GENBANK("genbank", "Genbank",GENBANK_FIELD_NUM),
-        REFERENCE("reference", "Refernce",REFERENCE_FIELD_NUM),
+        REFERENCE("reference", "Reference",REFERENCE_FIELD_NUM),
         PARENT_ID("parent_id", "Parent ID",PARENT_ID_FIELD_NUM);
 
         private String fieldName;
@@ -77,6 +77,7 @@ public class EntryDB {
     public final Long parentId;
 
     private CdrEntrySetDB parent;
+    public String cdr3;
 
     public EntryDB(ResultSet resultSet, CdrEntrySetDB parent) throws SQLException {
         this.v = resultSet.getString(V_FIELD_NUM);
@@ -93,6 +94,7 @@ public class EntryDB {
         this.reference = resultSet.getString(REFERENCE_FIELD_NUM);
         this.parentId = resultSet.getLong(PARENT_ID_FIELD_NUM);
         this.parent = parent;
+        this.cdr3 = parent != null ? parent.getCdr3() : "undefined";
     }
 
     public String getV() {
@@ -148,14 +150,16 @@ public class EntryDB {
     }
 
     public String getCdr3() {
-        if (parent != null)
-            return parent.getCdr3();
-        return "undefined";
+        return cdr3;
     }
 
     public void setParent(CdrEntrySetDB parent) {
         this.parent = parent;
+        if (parent != null) {
+            this.cdr3 = parent.getCdr3();
+        }
     }
+
 
     @Override
     public boolean equals(Object o) {
