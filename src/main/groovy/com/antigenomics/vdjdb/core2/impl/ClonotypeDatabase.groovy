@@ -1,5 +1,6 @@
 package com.antigenomics.vdjdb.core2.impl
 
+import com.antigenomics.vdjdb.core2.db.Column
 import com.antigenomics.vdjdb.core2.db.ColumnType
 import com.antigenomics.vdjdb.core2.db.Database
 import com.antigenomics.vdjdb.core2.sequence.SequenceSearchParameters
@@ -14,6 +15,13 @@ class ClonotypeDatabase extends Database {
     static final String CDR_COL = "cdr3", V_COL = "v", J_COL = "j"
     final TreeSearchParameters treeSearchParameters
     final int depth
+
+    ClonotypeDatabase(List<Column> columns, List<List<String>> entries, Map<String, TextFilter> filters,
+                      int maxMismatches, int maxInsertions, int maxDeletions, int maxMutations, int depth) {
+        super(columns, entries, filters)
+        this.treeSearchParameters = new TreeSearchParameters(maxMismatches, maxInsertions, maxDeletions, maxMutations)
+        this.depth = depth
+    }
 
     ClonotypeDatabase(InputStream source, InputStream metadata, Map<String, TextFilter> filters,
                       int maxMismatches, int maxInsertions, int maxDeletions, int maxMutations, int depth) {

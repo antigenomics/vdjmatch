@@ -17,6 +17,37 @@ class Database {
     private final Map<String, Integer> columnId2Index = new HashMap<>()
     private final Map<String, Integer> metadataField2Index = new HashMap<>()
 
+    public Database(List<Column> columns, List<List<String>> entries, Map<String, TextFilter> filters = [:]) {
+        columns.each {
+            if (columnId2Index.containsKey(it.name)) {
+                throw new RuntimeException("Column names should be unique")
+            }
+            columnId2Index.put(it.name, columns.size())
+            columns.add(it)
+        }
+
+        checkColumns()
+
+        entries.each { List<String> splitLine ->
+            if (splitLine.size() != columns.size()) {
+                throw new RuntimeException("Row size and number of columns don't match")
+            }
+
+            def row = new RowImpl(rows.size())
+
+            // Fill row
+            splitLine.eachWithIndex { String it, Integer ind ->
+                row.entries[ind] = new Entry(columns[ind], row, it)
+            }
+
+            // Add to database if passes filters
+            if (filters.every { it.value.pass(row[it.key]) }) {
+                row.entries.eachWithIndex { Entry it, Integer ind -> columns[ind].append(it) }
+                rows.add(row)
+            }
+        }
+    }
+
     public Database(InputStream source, InputStream metadata, Map<String, TextFilter> filters = [:]) {
         boolean first = true
         metadata.splitEachLine("\t") { List<String> splitLine ->
@@ -60,12 +91,12 @@ class Database {
                 first = false
             } else {
                 def row = new RowImpl(rows.size())
-                
+
                 // Fill row
                 splitLine.eachWithIndex { String it, Integer ind ->
                     row.entries[ind] = new Entry(columns[ind], row, it)
                 }
-                
+
                 // Add to database if passes filters
                 if (filters.every { it.value.pass(row[it.key]) }) {
                     row.entries.eachWithIndex { Entry it, Integer ind -> columns[ind].append(it) }
