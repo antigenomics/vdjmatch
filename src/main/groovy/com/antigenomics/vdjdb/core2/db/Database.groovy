@@ -68,8 +68,11 @@ class Database {
                 if (columnId2Index.containsKey(name)) {
                     throw new RuntimeException("Column names should be unique")
                 }
+                def columnMetadata = (Map<String, String>) metadataField2Index.collectEntries {
+                    [(it.key): splitLine[it.value]]
+                }
                 def column = ColumnType.getByName(type) == ColumnType.Sequence ?
-                        new SequenceColumn(name, splitLine) : new TextColumn(name, splitLine)
+                        new SequenceColumn(name, columnMetadata) : new TextColumn(name, columnMetadata)
                 columnId2Index.put(name, columns.size())
                 columns.add(column)
             }

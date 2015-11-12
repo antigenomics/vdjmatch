@@ -12,7 +12,7 @@ import groovy.transform.CompileStatic
 class SequenceColumn extends Column {
     final SequenceTreeMap<AminoAcidSequence, List<Entry>> stm = new SequenceTreeMap(AminoAcidSequence.ALPHABET)
 
-    SequenceColumn(String name, List<String> metadata) {
+    SequenceColumn(String name, Map<String,String> metadata) {
         super(name, metadata, ColumnType.Sequence)
     }
 
