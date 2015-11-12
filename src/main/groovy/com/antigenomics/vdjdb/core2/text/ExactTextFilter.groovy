@@ -3,8 +3,8 @@ package com.antigenomics.vdjdb.core2.text
 import com.antigenomics.vdjdb.core2.db.Entry
 
 class ExactTextFilter extends TextFilter {
-    ExactTextFilter(String value, boolean negative) {
-        super(value, negative)
+    ExactTextFilter(String columnId, String value, boolean negative) {
+        super(columnId, value, negative)
     }
 
     @Override

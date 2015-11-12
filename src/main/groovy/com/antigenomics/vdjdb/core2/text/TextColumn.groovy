@@ -7,8 +7,12 @@ import com.antigenomics.vdjdb.core2.db.Entry
 class TextColumn extends Column {
     private final Map<String, List<Entry>> map = new HashMap<>()
 
-    TextColumn(String name, Map<String,String> metadata) {
+    TextColumn(String name, Map<String, String> metadata) {
         super(name, metadata, ColumnType.Text)
+    }
+
+    Set<String> getValues() {
+        map.keySet()
     }
 
     @Override

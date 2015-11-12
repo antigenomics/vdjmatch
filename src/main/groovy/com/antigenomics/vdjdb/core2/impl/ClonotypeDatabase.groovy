@@ -3,12 +3,15 @@ package com.antigenomics.vdjdb.core2.impl
 import com.antigenomics.vdjdb.core2.db.Column
 import com.antigenomics.vdjdb.core2.db.ColumnType
 import com.antigenomics.vdjdb.core2.db.Database
-import com.antigenomics.vdjdb.core2.sequence.SequenceSearchParameters
+import com.antigenomics.vdjdb.core2.sequence.SequenceFilter
 import com.antigenomics.vdjdb.core2.text.ExactTextFilter
 import com.antigenomics.vdjdb.core2.text.TextFilter
 import com.antigenomics.vdjtools.sample.Clonotype
+import com.antigenomics.vdjtools.sample.Sample
+import com.antigenomics.vdjtools.util.ExecUtil
 import com.milaboratory.core.tree.TreeSearchParameters
 import groovy.transform.CompileStatic
+import groovyx.gpars.GParsPool
 
 @CompileStatic
 class ClonotypeDatabase extends Database {
@@ -16,16 +19,16 @@ class ClonotypeDatabase extends Database {
     final TreeSearchParameters treeSearchParameters
     final int depth
 
-    ClonotypeDatabase(List<Column> columns, List<List<String>> entries, Map<String, TextFilter> filters,
+    ClonotypeDatabase(List<Column> columns,
                       int maxMismatches, int maxInsertions, int maxDeletions, int maxMutations, int depth) {
-        super(columns, entries, filters)
+        super(columns)
         this.treeSearchParameters = new TreeSearchParameters(maxMismatches, maxInsertions, maxDeletions, maxMutations)
         this.depth = depth
     }
 
-    ClonotypeDatabase(InputStream source, InputStream metadata, Map<String, TextFilter> filters,
+    ClonotypeDatabase(InputStream metadata,
                       int maxMismatches, int maxInsertions, int maxDeletions, int maxMutations, int depth) {
-        super(source, metadata, filters)
+        super(metadata)
         this.treeSearchParameters = new TreeSearchParameters(maxMismatches, maxInsertions, maxDeletions, maxMutations)
         this.depth = depth
     }
@@ -39,20 +42,30 @@ class ClonotypeDatabase extends Database {
 
     List<ClonotypeSearchResult> search(Clonotype clonotype,
                                        boolean matchV, boolean matchJ) {
-        def filterMap = new HashMap<String, TextFilter>()
+        def filters = new ArrayList<TextFilter>()
 
         if (matchV) {
-            filterMap.put(V_COL, new ExactTextFilter(clonotype.v, false))
+            filters.add(new ExactTextFilter(V_COL, clonotype.v, false))
         }
         if (matchJ) {
-            filterMap.put(J_COL, new ExactTextFilter(clonotype.j, false))
+            filters.add(new ExactTextFilter(J_COL, clonotype.j, false))
         }
 
-        def results = search(filterMap,
-                [(CDR_COL): new SequenceSearchParameters(clonotype.cdr3aaBinary, treeSearchParameters, depth)])
+        def results = search(filters,
+                [new SequenceFilter(CDR_COL, clonotype.cdr3aaBinary, treeSearchParameters, depth)])
 
         results.collect {
-            new ClonotypeSearchResult(clonotype, it.value.values().first(), it.key)
+            new ClonotypeSearchResult(clonotype, it.sequenceSearchResults[0], it.row)
         }.sort()
+    }
+
+    List<ClonotypeSearchResult> search(Sample sample, boolean matchV, boolean matchJ) {
+        List<List<ClonotypeSearchResult>> results
+        GParsPool.withPool ExecUtil.THREADS, {
+            results = sample.collectParallel { Clonotype clonotype ->
+                search(clonotype, matchV, matchJ)
+            }
+        }
+        results.flatten()
     }
 }

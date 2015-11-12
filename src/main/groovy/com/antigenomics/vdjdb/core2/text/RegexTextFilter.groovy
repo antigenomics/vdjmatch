@@ -7,8 +7,8 @@ import java.util.regex.Pattern
 class RegexTextFilter extends TextFilter {
     final Pattern pattern
 
-    RegexTextFilter(String value, boolean negative) {
-        super(value, negative)
+    RegexTextFilter(String columnId, String value, boolean negative) {
+        super(columnId, value, negative)
         pattern = Pattern.compile(value)
     }
 

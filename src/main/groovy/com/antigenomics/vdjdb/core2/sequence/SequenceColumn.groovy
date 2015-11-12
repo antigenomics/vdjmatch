@@ -28,10 +28,10 @@ class SequenceColumn extends Column {
         }
     }
 
-    Map<Row, SequenceSearchResult> search(SequenceSearchParameters parameters) {
+    Map<Row, SequenceSearchResult> search(SequenceFilter filter) {
         def results = new HashMap<Row, SequenceSearchResult>()
-        def ni = stm.getNeighborhoodIterator(parameters.query,
-                parameters.treeSearchParameters)
+        def ni = stm.getNeighborhoodIterator(filter.query,
+                filter.treeSearchParameters)
 
         // This hack excludes duplicates like
         //
@@ -55,7 +55,7 @@ class SequenceColumn extends Column {
                 break
             }
 
-            if (parameters.depth > 0 && ++i == parameters.depth)
+            if (filter.depth > 0 && ++i == filter.depth)
                 break
         }
 
