@@ -13,7 +13,7 @@ class Database {
     final List<Row> rows = new ArrayList<>()
     final List<Column> columns = new ArrayList<>()
 
-    private final Map<String, Integer> columnId2Index = new HashMap<>()
+    protected final Map<String, Integer> columnId2Index = new HashMap<>()
 
     static Database create(List<DatabaseSearchResult> searchResults, Database template = null) {
         if(searchResults.size() == 0 && template == null)
