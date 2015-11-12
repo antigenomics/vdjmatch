@@ -46,7 +46,7 @@
                     <archive>
                         <manifest>
                             <addClasspath>true</addClasspath>
-                            <mainClass>com.antigenomics.vdjdb.browsing.SearchDatabase</mainClass>
+                            <mainClass>com.antigenomics.vdjdb.Main</mainClass>
                             <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
                         </manifest>
                     </archive>

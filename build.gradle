@@ -1,0 +1,37 @@
+apply plugin: 'java'
+apply plugin: 'groovy'
+apply plugin: 'application'
+apply plugin: 'idea'
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+allprojects {
+  apply plugin: 'maven'
+  group = 'com.antigenomics'
+  version = '1.0.1'
+}
+
+jar {
+    baseName = 'vdjdb'
+    version = '1.0.1'
+
+    manifest {
+        attributes "Main-Class": "com.antigenomics.vdjdb.Main"
+    }
+
+    from {
+        configurations.compile.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}
+
+dependencies {
+    compile 'org.codehaus.groovy:groovy-all:2.3.1'
+    compile 'org.codehaus.gpars:gpars:1.0.0'
+    compile 'junit:junit:4.12'
+    compile 'commons-cli:commons-cli:1.2'
+    compile 'com.antigenomics:vdjtools:1.0.4'
+    compile 'com.milaboratory:milib:1.0'
+}
