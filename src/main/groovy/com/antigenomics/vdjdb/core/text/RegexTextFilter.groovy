@@ -1,6 +1,6 @@
-package com.antigenomics.vdjdb.core2.text
+package com.antigenomics.vdjdb.core.text
 
-import com.antigenomics.vdjdb.core2.db.Entry
+import com.antigenomics.vdjdb.core.db.Entry
 
 import java.util.regex.Pattern
 

@@ -1,8 +1,8 @@
-package com.antigenomics.vdjdb.core2.text
+package com.antigenomics.vdjdb.core.text
 
-import com.antigenomics.vdjdb.core2.db.ColumnType
-import com.antigenomics.vdjdb.core2.db.Entry
-import com.antigenomics.vdjdb.core2.db.Filter
+import com.antigenomics.vdjdb.core.db.ColumnType
+import com.antigenomics.vdjdb.core.db.Entry
+import com.antigenomics.vdjdb.core.db.Filter
 
 abstract class TextFilter implements Filter {
     final ColumnType columnType = ColumnType.Text

@@ -1,11 +1,12 @@
-package com.antigenomics.vdjdb.core2.impl
+package com.antigenomics.vdjdb.core.impl
 
-import com.antigenomics.vdjdb.core2.db.Column
-import com.antigenomics.vdjdb.core2.db.ColumnType
-import com.antigenomics.vdjdb.core2.db.Database
-import com.antigenomics.vdjdb.core2.sequence.SequenceFilter
-import com.antigenomics.vdjdb.core2.text.ExactTextFilter
-import com.antigenomics.vdjdb.core2.text.TextFilter
+import com.antigenomics.vdjdb.core.Util
+import com.antigenomics.vdjdb.core.db.Column
+import com.antigenomics.vdjdb.core.db.ColumnType
+import com.antigenomics.vdjdb.core.db.Database
+import com.antigenomics.vdjdb.core.sequence.SequenceFilter
+import com.antigenomics.vdjdb.core.text.ExactTextFilter
+import com.antigenomics.vdjdb.core.text.TextFilter
 import com.antigenomics.vdjtools.sample.Clonotype
 import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.util.ExecUtil
@@ -17,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 
 class ClonotypeDatabase extends Database {
-    static final String CDR_COL = "cdr3", V_COL = "v", J_COL = "j"
+    static final String CDR_COL = "cdr3", V_COL = "v.segm", J_COL = "j.segm"
     final TreeSearchParameters treeSearchParameters
     final int depth
 
@@ -48,10 +49,10 @@ class ClonotypeDatabase extends Database {
         def filters = new ArrayList<TextFilter>()
 
         if (matchV) {
-            filters.add(new ExactTextFilter(V_COL, clonotype.v, false))
+            filters.add(new ExactTextFilter(V_COL, Util.simplifySegmentName(clonotype.v), false))
         }
         if (matchJ) {
-            filters.add(new ExactTextFilter(J_COL, clonotype.j, false))
+            filters.add(new ExactTextFilter(J_COL, Util.simplifySegmentName(clonotype.j), false))
         }
 
         def results = search(filters,

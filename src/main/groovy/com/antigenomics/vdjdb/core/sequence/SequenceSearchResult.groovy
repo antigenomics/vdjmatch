@@ -1,4 +1,4 @@
-package com.antigenomics.vdjdb.core2.sequence
+package com.antigenomics.vdjdb.core.sequence
 
 import com.milaboratory.core.alignment.Alignment
 import com.milaboratory.core.sequence.AminoAcidSequence

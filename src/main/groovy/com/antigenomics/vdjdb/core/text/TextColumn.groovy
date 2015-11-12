@@ -1,8 +1,8 @@
-package com.antigenomics.vdjdb.core2.text
+package com.antigenomics.vdjdb.core.text
 
-import com.antigenomics.vdjdb.core2.db.Column
-import com.antigenomics.vdjdb.core2.db.ColumnType
-import com.antigenomics.vdjdb.core2.db.Entry
+import com.antigenomics.vdjdb.core.db.Column
+import com.antigenomics.vdjdb.core.db.ColumnType
+import com.antigenomics.vdjdb.core.db.Entry
 
 class TextColumn extends Column {
     private final Map<String, List<Entry>> map = new HashMap<>()

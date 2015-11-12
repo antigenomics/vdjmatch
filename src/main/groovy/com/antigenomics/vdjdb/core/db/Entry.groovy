@@ -1,4 +1,4 @@
-package com.antigenomics.vdjdb.core2.db
+package com.antigenomics.vdjdb.core.db
 
 class Entry {
     final Column column

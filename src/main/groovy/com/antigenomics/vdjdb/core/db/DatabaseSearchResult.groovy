@@ -1,6 +1,6 @@
-package com.antigenomics.vdjdb.core2.db
+package com.antigenomics.vdjdb.core.db
 
-import com.antigenomics.vdjdb.core2.sequence.SequenceSearchResult
+import com.antigenomics.vdjdb.core.sequence.SequenceSearchResult
 
 class DatabaseSearchResult {
     final Row row

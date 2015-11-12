@@ -15,7 +15,7 @@
  */
 
 
-package com.antigenomics.vdjdb.util
+package com.antigenomics.vdjdb.core
 
 import com.milaboratory.core.sequence.AminoAcidSequence
 
@@ -30,16 +30,8 @@ class Util {
         throw new Exception("Illegal character in amino acid sequence string $aaSeq")
     }
 
-    /**
-     * Bring V/D/J alleles to a unified look
-     * todo: allow several v segments
-     */
-    public static List<String> extractVDJ(List<String> vdj) {
-        vdj.collect {
-            def major = it.split(",")[0]
-            major = major.split("\\*")[0] // trim allele if present
-            major = major.replaceAll("\"", "")  // zap characters introduced by opening file in Excel
-            major.length() > 0 ? major : "."
-        }
+    public static String simplifySegmentName(String segmentName) {
+        segmentName = segmentName.split(",")[0] // take best match
+        segmentName.split("\\*")[0] // trim allele if present
     }
 }

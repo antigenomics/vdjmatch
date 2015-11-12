@@ -1,10 +1,10 @@
-package com.antigenomics.vdjdb.core2.db
+package com.antigenomics.vdjdb.core.db
 
-import com.antigenomics.vdjdb.core2.sequence.SequenceColumn
-import com.antigenomics.vdjdb.core2.sequence.SequenceFilter
-import com.antigenomics.vdjdb.core2.sequence.SequenceSearchResult
-import com.antigenomics.vdjdb.core2.text.TextColumn
-import com.antigenomics.vdjdb.core2.text.TextFilter
+import com.antigenomics.vdjdb.core.sequence.SequenceColumn
+import com.antigenomics.vdjdb.core.sequence.SequenceFilter
+import com.antigenomics.vdjdb.core.sequence.SequenceSearchResult
+import com.antigenomics.vdjdb.core.text.TextColumn
+import com.antigenomics.vdjdb.core.text.TextFilter
 import groovy.transform.CompileStatic
 
 @CompileStatic

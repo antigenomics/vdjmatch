@@ -1,6 +1,6 @@
 package com.antigenomics.vdjdb.core.db
 
-import com.antigenomics.vdjdb.util.Util
+import com.antigenomics.vdjdb.core.Util
 import org.junit.Test
 
 class DbTest {

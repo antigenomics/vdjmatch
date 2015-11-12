@@ -1,4 +1,4 @@
-package com.antigenomics.vdjdb.core2.db
+package com.antigenomics.vdjdb.core.db
 
 interface Filter {
     String getColumnId()

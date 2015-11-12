@@ -1,9 +1,10 @@
-package com.antigenomics.vdjdb.core2.sequence
+package com.antigenomics.vdjdb.core.sequence
 
-import com.antigenomics.vdjdb.core2.db.Column
-import com.antigenomics.vdjdb.core2.db.ColumnType
-import com.antigenomics.vdjdb.core2.db.Entry
-import com.antigenomics.vdjdb.core2.db.Row
+import com.antigenomics.vdjdb.core.Util
+import com.antigenomics.vdjdb.core.db.Column
+import com.antigenomics.vdjdb.core.db.ColumnType
+import com.antigenomics.vdjdb.core.db.Entry
+import com.antigenomics.vdjdb.core.db.Row
 import com.milaboratory.core.sequence.AminoAcidSequence
 import com.milaboratory.core.tree.SequenceTreeMap
 import groovy.transform.CompileStatic
@@ -12,14 +13,14 @@ import groovy.transform.CompileStatic
 class SequenceColumn extends Column {
     final SequenceTreeMap<AminoAcidSequence, List<Entry>> stm = new SequenceTreeMap(AminoAcidSequence.ALPHABET)
 
-    SequenceColumn(String name, Map<String,String> metadata) {
+    SequenceColumn(String name, Map<String, String> metadata) {
         super(name, metadata, ColumnType.Sequence)
     }
 
     @Override
     void append(Entry entry) {
         if (entry.value.length() > 0) {
-            def seq = convert(entry.value)
+            def seq = Util.convert(entry.value)
             def entries = stm.get(seq)
             if (entries == null) {
                 stm.put(seq, entries = new ArrayList<Entry>())
@@ -60,11 +61,5 @@ class SequenceColumn extends Column {
         }
 
         results
-    }
-
-    private static AminoAcidSequence convert(String aaSeq) {
-        if (aaSeq =~ /^[FLSYCWPHQRIMTNKVADEG]+$/)
-            return new AminoAcidSequence(aaSeq)
-        throw new RuntimeException("Illegal character in amino acid sequence string $aaSeq")
     }
 }
