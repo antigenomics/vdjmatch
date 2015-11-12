@@ -25,9 +25,12 @@ class Util {
     }
 
     static AminoAcidSequence convert(String aaSeq) {
-        if (aaSeq =~ /^[FLSYCWPHQRIMTNKVADEG]+$/)
+        aaSeq = aaSeq.trim()
+        if (aaSeq.length() > 0 && aaSeq =~ /^[FLSYCWPHQRIMTNKVADEG]+$/)
             return new AminoAcidSequence(aaSeq)
-        throw new Exception("Illegal character in amino acid sequence string $aaSeq")
+
+        System.err.println("Error converting '$aaSeq' to amino acid sequences, entry will be skipped from search")
+        null
     }
 
     static String simplifySegmentName(String segmentName) {

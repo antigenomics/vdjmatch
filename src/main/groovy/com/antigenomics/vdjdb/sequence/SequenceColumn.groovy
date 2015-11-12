@@ -20,11 +20,13 @@ class SequenceColumn extends Column {
     void append(Entry entry) {
         if (entry.value.length() > 0) {
             def seq = Util.convert(entry.value)
-            def entries = stm.get(seq)
-            if (entries == null) {
-                stm.put(seq, entries = new ArrayList<Entry>())
+            if (seq) {
+                def entries = stm.get(seq)
+                if (entries == null) {
+                    stm.put(seq, entries = new ArrayList<Entry>())
+                }
+                entries.add(entry)
             }
-            entries.add(entry)
         }
     }
 

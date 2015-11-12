@@ -205,6 +205,7 @@ class Database {
 
             def minRowSet = sequenceSearchResults.min { it.keySet().size() }.keySet()
 
+            OUTER:
             for (Row row : minRowSet) {
                 if (pass(textFilters, textFilterColIds, row)) {
                     def sequenceSearchResultsByRow = new SequenceSearchResult[sequenceFilters.size()]
@@ -212,7 +213,7 @@ class Database {
                     for (int i = 0; i < sequenceFilters.size(); i++) {
                         def sequenceSearchResult = sequenceSearchResults[i][row]
                         if (!sequenceSearchResult)
-                            continue
+                            continue OUTER
                         sequenceSearchResultsByRow[i] = sequenceSearchResult
                     }
 
