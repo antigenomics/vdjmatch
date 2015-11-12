@@ -2,10 +2,11 @@ package com.antigenomics.vdjdb.impl
 
 import com.antigenomics.vdjdb.Util
 import com.antigenomics.vdjdb.db.Column
-import com.antigenomics.vdjdb.db.ColumnType
 import com.antigenomics.vdjdb.db.Database
+import com.antigenomics.vdjdb.sequence.SequenceColumn
 import com.antigenomics.vdjdb.sequence.SequenceFilter
 import com.antigenomics.vdjdb.text.ExactTextFilter
+import com.antigenomics.vdjdb.text.TextColumn
 import com.antigenomics.vdjdb.text.TextFilter
 import com.antigenomics.vdjtools.sample.Clonotype
 import com.antigenomics.vdjtools.sample.Sample
@@ -45,9 +46,9 @@ class ClonotypeDatabase extends Database {
 
     @Override
     protected boolean checkColumns() {
-        columns.any { it.name == CDR_COL && it.columnType == ColumnType.Sequence } &&
-                columns.any { it.name == V_COL && it.columnType == ColumnType.Text } &&
-                columns.any { it.name == J_COL && it.columnType == ColumnType.Text }
+        columns.any { it.name == CDR_COL && it instanceof SequenceColumn } &&
+                columns.any { it.name == V_COL && it instanceof TextColumn } &&
+                columns.any { it.name == J_COL && it instanceof TextColumn }
     }
 
     @CompileStatic

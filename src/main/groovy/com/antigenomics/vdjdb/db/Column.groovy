@@ -3,12 +3,10 @@ package com.antigenomics.vdjdb.db
 abstract class Column {
     final String name
     final Map<String, String> metadata
-    final ColumnType columnType
 
-    Column(String name, Map<String, String> metadata, ColumnType columnType) {
+    Column(String name, Map<String, String> metadata) {
         this.name = name
         this.metadata = metadata
-        this.columnType = columnType
     }
 
     abstract void append(Entry entry)

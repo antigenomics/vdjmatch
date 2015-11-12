@@ -8,19 +8,27 @@ import com.antigenomics.vdjdb.text.TextFilter
 import groovy.transform.CompileStatic
 
 class Database {
-    static final String NAME_COL = "name", TYPE_COL = "type"
+    static final String NAME_COL = "name", TYPE_COL = "type", SEQ_TYPE_METADATA_ENTRY = "seq"
 
     final List<Row> rows = new ArrayList<>()
     final List<Column> columns = new ArrayList<>()
 
     private final Map<String, Integer> columnId2Index = new HashMap<>()
 
-    /*
-    Database toDatabase(List<DatabaseSearchResult> searchResults) {
-        def database = new Database(columns.collect {
-            it.columnType == ColumnType.Sequence ? 
-                    new SequenceColumn(it.name, it.metadata, it.columnType) })
-    }*/
+    static Database create(List<DatabaseSearchResult> searchResults, Database template = null) {
+        if(searchResults.size() == 0 && template == null)
+            throw new RuntimeException("Cannot create database, empty search results and template database not specified")
+        template = template ?: searchResults[0].row.parent
+        
+        def database = new Database(template.columns.collect {
+            it instanceof SequenceColumn ? new SequenceColumn(it.name, it.metadata) :
+                    new TextColumn(it.name, it.metadata)
+        })
+
+        database.addEntries(searchResults.collect { result -> result.row.entries.collect { it.value } })
+        
+        database
+    }
 
     public Database(List<Column> columns) {
         columns.each {
@@ -64,7 +72,7 @@ class Database {
                 }
                 columnMetadata.remove(NAME_COL)
                 columnMetadata.remove(TYPE_COL)
-                def column = ColumnType.getByName(type) == ColumnType.Sequence ?
+                def column = type == SEQ_TYPE_METADATA_ENTRY ?
                         new SequenceColumn(name, columnMetadata) : new TextColumn(name, columnMetadata)
                 columnId2Index.put(name, columns.size())
                 columns.add(column)
@@ -168,7 +176,7 @@ class Database {
         if (colIndex == null) {
             throw new RuntimeException("Bad filter: column $filter.columnId doesn't exist")
         }
-        if (filter.columnType == ColumnType.Sequence && columns[colIndex].columnType != ColumnType.Sequence) {
+        if (filter.sequenceFilter && !(columns[colIndex] instanceof SequenceColumn)) {
             throw new RuntimeException("Bad filter: sequence filter can only be applied to sequence column")
         }
         colIndex

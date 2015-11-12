@@ -2,7 +2,6 @@ package com.antigenomics.vdjdb.sequence
 
 import com.antigenomics.vdjdb.Util
 import com.antigenomics.vdjdb.db.Column
-import com.antigenomics.vdjdb.db.ColumnType
 import com.antigenomics.vdjdb.db.Entry
 import com.antigenomics.vdjdb.db.Row
 import com.milaboratory.core.sequence.AminoAcidSequence
@@ -14,7 +13,7 @@ class SequenceColumn extends Column {
     final SequenceTreeMap<AminoAcidSequence, List<Entry>> stm = new SequenceTreeMap(AminoAcidSequence.ALPHABET)
 
     SequenceColumn(String name, Map<String, String> metadata = [:]) {
-        super(name, metadata, ColumnType.Sequence)
+        super(name, metadata)
     }
 
     @Override

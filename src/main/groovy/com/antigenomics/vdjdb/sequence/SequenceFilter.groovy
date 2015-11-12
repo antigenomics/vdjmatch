@@ -1,12 +1,10 @@
 package com.antigenomics.vdjdb.sequence
 
-import com.antigenomics.vdjdb.db.ColumnType
 import com.antigenomics.vdjdb.db.Filter
 import com.milaboratory.core.sequence.AminoAcidSequence
 import com.milaboratory.core.tree.TreeSearchParameters
 
 class SequenceFilter implements Filter {
-    final ColumnType columnType = ColumnType.Sequence
     final String columnId
     final AminoAcidSequence query
     final TreeSearchParameters treeSearchParameters
@@ -19,5 +17,10 @@ class SequenceFilter implements Filter {
         this.query = query
         this.treeSearchParameters = treeSearchParameters
         this.depth = depth
+    }
+
+    @Override
+    boolean isSequenceFilter() {
+        true
     }
 }

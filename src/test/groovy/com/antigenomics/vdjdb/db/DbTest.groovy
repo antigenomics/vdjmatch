@@ -27,6 +27,17 @@ class DbTest {
     }
 
     @Test
+    public void createTest3() {
+        def database = new Database([new TextColumn("v.segm"), new TextColumn("j.segm"), new SequenceColumn("cdr3")])
+
+        database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
+
+        def clone = Database.create(database.search([], []))
+        
+        assert clone.rows.size() == database.rows.size()
+    }
+
+    @Test
     public void fillTest1() {
         def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
 
