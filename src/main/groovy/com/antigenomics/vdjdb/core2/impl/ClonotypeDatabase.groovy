@@ -13,7 +13,9 @@ import com.milaboratory.core.tree.TreeSearchParameters
 import groovy.transform.CompileStatic
 import groovyx.gpars.GParsPool
 
-@CompileStatic
+import java.util.concurrent.ConcurrentHashMap
+
+
 class ClonotypeDatabase extends Database {
     static final String CDR_COL = "cdr3", V_COL = "v", J_COL = "j"
     final TreeSearchParameters treeSearchParameters
@@ -40,6 +42,7 @@ class ClonotypeDatabase extends Database {
                 columns.any { it.name == J_COL && it.columnType == ColumnType.Text }
     }
 
+    @CompileStatic
     List<ClonotypeSearchResult> search(Clonotype clonotype,
                                        boolean matchV, boolean matchJ) {
         def filters = new ArrayList<TextFilter>()
@@ -55,17 +58,17 @@ class ClonotypeDatabase extends Database {
                 [new SequenceFilter(CDR_COL, clonotype.cdr3aaBinary, treeSearchParameters, depth)])
 
         results.collect {
-            new ClonotypeSearchResult(clonotype, it.sequenceSearchResults[0], it.row)
+            new ClonotypeSearchResult(it.sequenceSearchResults[0], it.row)
         }.sort()
     }
 
-    List<ClonotypeSearchResult> search(Sample sample, boolean matchV, boolean matchJ) {
-        List<List<ClonotypeSearchResult>> results
+    Map<Clonotype, List<ClonotypeSearchResult>> search(Sample sample, boolean matchV, boolean matchJ) {
+        def results = new ConcurrentHashMap<Clonotype, List<ClonotypeSearchResult>>()
         GParsPool.withPool ExecUtil.THREADS, {
-            results = sample.collectParallel { Clonotype clonotype ->
-                search(clonotype, matchV, matchJ)
+            sample.eachParallel { Clonotype clonotype ->
+                results.put(clonotype, search(clonotype, matchV, matchJ))
             }
         }
-        results.flatten()
+        results
     }
 }
