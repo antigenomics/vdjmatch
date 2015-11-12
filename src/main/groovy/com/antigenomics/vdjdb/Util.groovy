@@ -15,22 +15,22 @@
  */
 
 
-package com.antigenomics.vdjdb.core
+package com.antigenomics.vdjdb
 
 import com.milaboratory.core.sequence.AminoAcidSequence
 
 class Util {
-    public static InputStreamReader resourceStreamReader(String resourceName) {
-        new InputStreamReader(Util.class.classLoader.getResourceAsStream(resourceName))
+    static InputStream resourceAsStream(String resourceName) {
+        Util.class.classLoader.getResourceAsStream(resourceName)
     }
 
-    public static AminoAcidSequence convert(String aaSeq) {
+    static AminoAcidSequence convert(String aaSeq) {
         if (aaSeq =~ /^[FLSYCWPHQRIMTNKVADEG]+$/)
             return new AminoAcidSequence(aaSeq)
         throw new Exception("Illegal character in amino acid sequence string $aaSeq")
     }
 
-    public static String simplifySegmentName(String segmentName) {
+    static String simplifySegmentName(String segmentName) {
         segmentName = segmentName.split(",")[0] // take best match
         segmentName.split("\\*")[0] // trim allele if present
     }

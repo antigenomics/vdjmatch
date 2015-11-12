@@ -1,10 +1,10 @@
-package com.antigenomics.vdjdb.core.sequence
+package com.antigenomics.vdjdb.sequence
 
-import com.antigenomics.vdjdb.core.Util
-import com.antigenomics.vdjdb.core.db.Column
-import com.antigenomics.vdjdb.core.db.ColumnType
-import com.antigenomics.vdjdb.core.db.Entry
-import com.antigenomics.vdjdb.core.db.Row
+import com.antigenomics.vdjdb.Util
+import com.antigenomics.vdjdb.db.Column
+import com.antigenomics.vdjdb.db.ColumnType
+import com.antigenomics.vdjdb.db.Entry
+import com.antigenomics.vdjdb.db.Row
 import com.milaboratory.core.sequence.AminoAcidSequence
 import com.milaboratory.core.tree.SequenceTreeMap
 import groovy.transform.CompileStatic
@@ -13,7 +13,7 @@ import groovy.transform.CompileStatic
 class SequenceColumn extends Column {
     final SequenceTreeMap<AminoAcidSequence, List<Entry>> stm = new SequenceTreeMap(AminoAcidSequence.ALPHABET)
 
-    SequenceColumn(String name, Map<String, String> metadata) {
+    SequenceColumn(String name, Map<String, String> metadata = [:]) {
         super(name, metadata, ColumnType.Sequence)
     }
 
@@ -31,6 +31,7 @@ class SequenceColumn extends Column {
 
     Map<Row, SequenceSearchResult> search(SequenceFilter filter) {
         def results = new HashMap<Row, SequenceSearchResult>()
+
         def ni = stm.getNeighborhoodIterator(filter.query,
                 filter.treeSearchParameters)
 

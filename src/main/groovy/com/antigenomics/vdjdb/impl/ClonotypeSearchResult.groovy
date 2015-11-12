@@ -1,7 +1,7 @@
-package com.antigenomics.vdjdb.core.impl
+package com.antigenomics.vdjdb.impl
 
-import com.antigenomics.vdjdb.core.db.Row
-import com.antigenomics.vdjdb.core.sequence.SequenceSearchResult
+import com.antigenomics.vdjdb.db.Row
+import com.antigenomics.vdjdb.sequence.SequenceSearchResult
 
 class ClonotypeSearchResult implements Comparable<ClonotypeSearchResult> {
     final SequenceSearchResult result

@@ -1,7 +1,7 @@
-package com.antigenomics.vdjdb.core.sequence
+package com.antigenomics.vdjdb.sequence
 
-import com.antigenomics.vdjdb.core.db.ColumnType
-import com.antigenomics.vdjdb.core.db.Filter
+import com.antigenomics.vdjdb.db.ColumnType
+import com.antigenomics.vdjdb.db.Filter
 import com.milaboratory.core.sequence.AminoAcidSequence
 import com.milaboratory.core.tree.TreeSearchParameters
 

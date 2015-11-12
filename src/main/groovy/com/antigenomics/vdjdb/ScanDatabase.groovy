@@ -28,9 +28,10 @@
  */
 
 
-package com.antigenomics.vdjdb.browsing
+package com.antigenomics.vdjdb
 
-import com.antigenomics.vdjdb.core.db.CdrDatabase
+/*
+import com.antigenomics.vdjdb.db.CdrDatabase
 import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.sample.SampleCollection
 import com.antigenomics.vdjtools.sample.metadata.MetadataTable
@@ -41,7 +42,7 @@ import com.antigenomics.vdjtools.util.db.DatabaseBrowser
 import static com.antigenomics.vdjtools.util.ExecUtil.formOutputPath
 
 // todo: organize CLI for database usage
-def cli = new CliBuilder(usage: "ScanDatabase [options] " +
+def cli = new CliBuilder(usage: "vdjdb [options] " +
         "[sample1 sample2 sample3 ... if -m is not specified] output_prefix")
 cli.h("display help message")
 cli.D(longOpt: "database", argName: "string", args: 1, "Path to an external database file.")
@@ -142,3 +143,4 @@ new File(formOutputPath(outputFileName, "annot", dbName ?: "default", "summary")
 }
 
 println "[${new Date()} $scriptName] Finished"
+*/

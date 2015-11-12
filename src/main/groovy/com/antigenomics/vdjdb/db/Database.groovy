@@ -1,13 +1,12 @@
-package com.antigenomics.vdjdb.core.db
+package com.antigenomics.vdjdb.db
 
-import com.antigenomics.vdjdb.core.sequence.SequenceColumn
-import com.antigenomics.vdjdb.core.sequence.SequenceFilter
-import com.antigenomics.vdjdb.core.sequence.SequenceSearchResult
-import com.antigenomics.vdjdb.core.text.TextColumn
-import com.antigenomics.vdjdb.core.text.TextFilter
+import com.antigenomics.vdjdb.sequence.SequenceColumn
+import com.antigenomics.vdjdb.sequence.SequenceFilter
+import com.antigenomics.vdjdb.sequence.SequenceSearchResult
+import com.antigenomics.vdjdb.text.TextColumn
+import com.antigenomics.vdjdb.text.TextFilter
 import groovy.transform.CompileStatic
 
-@CompileStatic
 class Database {
     static final String NAME_COL = "name", TYPE_COL = "type"
 
@@ -16,13 +15,20 @@ class Database {
 
     private final Map<String, Integer> columnId2Index = new HashMap<>()
 
+    /*
+    Database toDatabase(List<DatabaseSearchResult> searchResults) {
+        def database = new Database(columns.collect {
+            it.columnType == ColumnType.Sequence ? 
+                    new SequenceColumn(it.name, it.metadata, it.columnType) })
+    }*/
+
     public Database(List<Column> columns) {
         columns.each {
             if (columnId2Index.containsKey(it.name)) {
                 throw new RuntimeException("Column names should be unique")
             }
-            columnId2Index.put(it.name, columns.size())
-            columns.add(it)
+            columnId2Index.put(it.name, this.columns.size())
+            this.columns.add(it)
         }
 
         checkColumns()
@@ -56,6 +62,8 @@ class Database {
                 def columnMetadata = (Map<String, String>) metadataField2Index.collectEntries {
                     [(it.key): splitLine[it.value]]
                 }
+                columnMetadata.remove(NAME_COL)
+                columnMetadata.remove(TYPE_COL)
                 def column = ColumnType.getByName(type) == ColumnType.Sequence ?
                         new SequenceColumn(name, columnMetadata) : new TextColumn(name, columnMetadata)
                 columnId2Index.put(name, columns.size())
@@ -66,6 +74,11 @@ class Database {
         checkColumns()
     }
 
+    protected boolean checkColumns() {
+
+    }
+
+    @CompileStatic
     public void addEntries(InputStream source, List<TextFilter> filters = []) {
         def filterColIds = getFilterColIds(filters)
 
@@ -84,11 +97,12 @@ class Database {
                     }
                 }
                 if (!columnSet.containsAll(columnId2Index.keySet())) {
-                    throw new RuntimeException("Some columns specified in metadata are missing in database table")
+                    throw new RuntimeException("Some columns specified in database table (${columnSet}) " +
+                            "are missing in metadata (${columnId2Index.keySet()})")
                 }
                 first = false
             } else {
-                def row = new RowImpl(rows.size())
+                def row = new Row(this)
 
                 // Fill row, convert indices
                 indexConversion.each {
@@ -104,6 +118,7 @@ class Database {
         }
     }
 
+    @CompileStatic
     public void addEntries(List<List<String>> entries, List<TextFilter> filters = []) {
         def filterColIds = getFilterColIds(filters)
 
@@ -112,7 +127,7 @@ class Database {
                 throw new RuntimeException("Row size and number of columns don't match")
             }
 
-            def row = new RowImpl(rows.size())
+            def row = new Row(this)
 
             // Fill row
             for (int i = 0; i < splitLine.size(); i++) {
@@ -127,7 +142,8 @@ class Database {
         }
     }
 
-    private int[] getFilterColIds(List<Filter> filters) {
+    @CompileStatic
+    private int[] getFilterColIds(List<? extends Filter> filters) {
         def filterColIds = new int[filters.size()]
 
         for (int i = 0; i < filters.size(); i++) {
@@ -137,17 +153,14 @@ class Database {
         filterColIds
     }
 
-    private boolean pass(List<TextFilter> filters, int[] filterColIds, Row row) {
+    @CompileStatic
+    private static boolean pass(List<TextFilter> filters, int[] filterColIds, Row row) {
         for (int i = 0; i < filters.size(); i++) {
-            if (!filters[i].pass(row[filterColIds[i]])) {
+            if (!filters[i].pass((Entry) row[filterColIds[i]])) {
                 return false
             }
         }
         true
-    }
-
-    protected boolean checkColumns() {
-
     }
 
     private int getColumnIndexAndCheck(Filter filter) {
@@ -155,12 +168,13 @@ class Database {
         if (colIndex == null) {
             throw new RuntimeException("Bad filter: column $filter.columnId doesn't exist")
         }
-        if (columns[colIndex].columnType != filter.columnType) {
-            throw new RuntimeException("Bad filter: filter and column type don't match")
+        if (filter.columnType == ColumnType.Sequence && columns[colIndex].columnType != ColumnType.Sequence) {
+            throw new RuntimeException("Bad filter: sequence filter can only be applied to sequence column")
         }
         colIndex
     }
 
+    @CompileStatic
     List<DatabaseSearchResult> search(
             List<TextFilter> textFilters,
             List<SequenceFilter> sequenceFilters) {
@@ -202,34 +216,15 @@ class Database {
         results
     }
 
-    private class RowImpl extends Row {
-        final int index
+    int getColumnId(String name) {
+        columnId2Index[name]
+    }
 
-        RowImpl(int index) {
-            super(new Entry[columns.size()])
-            this.index = index
-        }
+    Column getAt(String name) {
+        columns[getColumnId(name)]
+    }
 
-        @Override
-        Entry getAt(String columnId) {
-            entries[columnId2Index[columnId]]
-        }
-
-        @Override
-        boolean equals(o) {
-            if (this.is(o)) return true
-            if (getClass() != o.class) return false
-
-            RowImpl row = (RowImpl) o
-
-            if (index != row.index) return false
-
-            return true
-        }
-
-        @Override
-        int hashCode() {
-            return index
-        }
+    Row getAt(int index) {
+        rows[index]
     }
 }

@@ -1,4 +1,4 @@
-package com.antigenomics.vdjdb.core.db
+package com.antigenomics.vdjdb.db
 
 abstract class Column {
     final String name

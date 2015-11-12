@@ -1,4 +1,4 @@
-package com.antigenomics.vdjdb.core.db
+package com.antigenomics.vdjdb.db
 
 class Entry {
     final Column column
@@ -30,5 +30,10 @@ class Entry {
         result = row.hashCode()
         result = 31 * result + value.hashCode()
         return result
+    }
+    
+    @Override
+    String toString() {
+        "$row.index:$column.name:$value"
     }
 }

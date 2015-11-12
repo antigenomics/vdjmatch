@@ -1,4 +1,4 @@
-package com.antigenomics.vdjdb.core.db
+package com.antigenomics.vdjdb.db
 
 enum ColumnType {
     Sequence("seq"), Text("txt")
@@ -10,7 +10,7 @@ enum ColumnType {
     }
 
     static ColumnType getByName(String name) {
-        name = name.toUpperCase()
+        name = name.toLowerCase()
         values().find { it.name() == name }
     }
 }

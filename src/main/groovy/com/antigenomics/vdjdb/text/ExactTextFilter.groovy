@@ -1,6 +1,6 @@
-package com.antigenomics.vdjdb.core.text
+package com.antigenomics.vdjdb.text
 
-import com.antigenomics.vdjdb.core.db.Entry
+import com.antigenomics.vdjdb.db.Entry
 
 class ExactTextFilter extends TextFilter {
     ExactTextFilter(String columnId, String value, boolean negative) {

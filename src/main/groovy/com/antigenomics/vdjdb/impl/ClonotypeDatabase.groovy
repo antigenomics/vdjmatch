@@ -1,12 +1,12 @@
-package com.antigenomics.vdjdb.core.impl
+package com.antigenomics.vdjdb.impl
 
-import com.antigenomics.vdjdb.core.Util
-import com.antigenomics.vdjdb.core.db.Column
-import com.antigenomics.vdjdb.core.db.ColumnType
-import com.antigenomics.vdjdb.core.db.Database
-import com.antigenomics.vdjdb.core.sequence.SequenceFilter
-import com.antigenomics.vdjdb.core.text.ExactTextFilter
-import com.antigenomics.vdjdb.core.text.TextFilter
+import com.antigenomics.vdjdb.Util
+import com.antigenomics.vdjdb.db.Column
+import com.antigenomics.vdjdb.db.ColumnType
+import com.antigenomics.vdjdb.db.Database
+import com.antigenomics.vdjdb.sequence.SequenceFilter
+import com.antigenomics.vdjdb.text.ExactTextFilter
+import com.antigenomics.vdjdb.text.TextFilter
 import com.antigenomics.vdjtools.sample.Clonotype
 import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.util.ExecUtil
@@ -16,17 +16,24 @@ import groovyx.gpars.GParsPool
 
 import java.util.concurrent.ConcurrentHashMap
 
-
 class ClonotypeDatabase extends Database {
     static final String CDR_COL = "cdr3", V_COL = "v.segm", J_COL = "j.segm"
     final TreeSearchParameters treeSearchParameters
     final int depth
+
+    ClonotypeDatabase(List<Column> columns) {
+        this(columns, 2, 1, 1, 2, -1)
+    }
 
     ClonotypeDatabase(List<Column> columns,
                       int maxMismatches, int maxInsertions, int maxDeletions, int maxMutations, int depth) {
         super(columns)
         this.treeSearchParameters = new TreeSearchParameters(maxMismatches, maxInsertions, maxDeletions, maxMutations)
         this.depth = depth
+    }
+
+    ClonotypeDatabase(InputStream metadata) {
+        this(metadata, 2, 1, 1, 2, -1)
     }
 
     ClonotypeDatabase(InputStream metadata,
@@ -61,6 +68,10 @@ class ClonotypeDatabase extends Database {
         results.collect {
             new ClonotypeSearchResult(it.sequenceSearchResults[0], it.row)
         }.sort()
+    }
+
+    Map<Clonotype, List<ClonotypeSearchResult>> search(Sample sample) {
+        search(sample, false, false)
     }
 
     Map<Clonotype, List<ClonotypeSearchResult>> search(Sample sample, boolean matchV, boolean matchJ) {

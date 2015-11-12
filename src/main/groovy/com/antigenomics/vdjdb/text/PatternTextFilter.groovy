@@ -1,13 +1,13 @@
-package com.antigenomics.vdjdb.core.text
+package com.antigenomics.vdjdb.text
 
-import com.antigenomics.vdjdb.core.db.Entry
+import com.antigenomics.vdjdb.db.Entry
 
 import java.util.regex.Pattern
 
-class RegexTextFilter extends TextFilter {
+class PatternTextFilter extends TextFilter {
     final Pattern pattern
 
-    RegexTextFilter(String columnId, String value, boolean negative) {
+    PatternTextFilter(String columnId, String value, boolean negative) {
         super(columnId, value, negative)
         pattern = Pattern.compile(value)
     }
