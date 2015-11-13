@@ -2,7 +2,7 @@ package com.antigenomics.vdjdb.db
 
 import com.antigenomics.vdjdb.sequence.SequenceSearchResult
 
-class DatabaseSearchResult {
+class DatabaseSearchResult implements SearchResult {
     final Row row
     final SequenceSearchResult[] sequenceSearchResults
 

@@ -33,7 +33,7 @@ class Database {
     public Database(List<Column> columns) {
         columns.each {
             if (columnId2Index.containsKey(it.name)) {
-                throw new RuntimeException("Column names should be unique")
+                throw new RuntimeException("Error creating database. Column names should be unique ($it)")
             }
             columnId2Index.put(it.name, this.columns.size())
             this.columns.add(it)
@@ -50,22 +50,22 @@ class Database {
             if (first) {
                 for (int i = 0; i < splitLine.size(); i++) {
                     if (metadataField2Index.containsKey(splitLine[i])) {
-                        throw new RuntimeException("Repetitive metadata fields are not allowed")
+                        throw new RuntimeException("Error creating database. Repetitive metadata fields are not allowed (${splitLine[i]})")
                     }
                     metadataField2Index.put(splitLine[i], i)
                 }
                 if (!metadataField2Index.containsKey(NAME_COL)) {
-                    throw new RuntimeException("Name field is missing from metadata")
+                    throw new RuntimeException("Error creating database. Name field '$NAME_COL' is missing in metadata")
                 }
                 if (!metadataField2Index.containsKey(TYPE_COL)) {
-                    throw new RuntimeException("Column type field is missing from metadata")
+                    throw new RuntimeException("Error creating database. Column type field '$TYPE_COL' is missing in metadata")
                 }
                 first = false
             } else {
                 String name = splitLine[metadataField2Index[NAME_COL]],
                        type = splitLine[metadataField2Index[TYPE_COL]]
                 if (columnId2Index.containsKey(name)) {
-                    throw new RuntimeException("Column names should be unique")
+                    throw new RuntimeException("Error creating database. Column names should be unique ($name)")
                 }
                 def columnMetadata = (Map<String, String>) metadataField2Index.collectEntries {
                     [(it.key): splitLine[it.value]]
@@ -105,7 +105,7 @@ class Database {
                     }
                 }
                 if (!columnSet.containsAll(columnId2Index.keySet())) {
-                    throw new RuntimeException("Some columns specified in database table (${columnSet}) " +
+                    throw new RuntimeException("Error filling database. Some columns specified in database table (${columnSet}) " +
                             "are missing in metadata (${columnId2Index.keySet()})")
                 }
                 first = false
@@ -132,7 +132,7 @@ class Database {
 
         entries.each { List<String> splitLine ->
             if (splitLine.size() != columns.size()) {
-                throw new RuntimeException("Row size and number of columns don't match")
+                throw new RuntimeException("Error filling database. Row size and number of columns don't match: $splitLine")
             }
 
             def row = new Row(this)

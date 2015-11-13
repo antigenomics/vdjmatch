@@ -1,9 +1,10 @@
 package com.antigenomics.vdjdb.impl
 
 import com.antigenomics.vdjdb.db.Row
+import com.antigenomics.vdjdb.db.SearchResult
 import com.antigenomics.vdjdb.sequence.SequenceSearchResult
 
-class ClonotypeSearchResult implements Comparable<ClonotypeSearchResult> {
+class ClonotypeSearchResult implements Comparable<ClonotypeSearchResult>, SearchResult {
     final SequenceSearchResult result
     final Row row
 
