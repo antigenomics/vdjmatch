@@ -2,7 +2,7 @@ language: groovy
 
 before_install:
   - git clone https://github.com/mikessh/vdjdb.git
-  - git checkout tags/1.0.4
   - cd vdjtools/
+  - git checkout tags/1.0.4
   - mvn clean install
   - cd ..
