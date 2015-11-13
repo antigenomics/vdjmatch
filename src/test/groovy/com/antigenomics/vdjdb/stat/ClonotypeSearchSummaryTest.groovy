@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-package com.antigenomics.vdjdb.impl
+package com.antigenomics.vdjdb.stat
 
-import com.antigenomics.vdjdb.TestUtil
+import com.antigenomics.vdjdb.db.Database
+import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjtools.io.InputStreamFactory
 import com.antigenomics.vdjtools.io.SampleStreamConnection
 import org.junit.Test
@@ -25,17 +26,21 @@ import java.util.zip.GZIPInputStream
 
 import static com.antigenomics.vdjdb.Util.resourceAsStream
 
-class ClonotypeDatabaseTest {
-    
+class ClonotypeSearchSummaryTest {
+
     @Test
-    void loadTest() {
-        def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta"))
+    void listCombinationsTest() {
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
+
+        def summary = new SummaryStatistics(database, ["origin", "disease.type", "disease", "source"])
+
+        assert summary.listCombinations().size() == 7
     }
 
     @Test
-    void sampleTest() {
+    void test() {
         def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
@@ -49,10 +54,16 @@ class ClonotypeDatabaseTest {
 
         def results = database.search(sample)
 
-        def lapgatResults = results.find { it.key.cdr3aa == "CASSLAPGATNEKLFF" }
+        def summary = new ClonotypeSearchSummary(database, ["origin", "disease.type", "disease", "source"], sample)
+        summary.append(results)
 
-        assert lapgatResults.value.size() > 0
+        assert summary.foundCounter.uniqueCount > 0
 
-        assert lapgatResults.value[0].row[TestUtil.SOURCE_COL].value == "CMV"
+        // we only have viral infection in legacy db
+        assert summary.getCombinationCounter(["non-self", "infection"]).uniqueCount ==
+                summary.getCombinationCounter(["non-self", "infection", "viral"]).uniqueCount
+
+        assert summary.getCombinationCounter(["non-self", "infection", "viral", "EBV"]).uniqueCount > 0
+        assert summary.getCombinationCounter(["non-self", "infection", "viral", "CMV"]).uniqueCount > 0
     }
 }

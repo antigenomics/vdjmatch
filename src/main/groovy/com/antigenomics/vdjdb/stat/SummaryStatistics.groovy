@@ -27,10 +27,9 @@ import java.util.concurrent.atomic.AtomicInteger
 class SummaryStatistics {
     final Database database
     final List<String> columnNames
-    private final Map<String, SummaryStatisticsCounter> labeledCounters = new HashMap<>()
+    protected final Map<String, SummaryStatisticsCounter> labeledCounters = new HashMap<>()
     private final SummaryStatisticsCounter total = new SummaryStatisticsCounter(),
                                            foundOnce = new SummaryStatisticsCounter()
-    private final SummaryStatisticsCounter appended = new SummaryStatisticsCounter()
 
     SummaryStatistics(Database database, List<String> columnNames) {
         columnNames.each {
@@ -50,13 +49,13 @@ class SummaryStatistics {
         }
     }
 
-    void append(List<Row> rows, double weight) {
+    void append(Collection<Row> rows, double weight) {
         total.update(weight)
         def combinations = rows.collect { row ->
             if (row.parent != database) {
                 throw new RuntimeException("Rows should come from the same database that was used during initialization")
             }
-            columnNames.collect { row[it] }.join("\t")
+            columnNames.collect { row[it].value }.join("\t")
         }.unique()
 
         if (combinations.size() == 1)
@@ -68,12 +67,20 @@ class SummaryStatistics {
     }
 
     List<List<String>> listCombinations() {
-        labeledCounters.keySet().collect { it.split("\t") }
+        def keyVariants = new HashSet<>(labeledCounters.keySet().collect {
+            def splitLine = it.split("\t")
+            (0..<splitLine.length).collect {
+                splitLine[0..it].join("\t")
+            }
+        }.flatten())
+
+        keyVariants.collect { it.split("\t") }
     }
 
     private Counter searchInner(String combination) {
         def counter = new SummaryStatisticsCounter()
         labeledCounters.entrySet().findAll { it.key.startsWith(combination) }.each { counter.update(it.value) }
+        counter
     }
 
     Counter getCombinationCounter(List<String> values) {

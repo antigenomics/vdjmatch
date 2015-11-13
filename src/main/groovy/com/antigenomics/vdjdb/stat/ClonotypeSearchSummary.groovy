@@ -33,8 +33,8 @@ class ClonotypeSearchSummary extends SummaryStatistics {
 
     void append(Map<Clonotype, List<ClonotypeSearchResult>> searchResult) {
         GParsPool.withPool ExecUtil.THREADS, {
-            searchResult.eachParallel {
-                append(it.value*.row, it.key.freq)
+            searchResult.entrySet().eachParallel { Map.Entry<Clonotype, List<ClonotypeSearchResult>> entry ->
+                append(entry.value*.row, entry.key.freq)
             }
         }
     }
