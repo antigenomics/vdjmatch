@@ -9,5 +9,5 @@ before_install:
   - git clone https://github.com/mikessh/vdjtools.git
   - cd vdjtools/
   - git checkout tags/1.0.4
-  - mvn clean install
+  - mvn clean install -q
   - cd ..
