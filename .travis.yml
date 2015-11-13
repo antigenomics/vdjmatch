@@ -1,4 +1,9 @@
-language: groovy
+language:
+  - java
+  - groovy
+
+jdk:
+  - oraclejdk8
 
 before_install:
   - git clone https://github.com/mikessh/vdjtools.git
