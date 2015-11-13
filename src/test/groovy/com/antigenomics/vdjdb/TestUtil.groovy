@@ -21,6 +21,8 @@ import com.antigenomics.vdjdb.db.Database
 import static com.antigenomics.vdjdb.Util.resourceAsStream
 
 class TestUtil {
+    static final String ID_COL = "id", SOURCE_COL = "source", PEPTIDE_COL = "antigen.seq"
+    
     static Database loadLegacyDb() {
         def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
 

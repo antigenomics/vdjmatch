@@ -16,7 +16,6 @@
 
 package com.antigenomics.vdjdb.db
 
-import com.antigenomics.vdjdb.TestUtil
 import com.antigenomics.vdjdb.sequence.SequenceFilter
 import com.antigenomics.vdjdb.text.ExactTextFilter
 import com.antigenomics.vdjdb.text.PatternTextFilter
@@ -24,62 +23,65 @@ import com.antigenomics.vdjdb.text.SubstringTextFilter
 import com.milaboratory.core.tree.TreeSearchParameters
 import org.junit.Test
 
+import static com.antigenomics.vdjdb.TestUtil.*
+import static com.antigenomics.vdjdb.impl.ClonotypeDatabase.CDR3_COL_DEFAULT
+
 class FilterTest {
     @Test
     public void filterTest1() {
-        def database = TestUtil.loadLegacyDb()
+        def database = loadLegacyDb()
 
         assert database.search([], []).size() == database.rows.size()
 
-        assert database.search([new ExactTextFilter("antigen.seq", "NLVPMVATV", false)], []).every {
-            it.row["origin"].value == "CMV"
+        assert database.search([new ExactTextFilter(PEPTIDE_COL, "NLVPMVATV", false)], []).every {
+            it.row[SOURCE_COL].value == "CMV"
         }
 
-        assert database.search([new SubstringTextFilter("antigen.seq", "LVPMVATV", false)], []).every {
-            it.row["origin"].value == "CMV"
+        assert database.search([new SubstringTextFilter(PEPTIDE_COL, "LVPMVATV", false)], []).every {
+            it.row[SOURCE_COL].value == "CMV"
         }
 
-        assert database.search([new PatternTextFilter("antigen.seq", "NL.PMV.TV", false)], []).every {
-            it.row["origin"].value == "CMV"
+        assert database.search([new PatternTextFilter(PEPTIDE_COL, "NL.PMV.TV", false)], []).every {
+            it.row[SOURCE_COL].value == "CMV"
         }
     }
 
     @Test
     public void filterTest2() {
-        def database = TestUtil.loadLegacyDb()
+        def database = loadLegacyDb()
 
-        assert database.search([new ExactTextFilter("antigen.seq", "NLVPMVATV", false),
-                                new ExactTextFilter("origin", "CMV", false)], []).size() > 0
+        assert database.search([new ExactTextFilter(PEPTIDE_COL, "NLVPMVATV", false),
+                                new ExactTextFilter(SOURCE_COL, "CMV", false)], []).size() > 0
 
-        assert database.search([new ExactTextFilter("antigen.seq", "NLVPMVATV", false),
-                                new ExactTextFilter("origin", "EBV", false)], []).size() == 0
+        assert database.search([new ExactTextFilter(PEPTIDE_COL, "NLVPMVATV", false),
+                                new ExactTextFilter(SOURCE_COL, "EBV", false)], []).size() == 0
     }
 
     @Test
     public void filterTest3() {
-        def database = TestUtil.loadLegacyDb()
+        def database = loadLegacyDb()
 
-        assert new HashSet<>(database.search([new ExactTextFilter("cdr3", "CASSLAPGATNEKLFF", false)], [])*.row)
-                .containsAll(database.search([], [new SequenceFilter("cdr3", "CASSLAPGATNEKLFF", new TreeSearchParameters(0, 0, 0))])*.row)
+        assert new HashSet<>(database.search([new ExactTextFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF", false)], [])*.row)
+                .containsAll(database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF", new TreeSearchParameters(0, 0, 0))])*.row)
 
-        assert database.search([new ExactTextFilter("antigen.seq", "NLVPMVATV", false),
-                                new ExactTextFilter("origin", "CMV", false)], [new SequenceFilter("cdr3", "CASSLAPGATNEKLFF")]).size() > 0
+        assert database.search([new ExactTextFilter(PEPTIDE_COL, "NLVPMVATV", false),
+                                new ExactTextFilter(SOURCE_COL, "CMV", false)], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF")]).size() > 0
 
-        assert database.search([], [new SequenceFilter("cdr3", "CASSLAPGATNEKLFF")]).size() >
-                database.search([], [new SequenceFilter("cdr3", "CASSLAPGATNEKLFF", new TreeSearchParameters(0, 0, 0))]).size()
+        assert database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF")]).size() >
+                database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF", new TreeSearchParameters(0, 0, 0))]).size()
     }
 
     @Test
     public void filterTest4() {
-        def database = TestUtil.loadLegacyDb()
+        def database = loadLegacyDb()
 
-        assert new HashSet<>(database.search([new ExactTextFilter("cdr3", "CASSLAPGATNEKLFF", false)], [])*.row)
-                .containsAll(database.search([], [new SequenceFilter("cdr3", "CASSLAPGATNEKLFF", new TreeSearchParameters(0, 0, 0))])*.row)
+        assert new HashSet<>(database.search([new ExactTextFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF", false)], [])*.row)
+                .containsAll(database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF", new TreeSearchParameters(0, 0, 0))])*.row)
 
-        assert database.search([], [new SequenceFilter("cdr3", "CASSLAPGATNEKLFF"),
-                                    new SequenceFilter("antigen.seq", "NLVPMVATV")]).size() > 0
-        
-        assert database.search([], [new SequenceFilter("cdr3", "CASSLAPGATNEKLFF"),
-                                    new SequenceFilter("antigen.seq", "TPRVTGGGAM")]).size() == 0
+        assert database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF"),
+                                    new SequenceFilter(PEPTIDE_COL, "NLVPMVATV")]).size() > 0
+
+        assert database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF"),
+                                    new SequenceFilter(PEPTIDE_COL, "TPRVTGGGAM")]).size() == 0
     }
 }

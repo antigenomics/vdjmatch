@@ -16,6 +16,7 @@
 
 package com.antigenomics.vdjdb.impl
 
+import com.antigenomics.vdjdb.TestUtil
 import com.antigenomics.vdjtools.io.InputStreamFactory
 import com.antigenomics.vdjtools.io.SampleStreamConnection
 import org.junit.Test
@@ -48,9 +49,9 @@ class ClonotypeDatabaseTest {
         def results = database.search(sample)
 
         def lapgatResults = results.find { it.key.cdr3aa == "CASSLAPGATNEKLFF" }
-        
+
         assert lapgatResults.value.size() > 0
-        
-        assert lapgatResults.value[0].row["origin"].value == "CMV"
+
+        assert lapgatResults.value[0].row[TestUtil.SOURCE_COL].value == "CMV"
     }
 }

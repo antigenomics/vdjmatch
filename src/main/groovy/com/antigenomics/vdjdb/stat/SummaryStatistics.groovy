@@ -84,7 +84,8 @@ class SummaryStatistics {
         values.eachWithIndex { it, ind ->
             def column = database[columnNames[ind]]
             if (!(column as TextColumn).values.contains(it)) {
-                throw new RuntimeException("Bad value list, '$it' not found")
+                throw new RuntimeException("Bad value list, '$it' not found among selected columns. " +
+                        "Note that list ordering matters here.")
             }
         }
 
