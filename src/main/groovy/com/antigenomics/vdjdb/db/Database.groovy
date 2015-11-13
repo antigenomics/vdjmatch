@@ -16,17 +16,17 @@ class Database {
     protected final Map<String, Integer> columnId2Index = new HashMap<>()
 
     static Database create(List<DatabaseSearchResult> searchResults, Database template = null) {
-        if(searchResults.size() == 0 && template == null)
+        if (searchResults.size() == 0 && template == null)
             throw new RuntimeException("Cannot create database, empty search results and template database not specified")
         template = template ?: searchResults[0].row.parent
-        
+
         def database = new Database(template.columns.collect {
             it instanceof SequenceColumn ? new SequenceColumn(it.name, it.metadata) :
                     new TextColumn(it.name, it.metadata)
         })
 
         database.addEntries(searchResults.collect { result -> result.row.entries.collect { it.value } })
-        
+
         database
     }
 
@@ -225,12 +225,15 @@ class Database {
         results
     }
 
-    int getColumnId(String name) {
-        columnId2Index[name]
+    int getColumnIndex(String name) {
+        def index = columnId2Index[name]
+        if (index == null)
+            throw new RuntimeException("Column $name not found")
+        index
     }
 
     Column getAt(String name) {
-        columns[getColumnId(name)]
+        columns[getColumnIndex(name)]
     }
 
     Row getAt(int index) {

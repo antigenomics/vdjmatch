@@ -19,7 +19,7 @@ class Row {
     }
 
     Entry getAt(String name) {
-        entries[parent.getColumnId(name)]
+        entries[parent.getColumnIndex(name)]
     }
 
     boolean equals(o) {
