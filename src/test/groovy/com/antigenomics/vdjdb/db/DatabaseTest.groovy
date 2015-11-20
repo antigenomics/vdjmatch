@@ -5,8 +5,7 @@ import com.antigenomics.vdjdb.text.ExactTextFilter
 import com.antigenomics.vdjdb.text.TextColumn
 import org.junit.Test
 
-import static com.antigenomics.vdjdb.TestUtil.ID_COL
-import static com.antigenomics.vdjdb.TestUtil.SOURCE_COL
+import static com.antigenomics.vdjdb.TestUtil.*
 import static com.antigenomics.vdjdb.Util.resourceAsStream
 import static com.antigenomics.vdjdb.impl.ClonotypeDatabase.*
 
@@ -90,5 +89,31 @@ class DatabaseTest {
 
         assert ((TextColumn) database[SOURCE_COL]).values.contains("EBV")
         assert !((TextColumn) database[SOURCE_COL]).values.contains("CMV")
+    }
+
+    @Test
+    public void fillTest4() {
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+
+        database.addEntries(resourceAsStream("vdjdb_legacy.txt"), "__${SOURCE_COL}__=~/(EBV|influenza)/")
+
+        assert ((TextColumn) database[SOURCE_COL]).values.contains("EBV")
+        assert !((TextColumn) database[SOURCE_COL]).values.contains("CMV")
+        assert ((TextColumn) database[SOURCE_COL]).values.contains("influenza")
+    }
+
+    @Test
+    public void fillTest5() {
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+
+        database.addEntries(resourceAsStream("vdjdb_legacy.txt"),
+                "__${SOURCE_COL}__==\"EBV\" && __${PEPTIDE_COL}__==\"NLVPMVATV\"")
+
+        assert database.rows.empty
+
+        database.addEntries(resourceAsStream("vdjdb_legacy.txt"),
+                "__${SOURCE_COL}__==\"CMV\" && __${PEPTIDE_COL}__!=\"NLVPMVATV\"")
+
+        assert !database.rows.empty
     }
 }

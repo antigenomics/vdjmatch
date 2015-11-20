@@ -86,10 +86,16 @@ class Database {
 
     }
 
-    @CompileStatic
     public void addEntries(InputStream source, List<TextFilter> filters = []) {
-        def filterColIds = getFilterColIds(filters)
+        addEntries(source, new ColumnwiseFilterBatch(this, filters))
+    }
 
+    public void addEntries(InputStream source, String expression) {
+        addEntries(source, new ExpressionFilterBatch(this, expression))
+    }
+
+    @CompileStatic
+    protected void addEntries(InputStream source, FilterBatch filters) {
         def first = true
         def indexConversion = new HashMap<Integer, Integer>()
 
@@ -118,7 +124,7 @@ class Database {
                 }
 
                 // Add to database if passes filters
-                if (pass(filters, filterColIds, row)) {
+                if (filters.pass(row)) {
                     row.entries.eachWithIndex { Entry it, Integer ind -> columns[ind].append(it) }
                     rows.add(row)
                 }
@@ -126,10 +132,16 @@ class Database {
         }
     }
 
-    @CompileStatic
     public void addEntries(List<List<String>> entries, List<TextFilter> filters = []) {
-        def filterColIds = getFilterColIds(filters)
+        addEntries(entries, new ColumnwiseFilterBatch(this, filters))
+    }
 
+    public void addEntries(List<List<String>> entries, String expression) {
+        addEntries(entries, new ExpressionFilterBatch(this, expression))
+    }
+
+    @CompileStatic
+    protected void addEntries(List<List<String>> entries, FilterBatch filters) {
         entries.each { List<String> splitLine ->
             if (splitLine.size() != columns.size()) {
                 throw new RuntimeException("Error filling database. Row size and number of columns don't match: $splitLine")
@@ -143,7 +155,7 @@ class Database {
             }
 
             // Add to database if passes filters
-            if (pass(filters, filterColIds, row)) {
+            if (filters.pass(row)) {
                 row.entries.eachWithIndex { Entry it, Integer ind -> columns[ind].append(it) }
                 rows.add(row)
             }
@@ -151,7 +163,7 @@ class Database {
     }
 
     @CompileStatic
-    private int[] getFilterColIds(List<? extends Filter> filters) {
+    protected int[] getFilterColIds(List<? extends Filter> filters) {
         def filterColIds = new int[filters.size()]
 
         for (int i = 0; i < filters.size(); i++) {
@@ -162,15 +174,6 @@ class Database {
     }
 
     @CompileStatic
-    private static boolean pass(List<TextFilter> filters, int[] filterColIds, Row row) {
-        for (int i = 0; i < filters.size(); i++) {
-            if (!filters[i].pass((Entry) row[filterColIds[i]])) {
-                return false
-            }
-        }
-        true
-    }
-
     private int getColumnIndexAndCheck(Filter filter) {
         def colIndex = columnId2Index[filter.columnId]
         if (colIndex == null) {
@@ -186,13 +189,13 @@ class Database {
     List<DatabaseSearchResult> search(
             List<TextFilter> textFilters,
             List<SequenceFilter> sequenceFilters) {
-        def textFilterColIds = getFilterColIds(textFilters),
-            sequenceFilterColIds = getFilterColIds(sequenceFilters)
+        def textFilterBatch = new ColumnwiseFilterBatch(this, textFilters)
+        def sequenceFilterColIds = getFilterColIds(sequenceFilters)
 
         List<DatabaseSearchResult> results
 
         if (sequenceFilters.empty) {
-            results = rows.findAll { pass(textFilters, textFilterColIds, it) }
+            results = rows.findAll { textFilterBatch.pass(it) }
                     .collect { new DatabaseSearchResult(it, new SequenceSearchResult[0]) }
         } else {
             results = new ArrayList<>()
@@ -207,7 +210,7 @@ class Database {
 
             OUTER:
             for (Row row : minRowSet) {
-                if (pass(textFilters, textFilterColIds, row)) {
+                if (textFilterBatch.pass(row)) {
                     def sequenceSearchResultsByRow = new SequenceSearchResult[sequenceFilters.size()]
 
                     for (int i = 0; i < sequenceFilters.size(); i++) {
@@ -230,6 +233,10 @@ class Database {
         if (index == null)
             throw new RuntimeException("Column $name not found")
         index
+    }
+
+    boolean hasColumn(String name) {
+        columnId2Index.containsKey(name)
     }
 
     Column getAt(String name) {
