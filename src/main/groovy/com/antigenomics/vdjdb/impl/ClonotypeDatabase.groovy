@@ -60,8 +60,7 @@ class ClonotypeDatabase extends Database {
     }
 
     @CompileStatic
-    List<ClonotypeSearchResult> search(Clonotype clonotype,
-                                       boolean matchV, boolean matchJ) {
+    List<ClonotypeSearchResult> search(Clonotype clonotype) {
         def filters = new ArrayList<TextFilter>()
 
         if (matchV) {
@@ -83,7 +82,7 @@ class ClonotypeDatabase extends Database {
         def results = new ConcurrentHashMap<Clonotype, List<ClonotypeSearchResult>>()
         GParsPool.withPool ExecUtil.THREADS, {
             sample.eachParallel { Clonotype clonotype ->
-                def result = search(clonotype, matchV, matchJ)
+                def result = search(clonotype)
                 if (!result.empty) {
                     results.put(clonotype, result)
                 }
