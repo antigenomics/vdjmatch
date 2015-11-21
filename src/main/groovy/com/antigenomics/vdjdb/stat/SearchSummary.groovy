@@ -32,7 +32,7 @@ class SearchSummary {
      * Database that was queries 
      */
     final Database database
-    private final List<String> columnNames
+    protected final List<String> columnNames
     protected final Map<String, SummaryStatisticsCounter> labeledCounters = new HashMap<>()
     private final SummaryStatisticsCounter total = new SummaryStatisticsCounter(),
                                            foundOnce = new SummaryStatisticsCounter()
