@@ -27,6 +27,16 @@ import java.util.zip.GZIPInputStream
 import static com.antigenomics.vdjdb.Util.resourceAsStream
 
 class ClonotypeSearchSummaryTest {
+    @Test
+    void test1() {
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+
+        database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
+
+        def summary = new SummaryStatistics(database, [])
+
+        assert summary.listCombinations()[0].empty
+    }
 
     @Test
     void listCombinationsTest() {

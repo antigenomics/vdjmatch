@@ -22,11 +22,18 @@ class Row {
         entries[parent.getColumnIndex(name)]
     }
 
+    @Override
     boolean equals(o) {
         index == ((Row) o).index
     }
 
+    @Override
     int hashCode() {
         index
+    }
+
+    @Override
+    String toString() {
+        entries.collect { Entry it -> it.value }.join("\t")
     }
 }

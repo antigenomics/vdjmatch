@@ -39,7 +39,7 @@ class ClonotypeSearchSummary extends SummaryStatistics {
         }
     }
 
-    Counter getNotFoundCounter() {
+    Counter getNotFound() {
         new CounterImpl(sample.diversity - foundCounter.uniqueCount,
                 1.0 - foundCounter.weightedCount)
     }

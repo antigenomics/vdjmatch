@@ -91,7 +91,7 @@ class Database {
     }
 
     public void addEntries(InputStream source, String expression) {
-        addEntries(source, new ExpressionFilterBatch(this, expression))
+        addEntries(source, expression ? new ExpressionFilterBatch(this, expression) : DummyFilterBatch.INSTANCE)
     }
 
     @CompileStatic
@@ -245,5 +245,14 @@ class Database {
 
     Row getAt(int index) {
         rows[index]
+    }
+
+    String getHeader() {
+        columns.collect { it.name }.join("\t")
+    }
+
+    @Override
+    String toString() {
+        "columns: ${columns.collect { it.name }.join(",")}, rows: ${rows.size()}"
     }
 }

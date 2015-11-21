@@ -74,7 +74,11 @@ class SummaryStatistics {
             }
         }.flatten())
 
-        keyVariants.collect { it.split("\t") }
+        keyVariants.collect { String it -> it.split("\t") as List<String> }
+    }
+
+    List<List<String>> listTopCombinations() {
+        listCombinations().findAll { it.size() == columnNames.size() }
     }
 
     private Counter searchInner(String combination) {
