@@ -33,7 +33,7 @@ class ClonotypeSearchSummaryTest {
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
 
-        def summary = new SummaryStatistics(database, [])
+        def summary = new SearchSummary(database, [])
 
         assert summary.listCombinations()[0].empty
     }
@@ -44,7 +44,7 @@ class ClonotypeSearchSummaryTest {
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
 
-        def summary = new SummaryStatistics(database, ["origin", "disease.type", "disease", "source"])
+        def summary = new SearchSummary(database, ["origin", "disease.type", "disease", "source"])
 
         assert summary.listCombinations().size() == 7
     }
@@ -64,7 +64,7 @@ class ClonotypeSearchSummaryTest {
 
         def results = database.search(sample)
 
-        def summary = new ClonotypeSearchSummary(database, ["origin", "disease.type", "disease", "source"], sample)
+        def summary = new ClonotypeSearchSearchSummary(database, ["origin", "disease.type", "disease", "source"], sample)
         summary.append(results)
 
         assert summary.foundCounter.uniqueCount > 0

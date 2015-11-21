@@ -17,7 +17,12 @@
 package com.antigenomics.vdjdb.db
 
 import com.antigenomics.vdjdb.text.TextFilter
+import groovy.transform.PackageScope
 
+/**
+ * *INTERNAL* A group of entry text filters running for each row and checking several columns simultaneously
+ */
+@PackageScope
 class ColumnwiseFilterBatch implements FilterBatch {
     final int[] filterColIds
     final List<TextFilter> filters

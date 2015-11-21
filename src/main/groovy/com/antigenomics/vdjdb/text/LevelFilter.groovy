@@ -18,9 +18,18 @@ package com.antigenomics.vdjdb.text
 
 import com.antigenomics.vdjdb.db.Entry
 
+/**
+ * A filter for plain-text columns containing numeric values
+ */
 class LevelFilter extends TextFilter {
     private double value
 
+    /**
+     * Creates a new numeric value filter. Non-numeric values pass by default.
+     * @param columnId column identifier
+     * @param value a lower threshold for a value to pass the filter
+     * @param negative inverse the filter
+     */
     LevelFilter(String columnId, String value, boolean negative) {
         super(columnId, value, negative)
         if (!value.isDouble()) {

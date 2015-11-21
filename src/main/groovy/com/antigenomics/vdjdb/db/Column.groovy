@@ -16,15 +16,33 @@
 
 package com.antigenomics.vdjdb.db
 
+/**
+ * A database column 
+ */
 abstract class Column {
+    /**
+     * Column identifier 
+     */
     final String name
+    /**
+     * Column metadata
+     */
     final Map<String, String> metadata
 
+    /**
+     * Creates an empty database column
+     * @param name column identifier
+     * @param metadata column metadata map
+     */
     Column(String name, Map<String, String> metadata) {
         this.name = name
         this.metadata = metadata
     }
 
+    /**
+     * Adds an entry to this column. Depending on implementation indexing can be performed on this step. 
+     * @param entry database entry
+     */
     abstract void append(Entry entry)
 
     @Override

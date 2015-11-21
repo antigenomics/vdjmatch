@@ -16,6 +16,9 @@
 
 package com.antigenomics.vdjdb.db
 
+/**
+ * *INTERNAL* Dummy row filter
+ */
 class DummyFilterBatch implements FilterBatch {
     static final DummyFilterBatch INSTANCE = new DummyFilterBatch()
 

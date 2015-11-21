@@ -18,7 +18,7 @@
 package com.antigenomics.vdjdb
 
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
-import com.antigenomics.vdjdb.stat.ClonotypeSearchSummary
+import com.antigenomics.vdjdb.stat.ClonotypeSearchSearchSummary
 import com.antigenomics.vdjdb.stat.Counter
 import com.antigenomics.vdjtools.io.SampleWriter
 import com.antigenomics.vdjtools.sample.Sample
@@ -138,7 +138,7 @@ new File(ExecUtil.formOutputPath(outputFileName, "annot", "summary")).withPrintW
         writer.close()
 
 
-        def summary = new ClonotypeSearchSummary(database, summaryCols as List<String>, sample)
+        def summary = new ClonotypeSearchSearchSummary(database, summaryCols as List<String>, sample)
         summary.append(results)
 
         def prefix = [sampleId, sample.sampleMetadata.toString(),

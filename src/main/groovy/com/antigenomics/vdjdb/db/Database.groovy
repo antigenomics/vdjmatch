@@ -23,6 +23,9 @@ import com.antigenomics.vdjdb.text.TextColumn
 import com.antigenomics.vdjdb.text.TextFilter
 import groovy.transform.CompileStatic
 
+/**
+ * Base class for database implementations 
+ */
 class Database {
     static final String NAME_COL = "name", TYPE_COL = "type", SEQ_TYPE_METADATA_ENTRY = "seq"
 
@@ -31,6 +34,12 @@ class Database {
 
     protected final Map<String, Integer> columnId2Index = new HashMap<>()
 
+    /**
+     * Creates a new database and fills it with database search results
+     * @param searchResults database search results
+     * @param template database template, only used to create columns in new database if results are empty
+     * @return a new database created from search results (deep copy)
+     */
     static Database create(List<DatabaseSearchResult> searchResults, Database template = null) {
         if (searchResults.size() == 0 && template == null)
             throw new RuntimeException("Cannot create database, empty search results and template database not specified")
@@ -46,6 +55,10 @@ class Database {
         database
     }
 
+    /**
+     * Creates an empty database
+     * @param columns a list of database columns
+     */
     public Database(List<Column> columns) {
         columns.each {
             if (columnId2Index.containsKey(it.name)) {
@@ -58,6 +71,12 @@ class Database {
         checkColumns()
     }
 
+    /**
+     * Creates an empty database using plain-text metadata file. 
+     * The file should contain {@value #NAME_COL} column with column names and {@value #TYPE_COL} column with column types.
+     * The {@value #SEQ_TYPE_METADATA_ENTRY} type specifies an amino acid sequence column, text column is created otherwise. 
+     * @param metadata metadata file stream
+     */
     public Database(InputStream metadata) {
         boolean first = true
         def metadataField2Index = new HashMap<String, Integer>()
@@ -98,15 +117,34 @@ class Database {
         checkColumns()
     }
 
+    /**
+     * Override it if you need to check for presence of specific columns
+     * @return true if all necessary columns are present, false otherwise
+     */
     protected boolean checkColumns() {
 
     }
 
-    public void addEntries(InputStream source, List<TextFilter> filters = []) {
+    /**
+     * Adds database entries from a given file to the database. First line should 
+     * contain column names that should contain those specified during database creation, in any order. 
+     * @param source a file with database table
+     * @param filters a list of text column filters to apply during loading stage
+     */
+    void addEntries(InputStream source, List<TextFilter> filters = []) {
         addEntries(source, new ColumnwiseFilterBatch(this, filters))
     }
 
-    public void addEntries(InputStream source, String expression) {
+    /**
+     * Adds database entries from a given file to the database. First line should 
+     * contain column names that should contain those specified during database creation, in any order.
+     * Pre-filtering is performed using a runtime-evaluated logical expression, containing database column 
+     * names highlighted with '__', e.g. {@code __source__=~/(EBV|influenza)/} or 
+     * {@code __source__=="EBV" || __source__=="influenza"}.
+     * @param source a file with database table
+     * @param expression a logical expression that will be compiled to filter or (String)null
+     */
+    void addEntries(InputStream source, String expression) {
         addEntries(source, expression ? new ExpressionFilterBatch(this, expression) : DummyFilterBatch.INSTANCE)
     }
 
@@ -148,10 +186,25 @@ class Database {
         }
     }
 
+    /**
+     * Adds a matrix of strings (entries) to the database. 
+     * Each row should have the number of strings equal to the number of columns in database. 
+     * @param entries a matrix of strings
+     * @param filters a list of text column filters to apply during loading stage
+     */
     public void addEntries(List<List<String>> entries, List<TextFilter> filters = []) {
         addEntries(entries, new ColumnwiseFilterBatch(this, filters))
     }
 
+    /**
+     * Adds a matrix of strings (entries) to the database. 
+     * Each row should have the number of strings equal to the number of columns in database.
+     * Pre-filtering is performed using a runtime-evaluated logical expression, containing database column 
+     * names highlighted with '__', e.g. {@code __source__=~/(EBV|influenza)/} or 
+     * {@code __source__=="EBV" || __source__=="influenza"}.
+     * @param entries a matrix of strings
+     * @param expression a logical expression that will be compiled to filter or (String)null
+     */
     public void addEntries(List<List<String>> entries, String expression) {
         addEntries(entries, new ExpressionFilterBatch(this, expression))
     }
@@ -201,6 +254,12 @@ class Database {
         colIndex
     }
 
+    /**
+     * Searches a given database using provided list of text column and sequence column filters
+     * @param textFilters list of text column filters, could be empty
+     * @param sequenceFilters list of sequence column filters, could be empty
+     * @return list of database search results
+     */
     @CompileStatic
     List<DatabaseSearchResult> search(
             List<TextFilter> textFilters,
@@ -244,6 +303,11 @@ class Database {
         results
     }
 
+    /**
+     * Gets a column index by column identifier 
+     * @param name column identifier
+     * @return column index
+     */
     int getColumnIndex(String name) {
         def index = columnId2Index[name]
         if (index == null)
@@ -251,18 +315,37 @@ class Database {
         index
     }
 
+    /**
+     * Checks if the database has a column with a given identifier 
+     * @param name column identifier
+     * @return true if specified column is in the database, false otherwise
+     */
     boolean hasColumn(String name) {
         columnId2Index.containsKey(name)
     }
 
+    /**
+     * Gets an entire column by identifier 
+     * @param name column identifier
+     * @return database column
+     */
     Column getAt(String name) {
         columns[getColumnIndex(name)]
     }
 
+    /**
+     * Gets an entire row by index 
+     * @param index row index
+     * @return database row
+     */
     Row getAt(int index) {
         rows[index]
     }
 
+    /**
+     * Gets database header
+     * @return tab-separated column identifier string
+     */
     String getHeader() {
         columns.collect { it.name }.join("\t")
     }

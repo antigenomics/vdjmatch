@@ -16,8 +16,19 @@
 
 package com.antigenomics.vdjdb.db
 
+/**
+ * Filter interface for performing database searches 
+ */
 interface Filter {
+    /**
+     * Column that this filter is applied to
+     * @return column identifier
+     */
     String getColumnId()
 
+    /**
+     * Is the filter operating on amino acid sequences or plain text
+     * @return true if the filter is operating on amino acid sequences, false otherwise
+     */
     boolean isSequenceFilter()
 }

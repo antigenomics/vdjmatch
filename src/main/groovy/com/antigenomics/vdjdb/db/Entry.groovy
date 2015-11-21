@@ -16,11 +16,29 @@
 
 package com.antigenomics.vdjdb.db
 
+/**
+ * A database entry 
+ */
 class Entry {
+    /**
+     * Parent column 
+     */
     final Column column
+    /**
+     * Parent row 
+     */
     final Row row
+    /**
+     * Entry value 
+     */
     final String value
 
+    /**
+     * Creates a new entry
+     * @param column parent column
+     * @param row parent row
+     * @param value entry value
+     */
     Entry(Column column, Row row, String value) {
         this.column = column
         this.row = row
@@ -47,7 +65,7 @@ class Entry {
         result = 31 * result + value.hashCode()
         return result
     }
-    
+
     @Override
     String toString() {
         "$row.index:$column.name:$value"

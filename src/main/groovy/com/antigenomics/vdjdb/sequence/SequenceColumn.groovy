@@ -24,14 +24,24 @@ import com.milaboratory.core.sequence.AminoAcidSequence
 import com.milaboratory.core.tree.SequenceTreeMap
 import groovy.transform.CompileStatic
 
+/**
+ * A column containing amino acid sequences. The column is indexed automatically when new entries are added 
+ */
 @CompileStatic
 class SequenceColumn extends Column {
     final SequenceTreeMap<AminoAcidSequence, List<Entry>> stm = new SequenceTreeMap(AminoAcidSequence.ALPHABET)
 
+    /**
+     * {@inheritDoc}
+     */
     SequenceColumn(String name, Map<String, String> metadata = [:]) {
         super(name, metadata)
     }
 
+    /**
+     * Adds a new entry to the database. Entry is skipped if it is not an amino acid sequence. 
+     * @param entry amino acid sequence entry
+     */
     @Override
     void append(Entry entry) {
         if (entry.value.length() > 0) {
@@ -46,6 +56,11 @@ class SequenceColumn extends Column {
         }
     }
 
+    /**
+     * Searches the column for an amino acid sequence
+     * @param filter amino acid query
+     * @return a map of rows that were found and corresponding sequence alignment results
+     */
     Map<Row, SequenceSearchResult> search(SequenceFilter filter) {
         def results = new HashMap<Row, SequenceSearchResult>()
 

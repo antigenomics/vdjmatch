@@ -20,10 +20,24 @@ import com.antigenomics.vdjdb.db.Row
 import com.antigenomics.vdjdb.db.SearchResult
 import com.antigenomics.vdjdb.sequence.SequenceSearchResult
 
+/**
+ * Clonotype search result 
+ */
 class ClonotypeSearchResult implements Comparable<ClonotypeSearchResult>, SearchResult {
+    /**
+     * CDR3 sequence alignment result 
+     */
     final SequenceSearchResult result
+    /**
+     * Database row that was found
+     */
     final Row row
 
+    /**
+     * Creates a new clonotype search result
+     * @param result CDR3 sequence alignment result
+     * @param row database row
+     */
     ClonotypeSearchResult(SequenceSearchResult result, Row row) {
         this.result = result
         this.row = row

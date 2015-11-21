@@ -16,21 +16,37 @@
 
 package com.antigenomics.vdjdb.stat
 
-import com.antigenomics.vdjdb.db.Database
+import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjdb.impl.ClonotypeSearchResult
 import com.antigenomics.vdjtools.sample.Clonotype
 import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.util.ExecUtil
 import groovyx.gpars.GParsPool
 
-class ClonotypeSearchSummary extends SummaryStatistics {
+/**
+ * A database search summary implementation for clonotype sample 
+ */
+class ClonotypeSearchSearchSummary extends SearchSummary {
+    /**
+     * Query sample 
+     */
     final Sample sample
 
-    ClonotypeSearchSummary(Database database, List<String> columnNames, Sample sample) {
+    /**
+     * Creates an empty clonotype sample search summary
+     * @param database a clonotype database
+     * @param columnNames column names to generate summary for
+     * @param sample query sample
+     */
+    ClonotypeSearchSearchSummary(ClonotypeDatabase database, List<String> columnNames, Sample sample) {
         super(database, columnNames)
         this.sample = sample
     }
 
+    /**
+     * Appends clonotype database search results to the summary (in parallel) 
+     * @param searchResult clonotype database search results
+     */
     void append(Map<Clonotype, List<ClonotypeSearchResult>> searchResult) {
         GParsPool.withPool ExecUtil.THREADS, {
             searchResult.entrySet().eachParallel { Map.Entry<Clonotype, List<ClonotypeSearchResult>> entry ->
@@ -39,6 +55,10 @@ class ClonotypeSearchSummary extends SummaryStatistics {
         }
     }
 
+    /**
+     * Gets the number and frequency of clonotypes that were not found
+     * @return missing clonotype counter
+     */
     Counter getNotFound() {
         new CounterImpl(sample.diversity - foundCounter.uniqueCount,
                 1.0 - foundCounter.weightedCount)

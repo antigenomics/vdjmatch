@@ -15,9 +15,14 @@
  */
 
 
-
 package com.antigenomics.vdjdb.db
 
+import groovy.transform.PackageScope
+
+/**
+ * *INTERNAL* A database row filter
+ */
+@PackageScope
 interface FilterBatch {
     boolean pass(Row row)
 }

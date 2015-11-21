@@ -18,22 +18,48 @@ package com.antigenomics.vdjdb.db
 
 import groovy.transform.CompileStatic
 
+/**
+ * A database row 
+ */
 @CompileStatic
 class Row {
+    /**
+     * Parent database 
+     */
     final Database parent
+    /**
+     * Row index 
+     */
     final int index
+    /**
+     * Entries in the row 
+     */
     final Entry[] entries
 
+    /**
+     * Creates a new row 
+     * @param parent parent database
+     */
     Row(Database parent) {
         this.parent = parent
         this.index = parent.rows.size()
         this.entries = new Entry[parent.columns.size()]
     }
 
+    /**
+     * Gets an entry by index 
+     * @param index entry index
+     * @return entry
+     */
     Entry getAt(int index) {
         entries[index]
     }
 
+    /**
+     * Gets an entry by column indentifier
+     * @param name column identifier
+     * @return entry
+     */
     Entry getAt(String name) {
         entries[parent.getColumnIndex(name)]
     }

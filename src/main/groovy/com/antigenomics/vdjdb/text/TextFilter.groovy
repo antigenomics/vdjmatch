@@ -19,10 +19,30 @@ package com.antigenomics.vdjdb.text
 import com.antigenomics.vdjdb.db.Entry
 import com.antigenomics.vdjdb.db.Filter
 
+
+/**
+ * A base class for filtering based on plain-text entries. Only rows that have entry that match the filter are retained.
+ */
 abstract class TextFilter implements Filter {
-    final String columnId, value
+    /**
+     * Identifier of the column this filter will be applied to
+     */
+    final String columnId
+    /**
+     * Value to be matched
+     */
+    final String value
+    /**
+     * True if the filter is negated, false otherwise 
+     */
     final boolean negative
 
+    /**
+     * Creates a new entry filtering rule
+     * @param columnId column identifier
+     * @param value value to be matched
+     * @param negative invert filter
+     */
     TextFilter(String columnId, String value, boolean negative) {
         this.columnId = columnId
         this.value = value
@@ -31,6 +51,11 @@ abstract class TextFilter implements Filter {
 
     protected abstract boolean passInner(Entry entry)
 
+    /**
+     * Checks if an entry is passing the filter, accounting for {@link #negative}
+     * @param entry entry to check
+     * @return true if entry passes the filter, false otherwise
+     */
     boolean pass(Entry entry) {
         negative ^ passInner(entry)
     }

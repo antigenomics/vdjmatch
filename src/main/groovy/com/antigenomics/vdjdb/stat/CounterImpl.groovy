@@ -16,10 +16,24 @@
 
 package com.antigenomics.vdjdb.stat
 
+/**
+ * An immutable implementation of counter class 
+ */
 class CounterImpl implements Counter {
+    /**
+     * Number of unique queries 
+     */
     final int uniqueCount
+    /**
+     * Weighted query count
+     */
     final double weightedCount
 
+    /**
+     * Creates a new counter with specified values 
+     * @param uniqueCount number of unique queries
+     * @param weightedCount weighted query count
+     */
     CounterImpl(int uniqueCount, double weightedCount) {
         this.uniqueCount = uniqueCount
         this.weightedCount = weightedCount

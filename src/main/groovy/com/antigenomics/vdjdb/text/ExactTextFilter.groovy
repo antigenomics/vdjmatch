@@ -18,7 +18,16 @@ package com.antigenomics.vdjdb.text
 
 import com.antigenomics.vdjdb.db.Entry
 
+/**
+ * An entry filtering rule based on exact text matching. Only rows that have entry that match the filter are retained.
+ */
 class ExactTextFilter extends TextFilter {
+    /**
+     * Creates a new entry filtering rule
+     * @param columnId column identifier
+     * @param value value to be matched
+     * @param negative invert filter
+     */
     ExactTextFilter(String columnId, String value, boolean negative) {
         super(columnId, value, negative)
     }

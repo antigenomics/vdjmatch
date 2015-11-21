@@ -24,14 +24,25 @@ import com.antigenomics.vdjdb.text.TextColumn
 
 import java.util.concurrent.atomic.AtomicInteger
 
-class SummaryStatistics {
+/**
+ * A base class for accumulation, reporting and accessing database search statistics 
+ */
+class SearchSummary {
+    /**
+     * Database that was queries 
+     */
     final Database database
-    final List<String> columnNames
+    private final List<String> columnNames
     protected final Map<String, SummaryStatisticsCounter> labeledCounters = new HashMap<>()
     private final SummaryStatisticsCounter total = new SummaryStatisticsCounter(),
                                            foundOnce = new SummaryStatisticsCounter()
 
-    SummaryStatistics(Database database, List<String> columnNames) {
+    /**
+     * Creates an empty database search summary
+     * @param database database that will be queried
+     * @param columnNames database column names to be summarized, order specifies column hierarchy
+     */
+    SearchSummary(Database database, List<String> columnNames) {
         columnNames.each {
             def column = database[it]
             if (column == null)
@@ -49,6 +60,11 @@ class SummaryStatistics {
         }
     }
 
+    /**
+     * Append search results
+     * @param rows found rows
+     * @param weight query weight
+     */
     void append(Collection<Row> rows, double weight) {
         total.update(weight)
         def combinations = rows.collect { row ->
@@ -66,6 +82,17 @@ class SummaryStatistics {
         }
     }
 
+    /**
+     * List all possible combinations of entry values that correspond to column identifier specified 
+     * during class creation. Order and hierarchy is preserved. Unique combinations of all lengths are returned,
+     * e.g.
+     * A B C 
+     * 1 2 3 
+     * 1 2 4
+     * 2 3 4
+     * will result in [[1],[2],[1,2],[2,3],[1,2,3],[2,3,4],[1,2,4]] 
+     * @return combinations of entry values for specified hierarchy
+     */
     List<List<String>> listCombinations() {
         def keyVariants = new HashSet<>(labeledCounters.keySet().collect {
             def splitLine = it.split("\t")
@@ -77,6 +104,17 @@ class SummaryStatistics {
         keyVariants.collect { String it -> it.split("\t") as List<String> }
     }
 
+    /**
+     * List all possible top-level combinations of entry values that correspond to column identifier specified 
+     * during class creation. Order and hierarchy is preserved. Unique combinations are returned,
+     * e.g.
+     * A B C 
+     * 1 2 3 
+     * 1 2 4
+     * 2 3 4
+     * will result in [[1,2,3],[2,3,4],[1,2,4]] 
+     * @return top-level combinations of entry values for specified hierarchy
+     */
     List<List<String>> listTopCombinations() {
         listCombinations().findAll { it.size() == columnNames.size() }
     }
@@ -87,6 +125,12 @@ class SummaryStatistics {
         counter
     }
 
+    /**
+     * Gets a counter for a given entry value combination. Use {@link #listCombinations} or 
+     * {@link #listTopCombinations} to get the list of allowed combinations
+     * @param values combination of entry values
+     * @return search summary counter
+     */
     Counter getCombinationCounter(List<String> values) {
         if (columnNames.size() < values.size()) {
             throw new RuntimeException("More values provided than the number of columns")
@@ -109,14 +153,26 @@ class SummaryStatistics {
         }
     }
 
+    /**
+     * Get the counter for queries found in the database 
+     * @return counter for queries found in the database
+     */
     Counter getFoundCounter() {
         total
     }
 
+    /**
+     * Get the counter for queries found once in the database 
+     * @return counter for queries found once in the database
+     */
     Counter getFoundOnce() {
         foundOnce
     }
 
+    /**
+     * Get the counter for queries found two or more times in the database
+     * @return counter for queries found two or more times in the database
+     */
     Counter getFoundTwiceAndMore() {
         new CounterImpl(total.uniqueCount - foundOnce.uniqueCount,
                 total.weightedCount - foundOnce.weightedCount)

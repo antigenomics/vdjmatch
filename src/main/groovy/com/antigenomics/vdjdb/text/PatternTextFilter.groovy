@@ -20,9 +20,18 @@ import com.antigenomics.vdjdb.db.Entry
 
 import java.util.regex.Pattern
 
+/**
+ * An entry filtering rule based on fuzzy text matching. Only rows that have entry that match the filter are retained.
+ */
 class PatternTextFilter extends TextFilter {
-    final Pattern pattern
+    private final Pattern pattern
 
+    /**
+     * Creates a new entry filtering rule
+     * @param name column identifier
+     * @param value regular expression to be matched
+     * @param negative invert filter
+     */
     PatternTextFilter(String columnId, String value, boolean negative) {
         super(columnId, value, negative)
         pattern = Pattern.compile(value)

@@ -16,6 +16,13 @@
 
 package com.antigenomics.vdjdb.db
 
+/**
+ * Database search result unit
+ */
 interface SearchResult {
+    /**
+     * Gets the row that was found
+     * @return database row
+     */
     Row getRow()
 }

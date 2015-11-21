@@ -16,7 +16,18 @@
 
 package com.antigenomics.vdjdb.stat
 
+/**
+ * Database search summary counter 
+ */
 interface Counter {
+    /**
+     * Number of unique queries 
+     * @return number of unique queries
+     */
     int getUniqueCount()
+    /**
+     * Weighted number of queries
+     * @return weighted number of queries
+     */
     double getWeightedCount()
 }

@@ -21,27 +21,67 @@ import com.antigenomics.vdjdb.db.Filter
 import com.milaboratory.core.sequence.AminoAcidSequence
 import com.milaboratory.core.tree.TreeSearchParameters
 
+/**
+ * An amino acid sequence search rule 
+ */
 class SequenceFilter implements Filter {
+    /**
+     * Sequence column id 
+     */
     final String columnId
+    /**
+     * Query sequence 
+     */
     final AminoAcidSequence query
+    /**
+     * Alignment parameters 
+     */
     final TreeSearchParameters treeSearchParameters
+    /**
+     * Search depth
+     */
     final int depth
 
+    /**
+     * Creates a new amino acid sequence search rule
+     * @param columnId sequence column id
+     * @param query query to be converted to amino acid sequence
+     */
     SequenceFilter(String columnId, String query) {
         this(columnId, query, new TreeSearchParameters(2, 1, 1, 2))
     }
 
+    /**
+     * Creates a new amino acid sequence search rule 
+     * @param columnId sequence column id
+     * @param query query to be converted to amino acid sequence
+     * @param treeSearchParameters alignment parameters
+     */
     SequenceFilter(String columnId, String query,
                    TreeSearchParameters treeSearchParameters) {
         this(columnId, Util.convert(query), treeSearchParameters, -1)
     }
 
+    /**
+     * Creates a new amino acid sequence search rule 
+     * @param columnId sequence column id
+     * @param query query to be converted to amino acid sequence
+     * @param treeSearchParameters alignment parameters
+     * @param depth search depth
+     */
     SequenceFilter(String columnId, String query,
                    TreeSearchParameters treeSearchParameters,
                    int depth) {
         this(columnId, Util.convert(query), treeSearchParameters, depth)
     }
 
+    /**
+     * Creates a new amino acid sequence search rule 
+     * @param columnId sequence column id
+     * @param query amino acid sequence query
+     * @param treeSearchParameters alignment parameters
+     * @param depth search depth
+     */
     SequenceFilter(String columnId, AminoAcidSequence query,
                    TreeSearchParameters treeSearchParameters,
                    int depth) {

@@ -19,17 +19,33 @@ package com.antigenomics.vdjdb.text
 import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Entry
 
+/**
+ * A column holding plain-text values, this column is hashed, filters are applied on-the-fly 
+ */
 class TextColumn extends Column {
     private final Map<String, List<Entry>> map = new HashMap<>()
 
+    /**
+     * Creates an empty plain-text column 
+     * @param name column name
+     * @param metadata column metadata
+     */
     TextColumn(String name, Map<String, String> metadata = [:]) {
         super(name, metadata)
     }
 
+    /**
+     * Gets the set of all possible values in the column 
+     * @return a set of unique values in the column
+     */
     Set<String> getValues() {
         map.keySet()
     }
 
+    /**
+     * Adds an entry to the column. Entry value will be hashed
+     * @param entry entry to add
+     */
     @Override
     void append(Entry entry) {
         if (entry.value.length() > 0) {

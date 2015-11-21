@@ -19,10 +19,24 @@ package com.antigenomics.vdjdb.sequence
 import com.milaboratory.core.alignment.Alignment
 import com.milaboratory.core.sequence.AminoAcidSequence
 
+/**
+ * Sequence alignment result 
+ */
 class SequenceSearchResult {
+    /**
+     * Amino acid sequence alignment
+     */
     final Alignment alignment
+    /**
+     * Penalty as computed by the alignment algorithm 
+     */
     final double penalty
 
+    /**
+     * Creates a new amino acid sequence alignment result
+     * @param alignment amino acid sequence alignment
+     * @param penalty penalty reported by the aligner
+     */
     SequenceSearchResult(Alignment<AminoAcidSequence> alignment, double penalty) {
         this.alignment = alignment
         this.penalty = penalty

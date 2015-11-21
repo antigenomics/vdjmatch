@@ -18,7 +18,17 @@ package com.antigenomics.vdjdb.text
 
 import com.antigenomics.vdjdb.db.Entry
 
+
+/**
+ * An entry filtering rule based on text substring matching. Only rows that have entry that match the filter are retained.
+ */
 class SubstringTextFilter extends TextFilter {
+    /**
+     * Creates a new entry filtering rule
+     * @param name column identifier
+     * @param value value to be matched as a substring
+     * @param negative invert filter
+     */
     SubstringTextFilter(String columnId, String value, boolean negative) {
         super(columnId, value, negative)
     }

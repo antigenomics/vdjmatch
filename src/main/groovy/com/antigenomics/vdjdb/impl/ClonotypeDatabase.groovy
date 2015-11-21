@@ -33,6 +33,9 @@ import groovyx.gpars.GParsPool
 
 import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * A database implementation holding clonotypes, that is unpaired antigen receptor chains 
+ */
 class ClonotypeDatabase extends Database {
     final static String CDR3_COL_DEFAULT = "cdr3", V_COL_DEFAULT = "v.segm", J_COL_DEFAULT = "j.segm"
 
@@ -41,6 +44,20 @@ class ClonotypeDatabase extends Database {
     final int depth
     final boolean matchV, matchJ
 
+    /**
+     * Creates an empty clonotype database 
+     * @param columns a list of database columns
+     * @param matchV should Variable segment matching be performed when searching
+     * @param matchJ should Joining segment matching be performed when searching
+     * @param maxMismatches max allowed mismatches in CDR3 region when searching
+     * @param maxInsertions max allowed insertions in CDR3 region when searching
+     * @param maxDeletions max allowed deletions in CDR3 region when searching
+     * @param maxMutations max allowed mutations (mismatches or indels) in CDR3 region when searching
+     * @param depth sequence tree scanning depth
+     * @param cdr3ColName CDR3 containing column name
+     * @param vColName Variable segment containing column name
+     * @param jColName Joining segment containing column name
+     */
     ClonotypeDatabase(List<Column> columns, boolean matchV = false, boolean matchJ = false,
                       int maxMismatches = 2, int maxInsertions = 1, int maxDeletions = 1, int maxMutations = 2, int depth = -1,
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT) {
@@ -54,6 +71,22 @@ class ClonotypeDatabase extends Database {
         this.depth = depth
     }
 
+    /**
+     * Creates an empty clonotype database using plain-text metadata file. 
+     * The file should contain {@value #NAME_COL} column with column names and {@value #TYPE_COL} column with column types.
+     * The {@value #SEQ_TYPE_METADATA_ENTRY} type specifies an amino acid sequence column, text column is created otherwise. 
+     * @param metadata metadata file stream
+     * @param matchV should Variable segment matching be performed when searching
+     * @param matchJ should Joining segment matching be performed when searching
+     * @param maxMismatches max allowed mismatches in CDR3 region when searching
+     * @param maxInsertions max allowed insertions in CDR3 region when searching
+     * @param maxDeletions max allowed deletions in CDR3 region when searching
+     * @param maxMutations max allowed mutations (mismatches or indels) in CDR3 region when searching
+     * @param depth sequence tree scanning depth
+     * @param cdr3ColName CDR3 containing column name
+     * @param vColName Variable segment containing column name
+     * @param jColName Joining segment containing column name
+     */
     ClonotypeDatabase(InputStream metadata, boolean matchV = false, boolean matchJ = false,
                       int maxMismatches = 2, int maxInsertions = 1, int maxDeletions = 1, int maxMutations = 2, int depth = -1,
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT) {
@@ -75,6 +108,11 @@ class ClonotypeDatabase extends Database {
                 columns.any { it.name == jColName && it instanceof TextColumn }
     }
 
+    /**
+     * Searches a database for a given clonotype 
+     * @param clonotype a clonotype
+     * @return clonotype search result
+     */
     @CompileStatic
     List<ClonotypeSearchResult> search(Clonotype clonotype) {
         def filters = new ArrayList<TextFilter>()
@@ -94,6 +132,11 @@ class ClonotypeDatabase extends Database {
         }.sort()
     }
 
+    /**
+     * Searches a database for a given clonotype sample (in parallel)
+     * @param clonotype a clonotype sample
+     * @return a map containing search results for every clonotype that was found at least once
+     */
     Map<Clonotype, List<ClonotypeSearchResult>> search(Sample sample) {
         def results = new ConcurrentHashMap<Clonotype, List<ClonotypeSearchResult>>()
         GParsPool.withPool ExecUtil.THREADS, {
