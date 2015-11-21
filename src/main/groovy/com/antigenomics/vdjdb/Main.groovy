@@ -31,9 +31,12 @@
 package com.antigenomics.vdjdb
 
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
+import com.antigenomics.vdjdb.stat.ClonotypeSearchSummary
+import com.antigenomics.vdjdb.stat.Counter
 import com.antigenomics.vdjtools.io.SampleWriter
 import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.sample.SampleCollection
+import com.antigenomics.vdjtools.sample.metadata.MetadataTable
 import com.antigenomics.vdjtools.util.ExecUtil
 
 import static com.antigenomics.vdjdb.Util.resourceAsStream
@@ -43,6 +46,8 @@ def cli = new CliBuilder(usage: "vdjdb [options] " +
         "[sample1 sample2 sample3 ... if -m is not specified] output_prefix")
 cli.h("display help message")
 cli.D(longOpt: "database", argName: "string", args: 1, "Path to an external database file.")
+cli.s(longOpt: "summary", argName: "col1,col2,...", args: 1,
+        "Table columns for summarizing, e.g. origin,disease.type,disease,source for default database.")
 cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
         "Logical filter evaluated for database columns. Supports Regex, .contains(), .startsWith(), etc.")
 cli.m(longOpt: "metadata", argName: "filename", args: 1,
@@ -79,9 +84,10 @@ if (metadataFileName ? opt.arguments().size() != 1 : opt.arguments().size() < 2)
 // Remaining arguments
 
 def dbPrefix = (String) (opt.D ?: null), p = (opt.p ?: DEFAULT_PARAMERES).split(",").collect { it.toInteger() },
+    summaryCols = opt.'summary' ? ((String) opt.'summary').split(",") as List<String> : [],
     compress = (boolean) opt.c,
     vMatch = (boolean) opt."v-match", jMatch = (boolean) opt."j-match",
-    filter = (String) (opt.'filter' ?: null),
+    filter = opt.'filter' ?: null,
     outputFileName = opt.arguments()[-1]
 
 def scriptName = getClass().canonicalName.split("\\.")[-1]
@@ -94,9 +100,9 @@ def metaStream = dbPrefix ? new FileInputStream("${dbPrefix}.meta") : resourceAs
     dataStream = dbPrefix ? new FileInputStream("${dbPrefix}.txt") : resourceAsStream("vdjdb_legacy.txt")
 
 database = new ClonotypeDatabase(metaStream, vMatch, jMatch, p[0], p[1], p[2], p[3])
-database.addEntries(dataStream, filter)
+database.addEntries(dataStream, (String) filter)
 
-println "[${new Date()} $scriptName] Finished.\n $database"
+println "[${new Date()} $scriptName] Finished.\n$database"
 
 //
 // Batch load all samples (lazy)
@@ -118,30 +124,56 @@ println "[${new Date()} $scriptName] Annotating sample(s) & writing results."
 
 def sw = new SampleWriter(compress)
 
-//new File(ExecUtil.formOutputPath(outputFileName, "annot", "summary")).withPrintWriter { pwSummary ->
-//    def header = "$MetadataTable.SAMPLE_ID_COLUMN\t" +
-//            sampleCollection.metadataTable.columnHeader + "\tdatabase\tfilter"
-//    pwSummary.println(header)
+new File(ExecUtil.formOutputPath(outputFileName, "annot", "summary")).withPrintWriter { pwSummary ->
+    def header = [MetadataTable.SAMPLE_ID_COLUMN,
+                  sampleCollection.metadataTable.columnHeader, "database",
+                  "filter", "counter",
+                  "not.found", "found.once", "found.twice.and.more", summaryCols, "summary.count"].
+            flatten().join("\t")
 
-sampleCollection.eachWithIndex { Sample sample, int ind ->
-    def sampleId = sample.sampleMetadata.sampleId
+    pwSummary.println(header)
 
-    def results = database.search(sample)
+    sampleCollection.eachWithIndex { Sample sample, int ind ->
+        def sampleId = sample.sampleMetadata.sampleId
 
-    def writer = sw.getWriter(ExecUtil.formOutputPath(outputFileName, sampleId, "annot"))
+        def results = database.search(sample)
 
-    writer.println(sw.header + "\tpenalty\t" + database.header)
-    results.each { result ->
-        result.value.each {
-            writer.println(sw.getClonotypeString(result.key) + "\t" +
-                    it.result.penalty + "\t" + it.row.toString())
+        def writer = sw.getWriter(ExecUtil.formOutputPath(outputFileName, sampleId, "annot"))
+
+        writer.println(sw.header + "\tpenalty\t" + database.header)
+        results.each { result ->
+            result.value.each {
+                writer.println(sw.getClonotypeString(result.key) + "\t" +
+                        it.result.penalty + "\t" + it.row.toString())
+            }
         }
+
+        writer.close()
+
+
+        def summary = new ClonotypeSearchSummary(database, summaryCols as List<String>, sample)
+        summary.append(results)
+
+        def prefix = [sampleId, sample.sampleMetadata.toString(),
+                      dbPrefix ?: "default", filter ?: ""]
+
+        ["unique", "weighted"].each { counterType ->
+            def prefix2 = [
+                    prefix, counterType,
+                    [summary.notFound, summary.foundOnce, summary.foundTwiceAndMore].collect { Counter it -> it."${counterType}Count" }
+            ]
+
+            summary.listTopCombinations().each { List<String> combination ->
+                pwSummary.println([
+                        prefix2,
+                        combination,//.withEagerDefault { '' }[0..<summaryCols.size()],
+                        summary.getCombinationCounter(combination).collect { Counter it -> it."${counterType}Count" }
+                ].flatten().join("\t"))
+            }
+        }
+
+        println "[${new Date()} $scriptName] ${ind + 1} sample(s) done."
     }
-
-    writer.close()
-
-    println "[${new Date()} $scriptName] ${ind + 1} sample(s) done."
 }
-//}
 
 println "[${new Date()} $scriptName] Finished."
