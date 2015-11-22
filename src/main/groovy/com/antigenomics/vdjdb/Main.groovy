@@ -81,7 +81,7 @@ def dbPrefix = (String) (opt.'database' ?: null),
     vMatch = (boolean) opt."v-match", jMatch = (boolean) opt."j-match",
     species = (String) opt.S, chain = (String) opt.R,
 //filter = opt.'filter' ?: null,
-    outputFileName = opt.arguments()[-1]
+    outputPrefix = opt.arguments()[-1]
 
 def scriptName = getClass().canonicalName.split("\\.")[-1]
 
@@ -117,8 +117,8 @@ println "[${new Date()} $scriptName] Annotating sample(s) & writing results."
 
 def sw = new SampleWriter(compress)
 
-new File(ExecUtil.formOutputPath(outputFileName, "annot", "stats")).withPrintWriter { pwStats ->
-    new File(ExecUtil.formOutputPath(outputFileName, "annot", "summary")).withPrintWriter { pwSummary ->
+new File(ExecUtil.formOutputPath(outputPrefix, "annot", "stats")).withPrintWriter { pwStats ->
+    new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWriter { pwSummary ->
         def headerPrefix = [MetadataTable.SAMPLE_ID_COLUMN,
                             sampleCollection.metadataTable.columnHeader]
         pwSummary.println([headerPrefix,
@@ -135,7 +135,7 @@ new File(ExecUtil.formOutputPath(outputFileName, "annot", "stats")).withPrintWri
 
             def results = database.search(sample)
 
-            def writer = sw.getWriter(ExecUtil.formOutputPath(outputFileName, sampleId, "annot"))
+            def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId, "annot"))
 
             writer.println(sw.header + "\tpenalty\t" + database.header)
             results.each { result ->
