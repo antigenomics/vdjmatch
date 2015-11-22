@@ -8,6 +8,6 @@ jdk:
 before_install:
   - git clone https://github.com/mikessh/vdjtools.git
   - cd vdjtools/
-  - git checkout tags/1.0.4
+  - git checkout tags/1.0.5
   - mvn clean install -q
   - cd ..
