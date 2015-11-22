@@ -35,7 +35,7 @@ class ClonotypeSearchSummaryTest {
 
         def summary = new SearchSummary(database, [])
 
-        assert summary.listCombinations()[0].empty
+        assert summary.listCombinations()[0][0].empty
     }
 
     @Test

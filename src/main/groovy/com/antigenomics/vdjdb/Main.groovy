@@ -54,7 +54,11 @@ cli.c("Compressed output")
 
 def opt = cli.parse(args)
 
-if (opt == null || opt.h || opt.arguments().size() == 0) {
+if (opt == null) {
+    System.exit(1)
+}
+
+if (opt.h || opt.arguments().size() == 0) {
     cli.usage()
     System.exit(1)
 }

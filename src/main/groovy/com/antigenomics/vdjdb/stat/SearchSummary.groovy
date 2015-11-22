@@ -38,7 +38,7 @@ class SearchSummary {
                                            foundOnce = new SummaryStatisticsCounter()
 
     /**
-     * Creates an empty database search summary. Column name order only matters in case {@link #listCombinations} 
+     * Creates an empty database search summary. Column name order only matters in case {@link #listCombinations}
      * is planned to be used (e.g. for constructing antigen phylogeny sunburst chart or tree). In case a user 
      * would like to simply infer some top categories with {@link #listTopCombinations}, only corresponding 
      * coulmn names should be specified, in any order
@@ -97,14 +97,18 @@ class SearchSummary {
      * @return combinations of entry values for specified hierarchy
      */
     List<List<String>> listCombinations() {
-        def keyVariants = new HashSet<>(labeledCounters.keySet().collect {
-            def splitLine = it.split("\t")
-            (0..<splitLine.length).collect {
-                splitLine[0..it].join("\t")
-            }
-        }.flatten())
+        def keyVariants = new HashSet<>(
+                labeledCounters.keySet().collect {
+                    def splitLine = it.split("\t")
+                    (0..<splitLine.length).collect {
+                        splitLine[0..it].join("\t")
+                    }
+                }.flatten()
+        )
 
-        keyVariants.collect { String it -> it.split("\t") as List<String> }
+        keyVariants.collect { String it ->
+            it.split("\t") as List<String>
+        }
     }
 
     /**
