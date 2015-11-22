@@ -38,7 +38,10 @@ class SearchSummary {
                                            foundOnce = new SummaryStatisticsCounter()
 
     /**
-     * Creates an empty database search summary
+     * Creates an empty database search summary. Column name order only matters in case {@link #listCombinations} 
+     * is planned to be used (e.g. for constructing antigen phylogeny sunburst chart or tree). In case a user 
+     * would like to simply infer some top categories with {@link #listTopCombinations}, only corresponding 
+     * coulmn names should be specified, in any order
      * @param database database that will be queried
      * @param columnNames database column names to be summarized, order specifies column hierarchy
      */

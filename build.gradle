@@ -32,6 +32,6 @@ dependencies {
     compile 'org.codehaus.gpars:gpars:1.0.0'
     compile 'junit:junit:4.12'
     compile 'commons-cli:commons-cli:1.2'
-    compile 'com.antigenomics:vdjtools:1.0.5-SNAPSHOT'
+    compile 'com.antigenomics:vdjtools:1.0.5'
     compile 'com.milaboratory:milib:1.0'
 }

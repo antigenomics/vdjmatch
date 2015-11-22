@@ -39,7 +39,7 @@ cli._(longOpt: "search-params", argName: "s,i,d,t", args: 1,
         "CDR3 sequence search parameters: " +
                 "allowed number of substitutions (s), insertions (i), deletions (d) and total number of mutations. " +
                 "[default=$DEFAULT_PARAMERES]")
-cli._(longOpt: "database", argName: "string", args: 1, "Path to an external database file.")
+cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an external database.")
 cli._(longOpt: "summary", argName: "col1,col2,...", args: 1,
         "Table columns for summarizing, e.g. origin,disease.type,disease,source for default database.")
 //cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,

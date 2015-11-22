@@ -1,81 +1,41 @@
-# Alpha version of the documentation
+## VDJdb: a software for functional annotation of T-cell repertoires
 
-# VDJdb: a curated databased of annotated V(D)J junctions
+In a nutshell, VDJdb combines an API and simple CLI software implementation for browsing a curated databased of annotated V(D)J junctions. The software accepts output of commonly used immune repertoire sequencing processing tools using [VDJtools](http://vdjtools-doc.readthedocs.org/en/latest/index.html) engine. Therefore all input data should be converted to VDJtools [format](http://vdjtools-doc.readthedocs.org/en/latest/input.html#vdjtools-format). Note that the software also accepts [metadata](http://vdjtools-doc.readthedocs.org/en/latest/input.html#metadata) symantics introduced by VDJtools.
 
-## Installing VDJdb
+VDJdb is distributed as a JAR executable (see [releases section]()) and can be incorporated into projects using [Maven](https://maven.apache.org/). The software is cross-platform and requires [JRE 1.8]() to run.
 
-### Using Docker Image
+### Running VDJdb
 
-[Docker](https://www.docker.com/) is an open platform for building, shipping and running distributed applications. It gives programmers, development teams and operations engineers the common toolbox they need to take advantage of the distributed and networked nature of modern applications.
+Standalone VDJdb annotation utility can be executed by running
 
-- [Install Docker](https://docs.docker.com/installation/)
-- Download and unrar any latest compiled docker release of VDJdb on [GitHub](https://github.com/antigenomics/vdjdb/releases)
-- Compile docker image using next command: `docker build -t antigenomics/vdjdb .`
-- Run docker image using `docker run `docker run -t -u antigenomics/vdjdb
-
-### Compiling from sources
-
-Compilation is performed via [Apache Maven](http://maven.apache.org/):
-
-```bash
-git clone https://github.com/mikessh/vdjdb.git
-cd vdjdb
-mvn clean install
+```
+java -jar -Xmx4G vdjdb.jar vdjdb [options] [sample1 sample2 sample3 ... if -m is not specified] output_prefix
 ```
 
-Also you should install PostgreSQL server on your computer and run `dump.sql` script using your username and password.
-If you don't know how to install and configure PostgreSQL server please see [corresponding PostgreSQL documentation section](https://wiki.postgresql.org/wiki/Detailed_installation_guides)
+First part of the command runs the JAR file and sets the memory limit to 4GB. The second part includes options, input samples and prefix of output files.
+The list of the options is the following:
 
-## Usage
+| Shorthand | Long name       | Required | Argument example                               |  Description                                                |
+|-----------|-----------------|----------|------------------------------------------------|-------------------------------------------------------------|
+| -h        |                 |          |                                                |  Display help message                                       |
+| -m        | --metadata      |          | metadata.txt                                   |  A [metadata](http://vdjtools-doc.readthedocs.org/en/latest/input.html#metadata) file, holding paths to samples and user-provided information.
+| -S        | --species       | Yes      | human,mouse,...                                |  Name of the species. All samples should belong to the same species, only one species is allowed.
+| -R        | --chain         | Yes      | TRA,TRB,...                                    |  Name of the receptor chain. All samples should contain to the same receptor chain, only one chain is allowed.
+| -v        | --v-match       | Yes      |                                                |  Require Variable segment matching when searching the database
+| -j        | --j-match       | Yes      |                                                |  Require Joining segment matching when searching the database
+|           | --summary       |          | origin,disease.type,disease,source             |  A comma-separated list of database column names on which summary statistics will be computed
+|           | --search-params |          | 2,1,1,2                                        |  CDR3 sequence search parameters: allowed number of substitutions (s), insertions (i), deletions (d) and total number of mutations.
+|           | --database      |          | vdjdb_v10                                      |  Path and prefix of an external database.
+| -c        | --compress      |          |                                                |  Compress sample-level summary output with GZIP.
 
-### Docker image
+The following output files will be generated:
 
-General way to execute VDJdb using docker image would be the following,
+-
+-
+-
 
-```bash
-docker run -t -i antigenomics/vdjdb
-```
+### Some API examples
 
-### Using command line
-
-```bash
-java -jar vdjdb-X.X-X.jar [OPTIONS]
-```
-
-## Options
-
-| Shorthand | Long name       | Required                                     | Description                                                |
-|-----------|-----------------|----------------------------------------------|------------------------------------------------------------|
-| -h        |                 | No                                           | Display help message                                       |
-| -d        | --database      | Yes (only if you are not using docker image) | PostgreSQL database name                                   |
-| -u        | --user          | Yes (only if you are not using docker image) | PostgreSQL user name                                       |
-| -p        | --password      | Yes (only if you are not using docker image) | PostgreSQL user password                                   |
-| -e        | --errors        | No                                           | Show detailed information about errors                     |
-| -sf       | --showFields    | No                                           | Display the available fields for which you can use filters |
-| -fm       | --filterMatch   | No                                           | Match Filters                                               |
-| -fp       | --filterPattern | No                                           | Pattern Filters                                             |
-| -ff       | --fuzzyFilter   | No                                           | Fuzzy Filters                                               |
-
-
-## Filters
-
-### Match Filter
-
-Basic usage: `-fm fieldName=string`\
-For example: `-fm V=TRBV29-1`\
-Also you can specify the third additional parameter: `-fm fieldName=string=false`. This filter will find all records in database which not match `-fm fieldName=string` filter.
-
-### Pattern Filter
-
-Basic usage: `-fp fieldName=pattern`\
-For example: `-fp V=TRBV2_-1`\
-Also you can specify the third additional parameter: `-fp fieldName=pattern=false`. This filter will find all records in database which not match `-fp fieldName=pattern` filter.
-
-### Fuzzy Filter
-
-Basic usage: `-ff fieldName=string=distance`\
-For example: `-ff cdr3=CSARGQGRDAAF=3`
-
-
+Coming soon... also check [VDJdb-server]()
 
 
