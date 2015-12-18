@@ -26,7 +26,7 @@ import com.antigenomics.vdjdb.text.TextColumn
 import com.antigenomics.vdjdb.text.TextFilter
 import com.antigenomics.vdjtools.sample.Clonotype
 import com.antigenomics.vdjtools.sample.Sample
-import com.antigenomics.vdjtools.util.ExecUtil
+import com.antigenomics.vdjtools.misc.ExecUtil
 import com.milaboratory.core.tree.TreeSearchParameters
 import groovy.transform.CompileStatic
 import groovyx.gpars.GParsPool
@@ -171,7 +171,7 @@ class ClonotypeDatabase extends Database {
 
     /**
      * Searches a database for a given clonotype sample (in parallel)
-     * @param clonotype a clonotype sample
+     * @param sample a sample
      * @return a map containing search results for every clonotype that was found at least once
      */
     Map<Clonotype, List<ClonotypeSearchResult>> search(Sample sample) {
