@@ -93,8 +93,8 @@ println "[${new Date()} $scriptName] Loading database..."
 
 ClonotypeDatabase database
 
-def metaStream = dbPrefix ? new FileInputStream("${dbPrefix}.meta") : resourceAsStream("vdjdb_legacy.meta"),
-    dataStream = dbPrefix ? new FileInputStream("${dbPrefix}.txt") : resourceAsStream("vdjdb_legacy.txt")
+def metaStream = dbPrefix ? new FileInputStream("${dbPrefix}.meta") : resourceAsStream(VDJdb.DEFAULT_META_RESOURCE_NAME),
+    dataStream = dbPrefix ? new FileInputStream("${dbPrefix}.txt") : resourceAsStream(VDJdb.DEFAULT_DB_RESOURCE_NAME)
 
 database = new ClonotypeDatabase(metaStream, vMatch, jMatch, p[0], p[1], p[2], p[3])
 database.addEntries(dataStream, species, chain)
