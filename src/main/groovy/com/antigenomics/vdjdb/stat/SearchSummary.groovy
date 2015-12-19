@@ -41,7 +41,7 @@ class SearchSummary {
      * Creates an empty database search summary. Column name order only matters in case {@link #listCombinations}
      * is planned to be used (e.g. for constructing antigen phylogeny sunburst chart or tree). In case a user 
      * would like to simply infer some top categories with {@link #listTopCombinations}, only corresponding 
-     * coulmn names should be specified, in any order
+     * column names should be specified, in any order
      * @param database database that will be queried
      * @param columnNames database column names to be summarized, order specifies column hierarchy
      */
@@ -88,12 +88,8 @@ class SearchSummary {
     /**
      * List all possible combinations of entry values that correspond to column identifier specified 
      * during class creation. Order and hierarchy is preserved. Unique combinations of all lengths are returned,
-     * e.g.
-     * A B C 
-     * 1 2 3 
-     * 1 2 4
-     * 2 3 4
-     * will result in [[1],[2],[1,2],[2,3],[1,2,3],[2,3,4],[1,2,4]] 
+     * e.g. database [[A, B, C], [1, 2, 3], [1, 2, 4], [2, 3, 4]]
+     * will result in [[1],[2],[1,2],[2,3],[1,2,3],[2,3,4],[1,2,4]] .
      * @return combinations of entry values for specified hierarchy
      */
     List<List<String>> listCombinations() {
@@ -114,11 +110,7 @@ class SearchSummary {
     /**
      * List all possible top-level combinations of entry values that correspond to column identifier specified 
      * during class creation. Order and hierarchy is preserved. Unique combinations are returned,
-     * e.g.
-     * A B C 
-     * 1 2 3 
-     * 1 2 4
-     * 2 3 4
+     * e.g. database [[A, B, C], [1, 2, 3], [1, 2, 4], [2, 3, 4]]
      * will result in [[1,2,3],[2,3,4],[1,2,4]] 
      * @return top-level combinations of entry values for specified hierarchy
      */

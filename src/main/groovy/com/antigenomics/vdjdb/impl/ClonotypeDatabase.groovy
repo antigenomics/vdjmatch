@@ -38,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class ClonotypeDatabase extends Database {
     final static String CDR3_COL_DEFAULT = "cdr3", V_COL_DEFAULT = "v.segm", J_COL_DEFAULT = "j.segm",
-                        SPECIES_COL_DEFAULE = "species", CHAIN_COL_DEFAULT = "chain"
+                        SPECIES_COL_DEFAULT = "species", CHAIN_COL_DEFAULT = "chain"
 
     final String cdr3ColName, vColName, jColName, speciesColName, chainColName
     final TreeSearchParameters treeSearchParameters
@@ -64,8 +64,9 @@ class ClonotypeDatabase extends Database {
     ClonotypeDatabase(List<Column> columns, boolean matchV = false, boolean matchJ = false,
                       int maxMismatches = 2, int maxInsertions = 1, int maxDeletions = 1, int maxMutations = 2, int depth = -1,
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
-                      String speciesColName = SPECIES_COL_DEFAULE, String chainColName = CHAIN_COL_DEFAULT) {
+                      String speciesColName = SPECIES_COL_DEFAULT, String chainColName = CHAIN_COL_DEFAULT) {
         super(columns)
+
         this.cdr3ColName = cdr3ColName
         this.vColName = vColName
         this.jColName = jColName
@@ -98,7 +99,7 @@ class ClonotypeDatabase extends Database {
     ClonotypeDatabase(InputStream metadata, boolean matchV = false, boolean matchJ = false,
                       int maxMismatches = 2, int maxInsertions = 1, int maxDeletions = 1, int maxMutations = 2, int depth = -1,
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
-                      String speciesColName = SPECIES_COL_DEFAULE, String chainColName = CHAIN_COL_DEFAULT) {
+                      String speciesColName = SPECIES_COL_DEFAULT, String chainColName = CHAIN_COL_DEFAULT) {
         super(metadata)
 
         this.cdr3ColName = cdr3ColName

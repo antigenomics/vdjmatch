@@ -255,22 +255,36 @@ class Database {
     }
 
     /**
-     * Searches a given database using provided list of text column and sequence column filters
-     * @param textFilters list of text column filters, could be empty
-     * @param sequenceFilters list of sequence column filters, could be empty
-     * @return list of database search results
+     * Searches a given database using provided list of text column and sequence column filters.
+     * Text filters are applied first, then sequence search is run if specified.
+     * @param textFilters list of text column filters, could be empty.
+     * @param sequenceFilters list of sequence column filters, could be empty.
+     * @return list of database search results.
      */
     @CompileStatic
     List<DatabaseSearchResult> search(
             List<TextFilter> textFilters,
             List<SequenceFilter> sequenceFilters) {
-        def textFilterBatch = new ColumnwiseFilterBatch(this, textFilters)
+        search(new ColumnwiseFilterBatch(this, textFilters), sequenceFilters)
+    }
+
+    /**
+     * Searches a given database using provided list of text column and sequence column filters.
+     * Batch filter is applied first, then sequence search is run if specified.
+     * @param filterBatch a batch filter.
+     * @param sequenceFilters list of sequence column filters, could be empty.
+     * @return list of database search results.
+     */
+    @CompileStatic
+    List<DatabaseSearchResult> search(
+            FilterBatch filterBatch,
+            List<SequenceFilter> sequenceFilters) {
         def sequenceFilterColIds = getFilterColIds(sequenceFilters)
 
         List<DatabaseSearchResult> results
 
         if (sequenceFilters.empty) {
-            results = rows.findAll { textFilterBatch.pass(it) }
+            results = rows.findAll { filterBatch.pass(it) }
                     .collect { new DatabaseSearchResult(it, new SequenceSearchResult[0]) }
         } else {
             results = new ArrayList<>()
@@ -285,7 +299,7 @@ class Database {
 
             OUTER:
             for (Row row : minRowSet) {
-                if (textFilterBatch.pass(row)) {
+                if (filterBatch.pass(row)) {
                     def sequenceSearchResultsByRow = new SequenceSearchResult[sequenceFilters.size()]
 
                     for (int i = 0; i < sequenceFilters.size(); i++) {
