@@ -116,8 +116,11 @@ class Util {
     }
 
     @CompileStatic
-    static String translateLinear(String seq) {
+    static String translateLinear(String seq, boolean reverse) {
         def aaSeq = ""
+
+        if (reverse)
+            seq = seq.substring(seq.length() % 3)
 
         for (int i = 0; i <= seq.size() - 3; i += 3) {
             def codon = seq.substring(i, i + 3)

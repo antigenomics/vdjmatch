@@ -1,16 +1,11 @@
 package com.antigenomics.vdjdb.fixer
 
 class KmerScanner {
-    final int minHitSize, refLength
-    final boolean reverse
+    final int minHitSize
     final Map<String, Integer> kmers = new HashMap<>();
 
-    KmerScanner(String seq, boolean reverse, int minHitSize = 2) {
-        this.reverse = reverse
+    KmerScanner(String seq, int minHitSize = 2) {
         this.minHitSize = minHitSize
-        this.refLength = seq.length()
-
-        seq = reverse ? seq.reverse() : seq
 
         for (int i = minHitSize; i < seq.length(); i++) {
             for (int j = 0; j < seq.length() - i; j++) {
@@ -21,8 +16,6 @@ class KmerScanner {
     }
 
     SearchResult scan(String seq) {
-        seq = reverse ? seq.reverse() : seq
-
         // iterate from largest window to smallest one
         for (int i = seq.length(); i >= minHitSize; i--) {
             // sliding window scan
@@ -31,9 +24,9 @@ class KmerScanner {
 
                 def hit = kmers[kmer]
 
-                if (hit) {
-                    return new SearchResult(reverse ? refLength - hit - 1 : hit,
-                            reverse ? seq.length() - i - 1 : i,
+                if (hit != null) {
+                    return new SearchResult(hit,
+                            j,
                             kmer.length()
                     )
                 }
