@@ -34,9 +34,52 @@ class FixerTest {
 
             def v = splitLine[2], j = splitLine[3], species = splitLine[5]
 
-            assert knownBadCases.contains(v) || fixer.getSegmentSeq(species, v) != null
-            assert knownBadCases.contains(j) || fixer.getSegmentSeq(species, j) != null
+            assert knownBadCases.contains(v) || fixer.getClosestId(species, v) != null
+            assert knownBadCases.contains(j) || fixer.getClosestId(species, j) != null
         }
+    }
+
+    @Test
+    void testFixing() {
+        def fixer = new Cdr3Fixer()
+
+        boolean first = true
+        def fixAttempted = 0, good = 0, fixed = 0, total = 0
+
+        println FixerResult.HEADER
+
+        Util.resourceAsStream("vdjdb_legacy.txt").splitEachLine('\t') { splitLine ->
+            if (first) {
+                first = false
+                return
+            }
+
+            def cdr3 = splitLine[1], v = splitLine[2], j = splitLine[3], species = splitLine[5]
+
+            def fixResult = fixer.fix(cdr3, v, j, species)
+
+            assert fixResult.vCanonical || fixResult.vFixType == FixType.FailedBadSegment || fixResult.vFixType == FixType.FailedNoAlignment
+            assert fixResult.jCanonical || fixResult.jFixType == FixType.FailedBadSegment || fixResult.jFixType == FixType.FailedNoAlignment
+
+            [fixResult.vFixType, fixResult.jFixType].each {
+                total++
+                if (it.fixAttempted) {
+                    fixAttempted++
+                    if (it.good)
+                        fixed++
+                }
+                if (it.good) {
+                    good++
+                } else {
+                    println fixResult
+                }
+            }
+        }
+
+        println "Total=" + total
+        println "Fix attempted=" + fixAttempted
+        println "Fixed=" + fixed
+        println "Good=" + good
     }
 
     @Test
@@ -47,13 +90,13 @@ class FixerTest {
 
         def segmentSeq = fixer.getSegmentSeq(species, id)
 
-        def result = Cdr3Fixer.fix(cdr3.reverse(), segmentSeq.reverse())
+        def result = fixer.fix(cdr3.reverse(), segmentSeq.reverse())
         assert result.cdr3.reverse().endsWith("YTF")
         assert result.fixType == FixType.FixTrim
 
         cdr3 = "CASSPQTGTGGYGY"
 
-        result = Cdr3Fixer.fix(cdr3.reverse(), segmentSeq.reverse())
+        result = fixer.fix(cdr3.reverse(), segmentSeq.reverse())
         assert result.cdr3.reverse().endsWith("YTF")
         assert result.fixType == FixType.FixAdd
     }
@@ -66,14 +109,25 @@ class FixerTest {
 
         def segmentSeq = fixer.getSegmentSeq(species, id)
 
-        def result = Cdr3Fixer.fix(cdr3, segmentSeq)
+        def result = fixer.fix(cdr3, segmentSeq)
         assert result.cdr3.startsWith("CAS")
         assert result.fixType == FixType.FixTrim
 
         cdr3 = "ASSPQTGTGGYGY"
 
-        result = Cdr3Fixer.fix(cdr3, segmentSeq)
+        result = fixer.fix(cdr3, segmentSeq)
         assert result.cdr3.startsWith("CAS")
         assert result.fixType == FixType.FixAdd
+    }
+
+    @Test
+    void testVJ1() {
+        def cdr3 = "CSVPFEGGTLETQH", vId = "TRBV29", jId = "TRBJ2-5", species = "human"
+
+        def fixer = new Cdr3Fixer()
+
+        def result = fixer.fix(cdr3, vId, jId, species)
+        assert result.jFixType == FixType.FixReplace
+        assert result.jCanonical
     }
 }

@@ -24,8 +24,12 @@ class Cdr3Fixer {
                                                        'MusMusculus': 'mouse']
 
     final Map<String, Map<String, String>> segmentsByIdBySpecies = new HashMap<>()
+    final int maxReplaceSize, minHitSize
 
-    Cdr3Fixer() {
+    Cdr3Fixer(int maxReplaceSize = 1, int minHitSize = 2) {
+        this.maxReplaceSize = maxReplaceSize
+        this.minHitSize = minHitSize
+
         speciesAliases.values().each {
             segmentsByIdBySpecies.put(it, new HashMap<String, String>())
         }
@@ -44,17 +48,31 @@ class Cdr3Fixer {
         }
     }
 
-    String getSegmentSeq(String species, String id) {
+    String getClosestId(String species, String id) {
         def segmentsById = segmentsByIdBySpecies[species]
 
         if (segmentsById == null)
             return null
 
-        segmentsById[id] ?: segmentsById[(id + "*01").toString()] ?: segmentsById[(id + "-1*01").toString()]
+        [id, "$id*01".toString(), (1..9).collect { "$id-$it*01".toString() }].flatten().find {
+            segmentsById.containsKey(it)
+        }
     }
 
-    static OneSideFixerResult fix(String cdr3, String segmentSeq) {
-        def scanner = new KmerScanner(segmentSeq)
+    String getSegmentSeq(String species, String id) {
+        if (id == null)
+            return null
+
+        def segmentsById = segmentsByIdBySpecies[species]
+
+        if (segmentsById == null)
+            return null
+
+        segmentsById[id]
+    }
+
+    OneSideFixerResult fix(String cdr3, String segmentSeq) {
+        def scanner = new KmerScanner(segmentSeq, minHitSize)
 
         def hit = scanner.scan(cdr3)
 
@@ -68,21 +86,29 @@ class Cdr3Fixer {
             } else {
                 if (hit.startInCdr3 == 0) {
                     return new OneSideFixerResult(segmentSeq.substring(0, hit.startInSegment) + cdr3, FixType.FixAdd)
+                } else if (hit.startInCdr3 <= maxReplaceSize) {
+                    return new OneSideFixerResult(segmentSeq.substring(0, hit.startInSegment) + cdr3.substring(hit.startInCdr3), FixType.FixReplace)
+                } else {
+                    return new OneSideFixerResult(cdr3, FixType.FailedReplace)
                 }
             }
+        } else {
+            return new OneSideFixerResult(cdr3, FixType.FailedNoAlignment)
         }
-
-        return new OneSideFixerResult(cdr3, FixType.NoFixBadAlignment)
     }
 
     FixerResult fix(String cdr3, String vId, String jId, String species) {
+        vId = getClosestId(species, vId)
+        jId = getClosestId(species, jId)
+
         String vSeq = getSegmentSeq(species, vId),
                jSeq = getSegmentSeq(species, jId)
 
-        def vResult = vSeq ? fix(cdr3, vSeq) : new OneSideFixerResult(cdr3, FixType.NoFixBadSegment),
+        def vResult = vSeq ? fix(cdr3, vSeq) :
+                new OneSideFixerResult(cdr3, FixType.FailedBadSegment),
             jResult = jSeq ? fix(vResult.cdr3.reverse(), jSeq.reverse()) :
-                    new OneSideFixerResult(cdr3.reverse(), FixType.NoFixBadSegment)
+                    new OneSideFixerResult(cdr3.reverse(), FixType.FailedBadSegment)
 
-        new FixerResult(jResult.cdr3.reverse(), vResult.fixType, jResult.fixType)
+        new FixerResult(jResult.cdr3.reverse(), vId, vResult.fixType, jId, jResult.fixType)
     }
 }
