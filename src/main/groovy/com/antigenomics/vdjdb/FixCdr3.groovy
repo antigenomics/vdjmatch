@@ -24,6 +24,7 @@ def DEFAULT_SPECIES_COL = "species", DEFAULT_V_COL = "v.segm", DEFAULT_J_COL = "
 
 def cli = new CliBuilder(usage: "FixCdr3 [options] " +
         "input_file output_file")
+cli.h("display help message")
 cli.s(longOpt: "species-col", argName: "name", args: 1,
         "Species column name. [default = $DEFAULT_SPECIES_COL]")
 cli.v(longOpt: "v-col", argName: "name", args: 1,
