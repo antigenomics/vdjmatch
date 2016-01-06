@@ -88,7 +88,7 @@ class FixerTest {
 
         def fixer = new Cdr3Fixer()
 
-        def segmentSeq = fixer.getSegmentSeq(species, id)
+        def segmentSeq = fixer.getSegmentSeq(species, fixer.getClosestId(species, id))
 
         def result = fixer.fix(cdr3.reverse(), segmentSeq.reverse())
         assert result.cdr3.reverse().endsWith("YTF")
@@ -107,7 +107,7 @@ class FixerTest {
 
         def fixer = new Cdr3Fixer()
 
-        def segmentSeq = fixer.getSegmentSeq(species, id)
+        def segmentSeq = fixer.getSegmentSeq(species, fixer.getClosestId(species, id))
 
         def result = fixer.fix(cdr3, segmentSeq)
         assert result.cdr3.startsWith("CAS")
