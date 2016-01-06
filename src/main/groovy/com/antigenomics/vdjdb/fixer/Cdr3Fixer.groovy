@@ -98,6 +98,8 @@ class Cdr3Fixer {
     }
 
     FixerResult fix(String cdr3, String vId, String jId, String species) {
+        cdr3 = Util.replaceNonAa(cdr3)
+
         vId = getClosestId(species, vId)
         jId = getClosestId(species, jId)
 

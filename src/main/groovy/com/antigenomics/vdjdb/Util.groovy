@@ -24,6 +24,10 @@ class Util {
     static InputStream resourceAsStream(String resourceName) {
         Util.class.classLoader.getResourceAsStream(resourceName)
     }
+    
+    static String replaceNonAa(String seq) {
+        seq.replaceAll(/[^FLSYCWPHQRIMTNKVADEG]/, "X")
+    }
 
     static AminoAcidSequence convert(String aaSeq) {
         aaSeq = aaSeq.trim()
