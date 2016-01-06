@@ -15,7 +15,8 @@ class FixerResult {
         this.jCanonical = cdr3.endsWith("F") || cdr3.endsWith("W")
     }
 
-    static final String HEADER = "cdr3\tclosest.v.id\tclosest.j.id\tv.canonical\tj.canonical\tv.fix.type\tj.fix.type"
+    static
+    final String HEADER = "fixed.cdr3\tclosest.v.id\tclosest.j.id\tv.canonical\tj.canonical\tv.fix.type\tj.fix.type"
 
     @Override
     String toString() {
