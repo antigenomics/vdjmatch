@@ -40,7 +40,7 @@ class Database {
      * @param template database template, only used to create columns in new database if results are empty
      * @return a new database created from search results (deep copy)
      */
-    static Database create(List<DatabaseSearchResult> searchResults, Database template = null) {
+    static Database create(List<SearchResult> searchResults, Database template = null) {
         if (searchResults.size() == 0 && template == null)
             throw new RuntimeException("Cannot create database, empty search results and template database not specified")
         template = template ?: searchResults[0].row.parent
