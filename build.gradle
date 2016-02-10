@@ -4,7 +4,7 @@ apply plugin: 'application'
 apply plugin: 'maven'
 
 group = 'com.antigenomics'
-version = '1.0.1'
+version = '1.0.2-SNAPSHOT'
 
 mainClassName = 'com.antigenomics.vdjdb.Main'
 
