@@ -26,8 +26,8 @@ import com.antigenomics.vdjdb.text.TextColumn
 import com.antigenomics.vdjdb.text.TextFilter
 
 class VDJdb {
-    protected static final String DEFAULT_DB_RESOURCE_NAME = "vdjdb_legacy.txt",
-                                  DEFAULT_META_RESOURCE_NAME = "vdjdb_legacy.meta"
+    protected static final String DEFAULT_DB_RESOURCE_NAME = "vdjdb-db/database/vdjdb.txt",
+                                  DEFAULT_META_RESOURCE_NAME = "vdjdb-db/database/vdjdb.meta"
 
     private static final Database dbInstance = new Database(Util.resourceAsStream(DEFAULT_META_RESOURCE_NAME))
 

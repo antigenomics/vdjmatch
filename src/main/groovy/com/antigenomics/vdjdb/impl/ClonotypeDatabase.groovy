@@ -24,9 +24,10 @@ import com.antigenomics.vdjdb.sequence.SequenceFilter
 import com.antigenomics.vdjdb.text.ExactTextFilter
 import com.antigenomics.vdjdb.text.TextColumn
 import com.antigenomics.vdjdb.text.TextFilter
+import com.antigenomics.vdjtools.misc.ExecUtil
 import com.antigenomics.vdjtools.sample.Clonotype
 import com.antigenomics.vdjtools.sample.Sample
-import com.antigenomics.vdjtools.misc.ExecUtil
+import com.milaboratory.core.sequence.AminoAcidSequence
 import com.milaboratory.core.tree.TreeSearchParameters
 import groovy.transform.CompileStatic
 import groovyx.gpars.GParsPool
@@ -153,17 +154,40 @@ class ClonotypeDatabase extends Database {
      */
     @CompileStatic
     List<ClonotypeSearchResult> search(Clonotype clonotype) {
+        search(clonotype.v, clonotype.j, clonotype.cdr3aaBinary)
+    }
+    /**
+     * Searches a database for a given clonotype 
+     * @param v clonotype V segment name
+     * @param j clonotype J segment name
+     * @param cdr3aa clonotype CDR3 amino acid sequence 
+     * @return clonotype search result
+     */
+    @CompileStatic
+    List<ClonotypeSearchResult> search(String v, String j, String cdr3aa) {
+        search(v, j, new AminoAcidSequence(cdr3aa))
+    }
+
+    /**
+     * Searches a database for a given clonotype 
+     * @param v clonotype V segment name
+     * @param j clonotype J segment name
+     * @param cdr3aa clonotype CDR3 amino acid sequence 
+     * @return clonotype search result
+     */
+    @CompileStatic
+    List<ClonotypeSearchResult> search(String v, String j, AminoAcidSequence cdr3aa) {
         def filters = new ArrayList<TextFilter>()
 
         if (matchV) {
-            filters.add(new ExactTextFilter(vColName, Util.simplifySegmentName(clonotype.v), false))
+            filters.add(new ExactTextFilter(vColName, Util.simplifySegmentName(v), false))
         }
         if (matchJ) {
-            filters.add(new ExactTextFilter(jColName, Util.simplifySegmentName(clonotype.j), false))
+            filters.add(new ExactTextFilter(jColName, Util.simplifySegmentName(j), false))
         }
 
         def results = search(filters,
-                [new SequenceFilter(cdr3ColName, clonotype.cdr3aaBinary, treeSearchParameters, depth)])
+                [new SequenceFilter(cdr3ColName, cdr3aa, treeSearchParameters, depth)])
 
         results.collect {
             new ClonotypeSearchResult(it.sequenceSearchResults[0], it.row)
