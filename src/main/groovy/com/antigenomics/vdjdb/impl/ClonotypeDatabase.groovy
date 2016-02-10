@@ -34,13 +34,13 @@ import groovyx.gpars.GParsPool
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * A database implementation holding clonotypes, that is unpaired antigen receptor chains 
+ * A database implementation holding clonotypes, that is unpaired antigen receptor genes
  */
 class ClonotypeDatabase extends Database {
     final static String CDR3_COL_DEFAULT = "cdr3", V_COL_DEFAULT = "v.segm", J_COL_DEFAULT = "j.segm",
-                        SPECIES_COL_DEFAULT = "species", CHAIN_COL_DEFAULT = "chain"
+                        SPECIES_COL_DEFAULT = "species", GENE_COL_DEFAULT = "gene"
 
-    final String cdr3ColName, vColName, jColName, speciesColName, chainColName
+    final String cdr3ColName, vColName, jColName, speciesColName, geneColName
     final TreeSearchParameters treeSearchParameters
     final int depth
     final boolean matchV, matchJ
@@ -59,12 +59,12 @@ class ClonotypeDatabase extends Database {
      * @param vColName Variable segment containing column name
      * @param jColName Joining segment containing column name
      * @param speciesColName species column name
-     * @param chainColName receptor chain column name
+     * @param geneColName receptor gene column name
      */
     ClonotypeDatabase(List<Column> columns, boolean matchV = false, boolean matchJ = false,
                       int maxMismatches = 2, int maxInsertions = 1, int maxDeletions = 1, int maxMutations = 2, int depth = -1,
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
-                      String speciesColName = SPECIES_COL_DEFAULT, String chainColName = CHAIN_COL_DEFAULT) {
+                      String speciesColName = SPECIES_COL_DEFAULT, String geneColName = GENE_COL_DEFAULT) {
         super(columns)
 
         this.cdr3ColName = cdr3ColName
@@ -75,7 +75,7 @@ class ClonotypeDatabase extends Database {
         this.treeSearchParameters = new TreeSearchParameters(maxMismatches, maxInsertions, maxDeletions, maxMutations)
         this.depth = depth
         this.speciesColName = speciesColName
-        this.chainColName = chainColName
+        this.geneColName = geneColName
     }
 
     /**
@@ -94,12 +94,12 @@ class ClonotypeDatabase extends Database {
      * @param vColName Variable segment containing column name
      * @param jColName Joining segment containing column name
      * @param speciesColName species column name
-     * @param chainColName receptor chain column name
+     * @param geneColName receptor gene column name
      */
     ClonotypeDatabase(InputStream metadata, boolean matchV = false, boolean matchJ = false,
                       int maxMismatches = 2, int maxInsertions = 1, int maxDeletions = 1, int maxMutations = 2, int depth = -1,
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
-                      String speciesColName = SPECIES_COL_DEFAULT, String chainColName = CHAIN_COL_DEFAULT) {
+                      String speciesColName = SPECIES_COL_DEFAULT, String geneColName = GENE_COL_DEFAULT) {
         super(metadata)
 
         this.cdr3ColName = cdr3ColName
@@ -110,7 +110,7 @@ class ClonotypeDatabase extends Database {
         this.treeSearchParameters = new TreeSearchParameters(maxMismatches, maxInsertions, maxDeletions, maxMutations)
         this.depth = depth
         this.speciesColName = speciesColName
-        this.chainColName = chainColName
+        this.geneColName = geneColName
     }
 
     @Override
@@ -123,27 +123,27 @@ class ClonotypeDatabase extends Database {
     /**
      * Adds database entries from a given file to the database. First line should 
      * contain column names that should contain those specified during database creation, in any order.
-     * Only records corresponding to specified species and chain are retained 
+     * Only records corresponding to specified species and gene are retained
      * @param source a file with database table
      * @param species species name
-     * @param chain receptor chain name 
+     * @param gene receptor gene name
      */
-    void addEntries(InputStream source, String species, String chain) {
+    void addEntries(InputStream source, String species, String gene) {
         addEntries(source, [new ExactTextFilter(speciesColName, species, false),
-                            new ExactTextFilter(chainColName, chain, false)])
+                            new ExactTextFilter(geneColName, gene, false)])
     }
 
     /**
      * Adds a matrix of strings (entries) to the database. 
      * Each row should have the number of strings equal to the number of columns in database. 
-     * Only records corresponding to specified species and chain are retained
+     * Only records corresponding to specified species and gene are retained
      * @param entries a matrix of strings
      * @param species species name
-     * @param chain receptor chain name 
+     * @param gene receptor gene name
      */
-    public void addEntries(List<List<String>> entries, String species, String chain) {
+    public void addEntries(List<List<String>> entries, String species, String gene) {
         addEntries(entries, [new ExactTextFilter(speciesColName, species, false),
-                             new ExactTextFilter(chainColName, chain, false)])
+                             new ExactTextFilter(geneColName, gene, false)])
     }
 
     /**

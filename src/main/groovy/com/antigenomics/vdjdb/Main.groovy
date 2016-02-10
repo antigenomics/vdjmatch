@@ -46,8 +46,8 @@ cli._(longOpt: "summary", argName: "col1,col2,...", args: 1,
 //        "Logical filter evaluated for database columns. Supports Regex, .contains(), .startsWith(), etc.")
 cli.S(longOpt: "species", argName: "name", args: 1, required: true,
         "Species of input sample(s), e.g. human, mouse, etc.")
-cli.R(longOpt: "chain", argName: "name", args: 1, required: true,
-        "Receptor chain of input sample(s), e.g. TRA, TRB, etc.")
+cli.R(longOpt: "gene", argName: "name", args: 1, required: true,
+        "Receptor gene of input sample(s), e.g. TRA, TRB, etc.")
 cli.v(longOpt: "v-match", "Require V segment matching.")
 cli.j(longOpt: "j-match", "Require J segment matching.")
 cli.c("Compressed output")
@@ -83,7 +83,7 @@ def dbPrefix = (String) (opt.'database' ?: null),
     summaryCols = opt.'summary' ? ((String) opt.'summary').split(",") as List<String> : [],
     compress = (boolean) opt.c,
     vMatch = (boolean) opt."v-match", jMatch = (boolean) opt."j-match",
-    species = (String) opt.S, chain = (String) opt.R,
+    species = (String) opt.S, gene = (String) opt.R,
 //filter = opt.'filter' ?: null,
     outputPrefix = opt.arguments()[-1]
 
@@ -97,7 +97,7 @@ def metaStream = dbPrefix ? new FileInputStream("${dbPrefix}.meta") : resourceAs
     dataStream = dbPrefix ? new FileInputStream("${dbPrefix}.txt") : resourceAsStream(VDJdb.DEFAULT_DB_RESOURCE_NAME)
 
 database = new ClonotypeDatabase(metaStream, vMatch, jMatch, p[0], p[1], p[2], p[3])
-database.addEntries(dataStream, species, chain)
+database.addEntries(dataStream, species, gene)
 
 println "[${new Date()} $scriptName] Finished.\n$database"
 
@@ -130,7 +130,7 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "stats")).withPrintWrite
                 flatten().join("\t"))
         pwStats.println([headerPrefix,
                          "database",
-                         "species", "chain", "counter.type",
+                         "species", "gene", "counter.type",
                          "not.found", "found.once", "found.twice.and.more"].
                 flatten().join("\t"))
 
@@ -156,7 +156,7 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "stats")).withPrintWrite
             summary.append(results)
 
             def prefix = [sampleId, sample.sampleMetadata.toString()],
-                prefix1 = [prefix, dbPrefix ?: "default", species, chain].flatten()
+                prefix1 = [prefix, dbPrefix ?: "default", species, gene].flatten()
 
             ["unique", "weighted"].each { counterType ->
                 summary.listTopCombinations().each { List<String> combination ->
