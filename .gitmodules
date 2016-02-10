@@ -1,0 +1,4 @@
+[submodule "src/main/resources/vdjdb-db"]
+	path = src/main/resources/vdjdb-db
+	url = https://github.com/antigenomics/vdjdb-db.git
+	branch = db-release
