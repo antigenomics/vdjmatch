@@ -16,7 +16,7 @@
 
 package com.antigenomics.vdjdb.db
 
-import com.fasterxml.jackson.annotation.*
+import com.fasterxml.jackson.annotation.JsonIgnore
 
 /**
  * A database entry 
@@ -71,6 +71,6 @@ class Entry {
 
     @Override
     String toString() {
-        "$row.index:$column.name:$value"
+        value
     }
 }
