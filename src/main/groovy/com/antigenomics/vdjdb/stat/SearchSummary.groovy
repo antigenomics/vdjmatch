@@ -88,7 +88,7 @@ class SearchSummary {
     /**
      * List all possible combinations of entry values that correspond to column identifier specified 
      * during class creation. Order and hierarchy is preserved. Unique combinations of all lengths are returned,
-     * e.g. database [[A, B, C], [1, 2, 3], [1, 2, 4], [2, 3, 4]]
+     * e.g. database [[A, B, C], [1, 2, 3], [1, 2, 4], [2, 3, 4], [1, 2, 4], [2, 3, 4]]
      * will result in [[1],[2],[1,2],[2,3],[1,2,3],[2,3,4],[1,2,4]] .
      * @return combinations of entry values for specified hierarchy
      */
@@ -110,8 +110,8 @@ class SearchSummary {
     /**
      * List all possible top-level combinations of entry values that correspond to column identifier specified 
      * during class creation. Order and hierarchy is preserved. Unique combinations are returned,
-     * e.g. database [[A, B, C], [1, 2, 3], [1, 2, 4], [2, 3, 4]]
-     * will result in [[1,2,3],[2,3,4],[1,2,4]] 
+     * e.g. database [[A, B, C], [1, 2, 3], [1, 2, 4], [2, 3, 4], [1, 2, 4], [2, 3, 4]]
+     * will result in [[1,2,3],[1,2,4],[2,3,4]]
      * @return top-level combinations of entry values for specified hierarchy
      */
     List<List<String>> listTopCombinations() {
