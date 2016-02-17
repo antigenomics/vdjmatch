@@ -16,6 +16,8 @@
 
 package com.antigenomics.vdjdb.db
 
+import com.fasterxml.jackson.annotation.*
+
 /**
  * A database entry 
  */
@@ -27,6 +29,7 @@ class Entry {
     /**
      * Parent row 
      */
+    @JsonIgnore
     final Row row
     /**
      * Entry value 

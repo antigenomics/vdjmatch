@@ -25,7 +25,7 @@ import com.antigenomics.vdjdb.sequence.SequenceFilter
 import com.antigenomics.vdjdb.text.TextColumn
 import com.antigenomics.vdjdb.text.TextFilter
 
-class VDJdb {
+class DatabaseAPI {
     protected static final String DEFAULT_DB_RESOURCE_NAME = "vdjdb-db/database/vdjdb.txt",
                                   DEFAULT_META_RESOURCE_NAME = "vdjdb-db/database/vdjdb.meta"
 
