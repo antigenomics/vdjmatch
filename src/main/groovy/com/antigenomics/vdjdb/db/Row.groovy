@@ -17,6 +17,7 @@
 package com.antigenomics.vdjdb.db
 
 import groovy.transform.CompileStatic
+import com.fasterxml.jackson.annotation.*
 
 /**
  * A database row 
@@ -26,6 +27,7 @@ class Row {
     /**
      * Parent database 
      */
+    @JsonIgnore
     final Database parent
     /**
      * Row index 

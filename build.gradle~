@@ -4,7 +4,7 @@ apply plugin: 'application'
 apply plugin: 'maven'
 
 group = 'com.antigenomics'
-version = '1.0.2-SNAPSHOT'
+version = '1.0.1.1'
 
 mainClassName = 'com.antigenomics.vdjdb.Main'
 
@@ -34,6 +34,4 @@ dependencies {
     compile 'commons-cli:commons-cli:1.2'
     compile 'com.milaboratory:milib:1.0'
     compile 'com.antigenomics:vdjtools:1.0.6'
-    compile 'com.fasterxml.jackson.core:jackson-core:2.7.1'
-
 }
