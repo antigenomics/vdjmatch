@@ -16,29 +16,33 @@
 
 package com.antigenomics.vdjdb.api
 
+import com.antigenomics.vdjdb.Util
+import com.antigenomics.vdjdb.VdjdbInstance
 import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import org.junit.Test
 
-import static com.antigenomics.vdjdb.VDJdbAPI.*
 
-class VDJdbApiTest {
+class VdjdbInstanceTest {
+    final VdjdbInstance vdJdbAPI = new VdjdbInstance(Util.resourceAsStream("vdjdb.meta"),
+            Util.resourceAsStream("vdjdb.txt"))
+
     @Test
     void headerTest() {
-        println header.collect { it.name }
-        assert ['cdr3', 'antigen'].every { name -> header.any { Column col -> col.name == name } }
+        println vdJdbAPI.header.collect { it.name }
+        assert ['cdr3', 'antigen'].every { name -> vdJdbAPI.header.any { Column col -> col.name == name } }
     }
 
     @Test
-    void dbCreationTest() {
-        assert !getDatabase().columns.empty
-        assert !getDatabase().rows.empty
+    void filterTest() {
+        assert !vdJdbAPI.filter().columns.empty
+        assert !vdJdbAPI.filter().rows.empty
     }
 
     @Test
     void clonotypeDbTest() {
-        def row = getDatabase().rows[0]
-        assert !asClonotypeDatabase(getDatabase()).search(
+        def row = vdJdbAPI.dbInstance.rows[0]
+        assert !vdJdbAPI.asClonotypeDatabase().search(
                 row[ClonotypeDatabase.V_COL_DEFAULT].value,
                 row[ClonotypeDatabase.J_COL_DEFAULT].value,
                 row[ClonotypeDatabase.CDR3_COL_DEFAULT].value

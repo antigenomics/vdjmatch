@@ -18,13 +18,54 @@
 package com.antigenomics.vdjdb
 
 import com.milaboratory.core.sequence.AminoAcidSequence
+import groovy.json.JsonSlurper
 import groovy.transform.CompileStatic
 
 class Util {
+    static final String HOME_DIR = new File(Util.class.protectionDomain.codeSource.location.path).parent.replaceAll("%20", " ")
+
+    static void checkDatabase(boolean updateIfNewer = false) {
+        def versionFile = new File(HOME_DIR + "/vdjdb.version")
+        
+        if (!versionFile.exists()){
+            System.err.println("[VDJDB-update] No database is present (running for the first time, I assume), downloading it. " +
+                    "NOTE: No automatic update will be performed next time VDJdb is run - use Update command to check for database updates.")
+        }
+
+        if (!versionFile.exists() || updateIfNewer) {
+            System.err.println("[VDJDB-update] Updating database..")
+            
+            def infoUrl = "https://api.github.com/repos/antigenomics/vdjdb-db/releases/latest"
+            def downloadUrl = new JsonSlurper().parseText(new URL(infoUrl).getText())["assets"]["browser_download_url"][0]
+
+            def outFileName = downloadUrl.split("/")[-1]
+            def version = outFileName.split(".zip")[0]
+            
+            if (versionFile.exists() && versionFile.readLines()[-1] == version) {
+                System.err.println("[VDJDB-update] You already have the latest version, $version")
+                return
+            }
+
+            def out = new BufferedOutputStream(new FileOutputStream(outFileName))
+            out << new URL(downloadUrl).openStream()
+            out.close()
+
+            def ant = new AntBuilder()
+
+            ant.unzip(src: outFileName,
+                    dest: HOME_DIR,
+                    overwrite: "true")
+
+            versionFile << version
+
+            System.err.println("[VDJDB-update] Done, you are now using $version")
+        }
+    }
+
     static InputStream resourceAsStream(String resourceName) {
         Util.class.classLoader.getResourceAsStream(resourceName)
     }
-    
+
     static String replaceNonAa(String seq) {
         seq.replaceAll(/[^FLSYCWPHQRIMTNKVADEG]/, "X")
     }
@@ -34,7 +75,7 @@ class Util {
         if (aaSeq.length() > 0 && aaSeq =~ /^[FLSYCWPHQRIMTNKVADEG]+$/)
             return new AminoAcidSequence(aaSeq)
 
-        System.err.println("Error converting '$aaSeq' to amino acid sequences, entry will be skipped from search")
+        //System.err.println("Error converting '$aaSeq' to amino acid sequences, entry will be skipped from search")
         null
     }
 

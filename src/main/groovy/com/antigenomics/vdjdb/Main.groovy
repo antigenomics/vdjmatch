@@ -26,11 +26,15 @@ import com.antigenomics.vdjtools.sample.SampleCollection
 import com.antigenomics.vdjtools.sample.metadata.MetadataTable
 import com.antigenomics.vdjtools.misc.ExecUtil
 
-import static com.antigenomics.vdjdb.Util.resourceAsStream
+if (args.length > 0 && args[0].toLowerCase() == "update") {
+    Util.checkDatabase(true)
+    System.exit(0)
+}
 
 def DEFAULT_PARAMERES = "2,1,1,2"
 def cli = new CliBuilder(usage: "vdjdb [options] " +
-        "[sample1 sample2 sample3 ... if -m is not specified] output_prefix")
+        "[sample1 sample2 sample3 ... if -m is not specified] output_prefix\n" +
+        "Output should be provided in VDJtools format. See VDJtools/Convert utility.")
 cli.h("display help message")
 cli.m(longOpt: "metadata", argName: "filename", args: 1,
         "Metadata file. First and second columns should contain file name and sample id. " +
@@ -93,11 +97,15 @@ println "[${new Date()} $scriptName] Loading database..."
 
 ClonotypeDatabase database
 
-def metaStream = dbPrefix ? new FileInputStream("${dbPrefix}.meta") : resourceAsStream(VDJdb.DEFAULT_META_RESOURCE_NAME),
-    dataStream = dbPrefix ? new FileInputStream("${dbPrefix}.txt") : resourceAsStream(VDJdb.DEFAULT_DB_RESOURCE_NAME)
+if (dbPrefix) {
+    def metaStream = new FileInputStream("${dbPrefix}.meta.txt"),
+        dataStream = new FileInputStream("${dbPrefix}.txt")
 
-database = new ClonotypeDatabase(metaStream, vMatch, jMatch, p[0], p[1], p[2], p[3])
-database.addEntries(dataStream, species, gene)
+    database = new ClonotypeDatabase(metaStream, vMatch, jMatch, p[0], p[1], p[2], p[3])
+    database.addEntries(dataStream, species, gene)
+} else {
+    database = new VdjdbInstance().asClonotypeDatabase(vMatch, jMatch, p[0], p[1], p[2], p[3])
+}
 
 println "[${new Date()} $scriptName] Finished.\n$database"
 
