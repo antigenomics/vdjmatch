@@ -107,9 +107,13 @@ class VdjdbInstance {
     ClonotypeDatabase asClonotypeDatabase(boolean matchV = false, boolean matchJ = false,
                                           int maxMismatches = 2, int maxInsertions = 1,
                                           int maxDeletions = 1, int maxMutations = 2, int depth = -1) {
-        new ClonotypeDatabase(dbInstance.columns, matchV, matchJ,
+        def cdb = new ClonotypeDatabase(dbInstance.columns, matchV, matchJ,
                 maxMismatches, maxInsertions,
                 maxDeletions, maxMutations, depth)
+
+        cdb.addEntries(dbInstance.rows.collect { row -> row.entries.collect { it.value } })
+
+        cdb
     }
 
     /**
@@ -134,8 +138,13 @@ class VdjdbInstance {
     static ClonotypeDatabase asClonotypeDatabase(Database db, boolean matchV = false, boolean matchJ = false,
                                                  int maxMismatches = 2, int maxInsertions = 1,
                                                  int maxDeletions = 1, int maxMutations = 2, int depth = -1) {
-        new ClonotypeDatabase(db.columns, matchV, matchJ,
+        def cdb = new ClonotypeDatabase(db.columns, matchV, matchJ,
                 maxMismatches, maxInsertions,
                 maxDeletions, maxMutations, depth)
+
+
+        cdb.addEntries(db.rows.collect { row -> row.entries.collect { it.value } })
+
+        cdb
     }
 }

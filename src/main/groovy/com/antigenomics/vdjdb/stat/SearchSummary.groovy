@@ -71,9 +71,10 @@ class SearchSummary {
     void append(Collection<Row> rows, double weight) {
         total.update(weight)
         def combinations = rows.collect { row ->
-            if (row.parent != database) {
-                throw new RuntimeException("Rows should come from the same database that was used during initialization")
-            }
+            //TODO
+           // if (row.parent != database) {
+           //     throw new RuntimeException("Rows should come from the same database that was used during initialization")
+           // }
             columnNames.collect { row[it].value }.join("\t")
         }.unique()
 
