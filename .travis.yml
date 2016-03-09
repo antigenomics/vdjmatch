@@ -14,4 +14,4 @@ before_install:
 
 script:
   - java -Xmx4G -jar `ls build/libs/vdjdb-*.jar` -S human -R TRB src/test/resources/sergey_anatolyevich.gz test
-  - if [[ ! -s test.sergey_anatolyevich.annot.txt ]]; then exit -1; fi
+  - if [[ ! -s test.sergey_anatolyevich.annot.txt ]]; then exit 1; fi
