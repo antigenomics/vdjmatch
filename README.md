@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/antigenomics/vdjdb.svg?branch=master)](https://travis-ci.org/antigenomics/vdjdb)
+[![Build Status](https://travis-ci.org/antigenomics/vdjdb-standalone.svg?branch=master)](https://travis-ci.org/antigenomics/vdjdb-standalone)
 
 ## VDJdb: a software for functional annotation of T-cell repertoires
 
