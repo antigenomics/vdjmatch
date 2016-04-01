@@ -24,7 +24,7 @@ class TestUtil {
     static final String ID_COL = "id", SOURCE_COL = "source", PEPTIDE_COL = "antigen.seq"
     
     static Database loadLegacyDb() {
-        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
 

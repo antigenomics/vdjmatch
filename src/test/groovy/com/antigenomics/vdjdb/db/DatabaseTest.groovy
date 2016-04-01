@@ -12,9 +12,9 @@ import static com.antigenomics.vdjdb.impl.ClonotypeDatabase.*
 class DatabaseTest {
     @Test
     public void createTest1() {
-        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
-        assert database.columns.size() == resourceAsStream("vdjdb_legacy.meta").readLines().size() - 1
+        assert database.columns.size() == resourceAsStream("vdjdb_legacy.meta.txt").readLines().size() - 1
     }
 
     @Test
@@ -47,7 +47,7 @@ class DatabaseTest {
 
     @Test
     public void fillTest1() {
-        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
 
@@ -56,7 +56,7 @@ class DatabaseTest {
 
     @Test
     public void fillTest2() {
-        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(
                 [["VDJDB000.3",
@@ -83,7 +83,7 @@ class DatabaseTest {
 
     @Test
     public void fillTest3() {
-        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"), [new ExactTextFilter(SOURCE_COL, "CMV", true)])
 
@@ -93,7 +93,7 @@ class DatabaseTest {
 
     @Test
     public void fillTest4() {
-        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"), "__${SOURCE_COL}__=~/(EBV|influenza)/")
 
@@ -104,7 +104,7 @@ class DatabaseTest {
 
     @Test
     public void fillTest5() {
-        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"),
                 "__${SOURCE_COL}__==\"EBV\" && __${PEPTIDE_COL}__==\"NLVPMVATV\"")

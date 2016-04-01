@@ -24,25 +24,25 @@ import org.junit.Test
 
 
 class VdjdbInstanceTest {
-    final VdjdbInstance vdJdbAPI = new VdjdbInstance(Util.resourceAsStream("vdjdb.meta"),
-            Util.resourceAsStream("vdjdb.txt"))
+    final VdjdbInstance vdjdbInst = new VdjdbInstance(Util.resourceAsStream("vdjdb_new.meta.txt"),
+            Util.resourceAsStream("vdjdb_new.txt"))
 
     @Test
     void headerTest() {
-        println vdJdbAPI.header.collect { it.name }
-        assert ['cdr3', 'antigen'].every { name -> vdJdbAPI.header.any { Column col -> col.name == name } }
+        println vdjdbInst.header.collect { it.name }
+        assert ['cdr3', 'antigen'].every { name -> vdjdbInst.header.any { Column col -> col.name == name } }
     }
 
     @Test
     void filterTest() {
-        assert !vdJdbAPI.filter().columns.empty
-        assert !vdJdbAPI.filter().rows.empty
+        assert !vdjdbInst.filter().columns.empty
+        assert !vdjdbInst.filter().rows.empty
     }
 
     @Test
     void clonotypeDbTest() {
-        def row = vdJdbAPI.dbInstance.rows[0]
-        assert !vdJdbAPI.asClonotypeDatabase().search(
+        def row = vdjdbInst.dbInstance.rows[0]
+        assert !vdjdbInst.asClonotypeDatabase().search(
                 row[ClonotypeDatabase.V_COL_DEFAULT].value,
                 row[ClonotypeDatabase.J_COL_DEFAULT].value,
                 row[ClonotypeDatabase.CDR3_COL_DEFAULT].value

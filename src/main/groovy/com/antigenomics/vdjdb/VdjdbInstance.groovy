@@ -51,6 +51,11 @@ class VdjdbInstance {
         dbInstance.addEntries(entries)
     }
 
+    VdjdbInstance(File metadata, File entries) {
+        this(new FileInputStream(metadata), new FileInputStream(entries))
+    }
+
+
     /**
      * Gets the header of current VDJdb database.
      * @return a list of columns

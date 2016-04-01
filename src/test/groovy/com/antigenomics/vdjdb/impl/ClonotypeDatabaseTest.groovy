@@ -29,14 +29,14 @@ class ClonotypeDatabaseTest {
     
     @Test
     void loadTest() {
-        def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
     }
 
     @Test
     void sampleTest() {
-        def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
 

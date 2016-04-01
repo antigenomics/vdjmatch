@@ -29,7 +29,7 @@ import static com.antigenomics.vdjdb.Util.resourceAsStream
 class ClonotypeSearchSummaryTest {
     @Test
     void test1() {
-        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
 
@@ -40,7 +40,7 @@ class ClonotypeSearchSummaryTest {
 
     @Test
     void listCombinationsTest() {
-        def database = new Database(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
 
@@ -51,7 +51,7 @@ class ClonotypeSearchSummaryTest {
 
     @Test
     void test() {
-        def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta"))
+        def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
 
