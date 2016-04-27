@@ -105,8 +105,8 @@ class Database {
                 def columnMetadata = (Map<String, String>) metadataField2Index.collectEntries {
                     [(it.key): splitLine[it.value]]
                 }
-                columnMetadata.remove(NAME_COL)
-                columnMetadata.remove(TYPE_COL)
+                //columnMetadata.remove(NAME_COL)
+                //columnMetadata.remove(TYPE_COL)
                 def column = type == SEQ_TYPE_METADATA_ENTRY ?
                         new SequenceColumn(name, columnMetadata) : new TextColumn(name, columnMetadata)
                 columnId2Index.put(name, columns.size())

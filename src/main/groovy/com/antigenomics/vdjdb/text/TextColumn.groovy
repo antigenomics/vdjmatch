@@ -18,6 +18,7 @@ package com.antigenomics.vdjdb.text
 
 import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Entry
+import com.fasterxml.jackson.annotation.JsonIgnore
 
 /**
  * A column holding plain-text values, this column is hashed, filters are applied on-the-fly 
@@ -38,6 +39,7 @@ class TextColumn extends Column {
      * Gets the set of all possible values in the column 
      * @return a set of unique values in the column
      */
+    @JsonIgnore
     Set<String> getValues() {
         map.keySet()
     }

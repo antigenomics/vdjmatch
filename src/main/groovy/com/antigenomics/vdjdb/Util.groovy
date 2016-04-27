@@ -24,7 +24,7 @@ import groovy.transform.CompileStatic
 class Util {
     static final String HOME_DIR = new File(Util.class.protectionDomain.codeSource.location.path).parent.replaceAll("%20", " ")
 
-    static void checkDatabase(boolean updateIfNewer = false) {
+    static boolean checkDatabase(boolean updateIfNewer = false) {
         def versionFile = new File(HOME_DIR + "/vdjdb.version")
         
         if (!versionFile.exists()){
@@ -43,7 +43,7 @@ class Util {
             
             if (versionFile.exists() && versionFile.readLines()[-1] == version) {
                 System.err.println("[VDJDB-update] You already have the latest version, $version")
-                return
+                return false
             }
 
             def out = new BufferedOutputStream(new FileOutputStream(outFileName))
@@ -59,7 +59,10 @@ class Util {
             versionFile << version
 
             System.err.println("[VDJDB-update] Done, you are now using $version")
+            return true
         }
+
+        return false
     }
 
     static InputStream resourceAsStream(String resourceName) {
