@@ -30,7 +30,9 @@ class VdjdbInstanceTest {
     @Test
     void headerTest() {
         println vdjdbInst.header.collect { it.name }
-        assert ['cdr3', 'antigen'].every { name -> vdjdbInst.header.any { Column col -> col.name == name } }
+        assert ['cdr3', 'antigen.epitope', 'antigen.gene', 'antigen.species'].every {
+            name -> vdjdbInst.header.any { Column col -> col.name == name }
+        }
     }
 
     @Test
