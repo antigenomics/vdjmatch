@@ -40,6 +40,6 @@ class LevelFilter extends TextFilter {
 
     @Override
     protected boolean passInner(Entry entry) {
-        entry.value.isDouble() ? (negative ^ (value >= entry.value.toDouble())) : negative
+        entry.value.isDouble() ? (negative ^ (value <= entry.value.toDouble())) : negative
     }
 }
