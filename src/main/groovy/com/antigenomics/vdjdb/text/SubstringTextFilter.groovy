@@ -30,11 +30,11 @@ class SubstringTextFilter extends TextFilter {
      * @param negative invert filter
      */
     SubstringTextFilter(String columnId, String value, boolean negative) {
-        super(columnId, value, negative)
+        super(columnId, value.toLowerCase(), negative)
     }
 
     @Override
     protected boolean passInner(Entry entry) {
-        entry.value.contains(value)
+        entry.value.contains(value.toLowerCase())
     }
 }

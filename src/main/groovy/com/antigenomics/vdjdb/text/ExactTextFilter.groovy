@@ -34,6 +34,6 @@ class ExactTextFilter extends TextFilter {
 
     @Override
     protected boolean passInner(Entry entry) {
-        entry.value == value
+        entry.value.equalsIgnoreCase(value)
     }
 }
