@@ -124,7 +124,7 @@ class VdjdbInstance {
                                           int maxDeletions = 1, int maxMutations = 2,
                                           String species = null, String gene = null,
                                           int scoreThreshold = -1) {
-        def cdb = new ClonotypeDatabase(dbInstance.columns, matchV, matchJ,
+        def cdb = new ClonotypeDatabase(header, matchV, matchJ,
                 maxMismatches, maxInsertions,
                 maxDeletions, maxMutations, -1)
 
