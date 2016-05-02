@@ -54,7 +54,7 @@ class Util {
                     dest: HOME_DIR,
                     overwrite: "true")
 
-            System.err.println("[VDJDB-update] Done, you are now using ${latestVersion.split("/")[-2]}")
+            System.err.println("[VDJDB-update] Done, you are now using VDJDB-V${latestVersion.split("/")[-2]}")
 
             return true
         }
