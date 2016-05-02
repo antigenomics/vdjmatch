@@ -17,13 +17,9 @@
 
 package com.antigenomics.vdjdb.db
 
-import groovy.transform.PackageScope
-
-
 /**
  * *INTERNAL* A filter that evaluates an expression for each row
  */
-@PackageScope
 class ExpressionFilterBatch implements FilterBatch {
     final static String FILTER_MARK = "__"
 
