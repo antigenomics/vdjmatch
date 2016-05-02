@@ -18,47 +18,44 @@
 package com.antigenomics.vdjdb
 
 import com.milaboratory.core.sequence.AminoAcidSequence
-import groovy.json.JsonSlurper
 import groovy.transform.CompileStatic
 
 class Util {
-    static final String HOME_DIR = new File(Util.class.protectionDomain.codeSource.location.path).parent.replaceAll("%20", " ")
+    static
+    final String HOME_DIR = new File(Util.class.protectionDomain.codeSource.location.path).parent.replaceAll("%20", " ")
 
     static boolean checkDatabase(boolean updateIfNewer = false) {
-        def versionFile = new File(HOME_DIR + "/vdjdb.version")
-        
-        if (!versionFile.exists()){
+        def version
+
+        def versionFile = new File(HOME_DIR + "/latest-version.txt")
+        if (!versionFile.exists()) {
             System.err.println("[VDJDB-update] No database is present (running for the first time, I assume), downloading it. " +
                     "NOTE: No automatic update will be performed next time VDJdb is run - use Update command to check for database updates.")
+            version = ""
+        } else {
+            version = versionFile.readLines()[0]
         }
 
         if (!versionFile.exists() || updateIfNewer) {
-            System.err.println("[VDJDB-update] Updating database..")
-            
-            def infoUrl = "https://api.github.com/repos/antigenomics/vdjdb-db/releases/latest"
-            def downloadUrl = new JsonSlurper().parseText(new URL(infoUrl).getText())["assets"]["browser_download_url"][0]
+            def latestVersion = new URL("https://raw.githubusercontent.com/antigenomics/vdjdb-db/master/latest-version.txt").openStream().readLines()[0]
 
-            def outFileName = downloadUrl.split("/")[-1]
-            def version = outFileName.split(".zip")[0]
-            
-            if (versionFile.exists() && versionFile.readLines()[-1] == version) {
-                System.err.println("[VDJDB-update] You already have the latest version, $version")
-                return false
+            if (version != latestVersion) {
+                versionFile << latestVersion
             }
 
-            def out = new BufferedOutputStream(new FileOutputStream(outFileName))
-            out << new URL(downloadUrl).openStream()
+            def dbZip = new File(HOME_DIR + "/vdjdb.zip")
+            def out = new BufferedOutputStream(new FileOutputStream(dbZip))
+            out << new URL(latestVersion).openStream()
             out.close()
 
             def ant = new AntBuilder()
 
-            ant.unzip(src: outFileName,
+            ant.unzip(src: dbZip.absolutePath,
                     dest: HOME_DIR,
                     overwrite: "true")
 
-            versionFile << version
+            System.err.println("[VDJDB-update] Done, you are now using ${latestVersion.split("/")[-2]}")
 
-            System.err.println("[VDJDB-update] Done, you are now using $version")
             return true
         }
 
