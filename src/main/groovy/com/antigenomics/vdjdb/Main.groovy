@@ -17,7 +17,6 @@
 
 package com.antigenomics.vdjdb
 
-import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjdb.stat.ClonotypeSearchSearchSummary
 import com.antigenomics.vdjdb.stat.Counter
 import com.antigenomics.vdjtools.io.SampleWriter
@@ -31,7 +30,7 @@ if (args.length > 0 && args[0].toLowerCase() == "update") {
     System.exit(0)
 }
 
-def DEFAULT_PARAMERES = "2,1,1,2"
+def DEFAULT_PARAMERES = "2,1,1,2", DEFAULT_CONFIDENCE_THRESHOLD = "2"
 def cli = new CliBuilder(usage: "vdjdb [options] " +
         "[sample1 sample2 sample3 ... if -m is not specified] output_prefix\n" +
         "Output should be provided in VDJtools format. See VDJtools/Convert utility.")
@@ -46,12 +45,14 @@ cli._(longOpt: "search-params", argName: "s,i,d,t", args: 1,
 cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an external database.")
 cli._(longOpt: "summary", argName: "col1,col2,...", args: 1,
         "Table columns for summarizing, e.g. origin,disease.type,disease,source for default database.")
-//cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
-//        "Logical filter evaluated for database columns. Supports Regex, .contains(), .startsWith(), etc.")
+cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
+        "Logical filter evaluated for database columns. Supports Regex, .contains(), .startsWith(), etc.")
 cli.S(longOpt: "species", argName: "name", args: 1, required: true,
         "Species of input sample(s), e.g. human, mouse, etc.")
 cli.R(longOpt: "gene", argName: "name", args: 1, required: true,
         "Receptor gene of input sample(s), e.g. TRA, TRB, etc.")
+cli._("vdjdb-conf-threshold", argName: "[0,7]", args: 1,
+        "VDJdb confidence level threshold, [default=$DEFAULT_CONFIDENCE_THRESHOLD]")
 cli.v(longOpt: "v-match", "Require V segment matching.")
 cli.j(longOpt: "j-match", "Require J segment matching.")
 cli.c("Compressed output")
@@ -88,24 +89,32 @@ def dbPrefix = (String) (opt.'database' ?: null),
     compress = (boolean) opt.c,
     vMatch = (boolean) opt."v-match", jMatch = (boolean) opt."j-match",
     species = (String) opt.S, gene = (String) opt.R,
-//filter = opt.'filter' ?: null,
+    q = (opt.'vdjdb-conf-threshold' ?: DEFAULT_CONFIDENCE_THRESHOLD).toInteger(),
+    filter = (String) opt.'filter' ,
     outputPrefix = opt.arguments()[-1]
 
 def scriptName = getClass().canonicalName.split("\\.")[-1]
 
 println "[${new Date()} $scriptName] Loading database..."
 
-ClonotypeDatabase database
+// Either load db from specified path, or use built-in database
+
+def database
 
 if (dbPrefix) {
     def metaStream = new FileInputStream("${dbPrefix}.meta.txt"),
         dataStream = new FileInputStream("${dbPrefix}.txt")
-
-    database = new ClonotypeDatabase(metaStream, vMatch, jMatch, p[0], p[1], p[2], p[3])
-    database.addEntries(dataStream, species, gene)
+    database = new VdjdbInstance(metaStream, dataStream)
 } else {
-    database = new VdjdbInstance().asClonotypeDatabase(vMatch, jMatch, p[0], p[1], p[2], p[3])
+    database = new VdjdbInstance()
 }
+
+// Expression filtering if specified
+if (filter) {
+    database = database.filter(filter)
+}
+
+database = database.asClonotypeDatabase(vMatch, jMatch, p[0], p[1], p[2], p[3], species, gene, q)
 
 println "[${new Date()} $scriptName] Finished.\n$database"
 

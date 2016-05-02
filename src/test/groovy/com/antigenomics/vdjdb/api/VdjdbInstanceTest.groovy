@@ -37,8 +37,8 @@ class VdjdbInstanceTest {
 
     @Test
     void filterTest() {
-        assert !vdjdbInst.filter().columns.empty
-        assert !vdjdbInst.filter().rows.empty
+        assert !vdjdbInst.filter().dbInstance.columns.empty
+        assert !vdjdbInst.filter().dbInstance.rows.empty
     }
 
     @Test
