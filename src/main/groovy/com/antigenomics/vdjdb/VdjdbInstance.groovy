@@ -20,7 +20,6 @@ package com.antigenomics.vdjdb
 import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Database
 import com.antigenomics.vdjdb.db.ExpressionFilterBatch
-import com.antigenomics.vdjdb.db.FilterBatch
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjdb.sequence.SequenceColumn
 import com.antigenomics.vdjdb.sequence.SequenceFilter
@@ -39,7 +38,7 @@ import com.antigenomics.vdjdb.text.TextFilter
  * @see <a href="https://github.com/antigenomics/vdjdb-db">vdjdb-db repository</a>
  */
 class VdjdbInstance {
-    static final String SCORE_COLUMN_DEFAULT = "score"
+    static final String SCORE_COLUMN_DEFAULT = "vdjdb.score"
 
     final Database dbInstance
 
