@@ -31,8 +31,8 @@ if (args.length > 0 && args[0].toLowerCase() == "update") {
 }
 
 def DEFAULT_PARAMETERS = "2,1,1,2", DEFAULT_CONFIDENCE_THRESHOLD = "2",
-        ALLOWED_SPECIES =["homosapiens", "musmusculus", "rattusnorvegicus", "macacamulatta"],
-        ALLOWED_GENES = ["TRA", "TRB"]
+    ALLOWED_SPECIES_ALIAS = ["human": "homosapiens", "mouse": "musmusculus", "rat": "rattusnorvegicus", "monkey": "macacamulatta"],
+    ALLOWED_GENES = ["TRA", "TRB"]
 def cli = new CliBuilder(usage: "vdjdb [options] " +
         "[sample1 sample2 sample3 ... if -m is not specified] output_prefix\n" +
         "Output should be provided in VDJtools format. See VDJtools/Convert utility.")
@@ -50,7 +50,7 @@ cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an ex
 cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
         "Logical filter evaluated for database columns. Supports Regex, .contains(), .startsWith(), etc.")
 cli.S(longOpt: "species", argName: "name", args: 1, required: true,
-        "Species of input sample(s), allowed values: $ALLOWED_SPECIES.")
+        "Species of input sample(s), allowed values: ${ALLOWED_SPECIES_ALIAS.keySet()}.")
 cli.R(longOpt: "gene", argName: "name", args: 1, required: true,
         "Receptor gene of input sample(s), allowed values: $ALLOWED_GENES.")
 cli._(longOpt: "vdjdb-conf-threshold", argName: "[0,7]", args: 1,
@@ -95,11 +95,15 @@ def dbPrefix = (String) (opt.'database' ?: null),
     filterStr = opt.'filter',
     outputPrefix = opt.arguments()[-1]
 
-if (!ALLOWED_SPECIES.any {species.equalsIgnoreCase(it)}){
-    println "Wrong species name, use one of $ALLOWED_SPECIES (case-insensitive)"
+def allowedSpecies = [ALLOWED_SPECIES_ALIAS.keySet(), ALLOWED_SPECIES_ALIAS.values()].flatten()
+if (!allowedSpecies.any { species.equalsIgnoreCase(it) }) {
+    println "Wrong species name, use one of ${allowedSpecies} (case-insensitive)"
     System.exit(1)
 }
-if (!ALLOWED_GENES.any {gene.equalsIgnoreCase(it)}){
+
+species = ALLOWED_SPECIES_ALIAS[species.toLowerCase()] ?: species
+
+if (!ALLOWED_GENES.any { gene.equalsIgnoreCase(it) }) {
     println "Wrong gene name, use one of $ALLOWED_GENES (case-insensitive)"
     System.exit(1)
 }
