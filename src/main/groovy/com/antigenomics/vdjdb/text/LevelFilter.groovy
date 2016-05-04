@@ -19,7 +19,8 @@ package com.antigenomics.vdjdb.text
 import com.antigenomics.vdjdb.db.Entry
 
 /**
- * A filter for plain-text columns containing numeric values
+ * A filter for plain-text columns containing numeric values. The filter passes if the value is greater than the
+ * threshold. Non-numeric values fail filter by default.
  */
 class LevelFilter extends TextFilter {
     private double value
@@ -40,6 +41,6 @@ class LevelFilter extends TextFilter {
 
     @Override
     protected boolean passInner(Entry entry) {
-        entry.value.isDouble() ? (negative ^ (value <= entry.value.toDouble())) : negative
+        entry.value.isDouble() ? value <= entry.value.toDouble() : false
     }
 }

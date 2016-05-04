@@ -57,7 +57,7 @@ abstract class TextFilter implements Filter {
      * @return true if entry passes the filter, false otherwise
      */
     boolean pass(Entry entry) {
-        negative ^ passInner(entry)
+        negative ? !passInner(entry) : passInner(entry)
     }
 
     @Override
