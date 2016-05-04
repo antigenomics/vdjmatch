@@ -42,8 +42,8 @@ class VdjdbInstance {
 
     final Database dbInstance
 
-    VdjdbInstance() {
-        this(checkDbAndGetMetadata(), new FileInputStream(Util.HOME_DIR + "/vdjdb.txt"))
+    VdjdbInstance(boolean useFatDb = true) {
+        this(checkDbAndGetMetadata(), new FileInputStream(Util.HOME_DIR + useFatDb ? "/vdjdb.txt" : "/vdjdb.slim.txt"))
     }
 
     VdjdbInstance(Database dbInstance) {

@@ -44,7 +44,10 @@ cli._(longOpt: "search-params", argName: "s,i,d,t", args: 1,
         "CDR3 sequence search parameters: " +
                 "allowed number of substitutions (s), insertions (i), deletions (d) and total number of mutations. " +
                 "[default=$DEFAULT_PARAMETERS]")
-cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an external database.")
+cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an external database. " +
+        "The prefix should point to a '.txt' file (database itself) and '.meta.txt' (database column metadata).")
+cli._(longOpt: "use-fat-db", "Use a more redundant database version, with extra fields (meta, method, etc). " +
+        "Fat database can contain several records for a TCR:pMHC pair corresponding to different replicates/tissue sources/targets.")
 //cli._(longOpt: "summary", argName: "col1,col2,...", args: 1,
 //        "Table columns for summarizing, e.g. origin,disease.type,disease,source for default database.")
 cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
@@ -93,6 +96,7 @@ def dbPrefix = (String) (opt.'database' ?: null),
     species = (String) opt.S, gene = (String) opt.R,
     q = (opt.'vdjdb-conf-threshold' ?: DEFAULT_CONFIDENCE_THRESHOLD).toInteger(),
     filterStr = opt.'filter',
+    useFatDb = (boolean) opt.'use-fat-db',
     outputPrefix = opt.arguments()[-1]
 
 def allowedSpecies = [ALLOWED_SPECIES_ALIAS.keySet(), ALLOWED_SPECIES_ALIAS.values()].flatten()
@@ -121,7 +125,7 @@ if (dbPrefix) {
         dataStream = new FileInputStream("${dbPrefix}.txt")
     database = new VdjdbInstance(metaStream, dataStream)
 } else {
-    database = new VdjdbInstance()
+    database = new VdjdbInstance(useFatDb)
 }
 
 println "[${new Date()} $scriptName] Loaded database. \n${database.dbInstance}"
