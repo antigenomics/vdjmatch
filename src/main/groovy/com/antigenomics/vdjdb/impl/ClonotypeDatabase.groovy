@@ -21,6 +21,7 @@ import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Database
 import com.antigenomics.vdjdb.sequence.SequenceColumn
 import com.antigenomics.vdjdb.sequence.SequenceFilter
+import com.antigenomics.vdjdb.text.ExactSetTextFilter
 import com.antigenomics.vdjdb.text.ExactTextFilter
 import com.antigenomics.vdjdb.text.TextColumn
 import com.antigenomics.vdjdb.text.TextFilter
@@ -180,10 +181,10 @@ class ClonotypeDatabase extends Database {
         def filters = new ArrayList<TextFilter>()
 
         if (matchV) {
-            filters.add(new ExactTextFilter(vColName, Util.simplifySegmentName(v), false))
+            filters.add(new ExactSetTextFilter(vColName, Util.simplifySegmentName(v), false))
         }
         if (matchJ) {
-            filters.add(new ExactTextFilter(jColName, Util.simplifySegmentName(j), false))
+            filters.add(new ExactSetTextFilter(jColName, Util.simplifySegmentName(j), false))
         }
 
         def results = search(filters,
