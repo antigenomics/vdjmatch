@@ -75,7 +75,8 @@ class Util {
         if (aaSeq.length() > 0 && aaSeq =~ /^[FLSYCWPHQRIMTNKVADEG]+$/)
             return new AminoAcidSequence(aaSeq)
 
-        throw new RuntimeException("Error converting '$aaSeq' to amino acid sequences, entry will be skipped from search")
+        System.err.println("Error converting '$aaSeq' to amino acid sequences, entry will be skipped from search")
+        return null
     }
 
     @CompileStatic
