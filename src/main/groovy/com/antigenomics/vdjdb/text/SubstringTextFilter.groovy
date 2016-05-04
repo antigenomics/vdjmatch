@@ -35,6 +35,6 @@ class SubstringTextFilter extends TextFilter {
 
     @Override
     protected boolean passInner(Entry entry) {
-        entry.value.contains(value.toLowerCase())
+        entry.value.toLowerCase().contains(value)
     }
 }
