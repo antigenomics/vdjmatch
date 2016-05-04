@@ -75,13 +75,7 @@ class Util {
         if (aaSeq.length() > 0 && aaSeq =~ /^[FLSYCWPHQRIMTNKVADEG]+$/)
             return new AminoAcidSequence(aaSeq)
 
-        //System.err.println("Error converting '$aaSeq' to amino acid sequences, entry will be skipped from search")
-        null
-    }
-
-    static String simplifySegmentName(String segmentName) {
-        segmentName = segmentName.split(",")[0] // take best match
-        segmentName.split("\\*")[0] // trim allele if present
+        throw new RuntimeException("Error converting '$aaSeq' to amino acid sequences, entry will be skipped from search")
     }
 
     @CompileStatic

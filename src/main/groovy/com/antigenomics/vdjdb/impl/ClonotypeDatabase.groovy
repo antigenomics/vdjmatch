@@ -16,13 +16,12 @@
 
 package com.antigenomics.vdjdb.impl
 
-import com.antigenomics.vdjdb.Util
 import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Database
 import com.antigenomics.vdjdb.sequence.SequenceColumn
 import com.antigenomics.vdjdb.sequence.SequenceFilter
-import com.antigenomics.vdjdb.text.ExactSetTextFilter
 import com.antigenomics.vdjdb.text.ExactTextFilter
+import com.antigenomics.vdjdb.text.SegmentFilter
 import com.antigenomics.vdjdb.text.TextColumn
 import com.antigenomics.vdjdb.text.TextFilter
 import com.antigenomics.vdjtools.misc.ExecUtil
@@ -181,10 +180,10 @@ class ClonotypeDatabase extends Database {
         def filters = new ArrayList<TextFilter>()
 
         if (matchV) {
-            filters.add(new ExactSetTextFilter(vColName, Util.simplifySegmentName(v), false))
+            filters.add(new SegmentFilter(vColName, v))
         }
         if (matchJ) {
-            filters.add(new ExactSetTextFilter(jColName, Util.simplifySegmentName(j), false))
+            filters.add(new SegmentFilter(jColName, j))
         }
 
         def results = search(filters,
