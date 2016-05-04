@@ -43,7 +43,7 @@ class VdjdbInstance {
     final Database dbInstance
 
     VdjdbInstance(boolean useFatDb = true) {
-        this(checkDbAndGetMetadata(),
+        this(checkDbAndGetMetadata(useFatDb),
                 new FileInputStream(Util.HOME_DIR + (useFatDb ? "/vdjdb.txt" : "/vdjdb.slim.txt")))
     }
 
@@ -51,9 +51,9 @@ class VdjdbInstance {
         this.dbInstance = dbInstance
     }
 
-    private static InputStream checkDbAndGetMetadata() {
+    private static InputStream checkDbAndGetMetadata(boolean useFatDb) {
         Util.checkDatabase()
-        new FileInputStream(Util.HOME_DIR + "/vdjdb.meta.txt")
+        new FileInputStream(Util.HOME_DIR + (useFatDb ? "/vdjdb.meta.txt" : "/vdjdb.slim.meta.txt"))
     }
 
     VdjdbInstance(InputStream metadata, InputStream entries) {
@@ -131,10 +131,10 @@ class VdjdbInstance {
 
         def filters = []
 
-        if (species){
+        if (species) {
             filters << new ExactTextFilter(cdb.speciesColName, species, false)
         }
-        if (gene){
+        if (gene) {
             filters << new ExactTextFilter(cdb.geneColName, gene, false)
         }
         if (scoreThreshold > 0) {
