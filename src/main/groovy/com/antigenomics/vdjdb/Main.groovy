@@ -188,10 +188,12 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "stats")).withPrintWrite
 
             def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId, "annot"))
 
-            writer.println(sw.header + "\tpenalty\t" + database.header)
-            results.each { result ->
+            writer.println(sw.header + "\tindex\tpenalty\t" + database.header)
+            int index = 0
+            results.sort { -it.key.count }.each { result ->
                 result.value.each {
                     writer.println(sw.getClonotypeString(result.key) + "\t" +
+                            (++index) + "\t" +
                             it.result.penalty + "\t" + it.row.toString())
                 }
             }
