@@ -37,7 +37,7 @@ def DEFAULT_PARAMETERS = "2,1,1,2", DEFAULT_CONFIDENCE_THRESHOLD = "2",
 
 def cli = new CliBuilder(usage: "vdjdb [options] " +
         "[sample1 sample2 sample3 ... if -m is not specified] output_prefix\n" +
-        "Output should be provided in VDJtools format. See VDJtools/Convert utility.")
+        "Input samples should be provided in VDJtools format. See VDJtools/Convert utility.")
 cli.h("display help message")
 cli.m(longOpt: "metadata", argName: "filename", args: 1,
         "Metadata file. First and second columns should contain file name and sample id. " +
