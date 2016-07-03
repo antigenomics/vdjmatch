@@ -67,6 +67,8 @@ class SequenceColumn extends Column {
         def ni = stm.getNeighborhoodIterator(filter.query,
                 filter.treeSearchParameters)
 
+        def scoring = filter.alignmentScoring
+
         // This hack excludes duplicates like
         //
         //   KLFF     KLFF     ...
@@ -81,7 +83,10 @@ class SequenceColumn extends Column {
                 def seq = entries[0].value
                 if (!prevCdr.contains(seq)) {
                     entries.each { entry ->
-                        results.put(entry.row, new SequenceSearchResult(ni.currentAlignment, ni.penalty))
+                        def score = scoring.computeScore(ni.currentAlignment)
+                        if (score >= scoring.scoreThreshold) {
+                            results.put(entry.row, new SequenceSearchResult(ni.currentAlignment, score))
+                        }
                     }
                     prevCdr.add(seq)
                 }

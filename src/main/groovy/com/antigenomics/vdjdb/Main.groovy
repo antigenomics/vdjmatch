@@ -31,8 +31,10 @@ if (args.length > 0 && args[0].toLowerCase() == "update") {
 }
 
 def DEFAULT_PARAMETERS = "2,1,1,2", DEFAULT_CONFIDENCE_THRESHOLD = "2",
-    ALLOWED_SPECIES_ALIAS = ["human": "homosapiens", "mouse": "musmusculus", "rat": "rattusnorvegicus", "monkey": "macacamulatta"],
+    ALLOWED_SPECIES_ALIAS = ["human": "homosapiens", "mouse": "musmusculus",
+                             "rat": "rattusnorvegicus", "monkey": "macacamulatta"],
     ALLOWED_GENES = ["TRA", "TRB"]
+
 def cli = new CliBuilder(usage: "vdjdb [options] " +
         "[sample1 sample2 sample3 ... if -m is not specified] output_prefix\n" +
         "Output should be provided in VDJtools format. See VDJtools/Convert utility.")
