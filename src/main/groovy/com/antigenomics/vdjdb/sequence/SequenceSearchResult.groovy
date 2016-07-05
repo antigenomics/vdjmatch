@@ -24,21 +24,21 @@ import com.milaboratory.core.sequence.AminoAcidSequence
  */
 class SequenceSearchResult {
     /**
-     * Amino acid sequence alignment
+     * Amino acid sequence alignment, computed using sequence tree
      */
     final Alignment alignment
     /**
-     * Penalty as computed by the alignment algorithm 
+     * Score as reported by the scoring algorithm
      */
-    final double penalty
+    final double score
 
     /**
      * Creates a new amino acid sequence alignment result
-     * @param alignment amino acid sequence alignment
-     * @param penalty penalty reported by the aligner
+     * @param alignment amino acid sequence alignment, computed using sequence tree
+     * @param score score as reported by the scoring algorithm
      */
-    SequenceSearchResult(Alignment<AminoAcidSequence> alignment, double penalty) {
+    SequenceSearchResult(Alignment<AminoAcidSequence> alignment, double score) {
         this.alignment = alignment
-        this.penalty = penalty
+        this.score = score
     }
 }

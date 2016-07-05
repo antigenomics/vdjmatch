@@ -190,13 +190,13 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "stats")).withPrintWrite
 
             def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId, "annot"))
 
-            writer.println(sw.header + "\tindex\tpenalty\t" + database.header)
-            int index = 0
+            writer.println(sw.header + "\tsample_id\tscore\t" + database.header)
+
             results.sort { -it.key.count }.each { result ->
                 result.value.each {
                     writer.println(sw.getClonotypeString(result.key) + "\t" +
-                            (++index) + "\t" +
-                            it.result.penalty + "\t" + it.row.toString())
+                            it.result.id + "\t" +
+                            it.result.score + "\t" + it.row.toString())
                 }
             }
 
@@ -219,7 +219,8 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "stats")).withPrintWrite
 
                 pwStats.println([
                         prefix1, counterType,
-                        [summary.notFound, summary.foundOnce, summary.foundTwiceAndMore].collect { Counter it -> it."${counterType}Count" }
+                        [summary.notFound, summary.foundOnce,
+                         summary.foundTwiceAndMore].collect { Counter it -> it."${counterType}Count" }
                 ].flatten().join("\t"))
             }
 

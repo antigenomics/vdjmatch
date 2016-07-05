@@ -32,19 +32,25 @@ class ClonotypeSearchResult implements Comparable<ClonotypeSearchResult>, Search
      * Database row that was found
      */
     final Row row
+    /**
+     * Clonotype id (order in sample), if specified, -1 otherwise
+     */
+    final int id
 
     /**
      * Creates a new clonotype search result
      * @param result CDR3 sequence alignment result
      * @param row database row
+     * @param id clonotype id in sample
      */
-    ClonotypeSearchResult(SequenceSearchResult result, Row row) {
+    ClonotypeSearchResult(SequenceSearchResult result, Row row, int id) {
         this.result = result
         this.row = row
+        this.id = id
     }
 
     @Override
     int compareTo(ClonotypeSearchResult o) {
-        -result.penalty.compareTo(o.result.penalty)
+        -Double.compare(result.score, o.result.score)
     }
 }

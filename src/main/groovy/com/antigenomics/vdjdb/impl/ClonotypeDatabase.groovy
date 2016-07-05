@@ -153,8 +153,8 @@ class ClonotypeDatabase extends Database {
      * @return clonotype search result
      */
     @CompileStatic
-    List<ClonotypeSearchResult> search(Clonotype clonotype) {
-        search(clonotype.v, clonotype.j, clonotype.cdr3aaBinary)
+    List<ClonotypeSearchResult> search(Clonotype clonotype, int id = -1) {
+        search(clonotype.v, clonotype.j, clonotype.cdr3aaBinary, id)
     }
     /**
      * Searches a database for a given clonotype 
@@ -164,8 +164,8 @@ class ClonotypeDatabase extends Database {
      * @return clonotype search result
      */
     @CompileStatic
-    List<ClonotypeSearchResult> search(String v, String j, String cdr3aa) {
-        search(v, j, new AminoAcidSequence(cdr3aa))
+    List<ClonotypeSearchResult> search(String v, String j, String cdr3aa, int id = -1) {
+        search(v, j, new AminoAcidSequence(cdr3aa), id)
     }
 
     /**
@@ -176,7 +176,7 @@ class ClonotypeDatabase extends Database {
      * @return clonotype search result
      */
     @CompileStatic
-    List<ClonotypeSearchResult> search(String v, String j, AminoAcidSequence cdr3aa) {
+    List<ClonotypeSearchResult> search(String v, String j, AminoAcidSequence cdr3aa, int id = -1) {
         def filters = new ArrayList<TextFilter>()
 
         if (matchV) {
@@ -190,7 +190,7 @@ class ClonotypeDatabase extends Database {
                 [new SequenceFilter(cdr3ColName, cdr3aa, treeSearchParameters, depth)])
 
         results.collect {
-            new ClonotypeSearchResult(it.sequenceSearchResults[0], it.row)
+            new ClonotypeSearchResult(it.sequenceSearchResults[0], it.row, id)
         }.sort()
     }
 
@@ -202,8 +202,8 @@ class ClonotypeDatabase extends Database {
     Map<Clonotype, List<ClonotypeSearchResult>> search(Sample sample) {
         def results = new ConcurrentHashMap<Clonotype, List<ClonotypeSearchResult>>()
         GParsPool.withPool ExecUtil.THREADS, {
-            sample.eachParallel { Clonotype clonotype ->
-                def result = search(clonotype)
+            sample.eachWithIndexParallel { Clonotype clonotype, int id ->
+                def result = search(clonotype, id)
                 if (!result.empty) {
                     results.put(clonotype, result)
                 }
