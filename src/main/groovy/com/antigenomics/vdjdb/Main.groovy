@@ -19,6 +19,7 @@ package com.antigenomics.vdjdb
 
 import com.antigenomics.vdjdb.stat.ClonotypeSearchSearchSummary
 import com.antigenomics.vdjdb.stat.Counter
+import com.antigenomics.vdjtools.Software
 import com.antigenomics.vdjtools.io.SampleWriter
 import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.sample.SampleCollection
@@ -32,7 +33,7 @@ if (args.length > 0 && args[0].toLowerCase() == "update") {
 
 def DEFAULT_PARAMETERS = "2,1,1,2", DEFAULT_CONFIDENCE_THRESHOLD = "2",
     ALLOWED_SPECIES_ALIAS = ["human": "homosapiens", "mouse": "musmusculus",
-                             "rat": "rattusnorvegicus", "monkey": "macacamulatta"],
+                             "rat"  : "rattusnorvegicus", "monkey": "macacamulatta"],
     ALLOWED_GENES = ["TRA", "TRB"]
 
 def cli = new CliBuilder(usage: "vdjdb [options] " +
@@ -56,6 +57,8 @@ cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
         "Logical filter evaluated for database columns. Supports Regex, .contains(), .startsWith(), etc.")
 cli.S(longOpt: "species", argName: "name", args: 1, required: true,
         "Species of input sample(s), allowed values: ${ALLOWED_SPECIES_ALIAS.keySet()}.")
+cli._(longOpt: "software", argName: "string", required: true, args: 1,
+        "Input RepSeq data format. Currently supported: ${Software.values().join(", ")}. Default is VDJtools format.")
 cli.R(longOpt: "gene", argName: "name", args: 1, required: true,
         "Receptor gene of input sample(s), allowed values: $ALLOWED_GENES.")
 cli._(longOpt: "vdjdb-conf-threshold", argName: "[0,7]", args: 1,
@@ -99,7 +102,8 @@ def dbPrefix = (String) (opt.'database' ?: null),
     q = (opt.'vdjdb-conf-threshold' ?: DEFAULT_CONFIDENCE_THRESHOLD).toInteger(),
     filterStr = opt.'filter',
     useFatDb = (boolean) opt.'use-fat-db',
-    outputPrefix = opt.arguments()[-1]
+    outputPrefix = opt.arguments()[-1],
+    software = opt.'software' ? Software.byName(opt.'software') : Software.VDJtools
 
 def allowedSpecies = [ALLOWED_SPECIES_ALIAS.keySet(), ALLOWED_SPECIES_ALIAS.values()].flatten()
 if (!allowedSpecies.any { species.equalsIgnoreCase(it) }) {
@@ -157,8 +161,8 @@ if (database.rows.empty) {
 println "[${new Date()} $scriptName] Reading sample(s)..."
 
 def sampleCollection = metadataFileName ?
-        new SampleCollection((String) metadataFileName) :
-        new SampleCollection(opt.arguments()[0..-2])
+        new SampleCollection((String) metadataFileName, software) :
+        new SampleCollection(opt.arguments()[0..-2], software)
 
 println "[${new Date()} $scriptName] ${sampleCollection.size()} sample(s) to process."
 
