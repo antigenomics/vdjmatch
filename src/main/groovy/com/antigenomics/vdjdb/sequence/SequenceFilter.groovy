@@ -18,6 +18,8 @@ package com.antigenomics.vdjdb.sequence
 
 import com.antigenomics.vdjdb.Util
 import com.antigenomics.vdjdb.db.Filter
+import com.antigenomics.vdjdb.scoring.AlignmentScoring
+import com.antigenomics.vdjdb.scoring.AlignmentScoringProvider
 import com.milaboratory.core.sequence.AminoAcidSequence
 import com.milaboratory.core.tree.TreeSearchParameters
 

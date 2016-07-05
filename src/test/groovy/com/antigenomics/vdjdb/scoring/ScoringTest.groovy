@@ -1,16 +1,16 @@
 package com.antigenomics.vdjdb.scoring
 
-import com.antigenomics.vdjdb.sequence.AlignmentScoringProvider
 import com.milaboratory.core.alignment.Aligner
 import com.milaboratory.core.alignment.BLASTMatrix
 import com.milaboratory.core.alignment.LinearGapAlignmentScoring
+import com.milaboratory.core.sequence.AminoAcidAlphabet
 import com.milaboratory.core.sequence.AminoAcidSequence
 import org.junit.Test
 
 class ScoringTest {
     @Test
     void loadScoringTest() {
-        AlignmentScoringProvider.loadScoring() // asserts inside
+        AlignmentScoringProvider.loadScoring() // assert inside (tm)
     }
 
     @Test
@@ -43,5 +43,29 @@ class ScoringTest {
         seq2 = new AminoAcidSequence("CASSLAGATEKLFF")
 
         assert score() < scoring.scoreThreshold
+    }
+
+    @Test
+    void ioTest() {
+        def scoring1 = new AlignmentScoring(new LinearGapAlignmentScoring(AminoAcidSequence.ALPHABET,
+                1, -4, -4), [1] * 11 as double[], 0),
+            scoring2 = new AlignmentScoring(new LinearGapAlignmentScoring(AminoAcidSequence.ALPHABET,
+                    2, -4, -4), [1] * 11 as double[], 1)
+
+        def tempFileName = "temp_scoring_test.txt"
+
+        AlignmentScoringProvider.saveScoring(["1": scoring1, "2": scoring2], tempFileName)
+
+        def scoring11 = AlignmentScoringProvider.loadScoring("1", false, tempFileName)
+
+        assert scoring11.scoring.getScore(AminoAcidAlphabet.H, AminoAcidAlphabet.H) == 1
+        assert scoring11.scoring.getScore(AminoAcidAlphabet.H, AminoAcidAlphabet.G) == -4
+        assert scoring11.scoreThreshold == 0
+
+        def scoring22 = AlignmentScoringProvider.loadScoring("2", false, tempFileName)
+
+        assert scoring22.scoring.getScore(AminoAcidAlphabet.H, AminoAcidAlphabet.H) == 2
+        assert scoring22.scoring.getScore(AminoAcidAlphabet.H, AminoAcidAlphabet.G) == -4
+        assert scoring22.scoreThreshold == 1
     }
 }

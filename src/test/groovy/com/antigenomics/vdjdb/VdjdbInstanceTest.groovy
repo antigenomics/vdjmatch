@@ -14,10 +14,8 @@
  * limitations under the License.
  */
 
-package com.antigenomics.vdjdb.api
+package com.antigenomics.vdjdb
 
-import com.antigenomics.vdjdb.Util
-import com.antigenomics.vdjdb.VdjdbInstance
 import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import org.junit.Test
