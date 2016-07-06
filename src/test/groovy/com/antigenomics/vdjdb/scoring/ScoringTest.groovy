@@ -48,9 +48,9 @@ class ScoringTest {
     @Test
     void ioTest() {
         def scoring1 = new VdjdbAlignmentScoring(new LinearGapAlignmentScoring(AminoAcidSequence.ALPHABET,
-                1, -4, -4), [1] * 11 as double[], 0),
+                1, -4, -4), [1.0f] * 11 as float[], 0),
             scoring2 = new VdjdbAlignmentScoring(new LinearGapAlignmentScoring(AminoAcidSequence.ALPHABET,
-                    2, -4, -4), [1] * 11 as double[], 1)
+                    2, -4, -4), [1.0f] * 11 as float[], 1)
 
         def tempFileName = "temp_scoring_test.txt"
 

@@ -16,17 +16,17 @@
 
 package com.antigenomics.vdjdb.db
 
-import com.antigenomics.vdjdb.sequence.SequenceSearchResult
+import com.milaboratory.core.alignment.Alignment
 
 /**
  * 
  */
 class DatabaseSearchResult implements SearchResult {
     final Row row
-    final SequenceSearchResult[] sequenceSearchResults
+    final Alignment[] alignments
 
-    DatabaseSearchResult(Row row, SequenceSearchResult[] sequenceSearchResults) {
+    DatabaseSearchResult(Row row, Alignment[] alignments) {
         this.row = row
-        this.sequenceSearchResults = sequenceSearchResults
+        this.alignments = alignments
     }
 }

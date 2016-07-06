@@ -43,10 +43,6 @@ class SequenceFilter implements Filter {
      */
     final TreeSearchParameters treeSearchParameters
     /**
-     * Search depth
-     */
-    final int depth
-    /**
      * Alignment scoring
      */
     final AlignmentScoring alignmentScoring
@@ -56,12 +52,10 @@ class SequenceFilter implements Filter {
      * @param columnId sequence column id
      * @param query query sequence, will be converted to amino acid sequence
      * @param preset alignment and scoring parameter preset
-     * @param depth search depth
      */
     SequenceFilter(String columnId, String query,
-                   SequenceSearcherPreset preset,
-                   int depth = -1) {
-        this(columnId, query, preset.parameters, preset.scoring, depth)
+                   SequenceSearcherPreset preset) {
+        this(columnId, query, preset.parameters, preset.scoring)
     }
 
     /**
@@ -70,13 +64,11 @@ class SequenceFilter implements Filter {
      * @param query query sequence, will be converted to amino acid sequence
      * @param treeSearchParameters alignment parameters
      * @param alignmentScoring alignment scoring containing substitution and gap scores, as well as a total score threshold
-     * @param depth search depth
      */
     SequenceFilter(String columnId, String query,
                    TreeSearchParameters treeSearchParameters = new TreeSearchParameters(2, 1, 1, 2),
-                   AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE,
-                   int depth = -1) {
-        this(columnId, Util.convert(query), treeSearchParameters, alignmentScoring, depth)
+                   AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE) {
+        this(columnId, Util.convert(query), treeSearchParameters, alignmentScoring)
     }
 
     /**
@@ -84,12 +76,10 @@ class SequenceFilter implements Filter {
      * @param columnId sequence column id
      * @param query amino acid sequence query
      * @param preset alignment and scoring parameter preset
-     * @param depth search depth
      */
     SequenceFilter(String columnId, AminoAcidSequence query,
-                   SequenceSearcherPreset preset,
-                   int depth = -1) {
-        this(columnId, query, preset.parameters, preset.scoring, depth)
+                   SequenceSearcherPreset preset) {
+        this(columnId, query, preset.parameters, preset.scoring)
     }
 
     /**
@@ -98,20 +88,17 @@ class SequenceFilter implements Filter {
      * @param query amino acid sequence query
      * @param treeSearchParameters alignment parameters
      * @param alignmentScoring alignment scoring containing substitution and gap scores, as well as a total score threshold
-     * @param depth search depth
      */
     SequenceFilter(String columnId, AminoAcidSequence query,
                    TreeSearchParameters treeSearchParameters = new TreeSearchParameters(2, 1, 1, 2),
-                   AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE,
-                   int depth = -1) {
-        if (query == null)
-            throw new RuntimeException("Bad sequence filter query")
-
+                   AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE) {
         this.columnId = columnId
         this.query = query
         this.treeSearchParameters = treeSearchParameters
-        this.depth = depth
         this.alignmentScoring = alignmentScoring
+
+        if (query == null)
+            throw new RuntimeException("Bad sequence filter query")
     }
 
     @Override

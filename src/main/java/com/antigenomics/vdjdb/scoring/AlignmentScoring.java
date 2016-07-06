@@ -16,10 +16,15 @@
 
 package com.antigenomics.vdjdb.scoring;
 
-import com.milaboratory.core.alignment.Alignment;
+import com.milaboratory.core.mutations.Mutations;
+import com.milaboratory.core.sequence.Sequence;
 
 public interface AlignmentScoring {
-    double computeScore(Alignment alignment);
-    double getScoreThreshold();
-    AlignmentScoring withScoreThreshold(double scoreThreshold);
+    float computeScore(Mutations mutations, float baseScore, int refLength);
+
+    float computeBaseScore(Sequence reference);
+
+    float getScoreThreshold();
+
+    AlignmentScoring withScoreThreshold(float scoreThreshold);
 }

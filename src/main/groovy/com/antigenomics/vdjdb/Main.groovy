@@ -218,13 +218,15 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWri
                        ClonotypeCounter.HEADER].flatten().join("\t"))
 
     sampleCollection.eachWithIndex { Sample sample, int ind ->
+        println "[${new Date()} $scriptName] Annotating..."
+
         def sampleId = sample.sampleMetadata.sampleId
 
         def results = database.search(sample)
 
         def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId, "annot"))
 
-        writer.println(sw.header + "\tsample_id\tscore\t" + database.header)
+        writer.println(sw.header + "\tid.in.sample\tscore\t" + database.header)
 
         results.sort { -it.key.count }.each { result ->
             result.value.each {
@@ -235,6 +237,8 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWri
         }
 
         writer.close()
+
+        println "[${new Date()} $scriptName] Summarizing..."
 
         def summary = new ClonotypeSearchSummary(results, sample, [summaryColumns])
 

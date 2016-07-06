@@ -18,7 +18,8 @@ package com.antigenomics.vdjdb.impl
 
 import com.antigenomics.vdjdb.db.Row
 import com.antigenomics.vdjdb.db.SearchResult
-import com.antigenomics.vdjdb.sequence.SequenceSearchResult
+import com.antigenomics.vdjdb.sequence.Alignment
+import com.milaboratory.core.alignment.Alignment
 
 /**
  * Clonotype search result 
@@ -27,7 +28,7 @@ class ClonotypeSearchResult implements Comparable<ClonotypeSearchResult>, Search
     /**
      * CDR3 sequence alignment result 
      */
-    final SequenceSearchResult result
+    final Alignment result
     /**
      * Database row that was found
      */
@@ -43,7 +44,7 @@ class ClonotypeSearchResult implements Comparable<ClonotypeSearchResult>, Search
      * @param row database row
      * @param id clonotype id in sample
      */
-    ClonotypeSearchResult(SequenceSearchResult result, Row row, int id) {
+    ClonotypeSearchResult(Alignment result, Row row, int id) {
         this.result = result
         this.row = row
         this.id = id

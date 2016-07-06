@@ -54,7 +54,6 @@ class ClonotypeDatabase extends Database {
      * @param maxInsertions max allowed insertions in CDR3 region when searching
      * @param maxDeletions max allowed deletions in CDR3 region when searching
      * @param maxMutations max allowed mutations (mismatches or indels) in CDR3 region when searching
-     * @param depth sequence tree scanning depth
      * @param cdr3ColName CDR3 containing column name
      * @param vColName Variable segment containing column name
      * @param jColName Joining segment containing column name
@@ -88,7 +87,6 @@ class ClonotypeDatabase extends Database {
      * @param maxInsertions max allowed insertions in CDR3 region when searching
      * @param maxDeletions max allowed deletions in CDR3 region when searching
      * @param maxMutations max allowed mutations (mismatches or indels) in CDR3 region when searching
-     * @param depth sequence tree scanning depth
      * @param cdr3ColName CDR3 containing column name
      * @param vColName Variable segment containing column name
      * @param jColName Joining segment containing column name
@@ -187,7 +185,7 @@ class ClonotypeDatabase extends Database {
                 [new SequenceFilter(cdr3ColName, cdr3aa, searchParameters)])
 
         results.collect {
-            new ClonotypeSearchResult(it.sequenceSearchResults[0], it.row, id)
+            new ClonotypeSearchResult(it.alignments[0], it.row, id)
         }.sort()
     }
 

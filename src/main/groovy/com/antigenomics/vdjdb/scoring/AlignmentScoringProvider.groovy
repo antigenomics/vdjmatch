@@ -86,7 +86,7 @@ class AlignmentScoringProvider {
             throw new RuntimeException("Failed to load scoring '$scoringId'")
         }
 
-        def scoringMatrix = [], positionWeights = [], gapScore = Integer.MAX_VALUE, threshold = Integer.MAX_VALUE
+        def scoringMatrix = [], positionWeights = [], gapScore = Integer.MAX_VALUE, threshold = Float.MAX_VALUE
 
         lines.each { splitLine ->
             switch (splitLine[parameterCol].toLowerCase()) {
@@ -98,10 +98,10 @@ class AlignmentScoringProvider {
                     gapScore = splitLine[valueCol].toInteger()
                     break
                 case "threshold":
-                    threshold = splitLine[valueCol].toDouble()
+                    threshold = splitLine[valueCol].toFloat()
                     break
                 case "position_weight":
-                    positionWeights[splitLine[fromCol].toInteger()] = splitLine[valueCol].toDouble()
+                    positionWeights[splitLine[fromCol].toInteger()] = splitLine[valueCol].toFloat()
                     break
             }
         }
@@ -124,9 +124,9 @@ class AlignmentScoringProvider {
         assert positionWeights.every { it != null } &&
                 positionWeights.size() % 2 != 0
         assert gapScore < 0
-        assert threshold != Integer.MAX_VALUE
+        assert threshold != Float.MAX_VALUE
 
         new VdjdbAlignmentScoring(new LinearGapAlignmentScoring(ALPHABET, scoringMatrix as int[],
-                gapScore), positionWeights as double[], threshold)
+                gapScore), positionWeights as float[], threshold)
     }
 }

@@ -20,6 +20,8 @@ import com.antigenomics.vdjdb.Util
 import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Entry
 import com.antigenomics.vdjdb.db.Row
+import com.milaboratory.core.Range
+import com.milaboratory.core.alignment.Alignment
 import com.milaboratory.core.sequence.AminoAcidSequence
 import com.milaboratory.core.tree.SequenceTreeMap
 import groovy.transform.CompileStatic
@@ -61,13 +63,16 @@ class SequenceColumn extends Column {
      * @param filter amino acid query
      * @return a map of rows that were found and corresponding sequence alignment results
      */
-    Map<Row, SequenceSearchResult> search(SequenceFilter filter) {
-        def results = new HashMap<Row, SequenceSearchResult>()
+    Map<Row, Alignment> search(SequenceFilter filter) {
+        def results = new HashMap<Row, Alignment>()
 
         def ni = stm.getNeighborhoodIterator(filter.query,
                 filter.treeSearchParameters)
 
         def scoring = filter.alignmentScoring
+
+        def baseScore = scoring.computeBaseScore(filter.query),
+            refLength = filter.query.size()
 
         // This hack excludes duplicates like
         //
@@ -75,17 +80,21 @@ class SequenceColumn extends Column {
         //   KLF-     KL-F
         def prevCdr = new HashSet<String>()
 
-        int i = 0
         while (true) {
             def entries = ni.next()
 
             if (entries) {
-                def seq = entries[0].value
+                def seq = entries.first().value
                 if (!prevCdr.contains(seq)) {
-                    entries.each { entry ->
-                        def score = scoring.computeScore(ni.currentAlignment)
-                        if (score >= scoring.scoreThreshold) {
-                            results.put(entry.row, new SequenceSearchResult(ni.currentAlignment, score))
+                    def mutations = ni.currentMutations
+                    def score = scoring.computeScore(mutations, baseScore, refLength)
+
+                    if (score >= scoring.scoreThreshold) {
+                        def alignment = new Alignment(filter.query, mutations,
+                                new Range(0, refLength), new Range(0, seq.size()),
+                                score)
+                        entries.each { entry ->
+                            results.put(entry.row, alignment)
                         }
                     }
                     prevCdr.add(seq)
@@ -93,9 +102,6 @@ class SequenceColumn extends Column {
             } else {
                 break
             }
-
-            if (filter.depth > 0 && ++i == filter.depth)
-                break
         }
 
         results

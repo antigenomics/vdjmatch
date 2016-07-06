@@ -16,7 +16,8 @@
 
 package com.antigenomics.vdjdb.scoring;
 
-import com.milaboratory.core.alignment.Alignment;
+import com.milaboratory.core.mutations.Mutations;
+import com.milaboratory.core.sequence.Sequence;
 
 public class DummyAlignmentScoring implements AlignmentScoring {
     public static DummyAlignmentScoring INSTANCE = new DummyAlignmentScoring();
@@ -26,17 +27,22 @@ public class DummyAlignmentScoring implements AlignmentScoring {
     }
 
     @Override
-    public double computeScore(Alignment alignment) {
-        return alignment.getScore();
+    public float computeScore(Mutations mutations, float baseScore, int refLength) {
+        return refLength - mutations.size();
     }
 
     @Override
-    public double getScoreThreshold() {
-        return Double.MIN_VALUE;
+    public float computeBaseScore(Sequence reference) {
+        return 0f;
     }
 
     @Override
-    public AlignmentScoring withScoreThreshold(double scoreThreshold) {
+    public float getScoreThreshold() {
+        return Float.MIN_VALUE;
+    }
+
+    @Override
+    public AlignmentScoring withScoreThreshold(float scoreThreshold) {
         return this;
     }
 
