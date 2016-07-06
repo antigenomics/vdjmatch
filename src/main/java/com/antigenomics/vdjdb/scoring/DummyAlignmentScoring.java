@@ -18,8 +18,26 @@ package com.antigenomics.vdjdb.scoring;
 
 import com.milaboratory.core.alignment.Alignment;
 
-public interface AlignmentScoring {
-    double computeScore(Alignment alignment);
-    double getScoreThreshold();
-    AlignmentScoring withScoreThreshold(double scoreThreshold);
+public class DummyAlignmentScoring implements AlignmentScoring {
+    public static DummyAlignmentScoring INSTANCE = new DummyAlignmentScoring();
+
+    private DummyAlignmentScoring() {
+
+    }
+
+    @Override
+    public double computeScore(Alignment alignment) {
+        return alignment.getScore();
+    }
+
+    @Override
+    public double getScoreThreshold() {
+        return Double.MIN_VALUE;
+    }
+
+    @Override
+    public AlignmentScoring withScoreThreshold(double scoreThreshold) {
+        return this;
+    }
+
 }

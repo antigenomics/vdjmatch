@@ -27,7 +27,7 @@ class AlignmentScoringProvider {
                         FIRST_ARG_COL = "from", SECOND_ARG_COL = "to", VALUE_COL = "value"
     static final List<String> HEADER_COLS = [ID_COL, PARAMETER_COL, FIRST_ARG_COL, SECOND_ARG_COL, VALUE_COL]
 
-    static saveScoring(Map<String, AlignmentScoring> scoringsById, String fileName) {
+    static saveScoring(Map<String, VdjdbAlignmentScoring> scoringsById, String fileName) {
         new File(fileName).withPrintWriter { pw ->
             pw.println(HEADER_COLS.join("\t"))
 
@@ -58,9 +58,9 @@ class AlignmentScoringProvider {
         }
     }
 
-    static AlignmentScoring loadScoring(String scoringId = "default",
-                                        boolean fromResource = true,
-                                        String fileName = "scoring.txt") {
+    static VdjdbAlignmentScoring loadScoring(String scoringId = "balanced",
+                                             boolean fromResource = true,
+                                             String fileName = "scoring.txt") {
         def lines = (fromResource ? Util.resourceAsStream(fileName) : new File(fileName)).readLines()
 
         def header = lines[0].toLowerCase().split("\t")
@@ -126,7 +126,7 @@ class AlignmentScoringProvider {
         assert gapScore < 0
         assert threshold != Integer.MAX_VALUE
 
-        new AlignmentScoring(new LinearGapAlignmentScoring(ALPHABET, scoringMatrix as int[],
+        new VdjdbAlignmentScoring(new LinearGapAlignmentScoring(ALPHABET, scoringMatrix as int[],
                 gapScore), positionWeights as double[], threshold)
     }
 }

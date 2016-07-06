@@ -47,9 +47,9 @@ class ScoringTest {
 
     @Test
     void ioTest() {
-        def scoring1 = new AlignmentScoring(new LinearGapAlignmentScoring(AminoAcidSequence.ALPHABET,
+        def scoring1 = new VdjdbAlignmentScoring(new LinearGapAlignmentScoring(AminoAcidSequence.ALPHABET,
                 1, -4, -4), [1] * 11 as double[], 0),
-            scoring2 = new AlignmentScoring(new LinearGapAlignmentScoring(AminoAcidSequence.ALPHABET,
+            scoring2 = new VdjdbAlignmentScoring(new LinearGapAlignmentScoring(AminoAcidSequence.ALPHABET,
                     2, -4, -4), [1] * 11 as double[], 1)
 
         def tempFileName = "temp_scoring_test.txt"
@@ -67,5 +67,12 @@ class ScoringTest {
         assert scoring22.scoring.getScore(AminoAcidAlphabet.H, AminoAcidAlphabet.H) == 2
         assert scoring22.scoring.getScore(AminoAcidAlphabet.H, AminoAcidAlphabet.G) == -4
         assert scoring22.scoreThreshold == 1
+    }
+
+    @Test
+    void presetTest() {
+        SequenceSearcherPreset.ALLOWED_PRESETS.each {
+            SequenceSearcherPreset.byName(it)
+        }
     }
 }

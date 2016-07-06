@@ -21,6 +21,7 @@ import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Database
 import com.antigenomics.vdjdb.db.ExpressionFilterBatch
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
+import com.antigenomics.vdjdb.scoring.SequenceSearcherPreset
 import com.antigenomics.vdjdb.sequence.SequenceColumn
 import com.antigenomics.vdjdb.sequence.SequenceFilter
 import com.antigenomics.vdjdb.text.ExactTextFilter
@@ -101,33 +102,26 @@ class VdjdbInstance {
     }
 
     /**
-     * Converts database instance to a clonotype database, providing means for 
-     * browsing with {@link com.antigenomics.vdjtools.sample.Clonotype} and 
+     * Converts database instance to a clonotype database, providing means for
+     * browsing with {@link com.antigenomics.vdjtools.sample.Clonotype} and
      * {@link com.antigenomics.vdjtools.sample.Sample} vdjtools objects that facilitates
      * searching of specific clonotypes in database.
      *
-     * Clonotype searcher parameters can be set here. 
+     * Clonotype searcher parameters and filtering of database records based on VDJdb confidence score can be set here.
      *
-     * @param db database to convert
      * @param matchV should Variable segment matching be performed when searching
      * @param matchJ should Joining segment matching be performed when searching
-     * @param maxMismatches max allowed mismatches in CDR3 region when searching
-     * @param maxInsertions max allowed insertions in CDR3 region when searching
-     * @param maxDeletions max allowed deletions in CDR3 region when searching
-     * @param maxMutations max allowed mutations (mismatches or indels) in CDR3 region when searching
+     * @param searchParameters cdr3 matching parameter preset
      * @param species species name
      * @param gene receptor gene name
-     *
+     * @param vdjdbRecordConfidenceThreshold VDJdb record confidence score threshold
      * @return a clonotype database object
      */
     ClonotypeDatabase asClonotypeDatabase(boolean matchV = false, boolean matchJ = false,
-                                          int maxMismatches = 2, int maxInsertions = 1,
-                                          int maxDeletions = 1, int maxMutations = 2,
+                                          SequenceSearcherPreset searchParameters = SequenceSearcherPreset.byName("dummy"),
                                           String species = null, String gene = null,
-                                          int scoreThreshold = -1) {
-        def cdb = new ClonotypeDatabase(header, matchV, matchJ,
-                maxMismatches, maxInsertions,
-                maxDeletions, maxMutations, -1)
+                                          int vdjdbRecordConfidenceThreshold = -1) {
+        def cdb = new ClonotypeDatabase(header, matchV, matchJ, searchParameters)
 
         def filters = []
 
@@ -137,8 +131,8 @@ class VdjdbInstance {
         if (gene) {
             filters << new ExactTextFilter(cdb.geneColName, gene, false)
         }
-        if (scoreThreshold > 0) {
-            filters << new LevelFilter(SCORE_COLUMN_DEFAULT, scoreThreshold.toString(), false)
+        if (vdjdbRecordConfidenceThreshold > 0) {
+            filters << new LevelFilter(SCORE_COLUMN_DEFAULT, vdjdbRecordConfidenceThreshold.toString(), false)
         }
 
         cdb.addEntries(dbInstance.rows.collect { row -> row.entries.collect { it.value } }, filters)

@@ -18,6 +18,7 @@ package com.antigenomics.vdjdb.impl
 
 import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Database
+import com.antigenomics.vdjdb.scoring.SequenceSearcherPreset
 import com.antigenomics.vdjdb.sequence.SequenceColumn
 import com.antigenomics.vdjdb.sequence.SequenceFilter
 import com.antigenomics.vdjdb.text.ExactTextFilter
@@ -28,7 +29,6 @@ import com.antigenomics.vdjtools.misc.ExecUtil
 import com.antigenomics.vdjtools.sample.Clonotype
 import com.antigenomics.vdjtools.sample.Sample
 import com.milaboratory.core.sequence.AminoAcidSequence
-import com.milaboratory.core.tree.TreeSearchParameters
 import groovy.transform.CompileStatic
 import groovyx.gpars.GParsPool
 
@@ -42,8 +42,7 @@ class ClonotypeDatabase extends Database {
                         SPECIES_COL_DEFAULT = "species", GENE_COL_DEFAULT = "gene"
 
     final String cdr3ColName, vColName, jColName, speciesColName, geneColName
-    final TreeSearchParameters treeSearchParameters
-    final int depth
+    final SequenceSearcherPreset searchParameters
     final boolean matchV, matchJ
 
     /**
@@ -63,7 +62,7 @@ class ClonotypeDatabase extends Database {
      * @param geneColName receptor gene column name
      */
     ClonotypeDatabase(List<Column> columns, boolean matchV = false, boolean matchJ = false,
-                      int maxMismatches = 2, int maxInsertions = 1, int maxDeletions = 1, int maxMutations = 2, int depth = -1,
+                      SequenceSearcherPreset searchParameters = SequenceSearcherPreset.byName("dummy"),
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
                       String speciesColName = SPECIES_COL_DEFAULT, String geneColName = GENE_COL_DEFAULT) {
         super(columns)
@@ -73,8 +72,7 @@ class ClonotypeDatabase extends Database {
         this.jColName = jColName
         this.matchV = matchV
         this.matchJ = matchJ
-        this.treeSearchParameters = new TreeSearchParameters(maxMismatches, maxInsertions, maxDeletions, maxMutations)
-        this.depth = depth
+        this.searchParameters = searchParameters
         this.speciesColName = speciesColName
         this.geneColName = geneColName
     }
@@ -98,7 +96,7 @@ class ClonotypeDatabase extends Database {
      * @param geneColName receptor gene column name
      */
     ClonotypeDatabase(InputStream metadata, boolean matchV = false, boolean matchJ = false,
-                      int maxMismatches = 2, int maxInsertions = 1, int maxDeletions = 1, int maxMutations = 2, int depth = -1,
+                      SequenceSearcherPreset searchParameters = SequenceSearcherPreset.byName("dummy"),
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
                       String speciesColName = SPECIES_COL_DEFAULT, String geneColName = GENE_COL_DEFAULT) {
         super(metadata)
@@ -108,8 +106,7 @@ class ClonotypeDatabase extends Database {
         this.jColName = jColName
         this.matchV = matchV
         this.matchJ = matchJ
-        this.treeSearchParameters = new TreeSearchParameters(maxMismatches, maxInsertions, maxDeletions, maxMutations)
-        this.depth = depth
+        this.searchParameters = searchParameters
         this.speciesColName = speciesColName
         this.geneColName = geneColName
     }
@@ -187,7 +184,7 @@ class ClonotypeDatabase extends Database {
         }
 
         def results = search(filters,
-                [new SequenceFilter(cdr3ColName, cdr3aa, treeSearchParameters, depth)])
+                [new SequenceFilter(cdr3ColName, cdr3aa, searchParameters)])
 
         results.collect {
             new ClonotypeSearchResult(it.sequenceSearchResults[0], it.row, id)
