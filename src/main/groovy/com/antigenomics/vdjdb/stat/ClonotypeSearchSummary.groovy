@@ -19,6 +19,7 @@ package com.antigenomics.vdjdb.stat
 import com.antigenomics.vdjdb.impl.ClonotypeSearchResult
 import com.antigenomics.vdjtools.sample.Clonotype
 import com.antigenomics.vdjtools.sample.Sample
+import com.antigenomics.vdjtools.misc.ExecUtil
 import groovyx.gpars.GParsPool
 
 import java.util.concurrent.ConcurrentHashMap
