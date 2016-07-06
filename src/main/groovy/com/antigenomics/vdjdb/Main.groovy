@@ -134,8 +134,8 @@ def scriptName = getClass().canonicalName.split("\\.")[-1]
 // Search parameters
 
 def searchPreset = opt.'search-preset' ?: DEFAULT_PRESET,
-    searchScope = (String) opt.'search-scope',
-    searchThreshold = (String) opt.'search-threshold'
+    searchScope = opt.'search-scope',
+    searchThreshold = opt.'search-threshold'
 
 def parameterPreset = SequenceSearcherPreset.byName(searchPreset)
 
