@@ -16,7 +16,6 @@
 
 package com.antigenomics.vdjdb.stat
 
-import com.antigenomics.vdjdb.db.Database
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjtools.io.InputStreamFactory
 import com.antigenomics.vdjtools.io.SampleStreamConnection

@@ -135,7 +135,7 @@ if (dbPrefix) {
     database = new VdjdbInstance(useFatDb)
 }
 
-def missingSummaryCols = summaryColumns.findAll { !database.columns*.name.contains(it) }
+def missingSummaryCols = summaryColumns.findAll { !database.header*.name.contains(it) }
 if (!missingSummaryCols.empty) {
     println "Columns $missingSummaryCols specified for summary generation are missing in the database."
     System.exit(1)
