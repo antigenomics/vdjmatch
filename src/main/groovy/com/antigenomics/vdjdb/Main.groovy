@@ -57,7 +57,7 @@ cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
         "Logical filter evaluated for database columns. Supports Regex, .contains(), .startsWith(), etc.")
 cli.S(longOpt: "species", argName: "name", args: 1, required: true,
         "Species of input sample(s), allowed values: ${ALLOWED_SPECIES_ALIAS.keySet()}.")
-cli._(longOpt: "software", argName: "string", required: true, args: 1,
+cli._(longOpt: "software", argName: "string", args: 1,
         "Input RepSeq data format. Currently supported: ${Software.values().join(", ")}. Default is VDJtools format.")
 cli.R(longOpt: "gene", argName: "name", args: 1, required: true,
         "Receptor gene of input sample(s), allowed values: $ALLOWED_GENES.")
