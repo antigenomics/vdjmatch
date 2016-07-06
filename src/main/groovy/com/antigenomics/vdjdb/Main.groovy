@@ -19,7 +19,7 @@ package com.antigenomics.vdjdb
 
 import com.antigenomics.vdjdb.stat.ClonotypeSearchSearchSummary
 import com.antigenomics.vdjdb.stat.Counter
-import com.antigenomics.vdjtools.Software
+import com.antigenomics.vdjtools.misc.Software
 import com.antigenomics.vdjtools.io.SampleWriter
 import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.sample.SampleCollection
