@@ -28,28 +28,6 @@ import static com.antigenomics.vdjdb.Util.resourceAsStream
 
 class ClonotypeSearchSummaryTest {
     @Test
-    void test1() {
-        def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
-
-        database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
-
-        def summary = new SearchSummary(database, [])
-
-        assert summary.listCombinations()[0][0].empty
-    }
-
-    @Test
-    void listCombinationsTest() {
-        def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
-
-        database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
-
-        def summary = new SearchSummary(database, ["origin", "disease.type", "disease", "source"])
-
-        assert summary.listCombinations().size() == 7
-    }
-
-    @Test
     void test() {
         def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta.txt"))
 
@@ -64,16 +42,29 @@ class ClonotypeSearchSummaryTest {
 
         def results = database.search(sample)
 
-        def summary = new ClonotypeSearchSearchSummary(database, ["origin", "disease.type", "disease", "source"], sample)
-        summary.append(results)
+        def colNames = ["origin", "disease.type", "disease", "source"]
+        def summary = new ClonotypeSearchSummary(results, sample,
+                ClonotypeSearchSummary.listAllNameSequences(colNames))
 
-        assert summary.foundCounter.uniqueCount > 0
+        assert summary.totalCounter.unique > 0
+
+        def getKeyValueMap = { List<String> values ->
+            def map = new TreeMap<String, String>()
+            values.eachWithIndex { String it, int ind ->
+                map.put(colNames[ind], it)
+            }
+            map
+        }
+
+        def getCounter = { List<String> values ->
+            summary.getCounter(getKeyValueMap(values))
+        }
 
         // we only have viral infection in legacy db
-        assert summary.getCombinationCounter(["non-self", "infection"]).uniqueCount ==
-                summary.getCombinationCounter(["non-self", "infection", "viral"]).uniqueCount
+        assert getCounter(["non-self", "infection"]).unique ==
+                getCounter(["non-self", "infection", "viral"]).unique
 
-        assert summary.getCombinationCounter(["non-self", "infection", "viral", "EBV"]).uniqueCount > 0
-        assert summary.getCombinationCounter(["non-self", "infection", "viral", "CMV"]).uniqueCount > 0
+        assert getCounter(["non-self", "infection", "viral", "EBV"]).unique > 0
+        assert getCounter(["non-self", "infection", "viral", "CMV"]).unique > 0
     }
 }

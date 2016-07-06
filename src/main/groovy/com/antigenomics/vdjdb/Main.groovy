@@ -17,8 +17,8 @@
 
 package com.antigenomics.vdjdb
 
-import com.antigenomics.vdjdb.stat.ClonotypeSearchSearchSummary
-import com.antigenomics.vdjdb.stat.Counter
+import com.antigenomics.vdjdb.stat.ClonotypeCounter
+import com.antigenomics.vdjdb.stat.ClonotypeSearchSummary
 import com.antigenomics.vdjtools.misc.Software
 import com.antigenomics.vdjtools.io.SampleWriter
 import com.antigenomics.vdjtools.sample.Sample
@@ -31,7 +31,7 @@ if (args.length > 0 && args[0].toLowerCase() == "update") {
     System.exit(0)
 }
 
-def DEFAULT_PARAMETERS = "2,1,1,2", DEFAULT_CONFIDENCE_THRESHOLD = "2",
+def DEFAULT_PARAMETERS = "5,2,2,7", DEFAULT_CONFIDENCE_THRESHOLD = "2",
     ALLOWED_SPECIES_ALIAS = ["human": "homosapiens", "mouse": "musmusculus",
                              "rat"  : "rattusnorvegicus", "monkey": "macacamulatta"],
     ALLOWED_GENES = ["TRA", "TRB"]
@@ -51,8 +51,8 @@ cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an ex
         "The prefix should point to a '.txt' file (database itself) and '.meta.txt' (database column metadata).")
 cli._(longOpt: "use-fat-db", "Use a more redundant database version, with extra fields (meta, method, etc). " +
         "Fat database can contain several records for a TCR:pMHC pair corresponding to different replicates/tissue sources/targets.")
-//cli._(longOpt: "summary", argName: "col1,col2,...", args: 1,
-//        "Table columns for summarizing, e.g. origin,disease.type,disease,source for default database.")
+cli._(longOpt: "summary-columns", argName: "col1,col2,...", args: 1,
+        "Table columns for summarizing, see DB metadata for column names [default=${ClonotypeSearchSummary.FIELDS_PLAIN_TEXT.join(",")}]. ")
 cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
         "Logical filter evaluated for database columns. Supports Regex, .contains(), .startsWith(), etc.")
 cli.S(longOpt: "species", argName: "name", args: 1, required: true,
@@ -103,7 +103,8 @@ def dbPrefix = (String) (opt.'database' ?: null),
     filterStr = opt.'filter',
     useFatDb = (boolean) opt.'use-fat-db',
     outputPrefix = opt.arguments()[-1],
-    software = opt.'software' ? Software.byName(opt.'software') : Software.VDJtools
+    software = opt.'software' ? Software.byName(opt.'software') : Software.VDJtools,
+    summaryColumns = (opt.'summary-columns' ?: ClonotypeSearchSummary.FIELDS_PLAIN_TEXT.join(",")).split(",") as List<String>
 
 def allowedSpecies = [ALLOWED_SPECIES_ALIAS.keySet(), ALLOWED_SPECIES_ALIAS.values()].flatten()
 if (!allowedSpecies.any { species.equalsIgnoreCase(it) }) {
@@ -132,6 +133,12 @@ if (dbPrefix) {
     database = new VdjdbInstance(metaStream, dataStream)
 } else {
     database = new VdjdbInstance(useFatDb)
+}
+
+def missingSummaryCols = summaryColumns.findAll { !database.columns*.name.contains(it) }
+if (!missingSummaryCols.empty) {
+    println "Columns $missingSummaryCols specified for summary generation are missing in the database."
+    System.exit(1)
 }
 
 println "[${new Date()} $scriptName] Loaded database. \n${database.dbInstance}"
@@ -174,62 +181,44 @@ println "[${new Date()} $scriptName] Annotating sample(s) & writing results."
 
 def sw = new SampleWriter(compress)
 
-new File(ExecUtil.formOutputPath(outputPrefix, "annot", "stats")).withPrintWriter { pwStats ->
-    new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWriter { pwSummary ->
-        def headerPrefix = [MetadataTable.SAMPLE_ID_COLUMN,
-                            sampleCollection.metadataTable.columnHeader]
-        pwSummary.println([headerPrefix,
-                           "counter.type", summaryCols, "summary.count"].
-                flatten().join("\t"))
-        pwStats.println([headerPrefix,
-                         "database",
-                         "species", "gene", "counter.type",
-                         "not.found", "found.once", "found.twice.and.more"].
-                flatten().join("\t"))
+new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWriter { pwSummary ->
+    pwSummary.println([MetadataTable.SAMPLE_ID_COLUMN,
+                       sampleCollection.metadataTable.columnHeader,
+                       "counter.type",
+                       summaryColumns,
+                       ClonotypeCounter.HEADER].flatten().join("\t"))
 
-        sampleCollection.eachWithIndex { Sample sample, int ind ->
-            def sampleId = sample.sampleMetadata.sampleId
+    sampleCollection.eachWithIndex { Sample sample, int ind ->
+        def sampleId = sample.sampleMetadata.sampleId
 
-            def results = database.search(sample)
+        def results = database.search(sample)
 
-            def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId, "annot"))
+        def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId, "annot"))
 
-            writer.println(sw.header + "\tsample_id\tscore\t" + database.header)
+        writer.println(sw.header + "\tsample_id\tscore\t" + database.header)
 
-            results.sort { -it.key.count }.each { result ->
-                result.value.each {
-                    writer.println(sw.getClonotypeString(result.key) + "\t" +
-                            it.result.id + "\t" +
-                            it.result.score + "\t" + it.row.toString())
-                }
+        results.sort { -it.key.count }.each { result ->
+            result.value.each {
+                writer.println(sw.getClonotypeString(result.key) + "\t" +
+                        it.id + "\t" +
+                        it.result.score + "\t" + it.row.toString())
             }
-
-            writer.close()
-
-
-            def summary = new ClonotypeSearchSearchSummary(database, summaryCols as List<String>, sample)
-            summary.append(results)
-
-            def prefix = [sampleId, sample.sampleMetadata.toString()],
-                prefix1 = [prefix, dbPrefix ?: "default", species, gene].flatten()
-
-            ["unique", "weighted"].each { counterType ->
-                summary.listTopCombinations().each { List<String> combination ->
-                    pwSummary.println([
-                            prefix, counterType, combination,
-                            summary.getCombinationCounter(combination).collect { Counter it -> it."${counterType}Count" }
-                    ].flatten().join("\t"))
-                }
-
-                pwStats.println([
-                        prefix1, counterType,
-                        [summary.notFound, summary.foundOnce,
-                         summary.foundTwiceAndMore].collect { Counter it -> it."${counterType}Count" }
-                ].flatten().join("\t"))
-            }
-
-            println "[${new Date()} $scriptName] ${ind + 1} sample(s) done."
         }
+
+        writer.close()
+
+        def summary = new ClonotypeSearchSummary(results, sample, [summaryColumns])
+
+        def summaryPrefix = sampleId + "\t" + sample.sampleMetadata.toString()
+        summary.counters.each {
+            pwSummary.println(summaryPrefix + "\tentry\t" + it.key + "\t" + it.value)
+        }
+
+        def placeholder = ("NA" * summaryCols.size()).join("\t")
+        pwSummary.println(summaryPrefix + "\tfound\t" + placeholder + "\t" + summary.totalCounter)
+        pwSummary.println(summaryPrefix + "\tnot.found\t" + placeholder + "\t" + summary.notFoundCounter)
+
+        println "[${new Date()} $scriptName] ${ind + 1} sample(s) done."
     }
 }
 
