@@ -47,15 +47,22 @@ The list of accepted options is the following:
 
 The following output files will be generated:
 
-* ``annot.summary.txt`` annotation summary containing the number of unique clonotypes (``unique``), their cumulative share of reads (``frequency``) and total read count (``reads``). Sample metadata will be appended to this table if provided via the ``-m`` option. Each row corresponds to a combination of database field values from the columns specified by the ``--summary-columns`` option. If a single clonotype is matched to several VDJdb records, its reads count and frequency and will be appended to all of them and the ``unique`` counter for each of the records will be incremented by ``1``. Each of database records is tagged as ``entry`` in ``counter.type`` column of summary table, statistics (total number of clonotypes, read share and count) of annotated and unannotated clonotypes is stored in rows tagged as ``found`` and ``not.found`` respectively.
-* ``$sample_id.annot.txt`` annotation for each of the clonotypes found in database. This is an all-to-all merge table between the sample and database that includes all matches. Clonotype information from the sample (count, frequency, cdr3 sequence, v/d/j segments and v/d/j markup) is preserved. As a clonotype can be represented by multiple rows in the output, ``id.in.sample`` column can be used to make the correspondence between annotation record and 0-based index of clonotype in the original sample. For the information on database columns that are appended see database schema in [VDJdb-db repository](https://github.com/antigenomics/vdjdb-db) readme. The ``score`` column contains CDR3 alignment score that is computed as described below (not to be confused with [VDJdb record confidence score](https://github.com/antigenomics/vdjdb-db#vdjdb-scoring).
+1. ``annot.summary.txt`` annotation summary containing the number of unique clonotypes (``unique``), their cumulative share of reads (``frequency``) and total read count (``reads``). 
+    * Sample metadata will be appended to this table if provided via the ``-m`` option. 
+    * Each row corresponds to a combination of database field values from the columns specified by the ``--summary-columns`` option. If a single clonotype is matched to several VDJdb records, its reads count and frequency and will be appended to all of them and the ``unique`` counter for each of the records will be incremented by ``1``. 
+    * Each of database records is tagged as ``entry`` in ``counter.type`` column of summary table, statistics (total number of clonotypes, read share and count) of annotated and unannotated clonotypes is stored in rows tagged as ``found`` and ``not.found`` respectively.
+2. ``$sample_id.annot.txt`` annotation for each of the clonotypes found in database. 
+    * This is an all-to-all merge table between the sample and database that includes all matches.
+    * Clonotype information from the sample (count, frequency, cdr3 sequence, v/d/j segments and v/d/j markup) is preserved. 
+    *As a clonotype can be represented by multiple rows in the output, ``id.in.sample`` column can be used to make the correspondence between annotation record and 0-based index of clonotype in the original sample. For the information on database columns that are appended see database schema in [VDJdb-db repository](https://github.com/antigenomics/vdjdb-db) readme. 
+    * The ``score`` column contains CDR3 alignment score that is computed as described below (not to be confused with [VDJdb record confidence score](https://github.com/antigenomics/vdjdb-db#vdjdb-scoring).
 
 ### CDR3 matching in VDJdb
 
 Scanning the database with CDR3 sequences from the sample is performed in two steps:
 
-* A fast and exhaustive search using a suffix tree that is controlled by number of amino acid substitutions and indels as set by ``--search-scope`` parameter.
-* Each of resulting alignments is scored using a pre-trained substitution matrix, gap penalty and positional weights as specified by ``--search-preset`` parameter. Only records passing a certain threshold (set by ``--search-threshold`` or, by default, taken from the parameter preset) are reported in the final output.
+1. A fast and exhaustive search using a suffix tree that is controlled by number of amino acid substitutions and indels as set by ``--search-scope`` parameter.
+2. Each of resulting alignments is scored using a pre-trained substitution matrix, gap penalty and positional weights as specified by ``--search-preset`` parameter. Only records passing a certain threshold (set by ``--search-threshold`` or, by default, taken from the parameter preset) are reported in the final output.
 
 VDJdb therefore uses optimized alignment scoring to rank and filter CDR3 matches [TBA](https://en.wikipedia.org/wiki/To_be_announced). The following presets are available:
 
@@ -67,7 +74,9 @@ Name               | Search scope | Description
 ``high-precision`` | ``5,2,2,7``  | Precision near ``~100%`` on training dataset, recall is ``~5%``
 
 Note that ``--search-scope`` argument can be used to speed up VDJdb-standalone and lower its memory requirements by decreasing the search space. This can severely affect the recall though.
+
 The ``--search-threshold`` is encoded into the preset and selected during the optimization procedure. Changing this threshold can provide a mean to fine-tune VDJdb-standalone when a control set is available or manual inspection of annotation results reveal certain inconsistencies. However, a better choice would be to re-run CDR3 scoring optimization with a set of user-provided TCRs with known specificity.
+
 Values for ``--search-scope`` and ``--search-threshold`` are initially determined from the ``--search-preset`` and can be overriden by using corresponding options.
 
 ### See also
