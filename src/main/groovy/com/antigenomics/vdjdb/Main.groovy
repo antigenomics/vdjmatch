@@ -33,7 +33,7 @@ if (args.length > 0 && args[0].toLowerCase() == "update") {
 }
 
 def DEFAULT_PRESET = "balanced",
-    DEFAULT_CONFIDENCE_THRESHOLD = "2",
+    DEFAULT_CONFIDENCE_THRESHOLD = "1",
     ALLOWED_SPECIES_ALIAS = ["human": "homosapiens", "mouse": "musmusculus",
                              "rat"  : "rattusnorvegicus", "monkey": "macacamulatta"],
     ALLOWED_GENES = ["TRA", "TRB"]
@@ -52,9 +52,9 @@ cli._(longOpt: "search-scope", argName: "s,i,d,t", args: 1,
         "Overrides CDR3 sequence initial search parameters: " +
                 "allowed number of substitutions (s), insertions (i), deletions (d) and total number of mutations. " +
                 "[default=set by preset]")
-cli._(longOpt: "search-threshold", argName: "[-15000, 15000]", args: 1,
+cli._(longOpt: "search-threshold", argName: "[-2e4, 2e4]", args: 1,
         "Overrides CDR3 alignment score threshold. Score is computed according to scoring scheme " +
-                "(pre-optimized substitution matrix and gap penalty). Not applicable to 'dummy' preset." +
+                "(pre-optimized substitution matrix and gap penalty). Not applicable for 'dummy' preset." +
                 "[default=set by preset]")
 cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an external database. " +
         "The prefix should point to a '.txt' file (database itself) and '.meta.txt' (database column metadata).")
@@ -73,7 +73,7 @@ cli._(longOpt: "software", argName: "string", args: 1,
                 "[default = ${Software.VDJtools}]")
 cli.R(longOpt: "gene", argName: "name", args: 1, required: true,
         "Receptor gene of input sample(s), allowed values: $ALLOWED_GENES.")
-cli._(longOpt: "vdjdb-conf-threshold", argName: "[0,7]", args: 1,
+cli._(longOpt: "vdjdb-conf-threshold", argName: "[0,3]", args: 1,
         "VDJdb confidence level threshold, from lowest to highest. [default=$DEFAULT_CONFIDENCE_THRESHOLD]")
 cli.v(longOpt: "v-match", "Require V segment matching.")
 cli.j(longOpt: "j-match", "Require J segment matching.")
@@ -147,7 +147,7 @@ if (searchScope) {
 }
 
 if (searchThreshold) {
-    parameterPreset = parameterPreset.withScoringThreshold(searchThreshold.toDouble())
+    parameterPreset = parameterPreset.withScoringThreshold(searchThreshold.toFloat())
 }
 
 println "[${new Date()} $scriptName] Loading database..."
