@@ -90,10 +90,8 @@ class ClonotypeSearchSummary {
                 sample.freq - totalCounter.frequency)
     }
 
-    ClonotypeCounter getCounter(TreeMap<String, String> columnNameAndValueMap) {
-        def keys = columnNameAndValueMap.collect { it.key }.join("\t"),
-            values = columnNameAndValueMap.collect { it.value }.join("\t")
-        columnSequenceCounters[keys][values]
+    ClonotypeCounter getCounter(List<String> columnNameSequence, List<String> columnValueSequence) {
+        getCounters(columnNameSequence)[columnValueSequence.join("\t")]
     }
 
     Map<String, ClonotypeCounter> getCounters(List<String> columnNameSequence) {

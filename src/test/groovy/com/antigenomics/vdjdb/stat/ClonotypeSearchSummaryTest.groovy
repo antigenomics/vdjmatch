@@ -47,16 +47,8 @@ class ClonotypeSearchSummaryTest {
 
         assert summary.totalCounter.unique > 0
 
-        def getKeyValueMap = { List<String> values ->
-            def map = new TreeMap<String, String>()
-            values.eachWithIndex { String it, int ind ->
-                map.put(colNames[ind], it)
-            }
-            map
-        }
-
         def getCounter = { List<String> values ->
-            summary.getCounter(getKeyValueMap(values))
+            summary.getCounter(colNames, values)
         }
 
         // we only have viral infection in legacy db
