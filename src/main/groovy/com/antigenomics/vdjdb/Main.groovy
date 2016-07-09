@@ -208,7 +208,7 @@ println "[${new Date()} $scriptName] ${sampleCollection.size()} sample(s) to pro
 
 println "[${new Date()} $scriptName] Annotating sample(s) & writing results."
 
-def sw = new SampleWriter(compress)
+def sw = new SampleWriter(compress, false)
 
 new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWriter { pwSummary ->
     pwSummary.println([MetadataTable.SAMPLE_ID_COLUMN,
@@ -226,11 +226,11 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWri
 
         def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId, "annot"))
 
-        writer.println(sw.header + "\tid.in.sample\tscore\t" + database.header)
+        writer.println(sw.getFullHeader(sample) + "\tid.in.sample\tscore\t" + database.header)
 
         results.sort { -it.key.count }.each { result ->
             result.value.each {
-                writer.println(sw.getClonotypeString(result.key) + "\t" +
+                writer.println(sw.getFullClonotypeString(result.key) + "\t" +
                         it.id + "\t" +
                         it.result.score + "\t" + it.row.toString())
             }
