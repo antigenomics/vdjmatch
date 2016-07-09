@@ -198,9 +198,11 @@ class ClonotypeDatabase extends Database {
         def results = new ConcurrentHashMap<Clonotype, List<ClonotypeSearchResult>>()
         GParsPool.withPool ExecUtil.THREADS, {
             sample.eachWithIndexParallel { Clonotype clonotype, int id ->
-                def result = search(clonotype, id)
-                if (!result.empty) {
-                    results.put(clonotype, result)
+                if (clonotype.coding) {
+                    def result = search(clonotype, id)
+                    if (!result.empty) {
+                        results.put(clonotype, result)
+                    }
                 }
             }
         }
