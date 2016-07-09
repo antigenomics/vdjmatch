@@ -208,7 +208,7 @@ println "[${new Date()} $scriptName] ${sampleCollection.size()} sample(s) to pro
 
 println "[${new Date()} $scriptName] Annotating sample(s) & writing results."
 
-def sw = new SampleWriter(compress, false)
+def sw = new SampleWriter(compress)
 
 new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWriter { pwSummary ->
     pwSummary.println([MetadataTable.SAMPLE_ID_COLUMN,
@@ -254,5 +254,8 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWri
         println "[${new Date()} $scriptName] ${ind + 1} sample(s) done."
     }
 }
+
+sampleCollection.metadataTable.storeWithOutput(outputPrefix, compress,
+        "vdjdb:${filterStr ?: "all"}")
 
 println "[${new Date()} $scriptName] Finished."
