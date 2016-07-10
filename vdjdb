@@ -86,7 +86,7 @@ do
             shift
             ;;
         *)
-            vdjdbArgs+=(${key})
+            vdjdbArgs+=("${key}")
             ;;
     esac
 done
