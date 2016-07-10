@@ -48,7 +48,7 @@ class ClonotypeSearchSummaryTest {
         assert summary.totalCounter.unique > 0
 
         def getCounter = { List<String> values ->
-            summary.getCounter(colNames, values)
+            summary.getCounter(colNames[0..<values.size()], values)
         }
 
         // we only have viral infection in legacy db

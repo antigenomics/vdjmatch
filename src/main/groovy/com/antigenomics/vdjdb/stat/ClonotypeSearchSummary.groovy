@@ -91,6 +91,9 @@ class ClonotypeSearchSummary {
     }
 
     ClonotypeCounter getCounter(List<String> columnNameSequence, List<String> columnValueSequence) {
+        if (columnNameSequence.size() != columnValueSequence.size()) {
+            throw new RuntimeException("Column name and column value list lengths should match.")
+        }
         getCounters(columnNameSequence)[columnValueSequence.join("\t")]
     }
 
