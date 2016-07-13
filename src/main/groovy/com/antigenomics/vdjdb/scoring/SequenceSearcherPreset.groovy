@@ -44,7 +44,7 @@ class SequenceSearcherPreset {
         this.parameters = parameters
     }
 
-    SequenceSearcherPreset withScoringThreshold(double scoringThreshold) {
+    SequenceSearcherPreset withScoringThreshold(float scoringThreshold) {
         new SequenceSearcherPreset(scoring.withScoreThreshold(scoringThreshold),
                 parameters);
     }
