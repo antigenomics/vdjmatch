@@ -68,11 +68,4 @@ class ScoringTest {
         assert scoring22.scoring.getScore(AminoAcidAlphabet.H, AminoAcidAlphabet.G) == -4
         assert scoring22.scoreThreshold == 1
     }
-
-    @Test
-    void presetTest() {
-        SequenceSearcherPreset.ALLOWED_PRESETS.each {
-            SequenceSearcherPreset.byName(it)
-        }
-    }
 }
