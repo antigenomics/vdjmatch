@@ -32,10 +32,10 @@ if (args.length > 0 && args[0].toLowerCase() == "update") {
     System.exit(0)
 }
 
-def DEFAULT_PRESET = "balanced",
+def DEFAULT_PRESET = SequenceSearcherPreset.ALLOWED_PRESETS[-1],
     DEFAULT_CONFIDENCE_THRESHOLD = "1",
-    ALLOWED_SPECIES_ALIAS = ["human": "homosapiens", "mouse": "musmusculus",
-                             "rat"  : "rattusnorvegicus", "monkey": "macacamulatta"],
+    ALLOWED_SPECIES_ALIAS = ["human" : "homosapiens", "mouse": "musmusculus", // "rat"  : "rattusnorvegicus",
+                             "monkey": "macacamulatta"],
     ALLOWED_GENES = ["TRA", "TRB"]
 
 def cli = new CliBuilder(usage: "vdjdb [options] " +
@@ -48,6 +48,12 @@ cli.m(longOpt: "metadata", argName: "filename", args: 1,
 cli._(longOpt: "search-preset", argName: "name", args: 1,
         "Sets parameters for CDR3 match search and scoring according to specified preset, allowed values: " +
                 "${SequenceSearcherPreset.ALLOWED_PRESETS.join(",")}. [default = $DEFAULT_PRESET]")
+cli._(longOpt: "search-preset-precision", argName: "[0,1]", args: 1,
+        "Select search preset with precision that is closest to specified value. Cannot be used together with " +
+                "--search-preset-recall, overrides --search-preset.")
+cli._(longOpt: "search-preset-recall", argName: "[0,1]", args: 1,
+        "Select search preset with recall that is closest to specified value. Cannot be used together with " +
+                "--search-preset-precision, overrides --search-preset.")
 cli._(longOpt: "search-scope", argName: "s,i,d,t", args: 1,
         "Overrides CDR3 sequence initial search parameters: " +
                 "allowed number of substitutions (s), insertions (i), deletions (d) and total number of mutations. " +
@@ -134,16 +140,29 @@ def scriptName = getClass().canonicalName.split("\\.")[-1]
 // Search parameters
 
 def searchPreset = opt.'search-preset' ?: DEFAULT_PRESET,
+    searchPresetPrecision = opt.'search-preset-precision',
+    searchPresetRecall = opt.'search-preset-recall',
     searchScope = opt.'search-scope',
     searchThreshold = opt.'search-threshold'
 
-def parameterPreset = SequenceSearcherPreset.byName(searchPreset)
+if (searchPresetPrecision && searchPresetRecall) {
+    println "Options --search-preset-precision and --search-preset-recall cannot be used together."
+    System.exit(1)
+}
+
+def parameterPreset
+if (searchPresetPrecision) {
+    parameterPreset = SequenceSearcherPreset.byPrecision(searchPresetPrecision.toFloat())
+} else if (searchPresetRecall) {
+    parameterPreset = SequenceSearcherPreset.byRecall(searchPresetRecall.toFloat())
+} else {
+    parameterPreset = SequenceSearcherPreset.byName(searchPreset)
+}
 
 if (searchScope) {
     def ss = searchScope.split(",").collect { it.toInteger() }
 
-    parameterPreset = parameterPreset.withSearchParameters(ss[0],
-            ss[1], ss[2], ss[3])
+    parameterPreset = parameterPreset.withSearchParameters(ss[0], ss[1], ss[2], ss[3])
 }
 
 if (searchThreshold) {

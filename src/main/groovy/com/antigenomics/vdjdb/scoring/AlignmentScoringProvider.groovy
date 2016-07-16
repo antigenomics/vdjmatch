@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Mikhail Shugay
+ * Copyright 2016 Mikhail Shugay
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -58,9 +58,9 @@ class AlignmentScoringProvider {
         }
     }
 
-    static VdjdbAlignmentScoring loadScoring(String scoringId = "balanced",
+    static VdjdbAlignmentScoring loadScoring(String scoringId,
                                              boolean fromResource = true,
-                                             String fileName = "scoring.txt") {
+                                             String fileName = "solutions.txt") {
         def lines = (fromResource ? Util.resourceAsStream(fileName) : new File(fileName)).readLines()
 
         def header = lines[0].toLowerCase().split("\t")
@@ -69,7 +69,9 @@ class AlignmentScoringProvider {
             [(colName): header.findIndexOf { colName.equalsIgnoreCase(it) }]
         }
 
-        assert headerIndices.values().every { it >= 0 }
+        if ( headerIndices.values().any { it < 0 }) {
+            throw new RuntimeException("Failed to parse scoring file $fileName, critical columns are missing")
+        }
 
         int idCol = headerIndices[ID_COL],
             parameterCol = headerIndices[PARAMETER_COL],
@@ -83,7 +85,7 @@ class AlignmentScoringProvider {
         }
 
         if (lines.empty) {
-            throw new RuntimeException("Failed to load scoring '$scoringId'")
+            throw new RuntimeException("Scoring with id '$scoringId' is missing in $fileName")
         }
 
         def scoringMatrix = [], positionWeights = [], gapScore = Integer.MAX_VALUE, threshold = Float.MAX_VALUE
