@@ -78,16 +78,17 @@ class SequenceColumn extends Column {
         //
         //   KLFF     KLFF     ...
         //   KLF-     KL-F
-        def prevCdr = new HashSet<String>()
+        def prevSeq = new HashSet<String>()
 
         while (true) {
             def entries = ni.next()
 
             if (entries) {
                 def seq = entries.first().value
-                if (!prevCdr.contains(seq)) {
+                if (!prevSeq.contains(seq)) {
                     def mutations = ni.currentMutations
-                    def score = scoring.computeScore(mutations, baseScore, refLength)
+                    float score = mutations.size() == 0 ? scoring.scoreThreshold : // always include exact match
+                            scoring.computeScore(mutations, baseScore, refLength)
 
                     if (score >= scoring.scoreThreshold) {
                         def alignment = new Alignment(filter.query, mutations,
@@ -97,7 +98,7 @@ class SequenceColumn extends Column {
                             results.put(entry.row, alignment)
                         }
                     }
-                    prevCdr.add(seq)
+                    prevSeq.add(seq)
                 }
             } else {
                 break
