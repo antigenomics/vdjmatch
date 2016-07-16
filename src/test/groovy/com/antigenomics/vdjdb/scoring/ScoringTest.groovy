@@ -9,13 +9,8 @@ import org.junit.Test
 
 class ScoringTest {
     @Test
-    void loadScoringTest() {
-        AlignmentScoringProvider.loadScoring() // assert inside (tm)
-    }
-
-    @Test
     void scoringTest() {
-        def scoring = AlignmentScoringProvider.loadScoring()
+        def scoring = SequenceSearcherPreset.byPrecision(0.8f).scoring
 
         def seq1 = new AminoAcidSequence("CASSLAPGATNEKLFF"),
             seq2 = new AminoAcidSequence("CASSLAPGATNEKLFF")

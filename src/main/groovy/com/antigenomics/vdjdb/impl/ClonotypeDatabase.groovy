@@ -61,7 +61,7 @@ class ClonotypeDatabase extends Database {
      * @param geneColName receptor gene column name
      */
     ClonotypeDatabase(List<Column> columns, boolean matchV = false, boolean matchJ = false,
-                      SequenceSearcherPreset searchParameters = SequenceSearcherPreset.byName("dummy"),
+                      SequenceSearcherPreset searchParameters = SequenceSearcherPreset.byName("hamming"),
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
                       String speciesColName = SPECIES_COL_DEFAULT, String geneColName = GENE_COL_DEFAULT) {
         super(columns)
@@ -94,7 +94,7 @@ class ClonotypeDatabase extends Database {
      * @param geneColName receptor gene column name
      */
     ClonotypeDatabase(InputStream metadata, boolean matchV = false, boolean matchJ = false,
-                      SequenceSearcherPreset searchParameters = SequenceSearcherPreset.byName("dummy"),
+                      SequenceSearcherPreset searchParameters = SequenceSearcherPreset.byName("hamming"),
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
                       String speciesColName = SPECIES_COL_DEFAULT, String geneColName = GENE_COL_DEFAULT) {
         super(metadata)

@@ -60,7 +60,7 @@ cli._(longOpt: "search-scope", argName: "s,i,d,t", args: 1,
                 "[default=set by preset]")
 cli._(longOpt: "search-threshold", argName: "[-2e4, 2e4]", args: 1,
         "Overrides CDR3 alignment score threshold. Score is computed according to scoring scheme " +
-                "(pre-optimized substitution matrix and gap penalty). Not applicable for 'dummy' preset." +
+                "(pre-optimized substitution matrix and gap penalty). Not applicable for 'hamming' preset." +
                 "[default=set by preset]")
 cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an external database. " +
         "The prefix should point to a '.txt' file (database itself) and '.meta.txt' (database column metadata).")

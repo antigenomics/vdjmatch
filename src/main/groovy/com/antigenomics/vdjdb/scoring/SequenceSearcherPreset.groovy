@@ -61,7 +61,7 @@ class SequenceSearcherPreset {
     static SequenceSearcherPreset byRecall(float recall) {
         def scoringMetadata = new ScoringMetadataTable().getByRecall(recall)
 
-        System.err.println "[SearchPresetProvider] Requested scoring with precision=$recall, " +
+        System.err.println "[SearchPresetProvider] Requested scoring with recall=$recall, " +
                 "closest scoring schema selected is {$scoringMetadata}"
 
         byMetadata(scoringMetadata)
