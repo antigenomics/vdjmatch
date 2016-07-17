@@ -35,7 +35,9 @@ The list of accepted options is the following:
 | ``-R``    | ``--gene``                 | Yes      | ``TRA``,``TRB``,etc              |  Name of the receptor gene. All samples should contain to the same receptor gene, only one gene is allowed. |
 | ``-v``    | ``--v-match``              | Yes      |                                  |  Require Variable segment matching when searching the database. |
 | ``-j``    | ``--j-match``              | Yes      |                                  |  Require Joining segment matching when searching the database. |
-|           | ``--search-preset``        |          | ``balanced``,``high-recall``,etc |  Sets parameters for CDR3 match search and scoring according to specified preset. Default is ``balanced``. See **CDR3 matching** section below. |
+|           | ``--search-preset``        |          | ``hamming``,``high-recall``,etc  |  Sets parameters for CDR3 match search and scoring according to specified preset. Default is ``high-precision``. See **CDR3 matching** section below. |
+|           | ``--search-preset-recall`` |          | ``[0, 1]``                       |  Select search preset with recall rate close to the specified value. Cannot be used together with ``--search-preset-precision``, overrides ``--search-preset.`` |
+|           | ``--search-preset-precision`` |       | ``[0, 1]``                       |  Select search preset with precision rate close to the specified value. Cannot be used together with ``--search-preset-recall``, overrides ``--search-preset.`` |
 |           | ``--search-scope``         |          | ``5,2,2,7``                      |  Initial parameters used to select CDR3 sequences from the database in s/i/d/m format: allowed number of substitutions (s), insertions (i), deletions (d) and the total number of mismatches (m). Depends on preset. |
 |           | ``--search-threshold``     |          | ``-2000``,``2.5e3``,etc          |  Overrides CDR3 alignment score threshold. Score is computed according to scoring scheme (pre-optimized substitution matrix and gap penalty). Not applicable for 'dummy' preset. |
 |           | ``--database``             |          | ``/path/to/my_db``               |  Path and prefix of an external database. Should point to files with '.txt', and '.meta.txt' suffices (the database itself and database metadata).|
@@ -64,14 +66,14 @@ Scanning the database with CDR3 sequences from the sample is performed in two st
 1. A fast and exhaustive search using a suffix tree that is controlled by number of amino acid substitutions and indels as set by ``--search-scope`` parameter.
 2. Each of resulting alignments is scored using a pre-trained substitution matrix, gap penalty and positional weights as specified by ``--search-preset`` parameter. Only records passing a certain threshold (set by ``--search-threshold`` or, by default, taken from the parameter preset) are reported in the final output.
 
-VDJdb therefore uses optimized alignment scoring to rank and filter CDR3 matches [TBA](https://en.wikipedia.org/wiki/To_be_announced). The following presets are available:
+VDJdb therefore uses optimized alignment scoring to rank and filter CDR3 matches, see [cdr3align](https://github.com/antigenomics/cdr3align. The following presets are available:
 
 Name               | Search scope | Description
 -------------------|--------------|-------------------------------------------------------------------------------------------------
-``dummy``          | ``2,1,1,2``  | No scoring threshold is applied, CDR3 length minus number of mismatches is reported as ``score``
-``high-recall``    | ``5,2,2,7``  | Recall near ``~100%`` on training dataset, precision is ``~5%``
-``balanced``       | ``5,2,2,7``  | Precision near ``~80%`` on training dataset, recall is ``~50%``
-``high-precision`` | ``5,2,2,7``  | Precision near ``~100%`` on training dataset, recall is ``~5%``
+``hamming``        | ``2,1,1,2``  | No scoring threshold is applied, CDR3 length minus number of mismatches is reported as ``score``
+``high-recall``    | ``5,2,2,7``  | Recall near ``~80%`` on training dataset, precision is ``~20%``
+``optimal``        | ``5,2,2,7``  | Based on ``F-score``. Precision ``~50%`` on training dataset, recall is ``~30%``
+``high-precision`` | ``5,2,2,7``  | Precision near ``~80%`` on training dataset, recall is ``~20%``
 
 Note that ``--search-scope`` argument can be used to speed up VDJdb-standalone and lower its memory requirements by decreasing the search space. This can severely affect the recall though.
 
