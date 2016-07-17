@@ -67,7 +67,7 @@ class SequenceSearcherPreset {
         byMetadata(scoringMetadata)
     }
 
-    private static SequenceSearcherPreset byMetadata(ScoringMetadata scoringMetadata) {
+    static SequenceSearcherPreset byMetadata(ScoringMetadata scoringMetadata) {
         new SequenceSearcherPreset(AlignmentScoringProvider.loadScoring(scoringMetadata.scoringId),
                 new TreeSearchParameters(5, 2, 2, 7))
     }
