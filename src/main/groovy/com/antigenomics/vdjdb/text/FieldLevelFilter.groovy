@@ -65,6 +65,9 @@ class FieldLevelFilter extends TextFilter {
                 return 0.0
             }
             return rat[0].toDouble() / rat[1].toDouble();
+        } else if (number.contains("%")) {
+            def perc = number.replace("%", "")
+            return perc.toDouble() / 100.0
         } else {
             return number.toDouble()
         }
