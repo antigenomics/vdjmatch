@@ -34,17 +34,20 @@ class FieldSubstringFilter extends TextFilter {
 
     @Override
     protected boolean passInner(Entry entry) {
-        def entryFields = getEntryFields(entry.value)
+        def valueFields = getFields(value)
+        def entryFields = getFields(entry.value)
 
-        for (String entryField : entryFields) {
-            if (entryField.contains(field) && entryField.contains(value)) {
-                return true
+        for (String valueField : valueFields) {
+            for (String entryField: entryFields) {
+                if (entryField.contains(field) && entryField.contains(valueField)) {
+                    return true
+                }    
             }
         }
         return false
     }
 
-    private static Collection<String> getEntryFields(String value) {
-        value.toLowerCase().split(",").collect { it.toLowerCase() }
+    private static Collection<String> getFields(String value) {
+        value.toLowerCase().split(",").collect { it.trim() }
     }
 }
