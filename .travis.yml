@@ -5,7 +5,7 @@ jdk: oraclejdk8
 install:
   - git clone https://github.com/mikessh/vdjtools.git
   - cd vdjtools/
-  - git checkout tags/1.1.1
+  - git checkout tags/1.1.2-SNAPSHOT
   - mvn clean install -q -Dmaven.test.skip=true
   - cd ..
 
