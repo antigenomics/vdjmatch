@@ -13,9 +13,7 @@ script:
   - gradle clean build
   - java -Xmx4G -jar `ls build/libs/vdjdb-*.jar` -v -j -S human -R TRB --search-scope 3,1,1,3 src/test/resources/sergey_anatolyevich.gz test
   - if [[ ! -s test.sergey_anatolyevich.annot.txt ]]; then exit 1; fi; rm test.sergey_anatolyevich.annot.txt
-  - if [[ ! -s test.annot.summary.txt ]]; then exit 1; fi; rm test.annot.summary.txt
   - java -Xmx4G -jar `ls build/libs/vdjdb-*.jar` --use-fat-db -v -j -S human -R TRB --search-scope 3,1,1,3 src/test/resources/sergey_anatolyevich.gz test
   - if [[ ! -s test.sergey_anatolyevich.annot.txt ]]; then exit 1; fi
-  - if [[ ! -s test.annot.summary.txt ]]; then exit 1; fi
   - java -Xmx4G -jar vdjtools/target/vdjtools-*.jar Annotate test.sergey_anatolyevich.annot.txt annot/
   - if [[ ! -s annot/metadata.txt ]]; then exit 1; fi
