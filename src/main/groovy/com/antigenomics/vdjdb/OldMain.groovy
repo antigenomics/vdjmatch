@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Mikhail Shugay
+ * Copyright 2015 Mikhail Shugay
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,8 +32,8 @@ if (args.length > 0 && args[0].toLowerCase() == "update") {
     System.exit(0)
 }
 
-def DEFAULT_SEARCH_SCOPE = "0,0,0,0",
-    DEFAULT_CONFIDENCE_THRESHOLD = "0",
+def DEFAULT_PRESET = SequenceSearcherPreset.ALLOWED_PRESETS[-1],
+    DEFAULT_CONFIDENCE_THRESHOLD = "1",
     ALLOWED_SPECIES_ALIAS = ["human" : "homosapiens", "mouse": "musmusculus", // "rat"  : "rattusnorvegicus",
                              "monkey": "macacamulatta"],
     ALLOWED_GENES = ["TRA", "TRB"]
@@ -45,15 +45,31 @@ cli.h("display help message")
 cli.m(longOpt: "metadata", argName: "filename", args: 1,
         "Metadata file. First and second columns should contain file name and sample id. " +
                 "Header is mandatory and will be used to assign column names for metadata.")
+cli._(longOpt: "search-preset", argName: "name", args: 1,
+        "Sets parameters for CDR3 match search and scoring according to specified preset, allowed values: " +
+                "${SequenceSearcherPreset.ALLOWED_PRESETS.join(",")}. [default = $DEFAULT_PRESET]")
+cli._(longOpt: "search-preset-precision", argName: "[0,1]", args: 1,
+        "Select search preset with precision that is closest to specified value. Cannot be used together with " +
+                "--search-preset-recall, overrides --search-preset.")
+cli._(longOpt: "search-preset-recall", argName: "[0,1]", args: 1,
+        "Select search preset with recall that is closest to specified value. Cannot be used together with " +
+                "--search-preset-precision, overrides --search-preset.")
 cli._(longOpt: "search-scope", argName: "s,i,d,t", args: 1,
         "Overrides CDR3 sequence initial search parameters: " +
                 "allowed number of substitutions (s), insertions (i), deletions (d) and total number of mutations. " +
-                "[default=$DEFAULT_SEARCH_SCOPE]")
+                "[default=set by preset]")
+cli._(longOpt: "search-threshold", argName: "[-2e4, 2e4]", args: 1,
+        "Overrides CDR3 alignment score threshold. Score is computed according to scoring scheme " +
+                "(pre-optimized substitution matrix and gap penalty). Not applicable for 'hamming' preset." +
+                "[default=set by preset]")
 cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an external database. " +
         "The prefix should point to a '.txt' file (database itself) and '.meta.txt' (database column metadata).")
 cli._(longOpt: "use-fat-db", "Use a more redundant database version, with extra fields (meta, method, etc). " +
         "Fat database can contain several records for a " +
         "TCR:pMHC pair corresponding to different replicates/tissue sources/targets.")
+cli._(longOpt: "summary-columns", argName: "col1,col2,...", args: 1,
+        "Table columns for summarizing, see DB metadata for column names. " +
+                "[default=${ClonotypeSearchSummary.FIELDS_PLAIN_TEXT.join(",")}]. ")
 cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
         "Logical filter evaluated for database columns. Supports Regex, .contains(), .startsWith(), etc.")
 cli.S(longOpt: "species", argName: "name", args: 1, required: true,
@@ -103,7 +119,8 @@ def dbPrefix = (String) (opt.'database' ?: null),
     filterStr = opt.'filter',
     useFatDb = (boolean) opt.'use-fat-db',
     outputPrefix = opt.arguments()[-1],
-    software = opt.'software' ? Software.byName(opt.'software') : Software.VDJtools
+    software = opt.'software' ? Software.byName(opt.'software') : Software.VDJtools,
+    summaryColumns = (opt.'summary-columns' ?: ClonotypeSearchSummary.FIELDS_PLAIN_TEXT.join(",")).split(",") as List<String>
 
 def allowedSpecies = [ALLOWED_SPECIES_ALIAS.keySet(), ALLOWED_SPECIES_ALIAS.values()].flatten()
 if (!allowedSpecies.any { species.equalsIgnoreCase(it) }) {
@@ -122,13 +139,35 @@ def scriptName = getClass().canonicalName.split("\\.")[-1]
 
 // Search parameters
 
-def searchScope = opt.'search-scope' ?: DEFAULT_SEARCH_SCOPE
+def searchPreset = opt.'search-preset' ?: DEFAULT_PRESET,
+    searchPresetPrecision = opt.'search-preset-precision',
+    searchPresetRecall = opt.'search-preset-recall',
+    searchScope = opt.'search-scope',
+    searchThreshold = opt.'search-threshold'
 
-def parameterPreset = SequenceSearcherPreset.byName("hamming")
+if (searchPresetPrecision && searchPresetRecall) {
+    println "Options --search-preset-precision and --search-preset-recall cannot be used together."
+    System.exit(1)
+}
 
-def ss = searchScope.split(",").collect { it.toInteger() }
+def parameterPreset
+if (searchPresetPrecision) {
+    parameterPreset = SequenceSearcherPreset.byPrecision(searchPresetPrecision.toFloat())
+} else if (searchPresetRecall) {
+    parameterPreset = SequenceSearcherPreset.byRecall(searchPresetRecall.toFloat())
+} else {
+    parameterPreset = SequenceSearcherPreset.byName(searchPreset)
+}
 
-parameterPreset = parameterPreset.withSearchParameters(ss[0], ss[1], ss[2], ss[3])
+if (searchScope) {
+    def ss = searchScope.split(",").collect { it.toInteger() }
+
+    parameterPreset = parameterPreset.withSearchParameters(ss[0], ss[1], ss[2], ss[3])
+}
+
+if (searchThreshold) {
+    parameterPreset = parameterPreset.withScoringThreshold(searchThreshold.toFloat())
+}
 
 println "[${new Date()} $scriptName] Loading database..."
 
@@ -142,6 +181,12 @@ if (dbPrefix) {
     database = new VdjdbInstance(metaStream, dataStream)
 } else {
     database = new VdjdbInstance(useFatDb)
+}
+
+def missingSummaryCols = summaryColumns.findAll { !database.header*.name.contains(it) }
+if (!missingSummaryCols.empty) {
+    println "Columns $missingSummaryCols specified for summary generation are missing in the database."
+    System.exit(1)
 }
 
 println "[${new Date()} $scriptName] Loaded database. \n${database.dbInstance}"
@@ -184,28 +229,49 @@ println "[${new Date()} $scriptName] Annotating sample(s) & writing results."
 
 def sw = new SampleWriter(compress)
 
-sampleCollection.eachWithIndex { Sample sample, int ind ->
-   println "[${new Date()} $scriptName] Annotating..."
+new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWriter { pwSummary ->
+    pwSummary.println([MetadataTable.SAMPLE_ID_COLUMN,
+                       sampleCollection.metadataTable.columnHeader,
+                       "counter.type",
+                       summaryColumns,
+                       ClonotypeCounter.HEADER].flatten().join("\t"))
 
-   def sampleId = sample.sampleMetadata.sampleId
+    sampleCollection.eachWithIndex { Sample sample, int ind ->
+        println "[${new Date()} $scriptName] Annotating..."
 
-   def results = database.search(sample)
+        def sampleId = sample.sampleMetadata.sampleId
 
-   def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId, "annot"))
+        def results = database.search(sample)
 
-   writer.println(sw.getFullHeader(sample) + "\tid.in.sample\tscore\t" + database.header)
+        def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId, "annot"))
 
-   results.sort { -it.key.count }.each { result ->
-        result.value.each {
-            writer.println(sw.getFullClonotypeString(result.key) + "\t" +
-                    it.id + "\t" +
-                    it.result.score + "\t" + it.row.toString())
+        writer.println(sw.getFullHeader(sample) + "\tid.in.sample\tscore\t" + database.header)
+
+        results.sort { -it.key.count }.each { result ->
+            result.value.each {
+                writer.println(sw.getFullClonotypeString(result.key) + "\t" +
+                        it.id + "\t" +
+                        it.result.score + "\t" + it.row.toString())
+            }
         }
-   }
 
-   writer.close()
+        writer.close()
 
-   println "[${new Date()} $scriptName] ${ind + 1} sample(s) done."
+        println "[${new Date()} $scriptName] Summarizing..."
+
+        def summary = new ClonotypeSearchSummary(results, sample, [summaryColumns])
+
+        def summaryPrefix = sampleId + "\t" + sample.sampleMetadata.toString()
+        summary.counters.each {
+            pwSummary.println(summaryPrefix + "\tentry\t" + it.key + "\t" + it.value)
+        }
+
+        def placeholder = ("NA" * summaryColumns.size()).join("\t")
+        pwSummary.println(summaryPrefix + "\tfound\t" + placeholder + "\t" + summary.totalCounter)
+        pwSummary.println(summaryPrefix + "\tnot.found\t" + placeholder + "\t" + summary.notFoundCounter)
+
+        println "[${new Date()} $scriptName] ${ind + 1} sample(s) done."
+    }
 }
 
 sampleCollection.metadataTable.storeWithOutput(outputPrefix, compress,

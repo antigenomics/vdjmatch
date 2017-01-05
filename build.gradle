@@ -40,7 +40,7 @@ dependencies {
     compile 'org.codehaus.gpars:gpars:1.0.0'
     compile 'junit:junit:4.12'
     compile 'com.milaboratory:milib:1.0'
-    compile 'com.antigenomics:vdjtools:1.1.1'
+    compile 'com.antigenomics:vdjtools:1.1.2-SNAPSHOT'
     compile 'com.fasterxml.jackson.core:jackson-core:2.7.1'
     compile 'org.apache.ant:ant:1.9.4'
 }
