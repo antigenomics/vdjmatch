@@ -26,11 +26,13 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Function
 
 class ClonotypeSearchSummary {
-    static final List<String> FIELDS_AG = ["antigen.species", "antigen.gene"],
+    static final List<String> FIELDS_AG = ["antigen.species", "antigen.gene", "antigen.epitope"],
                               FIELDS_MHC_A = ["mhc.class", "mhc.a"],
                               FIELDS_MHC_B = ["mhc.class", "mhc.a", "mhc.b"],
-                              FIELDS_PLAIN_TEXT = ["mhc.class", "mhc.a", "mhc.b",
-                                                   "antigen.species", "antigen.gene"]
+                              FIELDS_PLAIN_TEXT = ["mhc.class",
+                                                   "antigen.species",
+                                                   "antigen.gene",
+                                                   "antigen.epitope"]
 
     final Map<String, Map<String, ClonotypeCounter>> columnSequenceCounters = new ConcurrentHashMap<>()
 
@@ -102,6 +104,9 @@ class ClonotypeSearchSummary {
     }
 
     Map<String, ClonotypeCounter> getCounters() {
+        if (columnSequenceCounters.values().empty) {
+            return [:]
+        }
         columnSequenceCounters.values().first()
     }
 }
