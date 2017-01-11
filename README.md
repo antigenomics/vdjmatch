@@ -8,7 +8,7 @@ The software accepts TCR clonotype table(s) as an input and relies on [VDJtools]
 
 ### Installation
 
-VDJdb is distributed as a JAR executable (see [releases section](https://github.com/antigenomics/vdjdb/releases)), the software is cross-platform and requires [JRE 1.8](http://www.oracle.com/technetwork/java/javase/downloads/jre8-downloads-2133155.html) to run. Running executable jar is quite straightforward, just use ``java -jar vdjdb.jar`` command as described below.
+VDJdb is distributed as an executable JAR that can be downloaded from the [releases section](https://github.com/antigenomics/vdjdb/releases), the software is cross-platform and requires [JRE 1.8](http://www.oracle.com/technetwork/java/javase/downloads/jre8-downloads-2133155.html) to run. Running executable jar is quite straightforward, just use ``java -jar vdjdb.jar`` command as described below.
 
 To compile VDJdb-standalone from source: 
 * Install VDJtools of appropriate version (see ``build.gradle`` in repository root folder) using Maven (``mvn clean install`` from VDJtools repository root folder).
@@ -35,16 +35,12 @@ The list of accepted options is the following:
 | ``-R``    | ``--gene``                 | Yes      | ``TRA``,``TRB``,etc              |  Name of the receptor gene. All samples should contain to the same receptor gene, only one gene is allowed. |
 | ``-v``    | ``--v-match``              | Yes      |                                  |  Require Variable segment matching when searching the database. |
 | ``-j``    | ``--j-match``              | Yes      |                                  |  Require Joining segment matching when searching the database. |
-|           | ``--search-preset``        |          | ``hamming``,``high-recall``,etc  |  Sets parameters for CDR3 match search and scoring according to specified preset. Default is ``high-precision``. See **CDR3 matching** section below. |
-|           | ``--search-preset-recall`` |          | ``[0, 1]``                       |  Select search preset with recall rate close to the specified value. Cannot be used together with ``--search-preset-precision``, overrides ``--search-preset.`` |
-|           | ``--search-preset-precision`` |       | ``[0, 1]``                       |  Select search preset with precision rate close to the specified value. Cannot be used together with ``--search-preset-recall``, overrides ``--search-preset.`` |
-|           | ``--search-scope``         |          | ``5,2,2,7``                      |  Initial parameters used to select CDR3 sequences from the database in s/i/d/m format: allowed number of substitutions (s), insertions (i), deletions (d) and the total number of mismatches (m). Depends on preset. |
-|           | ``--search-threshold``     |          | ``-2000``,``2.5e3``,etc          |  Overrides CDR3 alignment score threshold. Score is computed according to scoring scheme (pre-optimized substitution matrix and gap penalty). Not applicable for 'dummy' preset. |
+|           | ``--search-scope``         |          | ``2,0,0,2``                      |  Parameters for CDR3 sequence search against the database. The search is performed using hamming distance, the parameters are provided in s/i/d/m format: allowed number of substitutions (s), insertions (i), deletions (d) and the total number of mismatches (m). Default is exact match, ``0,0,0,0``. |
 |           | ``--database``             |          | ``/path/to/my_db``               |  Path and prefix of an external database. Should point to files with '.txt', and '.meta.txt' suffices (the database itself and database metadata).|
 |           | ``--use-fat-db``           |          |                                  |  In case running with a built-in database, will use full database version instead of slim one. Full database contains extended info on method used to identify a given specific TCR and sample source, but has a higher degree of redundancy (several identical TCR:pMHC pairs from different publications, etc) that can complicate post-analysis |
 |           | ``--filter``               |          | ``__antigen.species__ =~ "EBV"`` |  Logical filter expresstion that will be evaluated for database columns. Supports Java/Groovy syntax, Regex, .contains(), .startsWith(), etc. Parst of the expression marked with double underscore (``__``) will be subsituted with corresponding values from database rows. Those parts should be named exactly as columns in the database |
 |           | ``--vdjdb-conf-threshold`` |          | ``1``                            |  VDJdb confidence level threshold, from ``0`` (lowest) to ``3`` (highest), default is ``1``. See [database readme](https://github.com/antigenomics/vdjdb-db) for details on VDJdb confidence scoring procedure |
-|           | ``summary-columns``        |          | ``antigen.species,antigen.gene`` |  Table columns for which a summary output is provided for each sample, see [VDJdb specification](https://github.com/antigenomics/vdjdb-db#database-specification) and database metadata file for more information on available columns. Default is ``mhc.class,mhc.a,mhc.b,antigen.species,antigen.gene``|
+|           | ``summary-columns``        |          | ``antigen.species,antigen.gene`` |  Table columns for which a summary output is provided for each sample, see [VDJdb specification](https://github.com/antigenomics/vdjdb-db#database-specification) and database metadata file for more information on available columns. Default is ``mhc.class,antigen.species,antigen.gene,antigen.epitope``|
 | ``-c``    | ``--compress``             |          |                                  |  Compress sample-level summary output with GZIP. |
 
 The following output files will be generated:
@@ -56,30 +52,12 @@ The following output files will be generated:
 2. ``$sample_id.annot.txt`` annotation for each of the clonotypes found in database. 
     * This is an all-to-all merge table between the sample and database that includes all matches.
     * Clonotype information from the sample (count, frequency, cdr3 sequence, v/d/j segments and v/d/j markup) is preserved. 
-    *As a clonotype can be represented by multiple rows in the output, ``id.in.sample`` column can be used to make the correspondence between annotation record and 0-based index of clonotype in the original sample. For the information on database columns that are appended see database schema in [VDJdb-db repository](https://github.com/antigenomics/vdjdb-db) readme. 
+    * As a clonotype can be represented by multiple rows in the output (i.e. match to several records in the database), ``id.in.sample`` column can be used to make the correspondence between annotation record and 0-based index of clonotype in the original sample. For the information on database columns that are appended see database schema in [VDJdb-db repository](https://github.com/antigenomics/vdjdb-db) readme. 
     * The ``score`` column contains CDR3 alignment score that is computed as described below (not to be confused with [VDJdb record confidence score](https://github.com/antigenomics/vdjdb-db#vdjdb-scoring).
 
 ### CDR3 matching in VDJdb
 
-Scanning the database with CDR3 sequences from the sample is performed in two steps:
-
-1. A fast and exhaustive search using a suffix tree that is controlled by number of amino acid substitutions and indels as set by ``--search-scope`` parameter.
-2. Each of resulting alignments is scored using a pre-trained substitution matrix, gap penalty and positional weights as specified by ``--search-preset`` parameter. Only records passing a certain threshold (set by ``--search-threshold`` or, by default, taken from the parameter preset) are reported in the final output.
-
-VDJdb therefore uses optimized alignment scoring to rank and filter CDR3 matches, see [cdr3align](https://github.com/antigenomics/cdr3align. The following presets are available:
-
-Name               | Search scope | Description
--------------------|--------------|-------------------------------------------------------------------------------------------------
-``hamming``        | ``2,1,1,2``  | No scoring threshold is applied, CDR3 length minus number of mismatches is reported as ``score``
-``high-recall``    | ``5,2,2,7``  | Recall near ``~80%`` on training dataset, precision is ``~20%``
-``optimal``        | ``5,2,2,7``  | Based on ``F-score``. Precision ``~50%`` on training dataset, recall is ``~30%``
-``high-precision`` | ``5,2,2,7``  | Precision near ``~80%`` on training dataset, recall is ``~20%``
-
-Note that ``--search-scope`` argument can be used to speed up VDJdb-standalone and lower its memory requirements by decreasing the search space. This can severely affect the recall though.
-
-The ``--search-threshold`` is encoded into the preset and selected during the optimization procedure. Changing this threshold can provide a mean to fine-tune VDJdb-standalone when a control set is available or manual inspection of annotation results reveal certain inconsistencies. However, a better choice would be to re-run CDR3 scoring optimization with a set of user-provided TCRs with known specificity.
-
-Values for ``--search-scope`` and ``--search-threshold`` are initially determined from the ``--search-preset`` and can be overriden by using corresponding options.
+The database search is performed using a suffix tree and the search is limited to all database sequences that differ by no more than the specified number of substitutions, insertions and deletions from the query CDR3 sequence. Thus, the current build of VDJtools-standalone supports hamming metric, substitution matrices and more complex hit scoring will be implemented in future releases. In our practice (mostly based on network analysis of VDJdb itself and annotation of samples with known CMV status), adding insertions and deletions can result in a plethora of spurious matches. On the other hand, up to 3 allowed subsitutions result in efficient detection of CDR3 sequence clusters specific to a certain epitope.
 
 ### Some notes
 
