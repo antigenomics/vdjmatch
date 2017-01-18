@@ -19,6 +19,7 @@ package com.antigenomics.vdjdb.stat
 import com.antigenomics.vdjdb.AtomicDouble
 import com.antigenomics.vdjtools.sample.Clonotype
 
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -26,6 +27,7 @@ class ClonotypeCounter {
     private final AtomicInteger uniqueCounter
     private final AtomicLong readCounter
     private final AtomicDouble frequencyCounter
+    private final Set<Clonotype> clonotypes = ConcurrentHashMap.newKeySet()
 
     ClonotypeCounter() {
         this(0, 0, 0)
@@ -42,10 +44,13 @@ class ClonotypeCounter {
      * @param clonotype clonotype to append
      */
     void update(Clonotype clonotype) {
+        if(!clonotypes.contains(clonotype)){
+        clonotypes.add(clonotype)
+
         uniqueCounter.incrementAndGet()
         readCounter.addAndGet(clonotype.count)
         frequencyCounter.addAndGet(clonotype.freq)
-    }
+    }}
 
     /**
      * Number of unique clonotypes in a given category
@@ -69,6 +74,10 @@ class ClonotypeCounter {
      */
     long getReads() {
         readCounter.get()
+    }
+
+    Set<Clonotype> getClonotypes() {
+        Collections.unmodifiableSet(clonotypes)
     }
 
     static final String HEADER = "unique\tfrequency\treads"

@@ -26,60 +26,42 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Function
 
 class ClonotypeSearchSummary {
-    static final List<String> FIELDS_AG = ["antigen.species", "antigen.gene", "antigen.epitope"],
-                              FIELDS_MHC_A = ["mhc.class", "mhc.a"],
-                              FIELDS_MHC_B = ["mhc.class", "mhc.a", "mhc.b"],
+    static final List<String> FIELDS_STARBURST = ["mhc.class",
+                                                  "mhc.a",
+                                                  "mhc.b",
+                                                  "antigen.species",
+                                                  "antigen.gene",
+                                                  "antigen.epitope"],
                               FIELDS_PLAIN_TEXT = ["mhc.class",
                                                    "antigen.species",
                                                    "antigen.gene",
                                                    "antigen.epitope"]
 
-    final Map<String, Map<String, ClonotypeCounter>> columnSequenceCounters = new ConcurrentHashMap<>()
+    final Map<String, Map<String, ClonotypeCounter>> fieldCounters = new ConcurrentHashMap<>()
 
     final ClonotypeCounter totalCounter = new ClonotypeCounter(),
                            notFoundCounter
 
-    private static final Function<String, Map<String, ClonotypeCounter>> mapgen =
-            new Function<String, Map<String, ClonotypeCounter>>() {
-                @Override
-                Map<String, ClonotypeCounter> apply(String s) {
-                    new ConcurrentHashMap<>()
-                }
-            }
-
-    private static final Function<String, ClonotypeCounter> countergen = new Function<String, ClonotypeCounter>() {
-        @Override
-        ClonotypeCounter apply(String s) {
-            new ClonotypeCounter()
-        }
-    }
-
-    static ClonotypeSearchSummary createForStarburst(Map<Clonotype, List<ClonotypeSearchResult>> searchResults,
-                                                     Sample sample) {
-        def fields = listAllNameSequences(FIELDS_AG)
-        fields.addAll(listAllNameSequences(FIELDS_MHC_A))
-        fields.addAll(listAllNameSequences(FIELDS_MHC_B))
-        new ClonotypeSearchSummary(searchResults, sample, fields)
-    }
-
-    static List<List<String>> listAllNameSequences(List<String> columnNames) {
-        (0..<columnNames.size()).collect { columnNames[0..it] }
-    }
-
     ClonotypeSearchSummary(Map<Clonotype, List<ClonotypeSearchResult>> searchResults,
                            Sample sample,
-                           List<List<String>> columnNameListCombinations) {
-        def counterTypes = columnNameListCombinations.collectEntries { [(it.join("\t")): it] }
+                           List<String> columnNameList) {
+        columnNameList.each {
+            fieldCounters.put(it, new ConcurrentHashMap<String, ClonotypeCounter>())
+        }
 
         GParsPool.withPool ExecUtil.THREADS, {
             searchResults.eachParallel { Map.Entry<Clonotype, List<ClonotypeSearchResult>> clonotypeResult ->
                 clonotypeResult.value.each { result ->
-                    // todo can optimize by moving this upward, needs db though
-                    counterTypes.each { Map.Entry<String, List<String>> counterType ->
-                        def subMap = columnSequenceCounters.computeIfAbsent(counterType.key, mapgen)
-                        // todo can optimize by pre-getting column indices
-                        def combination = counterType.value.collect { result.row[it] }.join("\t")
-                        def counter = subMap.computeIfAbsent(combination, countergen)
+                    columnNameList.each { columnId ->
+                        def subMap = fieldCounters[columnId],
+                            value = result.row[columnId].value
+
+                        def counter = subMap[value]
+
+                        if (counter == null) {
+                            subMap.put(value, counter = new ClonotypeCounter())
+                        }
+
                         counter.update(clonotypeResult.key)
                     }
                 }
@@ -92,21 +74,13 @@ class ClonotypeSearchSummary {
                 sample.freq - totalCounter.frequency)
     }
 
-    ClonotypeCounter getCounter(List<String> columnNameSequence, List<String> columnValueSequence) {
-        if (columnNameSequence.size() != columnValueSequence.size()) {
-            throw new RuntimeException("Column name and column value list lengths should match.")
+    ClonotypeCounter getCounter(String columnId, String value) {
+        if (!fieldCounters.containsKey(columnId)) {
+            throw new RuntimeException("Column $columnId was not summarized.")
         }
-        getCounters(columnNameSequence)[columnValueSequence.join("\t")]
-    }
 
-    Map<String, ClonotypeCounter> getCounters(List<String> columnNameSequence) {
-        columnSequenceCounters[columnNameSequence.join("\t")]
-    }
+        def counter = fieldCounters[columnId][value]
 
-    Map<String, ClonotypeCounter> getCounters() {
-        if (columnSequenceCounters.values().empty) {
-            return [:]
-        }
-        columnSequenceCounters.values().first()
+        counter ?: new ClonotypeCounter()
     }
 }

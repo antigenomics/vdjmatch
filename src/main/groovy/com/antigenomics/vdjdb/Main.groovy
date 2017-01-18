@@ -197,8 +197,8 @@ def sw = new SampleWriter(compress)
 new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWriter { pwSummary ->
     pwSummary.println([MetadataTable.SAMPLE_ID_COLUMN,
                        sampleCollection.metadataTable.columnHeader,
-                       "counter.type",
-                       summaryColumns,
+                       "db.column.name",
+                       "db.column.value",
                        ClonotypeCounter.HEADER].flatten().join("\t"))
 
     sampleCollection.eachWithIndex { Sample sample, int ind ->
@@ -224,16 +224,20 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWri
 
         println "[${new Date()} $scriptName] Summarizing..."
 
-        def summary = new ClonotypeSearchSummary(results, sample, [summaryColumns])
+        def summary = new ClonotypeSearchSummary(results, sample, summaryColumns)
 
         def summaryPrefix = sampleId + "\t" + sample.sampleMetadata.toString()
-        summary.counters.each {
-            pwSummary.println(summaryPrefix + "\tentry\t" + it.key + "\t" + it.value)
+
+        summary.fieldCounters.each { kvp1 ->
+            def columnName = kvp1.key
+
+            kvp1.value.each { kvp2 ->
+                pwSummary.println(summaryPrefix + "\t" + columnName + "\t" + kvp2.key + "\t" + kvp2.value)
+            }
         }
 
-        def placeholder = ("NA" * summaryColumns.size()).join("\t")
-        pwSummary.println(summaryPrefix + "\tfound\t" + placeholder + "\t" + summary.totalCounter)
-        pwSummary.println(summaryPrefix + "\tnot.found\t" + placeholder + "\t" + summary.notFoundCounter)
+        pwSummary.println(summaryPrefix + "\tsummary\tfound\t" + summary.totalCounter)
+        pwSummary.println(summaryPrefix + "\tsummary\tnot.found\t" + summary.notFoundCounter)
 
         println "[${new Date()} $scriptName] ${ind + 1} sample(s) done."
     }
