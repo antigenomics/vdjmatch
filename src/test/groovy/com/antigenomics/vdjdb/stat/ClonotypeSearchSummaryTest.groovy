@@ -47,6 +47,8 @@ class ClonotypeSearchSummaryTest {
 
         assert summary.totalCounter.unique > 0
 
+        //println summary.fieldCounters
+
         // we only have viral infection in legacy db
         assert summary.getCounter("disease.type", "infection").unique ==
                 summary.getCounter("disease", "viral").unique
