@@ -43,19 +43,15 @@ class ClonotypeSearchSummaryTest {
 
         def colNames = ["origin", "disease.type", "disease", "source"]
         def summary = new ClonotypeSearchSummary(results, sample,
-                ClonotypeSearchSummary.listAllNameSequences(colNames))
+                colNames)
 
         assert summary.totalCounter.unique > 0
 
-        def getCounter = { List<String> values ->
-            summary.getCounter(colNames[0..<values.size()], values)
-        }
-
         // we only have viral infection in legacy db
-        assert getCounter(["non-self", "infection"]).unique ==
-                getCounter(["non-self", "infection", "viral"]).unique
+        assert summary.getCounter("disease.type", "infection").unique ==
+                summary.getCounter("disease", "viral").unique
 
-        assert getCounter(["non-self", "infection", "viral", "EBV"]).unique > 0
-        assert getCounter(["non-self", "infection", "viral", "CMV"]).unique > 0
+        assert summary.getCounter("source", "EBV").unique > 0
+        assert summary.getCounter("source", "CMV").unique > 0
     }
 }
