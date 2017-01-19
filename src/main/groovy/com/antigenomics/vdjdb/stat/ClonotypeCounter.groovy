@@ -44,13 +44,14 @@ class ClonotypeCounter {
      * @param clonotype clonotype to append
      */
     void update(Clonotype clonotype) {
-        if(!clonotypes.contains(clonotype)){
-        clonotypes.add(clonotype)
+        if (!clonotypes.contains(clonotype)) {
+            clonotypes.add(clonotype)
 
-        uniqueCounter.incrementAndGet()
-        readCounter.addAndGet(clonotype.count)
-        frequencyCounter.addAndGet(clonotype.freq)
-    }}
+            uniqueCounter.incrementAndGet()
+            readCounter.addAndGet(clonotype.count)
+            frequencyCounter.addAndGet(clonotype.freq)
+        }
+    }
 
     /**
      * Number of unique clonotypes in a given category

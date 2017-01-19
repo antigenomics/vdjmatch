@@ -56,12 +56,7 @@ class ClonotypeSearchSummary {
                         def subMap = fieldCounters[columnId],
                             value = result.row[columnId].value
 
-                        def counter = subMap[value]
-
-                        if (counter == null) {
-                            subMap.put(value, counter = new ClonotypeCounter())
-                        }
-
+                        def counter = subMap.computeIfAbsent(value, countergen)
                         counter.update(clonotypeResult.key)
                     }
                 }
@@ -82,5 +77,12 @@ class ClonotypeSearchSummary {
         def counter = fieldCounters[columnId][value]
 
         counter ?: new ClonotypeCounter()
+    }
+
+    private static final Function<String, ClonotypeCounter> countergen = new Function<String, ClonotypeCounter>() {
+        @Override
+        ClonotypeCounter apply(String s) {
+            new ClonotypeCounter()
+        }
     }
 }
