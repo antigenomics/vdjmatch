@@ -118,7 +118,7 @@ class VdjdbInstance {
      * @return a clonotype database object
      */
     ClonotypeDatabase asClonotypeDatabase(boolean matchV = false, boolean matchJ = false,
-                                          SequenceSearcherPreset searchParameters = SequenceSearcherPreset.byName("hamming"),
+                                          SequenceSearcherPreset searchParameters = SequenceSearcherPreset.EXACT,
                                           String species = null, String gene = null,
                                           int vdjdbRecordConfidenceThreshold = -1) {
         def cdb = new ClonotypeDatabase(header, matchV, matchJ, searchParameters)

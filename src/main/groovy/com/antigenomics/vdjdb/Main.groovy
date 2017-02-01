@@ -17,6 +17,7 @@
 
 package com.antigenomics.vdjdb
 
+import com.antigenomics.vdjdb.scoring.AlignmentScoringProvider
 import com.antigenomics.vdjdb.scoring.SequenceSearcherPreset
 import com.antigenomics.vdjdb.stat.ClonotypeCounter
 import com.antigenomics.vdjdb.stat.ClonotypeSearchSummary
@@ -26,13 +27,15 @@ import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.sample.SampleCollection
 import com.antigenomics.vdjtools.sample.metadata.MetadataTable
 import com.antigenomics.vdjtools.misc.ExecUtil
+import com.milaboratory.core.tree.TreeSearchParameters
 
 if (args.length > 0 && args[0].toLowerCase() == "update") {
     Util.checkDatabase(true)
     System.exit(0)
 }
 
-def DEAFULT_SEARCH_SCOPE = "0,0,0,0",
+def DEFAULT_SEARCH_SCOPE = "0,0,0,0",
+    DEFAULT_SEARCH_SCORING = AlignmentScoringProvider.DUMMY_SCORING_ID,
     DEFAULT_CONFIDENCE_THRESHOLD = "0",
     ALLOWED_SPECIES_ALIAS = ["human" : "homosapiens", "mouse": "musmusculus",
                              "monkey": "macacamulatta"],
@@ -46,9 +49,14 @@ cli.m(longOpt: "metadata", argName: "filename", args: 1,
         "Metadata file. First and second columns should contain file name and sample id. " +
                 "Header is mandatory and will be used to assign column names for metadata.")
 cli._(longOpt: "search-scope", argName: "s,i,d,t", args: 1,
-        "Overrides CDR3 sequence initial search parameters: " +
+        "Sets CDR3 sequence search parameters: " +
                 "allowed number of substitutions (s), insertions (i), deletions (d) and total number of mutations. " +
-                "[default=set by preset]")
+                "[default=$DEFAULT_SEARCH_SCOPE]")
+cli._(longOpt: "search-scoring", argName: "name", args: 1,
+        "Sets CDR3 alignment scoring preset. " +
+                "Either '${AlignmentScoringProvider.DUMMY_SCORING_ID}' that counts number the number of " +
+                "matched bases, or 'v1' that uses a pre-computed scoring matrix." +
+                "[default='$DEFAULT_SEARCH_SCORING']")
 cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an external database. " +
         "The prefix should point to a '.txt' file (database itself) and '.meta.txt' (database column metadata).")
 cli._(longOpt: "use-fat-db", "Use a more redundant database version, with extra fields (meta, method, etc). " +
@@ -66,7 +74,7 @@ cli._(longOpt: "software", argName: "string", args: 1,
                 "[default = ${Software.VDJtools}]")
 cli.R(longOpt: "gene", argName: "name", args: 1, required: true,
         "Receptor gene of input sample(s), allowed values: $ALLOWED_GENES.")
-cli._(longOpt: "vdjdb-conf-threshold", argName: "[0,3]", args: 1,
+cli._(longOpt: "vdjdb-conf", argName: "[0,3]", args: 1,
         "VDJdb confidence level threshold, from lowest to highest. [default=$DEFAULT_CONFIDENCE_THRESHOLD]")
 cli.v(longOpt: "v-match", "Require V segment matching.")
 cli.j(longOpt: "j-match", "Require J segment matching.")
@@ -102,7 +110,7 @@ def dbPrefix = (String) (opt.'database' ?: null),
     compress = (boolean) opt.c,
     vMatch = (boolean) opt."v-match", jMatch = (boolean) opt."j-match",
     species = (String) opt.S, gene = (String) opt.R,
-    q = (opt.'vdjdb-conf-threshold' ?: DEFAULT_CONFIDENCE_THRESHOLD).toInteger(),
+    q = (opt.'vdjdb-conf' ?: DEFAULT_CONFIDENCE_THRESHOLD).toInteger(),
     filterStr = opt.'filter',
     useFatDb = (boolean) opt.'use-fat-db',
     outputPrefix = opt.arguments()[-1],
@@ -126,13 +134,14 @@ def scriptName = getClass().canonicalName.split("\\.")[-1]
 
 // Search parameters
 
-def parameterPreset = SequenceSearcherPreset.byName("hamming")
-
-def searchScope = opt.'search-scope' ?: DEAFULT_SEARCH_SCOPE
+def searchScope = opt.'search-scope' ?: DEFAULT_SEARCH_SCOPE,
+    searchScoring = opt.'search-scoring' ?: DEFAULT_SEARCH_SCORING
 
 def ss = searchScope.split(",").collect { it.toInteger() }
 
-parameterPreset = parameterPreset.withSearchParameters(ss[0], ss[1], ss[2], ss[3])
+parameterPreset = new SequenceSearcherPreset(
+        new TreeSearchParameters(ss[0], ss[1], ss[2], ss[3]),
+        AlignmentScoringProvider.loadScoring(searchScoring))
 
 println "[${new Date()} $scriptName] Loading database..."
 

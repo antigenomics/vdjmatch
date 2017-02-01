@@ -17,8 +17,11 @@
 package com.antigenomics.vdjdb.impl
 
 import com.antigenomics.vdjdb.TestUtil
+import com.antigenomics.vdjdb.scoring.AlignmentScoringProvider
+import com.antigenomics.vdjdb.scoring.SequenceSearcherPreset
 import com.antigenomics.vdjtools.io.InputStreamFactory
 import com.antigenomics.vdjtools.io.SampleStreamConnection
+import com.milaboratory.core.tree.TreeSearchParameters
 import org.junit.Test
 
 import java.util.zip.GZIPInputStream
@@ -26,7 +29,7 @@ import java.util.zip.GZIPInputStream
 import static com.antigenomics.vdjdb.Util.resourceAsStream
 
 class ClonotypeDatabaseTest {
-    
+
     @Test
     void loadTest() {
         def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta.txt"))
@@ -54,5 +57,23 @@ class ClonotypeDatabaseTest {
         assert lapgatResults.value.size() > 0
 
         assert lapgatResults.value[0].row[TestUtil.SOURCE_COL].value == "CMV"
+    }
+
+    @Test
+    void sampleTest2() {
+        def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta.txt"),
+                false, false, new SequenceSearcherPreset(new TreeSearchParameters(3, 0, 0, 3),
+                AlignmentScoringProvider.loadScoring("v1")))
+
+        database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
+
+        def sample = SampleStreamConnection.load([
+                create: {
+                    new GZIPInputStream(resourceAsStream("sergey_anatolyevich.gz"))
+                },
+                getId : { "sergey_anatolyevich.gz" }
+        ] as InputStreamFactory)
+
+        def results = database.search(sample)
     }
 }

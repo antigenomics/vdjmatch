@@ -50,10 +50,7 @@ class ClonotypeDatabase extends Database {
      * @param columns a list of database columns
      * @param matchV should Variable segment matching be performed when searching
      * @param matchJ should Joining segment matching be performed when searching
-     * @param maxMismatches max allowed mismatches in CDR3 region when searching
-     * @param maxInsertions max allowed insertions in CDR3 region when searching
-     * @param maxDeletions max allowed deletions in CDR3 region when searching
-     * @param maxMutations max allowed mutations (mismatches or indels) in CDR3 region when searching
+     * @param searchParameters search parameter set
      * @param cdr3ColName CDR3 containing column name
      * @param vColName Variable segment containing column name
      * @param jColName Joining segment containing column name
@@ -61,7 +58,7 @@ class ClonotypeDatabase extends Database {
      * @param geneColName receptor gene column name
      */
     ClonotypeDatabase(List<Column> columns, boolean matchV = false, boolean matchJ = false,
-                      SequenceSearcherPreset searchParameters = SequenceSearcherPreset.byName("hamming"),
+                      SequenceSearcherPreset searchParameters = SequenceSearcherPreset.EXACT,
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
                       String speciesColName = SPECIES_COL_DEFAULT, String geneColName = GENE_COL_DEFAULT) {
         super(columns)
@@ -83,10 +80,7 @@ class ClonotypeDatabase extends Database {
      * @param metadata metadata file stream
      * @param matchV should Variable segment matching be performed when searching
      * @param matchJ should Joining segment matching be performed when searching
-     * @param maxMismatches max allowed mismatches in CDR3 region when searching
-     * @param maxInsertions max allowed insertions in CDR3 region when searching
-     * @param maxDeletions max allowed deletions in CDR3 region when searching
-     * @param maxMutations max allowed mutations (mismatches or indels) in CDR3 region when searching
+     * @param searchParameters search parameter set
      * @param cdr3ColName CDR3 containing column name
      * @param vColName Variable segment containing column name
      * @param jColName Joining segment containing column name
@@ -94,7 +88,7 @@ class ClonotypeDatabase extends Database {
      * @param geneColName receptor gene column name
      */
     ClonotypeDatabase(InputStream metadata, boolean matchV = false, boolean matchJ = false,
-                      SequenceSearcherPreset searchParameters = SequenceSearcherPreset.byName("hamming"),
+                      SequenceSearcherPreset searchParameters = SequenceSearcherPreset.EXACT,
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
                       String speciesColName = SPECIES_COL_DEFAULT, String geneColName = GENE_COL_DEFAULT) {
         super(metadata)

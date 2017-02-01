@@ -21,72 +21,18 @@ import com.milaboratory.core.tree.TreeSearchParameters
 class SequenceSearcherPreset {
     final AlignmentScoring scoring
     final TreeSearchParameters parameters
+    final boolean exhaustive, // if false stop with first variant from tree search, otherwise search all possible re-alignments
+                  greedy // if true stop if new variant has more mismatches than the previous one
 
-    static final List<String> ALLOWED_PRESETS = ["hamming", "high-recall", "optimal", "high-precision"]
+    final static SequenceSearcherPreset EXACT = new SequenceSearcherPreset()
 
-    static SequenceSearcherPreset byName(String name) {
-        switch (name.toLowerCase()) {
-            case ALLOWED_PRESETS[0]:
-                return new SequenceSearcherPreset(DummyAlignmentScoring.INSTANCE,
-                        new TreeSearchParameters(2, 1, 1, 2))
-            case ALLOWED_PRESETS[1]:
-                return byRecall(0.8f)
-            case ALLOWED_PRESETS[2]:
-                return getOptimal()
-            case ALLOWED_PRESETS[3]:
-                return byPrecision(0.8f)
-            default:
-                throw new RuntimeException("Unknown parameter preset '$name'")
-        }
-    }
-
-    static SequenceSearcherPreset getOptimal() {
-        def scoringMetadata = new ScoringMetadataTable().optimal
-
-        System.err.println "[SearchPresetProvider] Requested scoring with highest F-score, " +
-                "closest scoring schema selected is {$scoringMetadata}"
-
-        byMetadata(scoringMetadata)
-    }
-
-    static SequenceSearcherPreset byPrecision(float precision) {
-        def scoringMetadata = new ScoringMetadataTable().getByPrecision(precision)
-
-        System.err.println "[SearchPresetProvider] Requested scoring with precision=$precision, " +
-                "closest scoring schema selected is {$scoringMetadata}"
-
-        byMetadata(scoringMetadata)
-    }
-
-    static SequenceSearcherPreset byRecall(float recall) {
-        def scoringMetadata = new ScoringMetadataTable().getByRecall(recall)
-
-        System.err.println "[SearchPresetProvider] Requested scoring with recall=$recall, " +
-                "closest scoring schema selected is {$scoringMetadata}"
-
-        byMetadata(scoringMetadata)
-    }
-
-    static SequenceSearcherPreset byMetadata(ScoringMetadata scoringMetadata) {
-        new SequenceSearcherPreset(AlignmentScoringProvider.loadScoring(scoringMetadata.scoringId),
-                new TreeSearchParameters(5, 2, 2, 7))
-    }
-
-    SequenceSearcherPreset(AlignmentScoring scoring, TreeSearchParameters parameters) {
+    SequenceSearcherPreset(TreeSearchParameters parameters = new TreeSearchParameters(0, 0, 0, 0),
+                           AlignmentScoring scoring = DummyAlignmentScoring.INSTANCE,
+                           boolean exhaustive = false,
+                           boolean greedy = true) {
         this.scoring = scoring
         this.parameters = parameters
-    }
-
-    SequenceSearcherPreset withScoringThreshold(float scoringThreshold) {
-        new SequenceSearcherPreset(scoring.withScoreThreshold(scoringThreshold),
-                parameters);
-    }
-
-    SequenceSearcherPreset withSearchParameters(int maxSubstitutions,
-                                                int maxInsertions,
-                                                int maxDeletions,
-                                                int maxMismatches) {
-        new SequenceSearcherPreset(scoring,
-                new TreeSearchParameters(maxSubstitutions, maxDeletions, maxInsertions, maxMismatches));
+        this.exhaustive = exhaustive
+        this.greedy = greedy
     }
 }

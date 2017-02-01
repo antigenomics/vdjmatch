@@ -25,44 +25,26 @@ import static com.milaboratory.core.mutations.Mutation.*;
 import static com.milaboratory.core.mutations.Mutation.getPosition;
 
 public class VdjdbAlignmentScoring implements AlignmentScoring {
-    private final LinearGapAlignmentScoring scoring;
-    private final float[] positionWeights;
-    private final int posCenterBin;
-    private float scoreThreshold;
+    private final float[][] substitutionMatrix;
+    private final float[] gapPenalties;
 
-    public VdjdbAlignmentScoring(LinearGapAlignmentScoring scoring,
-                                 float[] positionWeights,
-                                 float scoreThreshold) {
-        this.scoring = scoring;
-        this.positionWeights = positionWeights;
-        this.posCenterBin = positionWeights.length / 2;
-        this.scoreThreshold = scoreThreshold;
-    }
-
-    private int getBin(int centeredPos) {
-        int k = centeredPos + posCenterBin;
-        return k < 0 ? 0 : (k < positionWeights.length ? k : (positionWeights.length - 1));
-    }
-
-    private float getPositionWeight(int pos, int cdr3Length) {
-        int center = cdr3Length / 2;
-        if (cdr3Length % 2 == 0) {
-            return 0.5f * (positionWeights[getBin(pos - center)] + positionWeights[getBin(pos - center + 1)]);
-        } else {
-            return positionWeights[getBin(pos - center)];
-        }
+    public VdjdbAlignmentScoring(float[][] substitutionMatrix,
+                                 float[] gapPenalties) {
+        this.substitutionMatrix = substitutionMatrix;
+        this.gapPenalties = gapPenalties;
     }
 
     @Override
     public float computeBaseScore(Sequence reference) {
         float score = 0;
-        for (int i = 0; i < reference.size(); ++i) {
+        for (int i = 1; i < reference.size() - 1; ++i) { // exclude C and F/W
             byte aa = reference.codeAt(i);
-            score += scoring.getScore(aa, aa) * getPositionWeight(i, reference.size());
+            score += substitutionMatrix[aa][aa];
         }
         return score;
     }
 
+    @Override
     public float computeScore(Alignment alignment) {
         Sequence reference = alignment.getSequence1();
         return computeScore(alignment.getAbsoluteMutations(), computeBaseScore(reference), reference.size());
@@ -74,43 +56,30 @@ public class VdjdbAlignmentScoring implements AlignmentScoring {
 
         for (int i = 0; i < mutations.size(); ++i) {
             int mutation = mutations.getMutation(i);
+            int pos = getPosition(mutation);
+            if (pos > 0 & pos < refLength -1) { // exclude 1st and last AAs of CDR3, C and F/W
+                double deltaScore = 0;          // This helps with TRAJ having W/F at the end
 
-            double deltaScore = 0;
-            if (isInsertion(mutation)) {
-                deltaScore += scoring.getGapPenalty();
-            } else {
-                byte from = getFrom(mutation);
-                deltaScore += isDeletion(mutation) ? scoring.getGapPenalty() :
-                        (scoring.getScore(from, getTo(mutation)));
-                deltaScore -= scoring.getScore(from, from);
+                if (isInsertion(mutation)) {
+                    byte to = getTo(mutation);
+                    deltaScore += gapPenalties[getTo(mutation)];
+                    deltaScore -= substitutionMatrix[to][to];
+                } else {
+                    byte from = getFrom(mutation);
+                    deltaScore += isDeletion(mutation) ? gapPenalties[from] :
+                            substitutionMatrix[from][getTo(mutation)];
+                    deltaScore -= substitutionMatrix[from][from];
+                }
+
+                score += deltaScore;
             }
-
-            score += deltaScore * getPositionWeight(getPosition(mutation), refLength);
         }
 
         return score;
     }
 
-    public LinearGapAlignmentScoring getScoring() {
-        return scoring;
-    }
-
-    public float[] getPositionWeights() {
-        return positionWeights;
-    }
-
-    public int getPosCenterBin() {
-        return posCenterBin;
-    }
-
     @Override
-    public float getScoreThreshold() {
-        return scoreThreshold;
-    }
-
-    @Override
-    public AlignmentScoring withScoreThreshold(float scoreThreshold) {
-        return new VdjdbAlignmentScoring(scoring,
-                positionWeights, scoreThreshold);
+    public float computePValue(float score) {
+        return 1f;
     }
 }

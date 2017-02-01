@@ -20,6 +20,7 @@ import com.antigenomics.vdjdb.Util
 import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Entry
 import com.antigenomics.vdjdb.db.Row
+import com.antigenomics.vdjdb.db.SearchResult
 import com.milaboratory.core.Range
 import com.milaboratory.core.alignment.Alignment
 import com.milaboratory.core.sequence.AminoAcidSequence
@@ -74,37 +75,61 @@ class SequenceColumn extends Column {
         def baseScore = scoring.computeBaseScore(filter.query),
             refLength = filter.query.size()
 
-        // This hack excludes duplicates like
-        //
-        //   KLFF     KLFF     ...
-        //   KLF-     KL-F
-        def prevSeq = new HashSet<String>()
 
-        while (true) {
-            def entries = ni.next()
+        def resultBuffer = new HashMap<String, SearchResult>()
+        List<Entry> entries
 
-            if (entries) {
-                def seq = entries.first().value
-                if (!prevSeq.contains(seq)) {
-                    def mutations = ni.currentMutations
-                    float score = mutations.size() == 0 ? scoring.scoreThreshold : // always include exact match
-                            scoring.computeScore(mutations, baseScore, refLength)
+        while ((entries = ni.next()) != null) {
+            def seq = entries.first().value
+            def mutations = ni.currentMutations
+            def previousResult = resultBuffer[seq]
 
-                    if (score >= scoring.scoreThreshold) {
+            if (previousResult == null) {
+                // compute new if we don't have any previous alignments with this sequence
+                float score = scoring.computeScore(mutations, baseScore, refLength)
+                def alignment = new Alignment(filter.query, mutations,
+                        new Range(0, refLength), new Range(0, seq.size()),
+                        score)
+
+                resultBuffer.put(seq,
+                        new SearchResult(alignment, entries))
+            } else if (filter.exhaustive) {
+                def previousMutationCount = previousResult.alignment.absoluteMutations.size()
+                // exhaustive search - compare scores
+                if (!filter.greedy || // non-greedy case: check even if we have more mutations
+                        previousMutationCount >= mutations.size()) { // greedy: previous case has the same number of mutations or more
+                    // Note: more mutations case N/A to current tree impl
+                    float score = scoring.computeScore(mutations, baseScore, refLength)
+
+                    if (score > previousResult.alignment.score) {
+                        // replace if better score
                         def alignment = new Alignment(filter.query, mutations,
                                 new Range(0, refLength), new Range(0, seq.size()),
                                 score)
-                        entries.each { entry ->
-                            results.put(entry.row, alignment)
-                        }
+
+                        resultBuffer.put(seq,
+                                new SearchResult(alignment, entries))
                     }
-                    prevSeq.add(seq)
                 }
-            } else {
-                break
+            }
+        }
+
+        resultBuffer.values().each { result ->
+            result.entries.each { entry ->
+                results.put(entry.row, result.alignment)
             }
         }
 
         results
+    }
+
+    private class SearchResult {
+        Alignment alignment
+        List<Entry> entries
+
+        SearchResult(Alignment alignment, List<Entry> entries) {
+            this.alignment = alignment
+            this.entries = entries
+        }
     }
 }
