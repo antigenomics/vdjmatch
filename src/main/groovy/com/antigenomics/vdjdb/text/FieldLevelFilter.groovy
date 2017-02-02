@@ -43,6 +43,7 @@ class FieldLevelFilter extends TextFilter {
             if (entryField.contains(field)) {
                 def split = entryField.split(":")
                 def number = split[1].replace("\"", "")
+
                 if (!number.isEmpty()) {
                     def entryValue = parseNumber(number)
                     return entryValue >= value
@@ -59,17 +60,24 @@ class FieldLevelFilter extends TextFilter {
     }
 
     private static double parseNumber(String number) {
-        if (number.contains("/")) {
-            def rat = number.split("/");
-            if (rat[0].isEmpty() || rat[1].isEmpty()) {
+        try {
+            if (number.isEmpty()) {
                 return 0.0
             }
-            return rat[0].toDouble() / rat[1].toDouble();
-        } else if (number.contains("%")) {
-            def perc = number.replace("%", "")
-            return perc.toDouble() / 100.0
-        } else {
-            return number.toDouble()
+            if (number.contains("/")) {
+                def rat = number.split("/");
+                if (rat[0].isEmpty() || rat[1].isEmpty()) {
+                    return 0.0
+                }
+                return rat[0].toDouble() / rat[1].toDouble();
+            } else if (number.contains("%")) {
+                def perc = number.replace("%", "")
+                return perc.toDouble() / 100.0
+            } else {
+                return number.toDouble()
+            }
+        } catch(Exception e) {
+            return 0.0
         }
     }
 }
