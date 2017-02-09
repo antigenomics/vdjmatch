@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Function
 
 class ClonotypeSearchSummary {
-    static final List<String> FIELDS_STARBURST = ["mhc.class",
+    static final public List<String> FIELDS_STARBURST = ["mhc.class",
                                                   "mhc.a",
                                                   "mhc.b",
                                                   "antigen.species",
@@ -37,7 +37,7 @@ class ClonotypeSearchSummary {
                                                    "antigen.gene",
                                                    "antigen.epitope"]
 
-    final Map<String, Map<String, ClonotypeCounter>> fieldCounters = new ConcurrentHashMap<>()
+    final public Map<String, Map<String, ClonotypeCounter>> fieldCounters = new ConcurrentHashMap<>()
 
     final ClonotypeCounter totalCounter = new ClonotypeCounter(),
                            notFoundCounter
