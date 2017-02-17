@@ -19,10 +19,11 @@ To compile VDJdb-standalone from source:
 Standalone VDJdb annotation utility can be executed by running the following command:
 
 ```
-java -jar -Xmx4G vdjdb.jar [options] [sample1 sample2 sample3 ... if -m is not specified] output_prefix
+java -jar -Xmx4G path/to/vdjdb-X.jar \ 
+      [options] [sample1 sample2 sample3 ... if -m is not specified] output_prefix
 ```
 
-First part of the command runs the JAR file and sets the memory limit to 4GB (should be increased in case JVM drops with heap size exception). The second part includes options, input samples and prefix of output files.
+First part of the command runs the JAR file and sets the memory limit to 4GB (should be increased in case JVM drops with heap size exception) and points to VDJdb-standalone executable JAR (``X`` should be replaced with the software version). The second part includes options, input samples and prefix of output files.
 
 The list of accepted options is the following:
 
