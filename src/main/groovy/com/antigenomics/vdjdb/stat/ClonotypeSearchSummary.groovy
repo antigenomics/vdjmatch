@@ -17,6 +17,7 @@
 package com.antigenomics.vdjdb.stat
 
 import com.antigenomics.vdjdb.db.DatabaseSearchResult
+import com.antigenomics.vdjdb.db.Row
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjdb.impl.ClonotypeSearchResult
 import com.antigenomics.vdjdb.text.ExactTextFilter
@@ -56,10 +57,11 @@ class ClonotypeSearchSummary {
             database[columnName].values.each { String value ->
                 // Compute the number of unique CDR3aa associated with this column and value
                 def cdr3Set = new HashSet<String>()
-                def res = database.search([new ExactTextFilter(columnName, value, false)], [])
 
-                res.each { DatabaseSearchResult r ->
-                    cdr3Set.add(r.row[database.cdr3ColName].value)
+                database.rows.each { Row r ->
+                    if (r[columnName].value == value) {
+                        cdr3Set.add(r[database.cdr3ColName].value)
+                    }
                 }
 
                 counterMap[value] = new ClonotypeCounter(cdr3Set.size())
