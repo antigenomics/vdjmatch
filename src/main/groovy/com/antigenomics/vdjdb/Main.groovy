@@ -233,7 +233,7 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWri
 
         println "[${new Date()} $scriptName] Summarizing..."
 
-        def summary = new ClonotypeSearchSummary(results, sample, summaryColumns)
+        def summary = new ClonotypeSearchSummary(results, sample, summaryColumns, database)
 
         def summaryPrefix = sampleId + "\t" + sample.sampleMetadata.toString()
 

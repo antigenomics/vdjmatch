@@ -16,7 +16,10 @@
 
 package com.antigenomics.vdjdb.stat
 
+import com.antigenomics.vdjdb.db.DatabaseSearchResult
+import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjdb.impl.ClonotypeSearchResult
+import com.antigenomics.vdjdb.text.ExactTextFilter
 import com.antigenomics.vdjtools.sample.Clonotype
 import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.misc.ExecUtil
@@ -27,15 +30,15 @@ import java.util.function.Function
 
 class ClonotypeSearchSummary {
     static final public List<String> FIELDS_STARBURST = ["mhc.class",
-                                                  "mhc.a",
-                                                  "mhc.b",
-                                                  "antigen.species",
-                                                  "antigen.gene",
-                                                  "antigen.epitope"],
-                              FIELDS_PLAIN_TEXT = ["mhc.class",
-                                                   "antigen.species",
-                                                   "antigen.gene",
-                                                   "antigen.epitope"]
+                                                         "mhc.a",
+                                                         "mhc.b",
+                                                         "antigen.species",
+                                                         "antigen.gene",
+                                                         "antigen.epitope"],
+                                     FIELDS_PLAIN_TEXT = ["mhc.class",
+                                                          "antigen.species",
+                                                          "antigen.gene",
+                                                          "antigen.epitope"]
 
     final public Map<String, Map<String, ClonotypeCounter>> fieldCounters = new ConcurrentHashMap<>()
 
@@ -44,9 +47,25 @@ class ClonotypeSearchSummary {
 
     ClonotypeSearchSummary(Map<Clonotype, List<ClonotypeSearchResult>> searchResults,
                            Sample sample,
-                           List<String> columnNameList) {
-        columnNameList.each {
-            fieldCounters.put(it, new ConcurrentHashMap<String, ClonotypeCounter>())
+                           List<String> columnNameList,
+                           ClonotypeDatabase database) {
+        // Initialize counters
+        columnNameList.each { columnName ->
+            def counterMap = new ConcurrentHashMap<String, ClonotypeCounter>()
+
+            database[columnName].values.each { String value ->
+                // Compute the number of unique CDR3aa associated with this column and value
+                def cdr3Set = new HashSet<String>()
+                def res = database.search([new ExactTextFilter(columnName, value, false)], [])
+
+                res.each { DatabaseSearchResult r ->
+                    cdr3Set.add(r.row[database.cdr3ColName].value)
+                }
+
+                counterMap[value] = new ClonotypeCounter(cdr3Set.size())
+            }
+
+            fieldCounters.put(columnName, counterMap)
         }
 
         GParsPool.withPool ExecUtil.THREADS, {
@@ -55,6 +74,8 @@ class ClonotypeSearchSummary {
                     columnNameList.each { columnId ->
                         def subMap = fieldCounters[columnId],
                             value = result.row[columnId].value
+
+                        // Todo: can optimize/check that the map already has counter
 
                         def counter = subMap.computeIfAbsent(value, countergen)
                         counter.update(clonotypeResult.key)

@@ -28,15 +28,26 @@ class ClonotypeCounter {
     private final AtomicLong readCounter
     private final AtomicDouble frequencyCounter
     private final Set<Clonotype> clonotypes = ConcurrentHashMap.newKeySet()
+    private final int databaseUnique
 
     ClonotypeCounter() {
         this(0, 0, 0)
     }
 
+    ClonotypeCounter(int databaseUnique) {
+        this(0, 0, 0, databaseUnique)
+    }
+
     ClonotypeCounter(int unique, long reads, double frequency) {
+        this(unique, reads, frequency, 0)
+    }
+
+
+    ClonotypeCounter(int unique, long reads, double frequency, databaseUnique) {
         this.uniqueCounter = new AtomicInteger(unique)
         this.readCounter = new AtomicLong(reads)
         this.frequencyCounter = new AtomicDouble(frequency)
+        this.databaseUnique = databaseUnique;
     }
 
     /**
@@ -77,14 +88,22 @@ class ClonotypeCounter {
         readCounter.get()
     }
 
+    /**
+     * Number of unique clonotypes in a given category _in the original database_
+     * @return number of clonotypes
+     */
+    long getDatabaseUnique() {
+        databaseUnique
+    }
+
     Set<Clonotype> getClonotypes() {
         Collections.unmodifiableSet(clonotypes)
     }
 
-    static final String HEADER = "unique\tfrequency\treads"
+    static final String HEADER = "unique\tfrequency\treads\tdb.unique"
 
     @Override
     String toString() {
-        unique + "\t" + frequency + "\t" + reads
+        unique + "\t" + frequency + "\t" + reads + "\t" + databaseUnique
     }
 }

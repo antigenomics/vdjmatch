@@ -43,7 +43,7 @@ class ClonotypeSearchSummaryTest {
 
         def colNames = ["origin", "disease.type", "disease", "source"]
         def summary = new ClonotypeSearchSummary(results, sample,
-                colNames)
+                colNames, database)
 
         assert summary.totalCounter.unique > 0
 
