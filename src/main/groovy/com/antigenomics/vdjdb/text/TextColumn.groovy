@@ -40,6 +40,7 @@ class TextColumn extends Column {
      * @return a set of unique values in the column
      */
     @JsonIgnore
+    @Override
     Set<String> getValues() {
         map.keySet()
     }

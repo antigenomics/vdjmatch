@@ -21,6 +21,7 @@ import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Entry
 import com.antigenomics.vdjdb.db.Row
 import com.antigenomics.vdjdb.db.SearchResult
+import com.fasterxml.jackson.annotation.JsonIgnore
 import com.milaboratory.core.Range
 import com.milaboratory.core.alignment.Alignment
 import com.milaboratory.core.sequence.AminoAcidSequence
@@ -121,6 +122,24 @@ class SequenceColumn extends Column {
         }
 
         results
+    }
+
+    /**
+     * Gets the set of all possible values in the column
+     * @return a set of unique values in the column
+     */
+    @JsonIgnore
+    @Override
+    Set<String> getValues() {
+        def values = new HashSet<String>()
+
+        stm.values().each { List<Entry> entryList ->
+            entryList.each { Entry entry ->
+                values.add(entry.value)
+            }
+        }
+
+        values
     }
 
     private class SearchResult {

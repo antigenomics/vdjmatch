@@ -35,6 +35,8 @@ class ClonotypeDatabaseTest {
         def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
+
+        database.columns.each { assert !it.values.empty }
     }
 
     @Test

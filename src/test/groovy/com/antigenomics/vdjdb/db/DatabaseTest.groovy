@@ -15,6 +15,8 @@ class DatabaseTest {
         def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         assert database.columns.size() == resourceAsStream("vdjdb_legacy.meta.txt").readLines().size() - 1
+        
+        database.columns.each { assert !it.values.empty }
     }
 
     @Test

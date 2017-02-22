@@ -16,6 +16,8 @@
 
 package com.antigenomics.vdjdb.db
 
+import com.fasterxml.jackson.annotation.JsonIgnore
+
 /**
  * A database column 
  */
@@ -44,6 +46,13 @@ abstract class Column {
      * @param entry database entry
      */
     abstract void append(Entry entry)
+
+    /**
+     * Gets the set of all possible values in the column
+     * @return a set of unique values in the column
+     */
+    @JsonIgnore
+    abstract Set<String> getValues()
 
     @Override
     boolean equals(o) {
