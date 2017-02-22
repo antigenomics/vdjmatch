@@ -15,8 +15,6 @@ class DatabaseTest {
         def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
         assert database.columns.size() == resourceAsStream("vdjdb_legacy.meta.txt").readLines().size() - 1
-        
-        database.columns.each { assert !it.values.empty }
     }
 
     @Test
@@ -26,6 +24,8 @@ class DatabaseTest {
                                      new SequenceColumn(CDR3_COL_DEFAULT)])
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
+
+        database.columns.each { assert !it.values.empty }
 
         def row = database.rows.find { it[ID_COL].value == "VDJDB000.1" }
 
@@ -41,6 +41,8 @@ class DatabaseTest {
                                      new SequenceColumn(CDR3_COL_DEFAULT)])
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
+        
+        database.columns.each { assert !it.values.empty }
 
         def clone = Database.create(database.search([], []))
 
