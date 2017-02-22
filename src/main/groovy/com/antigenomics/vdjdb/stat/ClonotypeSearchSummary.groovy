@@ -89,7 +89,8 @@ class ClonotypeSearchSummary {
 
         notFoundCounter = new ClonotypeCounter(sample.diversity - totalCounter.unique,
                 sample.count - totalCounter.reads,
-                sample.freq - totalCounter.frequency)
+                sample.freq - totalCounter.frequency,
+                database[database.cdr3ColName].values.size())
     }
 
     ClonotypeCounter getCounter(String columnId, String value) {
