@@ -40,7 +40,7 @@ class SegmentFilter extends TextFilter {
         if (checkAutoPass(entrySegments))
             return true
 
-        entrySegments.any { segments.contains(it) }
+        entrySegments.any { segments.contains(it) } || segments.any { entrySegments.contains(it) }
     }
 
     private static boolean checkAutoPass(Collection<String> set) {
