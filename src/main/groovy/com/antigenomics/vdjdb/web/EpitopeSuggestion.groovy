@@ -4,8 +4,8 @@ package com.antigenomics.vdjdb.web
  * Created by mikesh on 7/23/17.
  */
 class EpitopeSuggestion {
-    String sequence // suggested sequence
-    int substitutions, // subst diff from query
+    public String sequence // suggested sequence
+    public int substitutions, // subst diff from query
         indels, // insertion + deletion dist from query
         length, // sequence length
         count // count of all entries in VDJdb with this epitope
