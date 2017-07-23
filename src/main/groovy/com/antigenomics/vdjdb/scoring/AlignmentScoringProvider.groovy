@@ -47,12 +47,12 @@ class AlignmentScoringProvider {
                 def from = splitLine[0], to = splitLine[1], score = (float) splitLine[2].toDouble()
 
                 if (from == GAP_CHARACTER) {
-                    gapPenalties[ALPHABET.codeFromSymbol(to.charAt(0))] = score
+                    gapPenalties[ALPHABET.symbolToCode(to.charAt(0))] = score
                 } else if (to == GAP_CHARACTER) {
-                    gapPenalties[ALPHABET.codeFromSymbol(from.charAt(0))] = score
+                    gapPenalties[ALPHABET.symbolToCode(from.charAt(0))] = score
                 } else {
-                    def fromCode = ALPHABET.codeFromSymbol(from.charAt(0)),
-                        toCode = ALPHABET.codeFromSymbol(to.charAt(0))
+                    def fromCode = ALPHABET.symbolToCode(from.charAt(0)),
+                        toCode = ALPHABET.symbolToCode(to.charAt(0))
                     substitutionMatrix[fromCode][toCode] = score
                     substitutionMatrix[toCode][fromCode] = score
                 }
