@@ -13,6 +13,8 @@ class EpitopeSuggestionTest {
         final VdjdbInstance vdjdbInst = new VdjdbInstance(Util.resourceAsStream("vdjdb_17.meta.txt"),
                 Util.resourceAsStream("vdjdb_17.txt"))
 
+        def z = EpitopeSuggestionGenerator.generateSuggestions(vdjdbInst)
+
         assert EpitopeSuggestionGenerator.generateSuggestions(vdjdbInst)["EAAGIGILTV"].size() > 0
     }
 }
