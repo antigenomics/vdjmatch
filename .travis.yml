@@ -9,6 +9,7 @@ addons:
       - oracle-java9-installer
 
 install:
+  - jdk_switcher use oraclejdk8
   - git clone https://github.com/mikessh/vdjtools.git
   - cd vdjtools/
   - git checkout tags/1.1.7
