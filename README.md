@@ -8,9 +8,9 @@ The software accepts TCR clonotype table(s) as an input and relies on [VDJtools]
 
 ### Installation
 
-VDJdb is distributed as an executable JAR that can be downloaded from the [releases section](https://github.com/antigenomics/vdjdb/releases), the software is cross-platform and requires [JRE 1.8](http://www.oracle.com/technetwork/java/javase/downloads/jre8-downloads-2133155.html) to run. Running executable jar is quite straightforward, just use ``java -jar vdjdb.jar`` command as described below.
+VDJdb is distributed as an executable JAR that can be downloaded from the [releases section](https://github.com/antigenomics/vdjdb/releases), the software is cross-platform and requires [Java v1.8](http://www.oracle.com/technetwork/java/javase/downloads/jre8-downloads-2133155.html) or higher to run. Running executable jar is quite straightforward, just use ``java -jar vdjdb.jar`` command as described below.
 
-To compile VDJdb-standalone from source: 
+To compile VDJdb-standalone from source:
 * Install VDJtools of appropriate version (see ``build.gradle`` in repository root folder) using Maven (``mvn clean install`` from VDJtools repository root folder).
 * Build VDJdb-standalone with Gradle by running ``gradle clean build`` from the repository root folder.
 
@@ -19,7 +19,7 @@ To compile VDJdb-standalone from source:
 Standalone VDJdb annotation utility can be executed by running the following command:
 
 ```
-java -jar -Xmx4G path/to/vdjdb-X.jar \ 
+java -jar -Xmx4G path/to/vdjdb-X.jar \
       [options] [sample1 sample2 sample3 ... if -m is not specified] output_prefix
 ```
 
@@ -46,14 +46,14 @@ The list of accepted options is the following:
 
 The following output files will be generated:
 
-1. ``annot.summary.txt`` annotation summary containing the number of unique clonotypes (``unique``), their cumulative share of reads (``frequency``) and total read count (``reads``). 
-    * Sample metadata will be appended to this table if provided via the ``-m`` option. 
-    * Each row corresponds to a combination of database field values from the columns specified by the ``--summary-columns`` option. If a single clonotype is matched to several VDJdb records, its reads count and frequency and will be appended to all of them and the ``unique`` counter for each of the records will be incremented by ``1``. 
+1. ``annot.summary.txt`` annotation summary containing the number of unique clonotypes (``unique``), their cumulative share of reads (``frequency``) and total read count (``reads``).
+    * Sample metadata will be appended to this table if provided via the ``-m`` option.
+    * Each row corresponds to a combination of database field values from the columns specified by the ``--summary-columns`` option. If a single clonotype is matched to several VDJdb records, its reads count and frequency and will be appended to all of them and the ``unique`` counter for each of the records will be incremented by ``1``.
     * Each of database records is tagged as ``entry`` in ``counter.type`` column of summary table, statistics (total number of clonotypes, read share and count) of annotated and unannotated clonotypes is stored in rows tagged as ``found`` and ``not.found`` respectively.
-2. ``$sample_id.annot.txt`` annotation for each of the clonotypes found in database. 
+2. ``$sample_id.annot.txt`` annotation for each of the clonotypes found in database.
     * This is an all-to-all merge table between the sample and database that includes all matches.
-    * Clonotype information from the sample (count, frequency, cdr3 sequence, v/d/j segments and v/d/j markup) is preserved. 
-    * As a clonotype can be represented by multiple rows in the output (i.e. match to several records in the database), ``id.in.sample`` column can be used to make the correspondence between annotation record and 0-based index of clonotype in the original sample. For the information on database columns that are appended see database schema in [VDJdb-db repository](https://github.com/antigenomics/vdjdb-db) readme. 
+    * Clonotype information from the sample (count, frequency, cdr3 sequence, v/d/j segments and v/d/j markup) is preserved.
+    * As a clonotype can be represented by multiple rows in the output (i.e. match to several records in the database), ``id.in.sample`` column can be used to make the correspondence between annotation record and 0-based index of clonotype in the original sample. For the information on database columns that are appended see database schema in [VDJdb-db repository](https://github.com/antigenomics/vdjdb-db) readme.
     * The ``score`` column contains CDR3 alignment score that is computed as described below (not to be confused with [VDJdb record confidence score](https://github.com/antigenomics/vdjdb-db#vdjdb-scoring).
 
 ### CDR3 matching in VDJdb
