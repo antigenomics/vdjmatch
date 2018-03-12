@@ -49,7 +49,7 @@ class ClonotypeDatabase extends Database {
 
     final String cdr3ColName, vColName, jColName, speciesColName, geneColName
     final int vColIdx, jColIdx, cdr3ColIdx // speed up fetching corresponding entries
-    final SearchScope searchParameters
+    final SearchScope searchScope
     final AggregateScoring aggregateScoring
     final SegmentScoring segmentScoring
     final AlignmentScoring alignmentScoring
@@ -60,7 +60,7 @@ class ClonotypeDatabase extends Database {
      * @param columns a list of database columns
      * @param matchV should Variable segment matching be performed when searching
      * @param matchJ should Joining segment matching be performed when searching
-     * @param searchParameters search parameter set, sets the search scope
+     * @param searchScope search parameter set, sets the search scope
      * @param alignmentScoring alignment scoring function
      * @param segmentScoring segment scoring function
      * @param aggregateScoring score aggregating function
@@ -72,7 +72,7 @@ class ClonotypeDatabase extends Database {
      */
     // todo: filter & informativeness factory
     ClonotypeDatabase(List<Column> columns, boolean matchV = false, boolean matchJ = false,
-                      SearchScope searchParameters = SearchScope.EXACT,
+                      SearchScope searchScope = SearchScope.EXACT,
                       AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE,
                       SegmentScoring segmentScoring = DummySegmentScoring.INSTANCE,
                       AggregateScoring aggregateScoring = DummyAggregateScoring.INSTANCE,
@@ -85,7 +85,7 @@ class ClonotypeDatabase extends Database {
         this.jColName = jColName
         this.matchV = matchV
         this.matchJ = matchJ
-        this.searchParameters = searchParameters
+        this.searchScope = searchScope
         this.alignmentScoring = alignmentScoring
         this.segmentScoring = segmentScoring
         this.aggregateScoring = aggregateScoring
@@ -103,7 +103,7 @@ class ClonotypeDatabase extends Database {
      * @param metadata metadata file stream
      * @param matchV should Variable segment matching be performed when searching
      * @param matchJ should Joining segment matching be performed when searching
-     * @param searchParameters search parameter set
+     * @param searchScope search parameter set
      * @param alignmentScoring alignment scoring function
      * @param segmentScoring segment scoring function
      * @param aggregateScoring score aggregating function
@@ -114,7 +114,7 @@ class ClonotypeDatabase extends Database {
      * @param geneColName receptor gene column name
      */
     ClonotypeDatabase(InputStream metadata, boolean matchV = false, boolean matchJ = false,
-                      SearchScope searchParameters = SearchScope.EXACT,
+                      SearchScope searchScope = SearchScope.EXACT,
                       AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE,
                       SegmentScoring segmentScoring = DummySegmentScoring.INSTANCE,
                       AggregateScoring aggregateScoring = DummyAggregateScoring.INSTANCE,
@@ -127,7 +127,7 @@ class ClonotypeDatabase extends Database {
         this.jColName = jColName
         this.matchV = matchV
         this.matchJ = matchJ
-        this.searchParameters = searchParameters
+        this.searchScope = searchScope
         this.alignmentScoring = alignmentScoring
         this.segmentScoring = segmentScoring
         this.aggregateScoring = aggregateScoring
@@ -212,7 +212,7 @@ class ClonotypeDatabase extends Database {
         }
 
         def results = search(filters,
-                [new SequenceFilter(cdr3ColName, cdr3aa, searchParameters)])
+                [new SequenceFilter(cdr3ColName, cdr3aa, searchScope)])
 
         // todo: filter results
         results.collect {
