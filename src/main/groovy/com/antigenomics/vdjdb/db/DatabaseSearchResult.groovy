@@ -16,17 +16,20 @@
 
 package com.antigenomics.vdjdb.db
 
-import com.milaboratory.core.alignment.Alignment
+import com.antigenomics.vdjdb.sequence.Hit
+import groovy.transform.CompileStatic
 
 /**
- * 
+ * A database search result holding database row and
+ * corresponding alignments/scores if search was performed using 'sequence' columns
  */
+@CompileStatic
 class DatabaseSearchResult implements SearchResult {
     final Row row
-    final Alignment[] alignments
+    final Hit[] hits
 
-    DatabaseSearchResult(Row row, Alignment[] alignments) {
+    DatabaseSearchResult(Row row, Hit[] hits) {
         this.row = row
-        this.alignments = alignments
+        this.hits = hits
     }
 }

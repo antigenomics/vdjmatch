@@ -17,8 +17,8 @@
 
 package com.antigenomics.vdjdb
 
-import com.antigenomics.vdjdb.scoring.AlignmentScoringProvider
-import com.antigenomics.vdjdb.scoring.SequenceSearcherPreset
+import com.antigenomics.vdjdb.impl.ScoringProvider
+import com.antigenomics.vdjdb.sequence.SearchScope
 import com.antigenomics.vdjdb.stat.ClonotypeCounter
 import com.antigenomics.vdjdb.stat.ClonotypeSearchSummary
 import com.antigenomics.vdjtools.misc.Software
@@ -35,7 +35,7 @@ if (args.length > 0 && args[0].toLowerCase() == "update") {
 }
 
 def DEFAULT_SEARCH_SCOPE = "0,0,0,0",
-    DEFAULT_SEARCH_SCORING = AlignmentScoringProvider.DUMMY_SCORING_ID,
+    DEFAULT_SEARCH_SCORING = ScoringProvider.DUMMY_SCORING_ID,
     DEFAULT_CONFIDENCE_THRESHOLD = "0",
     ALLOWED_SPECIES_ALIAS = ["human" : "homosapiens", "mouse": "musmusculus",
                              "monkey": "macacamulatta"],
@@ -54,7 +54,7 @@ cli._(longOpt: "search-scope", argName: "s,i,d,t", args: 1,
                 "[default=$DEFAULT_SEARCH_SCOPE]")
 cli._(longOpt: "search-scoring", argName: "name", args: 1,
         "Sets CDR3 alignment scoring preset. " +
-                "Either '${AlignmentScoringProvider.DUMMY_SCORING_ID}' that counts number the number of " +
+                "Either '${ScoringProvider.DUMMY_SCORING_ID}' that counts number the number of " +
                 "matched bases, or 'v1' that uses a pre-computed scoring matrix." +
                 "[default='$DEFAULT_SEARCH_SCORING']")
 cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an external database. " +
@@ -139,9 +139,9 @@ def searchScope = opt.'search-scope' ?: DEFAULT_SEARCH_SCOPE,
 
 def ss = searchScope.split(",").collect { it.toInteger() }
 
-parameterPreset = new SequenceSearcherPreset(
+parameterPreset = new SearchScope(
         new TreeSearchParameters(ss[0], ss[1], ss[2], ss[3]),
-        AlignmentScoringProvider.loadScoring(searchScoring))
+        ScoringProvider.loadScoring(searchScoring))
 
 println "[${new Date()} $scriptName] Loading database..."
 

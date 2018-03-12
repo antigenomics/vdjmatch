@@ -16,11 +16,9 @@
 
 package com.antigenomics.vdjdb.stat
 
-import com.antigenomics.vdjdb.db.DatabaseSearchResult
 import com.antigenomics.vdjdb.db.Row
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjdb.impl.ClonotypeSearchResult
-import com.antigenomics.vdjdb.text.ExactTextFilter
 import com.antigenomics.vdjtools.sample.Clonotype
 import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.misc.ExecUtil

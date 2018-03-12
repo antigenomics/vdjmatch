@@ -21,7 +21,7 @@ import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Database
 import com.antigenomics.vdjdb.db.ExpressionFilterBatch
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
-import com.antigenomics.vdjdb.scoring.SequenceSearcherPreset
+import com.antigenomics.vdjdb.sequence.SearchScope
 import com.antigenomics.vdjdb.sequence.SequenceColumn
 import com.antigenomics.vdjdb.sequence.SequenceFilter
 import com.antigenomics.vdjdb.text.ExactTextFilter
@@ -118,7 +118,7 @@ class VdjdbInstance {
      * @return a clonotype database object
      */
     ClonotypeDatabase asClonotypeDatabase(boolean matchV = false, boolean matchJ = false,
-                                          SequenceSearcherPreset searchParameters = SequenceSearcherPreset.EXACT,
+                                          SearchScope searchParameters = SearchScope.EXACT,
                                           String species = null, String gene = null,
                                           int vdjdbRecordConfidenceThreshold = -1) {
         def cdb = new ClonotypeDatabase(header, matchV, matchJ, searchParameters)

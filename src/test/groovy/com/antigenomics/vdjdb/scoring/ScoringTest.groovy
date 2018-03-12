@@ -1,16 +1,16 @@
 package com.antigenomics.vdjdb.scoring
 
+import com.antigenomics.vdjdb.impl.ScoringProvider
 import com.milaboratory.core.alignment.Aligner
 import com.milaboratory.core.alignment.BLASTMatrix
 import com.milaboratory.core.alignment.LinearGapAlignmentScoring
-import com.milaboratory.core.sequence.AminoAcidAlphabet
 import com.milaboratory.core.sequence.AminoAcidSequence
 import org.junit.Test
 
 class ScoringTest {
     @Test
     void scoringTest() {
-        def scoring = AlignmentScoringProvider.loadScoring("v1")
+        def scoring = ScoringProvider.loadScoring("v1")
 
         def seq1 = new AminoAcidSequence("CASSLAPGATNEKLFF"),
             seq2 = new AminoAcidSequence("CASSLAPGATNEKLFF")

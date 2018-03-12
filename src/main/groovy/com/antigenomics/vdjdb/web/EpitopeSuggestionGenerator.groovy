@@ -27,7 +27,7 @@ class EpitopeSuggestionGenerator {
                 def sequence = result.key[EPITOPE_COLUMN_NAME].value
 
                 if (sequence != value) {
-                    def muts = result.value.absoluteMutations
+                    def muts = result.value.mutations
 
                     suggestionSet.add(new EpitopeSuggestion(sequence,
                             muts.countOf(MutationType.Substitution),

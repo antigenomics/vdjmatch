@@ -17,8 +17,7 @@
 package com.antigenomics.vdjdb.impl
 
 import com.antigenomics.vdjdb.TestUtil
-import com.antigenomics.vdjdb.scoring.AlignmentScoringProvider
-import com.antigenomics.vdjdb.scoring.SequenceSearcherPreset
+import com.antigenomics.vdjdb.sequence.SearchScope
 import com.antigenomics.vdjtools.io.InputStreamFactory
 import com.antigenomics.vdjtools.io.SampleStreamConnection
 import com.milaboratory.core.tree.TreeSearchParameters
@@ -64,8 +63,8 @@ class ClonotypeDatabaseTest {
     @Test
     void sampleTest2() {
         def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta.txt"),
-                false, false, new SequenceSearcherPreset(new TreeSearchParameters(3, 0, 0, 3),
-                AlignmentScoringProvider.loadScoring("v1")))
+                false, false, new SearchScope(new TreeSearchParameters(3, 0, 0, 3),
+                ScoringProvider.loadScoring("v1")))
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
 
