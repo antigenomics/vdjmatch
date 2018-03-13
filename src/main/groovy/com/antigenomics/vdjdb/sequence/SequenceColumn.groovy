@@ -76,6 +76,7 @@ class SequenceColumn extends Column {
             def matchSequence = entries.first().value
 
             // need this workaround as it is not possible to implement (ins+dels) <= X scope with tree searcher
+            // due to separate insertion and deletion counting
             if (Math.abs(filter.query.size() - matchSequence.length()) > filter.maxIndels)
                 continue
 

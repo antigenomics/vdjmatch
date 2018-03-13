@@ -5,6 +5,7 @@ import com.antigenomics.vdjdb.db.Row;
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase;
 import com.antigenomics.vdjdb.sequence.SearchScope;
 import com.milaboratory.core.sequence.AminoAcidSequence;
+import com.milaboratory.core.tree.NeighborhoodIterator;
 import com.milaboratory.core.tree.SequenceTreeMap;
 
 import java.util.*;
@@ -67,7 +68,20 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
     private static float computeMatches(SearchScope searchScope,
                                         SequenceTreeMap<AminoAcidSequence, Cdr3Info> stm,
                                         Cdr3Info query) {
-        return 1.0f;
+        Set<AminoAcidSequence> matches = new HashSet<>();
+
+        NeighborhoodIterator<AminoAcidSequence, Cdr3Info> ni = stm.getNeighborhoodIterator(query.cdr3,
+                searchScope.getParameters());
+
+        Cdr3Info target;
+        while ((target = ni.next()) != null) {
+            if (!Objects.equals(target.group, query.group) && // different groups
+                    Math.abs(target.cdr3.size() - query.cdr3.size()) <= searchScope.getMaxIndels()) { // indel sum threshold
+                matches.add(target.cdr3);
+            }
+        }
+
+        return -(float) Math.log1p(matches.size());
     }
 
     private class Cdr3Info {
