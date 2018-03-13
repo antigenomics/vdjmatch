@@ -98,7 +98,7 @@ class ScoringProvider {
                                 score3 = (float) splitLine[7].toDouble()
 
                             def inner = vScores.getOrDefault(v1, new HashMap<String, float[]>())
-                            inner.put(v2, [score1, score2, score3] as float[])
+                            inner.put(v2, [score3, score1, score2] as float[])
                             vScores.put(v1, inner)
                         }
                     }

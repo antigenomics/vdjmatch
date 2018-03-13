@@ -32,6 +32,11 @@ sourceSets {
             srcDir 'src/test/resources/'
         }
     }
+    build {
+        resources {
+            srcDir 'src/test/resources/'
+        }
+    }
 }
 
 

@@ -25,4 +25,14 @@ public class SegmentScores {
     public float getjScore() {
         return jScore;
     }
+
+    @Override
+    public String toString() {
+        return "[" +
+                "vScore=" + vScore +
+                ", cdr1Score=" + cdr1Score +
+                ", cdr2Score=" + cdr2Score +
+                ", jScore=" + jScore +
+                ']';
+    }
 }
