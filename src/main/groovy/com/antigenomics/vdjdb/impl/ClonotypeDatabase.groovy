@@ -229,7 +229,7 @@ class ClonotypeDatabase extends Database {
                         hit.alignmentScore,
                         segmentScores.jScore
                 )
-            new ClonotypeSearchResult(hit, it.row, id, fullScore, 1)
+            new ClonotypeSearchResult(hit, it.row, id, fullScore, 1.0f)
         }.sort()
     }
 

@@ -18,6 +18,8 @@ package com.antigenomics.vdjdb.impl
 
 import com.antigenomics.vdjdb.Util
 import com.antigenomics.vdjdb.impl.model.CloglogAggregateScoring
+import com.antigenomics.vdjdb.impl.model.LinearAggregateScoring
+import com.antigenomics.vdjdb.impl.model.LogitAggregateScoring
 import com.antigenomics.vdjdb.impl.segment.PrecomputedSegmentScoring
 import com.antigenomics.vdjdb.sequence.SubstitutionMatrixAlignmentScoring
 
@@ -26,9 +28,10 @@ import static com.milaboratory.core.sequence.AminoAcidSequence.ALPHABET
 class ScoringProvider {
     // todo: also provide logit scoring
     static ScoringBundle loadScoringBundle(String species, String gene,
+                                           ModelType modelType = ModelType.CLogLog,
                                            String[] fileNames = ["score_coef.txt", "segm_score.txt", "vdjam.txt"],
                                            boolean fromResource = true) {
-        def Cc1 = Float.NaN, Cc2 = Float.NaN, Cv = Float.NaN, Cj = Float.NaN, Cg = Float.NaN
+        def intercept = Float.NaN, cc1 = Float.NaN, cc2 = Float.NaN, cv = Float.NaN, cj = Float.NaN, cg = Float.NaN
 
         try {
             boolean firstLine = true
@@ -39,7 +42,7 @@ class ScoringProvider {
                     // todo: use header to fetch column indices
                 } else {
                     if (splitLine[0].equalsIgnoreCase(species) && splitLine[1].equalsIgnoreCase(gene)) {
-                        (Cc1, Cc2, Cv, Cj, Cg) = splitLine[2..6].collect { it.toDouble() }
+                        (intercept, cc1, cc2, cv, cj, cg) = splitLine[2..7].collect { it.toDouble() }
                     }
                 }
             }
@@ -48,9 +51,22 @@ class ScoringProvider {
                     e.toString())
         }
 
-        new ScoringBundle(loadVdjamScoring(Cg, fileNames[2], fromResource),
+        def scoring
+
+        switch (modelType) {
+            case ModelType.CLogLog:
+                scoring = new CloglogAggregateScoring(intercept, cc1, cc2, cv, cj)
+                break
+            case ModelType.Logit:
+                scoring = new LogitAggregateScoring(intercept, cc1, cc2, cv, cj)
+                break
+            default:
+                scoring = new LinearAggregateScoring(intercept, cc1, cc2, cv, cj)
+        }
+
+        new ScoringBundle(loadVdjamScoring(cg, fileNames[2], fromResource),
                 loadSegmentScoring(species, gene, fileNames[1], fromResource),
-                new CloglogAggregateScoring(Cc1, Cc2, Cv, Cj))
+                scoring)
     }
 
     static PrecomputedSegmentScoring loadSegmentScoring(String species, String gene,
@@ -96,7 +112,7 @@ class ScoringProvider {
         return new PrecomputedSegmentScoring(vScores, jScores)
     }
 
-    static SubstitutionMatrixAlignmentScoring loadVdjamScoring(float gapFactor = 0,
+    static SubstitutionMatrixAlignmentScoring loadVdjamScoring(double gapFactor = 0,
                                                                String fileName = "vdjam.txt",
                                                                boolean fromResource = true) {
         def substitutionMatrix = new float[ALPHABET.size()][ALPHABET.size()]
