@@ -74,33 +74,27 @@ class SequenceColumn extends Column {
 
         while ((entries = ni.next()) != null) { // until no more alignments found within 'search scope'
             def matchSequence = entries.first().value
+            def mutations = ni.currentMutations
 
             // need this workaround as it is not possible to implement (ins+dels) <= X scope with tree searcher
             // due to separate insertion and deletion counting
-            if (Math.abs(filter.query.size() - matchSequence.length()) > filter.maxIndels)
+            if (mutations.countOfIndels() > filter.maxIndels)
                 continue
 
-            def mutations = ni.currentMutations
             def previousResult = matchBuffer[matchSequence] // need buffer here as hits are not guaranteed to be ordered
-                                                            // by match sequence. using hashmap as we'll need to store
-                                                            // previous score
+            // by match sequence. using hashmap as we'll need to store
+            // previous score
 
             if (previousResult == null) {
                 // compute new if we don't have any previous alignments with this sequence
                 float alignmentScore = scoring.computeScore(filter.query, mutations)
                 matchBuffer.put(matchSequence, new SequenceSearchResult(alignmentScore, mutations, entries))
-            } else if (filter.exhaustive) {
-                // exhaustive search - compare scores
-                if (!filter.greedy || // non-greedy case: check even if we have more mutations
-                        previousResult.mutations.size() >= mutations.size()) {
-                    // greedy: previous case has the same number of mutations or more
-                    // Note: more mutations case N/A to current tree impl
-                    float alignmentScore = scoring.computeScore(filter.query, mutations)
+            } else if (filter.exhaustive) { // exhaustive search - compare scores
+                float alignmentScore = scoring.computeScore(filter.query, mutations)
 
-                    if (alignmentScore > previousResult.alignmentScore) {
-                        // replace if better score
-                        matchBuffer.put(matchSequence, new SequenceSearchResult(alignmentScore, mutations, entries))
-                    }
+                if (alignmentScore > previousResult.alignmentScore) {
+                    // replace if better score
+                    matchBuffer.put(matchSequence, new SequenceSearchResult(alignmentScore, mutations, entries))
                 }
             }
         }

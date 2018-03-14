@@ -2,7 +2,10 @@ package com.antigenomics.vdjdb.sequence;
 
 import com.milaboratory.core.Range;
 import com.milaboratory.core.alignment.Alignment;
+import com.milaboratory.core.alignment.AlignmentHelper;
+import com.milaboratory.core.alignment.AlignmentUtils;
 import com.milaboratory.core.mutations.Mutations;
+import com.milaboratory.core.mutations.MutationsUtil;
 import com.milaboratory.core.sequence.AminoAcidSequence;
 
 public class Hit {
@@ -42,5 +45,12 @@ public class Hit {
 
     public Mutations<AminoAcidSequence> getMutations() {
         return mutations;
+    }
+
+    @Override
+    public String toString() {
+        return "<hit>\n" + AlignmentUtils.toStringSimple(query, mutations) +
+                "s=" + alignmentScore + "\n" +
+                "</hit>";
     }
 }

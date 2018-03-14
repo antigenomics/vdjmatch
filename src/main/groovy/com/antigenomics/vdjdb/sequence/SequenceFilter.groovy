@@ -58,12 +58,6 @@ class SequenceFilter implements Filter {
     final boolean exhaustive
 
     /**
-     * If set to true stop if new variant has more mismatches than the previous one when doing exhaustive search, i.e.
-     * will only consider and score cases with equal number of substitutions + indels.
-     */
-    final boolean greedy
-
-    /**
      * Creates a new amino acid sequence search rule
      * @param columnId sequence column id
      * @param query query sequence, will be converted to amino acid sequence
@@ -73,7 +67,7 @@ class SequenceFilter implements Filter {
     SequenceFilter(String columnId, String query,
                    SearchScope preset,
                    AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE) {
-        this(columnId, query, preset.parameters, preset.maxIndels, alignmentScoring, preset.exhaustive, preset.greedy)
+        this(columnId, query, preset.parameters, preset.maxIndels, alignmentScoring, preset.exhaustive)
     }
 
     /**
@@ -84,15 +78,13 @@ class SequenceFilter implements Filter {
      * @param maxIndels maximum allowed sequence length difference
      * @param alignmentScoring alignment scoring containing substitution and gap scores, as well as a total score threshold
      * @param exhaustive if set to false stop with first variant from tree search, otherwise search all possible re-alignments
-     * @param greedy if set to true stop if new variant has more mismatches than the previous one
      */
     SequenceFilter(String columnId, String query,
                    TreeSearchParameters treeSearchParameters = new TreeSearchParameters(0, 0, 0, 0),
-                   int maxIndels = treeSearchParameters.maxDeletions + treeSearchParameters.maxInsertions,
+                   int maxIndels = -1,
                    AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE,
-                   boolean exhaustive = false,
-                   boolean greedy = true) {
-        this(columnId, Util.convert(query), treeSearchParameters, maxIndels, alignmentScoring, exhaustive, greedy)
+                   boolean exhaustive = false) {
+        this(columnId, Util.convert(query), treeSearchParameters, maxIndels, alignmentScoring, exhaustive)
     }
 
     /**
@@ -105,7 +97,7 @@ class SequenceFilter implements Filter {
     SequenceFilter(String columnId, AminoAcidSequence query,
                    SearchScope preset,
                    AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE) {
-        this(columnId, query, preset.parameters, preset.maxIndels, alignmentScoring, preset.exhaustive, preset.greedy)
+        this(columnId, query, preset.parameters, preset.maxIndels, alignmentScoring, preset.exhaustive)
     }
 
     /**
@@ -116,21 +108,18 @@ class SequenceFilter implements Filter {
      * @param maxIndels maximum allowed sequence length difference
      * @param alignmentScoring alignment scoring containing substitution and gap scores, as well as a total score threshold
      * @param exhaustive if set to false stop with first variant from tree search, otherwise search all possible re-alignments
-     * @param greedy if set to true stop if new variant has more mismatches than the previous one
      */
     SequenceFilter(String columnId, AminoAcidSequence query,
                    TreeSearchParameters treeSearchParameters = new TreeSearchParameters(0, 0, 0, 0),
-                   int maxIndels = treeSearchParameters.maxDeletions + treeSearchParameters.maxInsertions,
+                   int maxIndels = -1,
                    AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE,
-                   boolean exhaustive = false,
-                   boolean greedy = true) {
+                   boolean exhaustive = false) {
         this.columnId = columnId
         this.query = query
         this.treeSearchParameters = treeSearchParameters
-        this.maxIndels = maxIndels
+        this.maxIndels = maxIndels == -1 ? (treeSearchParameters.maxInsertions + treeSearchParameters.maxDeletions) : maxIndels
         this.alignmentScoring = alignmentScoring
         this.exhaustive = exhaustive
-        this.greedy = greedy
 
         if (query == null)
             throw new RuntimeException("Bad sequence filter query")

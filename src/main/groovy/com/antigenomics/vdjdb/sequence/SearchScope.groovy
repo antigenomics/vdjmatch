@@ -16,7 +16,6 @@
 
 package com.antigenomics.vdjdb.sequence
 
-import com.antigenomics.vdjdb.impl.ScoringProvider
 import com.milaboratory.core.tree.TreeSearchParameters
 
 /**
@@ -26,7 +25,7 @@ import com.milaboratory.core.tree.TreeSearchParameters
 class SearchScope {
     final int maxIndels
     final TreeSearchParameters parameters
-    final boolean exhaustive, greedy
+    final boolean exhaustive
 
     final static SearchScope EXACT = new SearchScope(0, 0, 0, 0)
 
@@ -41,15 +40,11 @@ class SearchScope {
      * @param maxLevensteinDistance maximal levenstein distance
      * @param scoring alignment scoring scheme
      * @param exhaustive if set to false stop with first variant from tree search, otherwise search all possible re-alignments
-     * @param greedy if set to true stop if new variant has more mismatches than the previous one
      */
-    SearchScope(int maxSubstitutions, int maxIndels, int maxLevensteinDistance,
-                boolean exhaustive = false,
-                boolean greedy = true) {
+    SearchScope(int maxSubstitutions, int maxIndels, int maxLevensteinDistance, boolean exhaustive = false) {
         this.parameters = new TreeSearchParameters(maxSubstitutions, maxIndels, maxIndels, maxLevensteinDistance)
         this.maxIndels = maxIndels
         this.exhaustive = exhaustive
-        this.greedy = greedy
     }
 
     /**
@@ -58,19 +53,16 @@ class SearchScope {
      * number of insertions and deletions may not match. Used in 'Browse' tab of VDJdb web app.
      *
      * @param maxSubstitutions maximal number of substitutions
-     * @param maxInsertions maximal number of insertions
      * @param maxDeletions maximal number of deletions
+     * @param maxInsertions maximal number of insertions
      * @param maxLevensteinDistance maximal levenstein distance
      * @param scoring alignment scoring scheme
      * @param exhaustive if set to false stop with first variant from tree search, otherwise search all possible re-alignments
      * @param greedy if set to true stop if new variant has more mismatches than the previous one
      */
-    SearchScope(int maxSubstitutions, int maxInsertions, int maxDeletions, int maxLevensteinDistance,
-                boolean exhaustive = false,
-                boolean greedy = true) {
-        this.parameters = new TreeSearchParameters(maxSubstitutions, maxInsertions, maxDeletions, maxLevensteinDistance)
-        this.maxIndels = parameters.maxInsertions + parameters.maxDeletions
+    SearchScope(int maxSubstitutions, int maxDeletions, int maxInsertions, int maxLevensteinDistance, boolean exhaustive = false) {
+        this.parameters = new TreeSearchParameters(maxSubstitutions, maxDeletions, maxInsertions, maxLevensteinDistance)
+        this.maxIndels = maxInsertions + maxDeletions
         this.exhaustive = exhaustive
-        this.greedy = greedy
     }
 }
