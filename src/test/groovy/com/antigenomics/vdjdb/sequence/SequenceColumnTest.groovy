@@ -18,6 +18,8 @@ class SequenceColumnTest {
                         ["CASSLPGATNAEKLFF"],  // 1del+1ins
                         ["ASSLAPGATNAEKLFF"],  // 1del+1ins
                         ["CASSLAPTNEKLFF"],    // 2del
+                        ["CAGAAAWAAF"],
+                        ["CAAAAAAAF"]
                 ]
         )
     }
@@ -76,5 +78,20 @@ class SequenceColumnTest {
                 new SearchScope(1, 1, 2))
 
         assert SC.search(filter).size() == 5
+    }
+
+    @Test
+    void exhaustiveTest() {
+        // still better than working 3+ years in a row without a vacation...
+
+        def filter = new SequenceFilter("sc", "CAWAAAGAAF",
+                new SearchScope(1, 1, 1, 2),
+                SubstitutionMatrixAlignmentScoring.DEFAULT_BLOSUM62)
+
+        def filterE = new SequenceFilter("sc", "CAWAAAGAAF",
+                new SearchScope(1, 1, 1, 2, true),
+                SubstitutionMatrixAlignmentScoring.DEFAULT_BLOSUM62)
+
+        assert SC.search(filter).values().first().alignmentScore < SC.search(filterE).values().first().alignmentScore
     }
 }
