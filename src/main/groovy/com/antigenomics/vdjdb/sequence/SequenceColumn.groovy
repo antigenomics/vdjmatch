@@ -89,8 +89,12 @@ class SequenceColumn extends Column {
                 // compute new if we don't have any previous alignments with this sequence
                 float alignmentScore = scoring.computeScore(filter.query, mutations)
                 matchBuffer.put(matchSequence, new SequenceSearchResult(alignmentScore, mutations, entries))
-            } else if (filter.exhaustive) { // exhaustive search - compare scores
+                //println(mutations.toString() + " " + alignmentScore)
+            } else if (filter.exhaustive && // exhaustive search - don't take first hit but try to compare scores
+                    !(filter.greedy && // if filter is greedy - only consider hits that do not have more mutations than previous hit
+                            previousResult.mutations.size() < mutations.size())) {
                 float alignmentScore = scoring.computeScore(filter.query, mutations)
+                //println(mutations.toString() + " " +alignmentScore)
                 if (alignmentScore > previousResult.alignmentScore) {
                     // replace if better score
                     matchBuffer.put(matchSequence, new SequenceSearchResult(alignmentScore, mutations, entries))
@@ -102,24 +106,25 @@ class SequenceColumn extends Column {
 
         def results = new HashMap<Row, Hit>()
 
-        matchBuffer.each { matchKvp ->
-            def searchResult = matchKvp.value
-            searchResult.entries.each { entry -> // iterate through matched rows
-                results.put(entry.row, new Hit(filter.query, // query sequence
-                        searchResult.mutations, // query -> db match mutations
-                        matchKvp.key.length(), // db match sequence length
-                        searchResult.alignmentScore // alignment (e.g. CDR3 alignment) score
-                ))
-            }
+        matchBuffer.each {
+            matchKvp ->
+                def searchResult = matchKvp.value
+                searchResult.entries.each { entry -> // iterate through matched rows
+                    results.put(entry.row, new Hit(filter.query, // query sequence
+                            searchResult.mutations, // query -> db match mutations
+                            matchKvp.key.length(), // db match sequence length
+                            searchResult.alignmentScore // alignment (e.g. CDR3 alignment) score
+                    ))
+                }
         }
 
         results
     }
 
-    /**
-     * Gets the set of all possible values in the column
-     * @return a set of unique values in the column
-     */
+/**
+ * Gets the set of all possible values in the column
+ * @return a set of unique values in the column
+ */
     @JsonIgnore
     @Override
     Set<String> getValues() {
@@ -145,4 +150,5 @@ class SequenceColumn extends Column {
             this.entries = entries
         }
     }
+
 }

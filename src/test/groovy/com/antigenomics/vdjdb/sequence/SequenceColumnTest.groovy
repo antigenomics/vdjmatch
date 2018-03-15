@@ -24,8 +24,8 @@ class SequenceColumnTest {
                         ["CAAAAAAAF"],         // exhaustive test
                         // -
                         ["CASSDWGSYEQYF"],     // vdjam test1
-                        ["CLVGDLTNYQLIW"]      // vdjam test2
-                        //["CAVGAGTNAGKSTF"] // vdjam test3
+                        ["CLVGDLTNYQLIW"],     // vdjam test2
+                        ["CAVGAGTNAGKSTF"]     // vdjam test3
                 ]
         )
     }
@@ -89,7 +89,7 @@ class SequenceColumnTest {
         // still better than working 3+ years in a row without a vacation...
 
         def filter = new SequenceFilter("sc", "CAWAAAGAAF",
-                new SearchScope(1, 1, 1, 2),
+                new SearchScope(1, 1, 1, 2, false),
                 SM1AlignmentScoring.DEFAULT_BLOSUM62)
 
         def filterE = new SequenceFilter("sc", "CAWAAAGAAF",

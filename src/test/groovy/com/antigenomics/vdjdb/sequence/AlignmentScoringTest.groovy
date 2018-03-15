@@ -41,8 +41,6 @@ class AlignmentScoringTest {
 
     @Test
     void vdjamScoringTest() {
-        // todo: case CAVGAGTNAGKSTF CLVGETNAGKSTF
-
         def filterE = new SequenceFilter("sc", "CASSDWGASSYEQYF",
                 new SearchScope(3, 2, 4, true),
                 ScoringProvider.loadVdjamScoring(0, false, "vdjam_legacy.txt"))
@@ -52,5 +50,13 @@ class AlignmentScoringTest {
                 new SearchScope(3, 0, 3, true),
                 ScoringProvider.loadVdjamScoring(0, false, "vdjam_legacy.txt"))
         assert SequenceColumnTest.SC.search(filterE).values().first().alignmentScore == -7.1182404f
+
+        // this also tests exhaustive mode - two hits, best is insertion first
+
+        // todo: not same hit reversed?
+        filterE = new SequenceFilter("sc", "CLVGETNAGKSTF",
+                new SearchScope(2, 1, 3, true),
+                ScoringProvider.loadVdjamScoring(0, false, "vdjam_legacy.txt"))
+        assert SequenceColumnTest.SC.search(filterE).values().first().alignmentScore == -6.5490856f
     }
 }

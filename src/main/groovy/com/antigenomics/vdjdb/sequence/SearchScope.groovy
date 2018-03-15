@@ -23,11 +23,9 @@ import com.milaboratory.core.tree.TreeSearchParameters
  * scoring method.
  */
 class SearchScope {
-    // todo: bring back greedy!
-
     final int maxIndels
     final TreeSearchParameters parameters
-    final boolean exhaustive
+    final boolean exhaustive, greedy
 
     final static SearchScope EXACT = new SearchScope(0, 0, 0, 0)
 
@@ -42,11 +40,14 @@ class SearchScope {
      * @param maxLevensteinDistance maximal levenstein distance
      * @param scoring alignment scoring scheme
      * @param exhaustive if set to false stop with first variant from tree search, otherwise search all possible re-alignments
+     * @param greedy if set to false, will also consider variants with more mismatches than previous hits (only applicable within search scope and when exhaustive search is on)
      */
-    SearchScope(int maxSubstitutions, int maxIndels, int maxLevensteinDistance, boolean exhaustive = false) {
-        this.parameters = new TreeSearchParameters(maxSubstitutions, maxIndels, maxIndels, maxLevensteinDistance)
+    SearchScope(int maxSubstitutions, int maxIndels, int maxLevensteinDistance,
+                boolean exhaustive = true, boolean greedy = true) {
+        this.parameters = new TreeSearchParameters(maxSubstitutions, maxIndels, maxIndels, maxLevensteinDistance, !exhaustive)
         this.maxIndels = maxIndels
         this.exhaustive = exhaustive
+        this.greedy = greedy
     }
 
     /**
@@ -60,11 +61,13 @@ class SearchScope {
      * @param maxLevensteinDistance maximal levenstein distance
      * @param scoring alignment scoring scheme
      * @param exhaustive if set to false stop with first variant from tree search, otherwise search all possible re-alignments
-     * @param greedy if set to true stop if new variant has more mismatches than the previous one
+     * @param greedy if set to false, will also consider variants with more mismatches than previous hits (only applicable within search scope and when exhaustive search is on)
      */
-    SearchScope(int maxSubstitutions, int maxDeletions, int maxInsertions, int maxLevensteinDistance, boolean exhaustive = false) {
-        this.parameters = new TreeSearchParameters(maxSubstitutions, maxDeletions, maxInsertions, maxLevensteinDistance)
+    SearchScope(int maxSubstitutions, int maxDeletions, int maxInsertions, int maxLevensteinDistance,
+                boolean exhaustive = true, boolean greedy = true) {
+        this.parameters = new TreeSearchParameters(maxSubstitutions, maxDeletions, maxInsertions, maxLevensteinDistance, !exhaustive)
         this.maxIndels = maxInsertions + maxDeletions
         this.exhaustive = exhaustive
+        this.greedy = greedy
     }
 }
