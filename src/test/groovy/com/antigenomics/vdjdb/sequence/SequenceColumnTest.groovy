@@ -10,22 +10,26 @@ class SequenceColumnTest {
     static {
         DUMMY_DB.addEntries(
                 [
-                        ["CASSLAPGAATNEKLFF"], // 1ins *
+                        // -
+                        ["CASSLAPGAATNEKLFF"], // 1ins
                         ["CASSLAPGATNEKLFF"],
-                        ["CASSLAPGAANEKLFF"],  // 1mm *
-                        ["CASSLAPGTNEKLFF"],   // 1del *
+                        ["CASSLAPGAANEKLFF"],  // 1mm
+                        ["CASSLAPGTNEKLFF"],   // 1del
                         ["CASSLAPGNNEKLFF"],   // 1del+1mm
                         ["CASSLPGATNAEKLFF"],  // 1del+1ins
                         ["ASSLAPGATNAEKLFF"],  // 1del+1ins
                         ["CASSLAPTNEKLFF"],    // 2del
-                        ["CAGAAAWAAF"],
-                        ["CAAAAAAAF"]
+                        // -
+                        ["CAGAAAWAAF"],        // exhaustive test
+                        ["CAAAAAAAF"],         // exhaustive test
+                        // -
+                        ["CASSDWGSYEQYF"],     // vdjam test1
+                        ["CLVGDLTNYQLIW"]      // vdjam test2
+                        //["CAVGAGTNAGKSTF"] // vdjam test3
                 ]
         )
     }
 
-    // CASSLAPGATN-EKLFF
-    // CASSL-PGATNAEKLFF
     @Test
     void exactSearchTest() {
         def filter = new SequenceFilter("sc", "CASSLAPGATNEKLFF")
@@ -86,11 +90,11 @@ class SequenceColumnTest {
 
         def filter = new SequenceFilter("sc", "CAWAAAGAAF",
                 new SearchScope(1, 1, 1, 2),
-                SubstitutionMatrixAlignmentScoring.DEFAULT_BLOSUM62)
+                SM1AlignmentScoring.DEFAULT_BLOSUM62)
 
         def filterE = new SequenceFilter("sc", "CAWAAAGAAF",
                 new SearchScope(1, 1, 1, 2, true),
-                SubstitutionMatrixAlignmentScoring.DEFAULT_BLOSUM62)
+                SM1AlignmentScoring.DEFAULT_BLOSUM62)
 
         assert SC.search(filter).values().first().alignmentScore < SC.search(filterE).values().first().alignmentScore
     }

@@ -21,17 +21,20 @@ import com.antigenomics.vdjdb.impl.model.CloglogAggregateScoring
 import com.antigenomics.vdjdb.impl.model.LinearAggregateScoring
 import com.antigenomics.vdjdb.impl.model.LogitAggregateScoring
 import com.antigenomics.vdjdb.impl.segment.PrecomputedSegmentScoring
-import com.antigenomics.vdjdb.sequence.SubstitutionMatrixAlignmentScoring
+import com.antigenomics.vdjdb.sequence.AlignmentScoring
+import com.antigenomics.vdjdb.sequence.SM1AlignmentScoring
+import com.antigenomics.vdjdb.sequence.SM2AlignmentScoring
 
 import static com.milaboratory.core.sequence.AminoAcidSequence.ALPHABET
 
 class ScoringProvider {
-    // todo: also provide logit scoring
     static ScoringBundle loadScoringBundle(String species, String gene,
-                                           ModelType modelType = ModelType.CLogLog,
+                                           boolean residueWiseMaxScoring = true,
                                            String[] fileNames = ["score_coef.txt", "segm_score.txt", "vdjam.txt"],
                                            boolean fromResource = true) {
         def intercept = Float.NaN, cc1 = Float.NaN, cc2 = Float.NaN, cv = Float.NaN, cj = Float.NaN, cg = Float.NaN
+        def colIndices = new HashMap<String, Integer>()
+        def linkType = "linear"
 
         try {
             boolean firstLine = true
@@ -39,10 +42,17 @@ class ScoringProvider {
                     new File(fileNames[0])).splitEachLine("\t") { splitLine ->
                 if (firstLine) {
                     firstLine = false
-                    // todo: use header to fetch column indices
+                    (0..<splitLine.size()).each { colIndices[splitLine[it]] = it }
                 } else {
-                    if (splitLine[0].equalsIgnoreCase(species) && splitLine[1].equalsIgnoreCase(gene)) {
-                        (intercept, cc1, cc2, cv, cj, cg) = splitLine[2..7].collect { it.toDouble() }
+                    if (splitLine[colIndices["species"]].equalsIgnoreCase(species) &&
+                            splitLine[colIndices["gene"]].equalsIgnoreCase(gene)) {
+                        intercept = splitLine[colIndices["(Intercept)"]].toDouble()
+                        cc1 = splitLine[colIndices["cdr1.score"]].toDouble()
+                        cc2 = splitLine[colIndices["cdr2.score"]].toDouble()
+                        cv = splitLine[colIndices["v.score"]].toDouble()
+                        cj = splitLine[colIndices["j.score"]].toDouble()
+                        cg = colIndices.containsKey("gap") ? splitLine[colIndices["gap"]].toDouble() : 0
+                        linkType = splitLine[colIndices["fun"]]
                     }
                 }
             }
@@ -53,18 +63,18 @@ class ScoringProvider {
 
         def scoring
 
-        switch (modelType) {
-            case ModelType.CLogLog:
+        switch (linkType.toLowerCase()) {
+            case "cloglog":
                 scoring = new CloglogAggregateScoring(intercept, cc1, cc2, cv, cj)
                 break
-            case ModelType.Logit:
+            case "logit":
                 scoring = new LogitAggregateScoring(intercept, cc1, cc2, cv, cj)
                 break
             default:
                 scoring = new LinearAggregateScoring(intercept, cc1, cc2, cv, cj)
         }
 
-        new ScoringBundle(loadVdjamScoring(cg, fileNames[2], fromResource),
+        new ScoringBundle(loadVdjamScoring(cg, residueWiseMaxScoring, fileNames[2], fromResource),
                 loadSegmentScoring(species, gene, fileNames[1], fromResource),
                 scoring)
     }
@@ -77,11 +87,13 @@ class ScoringProvider {
 
         try {
             boolean firstLine = true
+            // todo: use header to fetch column indices
+            def colIndices = new HashMap<String, Integer>()
             (fromResource ? Util.resourceAsStream(fileName) :
                     new File(fileName)).splitEachLine("\t") { splitLine ->
                 if (firstLine) {
                     firstLine = false
-                    // todo: use header to fetch column indices
+                    (0..<splitLine.size()).each { colIndices[splitLine[it]] = it }
                 } else {
                     if (splitLine[0].equalsIgnoreCase(species) && splitLine[1].equalsIgnoreCase(gene)) {
                         if (splitLine[2].equalsIgnoreCase("J")) {
@@ -112,9 +124,10 @@ class ScoringProvider {
         return new PrecomputedSegmentScoring(vScores, jScores)
     }
 
-    static SubstitutionMatrixAlignmentScoring loadVdjamScoring(double gapFactor = 0,
-                                                               String fileName = "vdjam.txt",
-                                                               boolean fromResource = true) {
+    static AlignmentScoring loadVdjamScoring(float gapFactor = 0f,
+                                             boolean residueWiseMax = true,
+                                             String fileName = "vdjam.txt",
+                                             boolean fromResource = true) {
         def substitutionMatrix = new float[ALPHABET.size()][ALPHABET.size()]
 
         try {
@@ -138,6 +151,7 @@ class ScoringProvider {
                     e.toString())
         }
 
-        return new SubstitutionMatrixAlignmentScoring(substitutionMatrix, gapFactor)
+        return residueWiseMax ? new SM1AlignmentScoring(substitutionMatrix, gapFactor) :
+                new SM2AlignmentScoring(substitutionMatrix, gapFactor)
     }
 }

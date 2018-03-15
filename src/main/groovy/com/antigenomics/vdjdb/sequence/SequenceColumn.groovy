@@ -91,7 +91,6 @@ class SequenceColumn extends Column {
                 matchBuffer.put(matchSequence, new SequenceSearchResult(alignmentScore, mutations, entries))
             } else if (filter.exhaustive) { // exhaustive search - compare scores
                 float alignmentScore = scoring.computeScore(filter.query, mutations)
-
                 if (alignmentScore > previousResult.alignmentScore) {
                     // replace if better score
                     matchBuffer.put(matchSequence, new SequenceSearchResult(alignmentScore, mutations, entries))

@@ -6,13 +6,13 @@ import com.milaboratory.core.mutations.Mutation;
 import com.milaboratory.core.mutations.Mutations;
 import com.milaboratory.core.sequence.AminoAcidSequence;
 
-public class SubstitutionMatrixAlignmentScoring implements AlignmentScoring {
+public class SM1AlignmentScoring implements AlignmentScoring {
     private static final int N = AminoAcidSequence.ALPHABET.size();
     private final float[][] substitutionPenalties = new float[N][N];
     private final float[] gapPenalties = new float[N];
     private final float gapFactor;
 
-    public static final SubstitutionMatrixAlignmentScoring DEFAULT_BLOSUM62;
+    public static final SM1AlignmentScoring DEFAULT_BLOSUM62;
 
     static {
         float[][] sm = new float[N][N];
@@ -25,10 +25,10 @@ public class SubstitutionMatrixAlignmentScoring implements AlignmentScoring {
                 maxScore = Math.max(maxScore, Math.abs(score));
             }
         }
-        DEFAULT_BLOSUM62 = new SubstitutionMatrixAlignmentScoring(sm, (float) (maxScore + 1));
+        DEFAULT_BLOSUM62 = new SM1AlignmentScoring(sm, (float) (maxScore + 1));
     }
 
-    public SubstitutionMatrixAlignmentScoring(float[][] substitutionMatrix, float gapFactor) {
+    public SM1AlignmentScoring(float[][] substitutionMatrix, float gapFactor) {
         for (int i = 0; i < N; i++) {
             gapPenalties[i] = substitutionMatrix[i][i];
             for (int j = 0; j < N; j++) {
@@ -60,5 +60,17 @@ public class SubstitutionMatrixAlignmentScoring implements AlignmentScoring {
         }
 
         return score - indels * gapFactor;
+    }
+
+    public float[][] getSubstitutionPenalties() {
+        return substitutionPenalties;
+    }
+
+    public float[] getGapPenalties() {
+        return gapPenalties;
+    }
+
+    public float getGapFactor() {
+        return gapFactor;
     }
 }

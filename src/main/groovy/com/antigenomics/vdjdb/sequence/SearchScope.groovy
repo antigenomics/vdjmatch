@@ -23,6 +23,8 @@ import com.milaboratory.core.tree.TreeSearchParameters
  * scoring method.
  */
 class SearchScope {
+    // todo: bring back greedy!
+
     final int maxIndels
     final TreeSearchParameters parameters
     final boolean exhaustive
