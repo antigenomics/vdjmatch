@@ -1,6 +1,5 @@
 package com.antigenomics.vdjdb.impl
 
-import com.antigenomics.vdjdb.impl.model.LinearAggregateScoring
 import com.antigenomics.vdjdb.sequence.SearchScope
 import com.antigenomics.vdjdb.sequence.SequenceFilter
 

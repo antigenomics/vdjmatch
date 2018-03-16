@@ -24,6 +24,24 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
         return groupingColumnName;
     }
 
+    public WeightFunction create(final Set<Cdr3Info> cdr3InfoSet, final SearchScope searchScope) {
+        SequenceTreeMap<AminoAcidSequence, Cdr3Info> stm = new SequenceTreeMap<>(AminoAcidSequence.ALPHABET);
+        for (Cdr3Info cdr3Info : cdr3InfoSet) {
+            stm.put(cdr3Info.cdr3, cdr3Info);
+        }
+
+        // perform search for every cdr3 with a given scope, compute scores
+        Map<String, Float> weights = new HashMap<>();
+        cdr3InfoSet
+                .parallelStream()
+                .map(x -> new AbstractMap.SimpleEntry<>(x, computeMatches(searchScope,
+                        stm, x)))
+                .forEach(x -> weights.put(x.getKey().cdr3.toString(), x.getValue()));
+
+
+        return new DegreeWeightFunction(weights);
+    }
+
     @Override
     public WeightFunction create(ClonotypeDatabase clonotypeDatabase) {
         int groupColumnIndex = -1, i = 0;
@@ -42,27 +60,16 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
 
         // create sequence tree map holding epitope info & aux. set of cdrs
         // todo: here we don't handle/overwrite cross-reactive clonotypes
-        SequenceTreeMap<AminoAcidSequence, Cdr3Info> stm = new SequenceTreeMap<>(AminoAcidSequence.ALPHABET);
         Set<Cdr3Info> cdr3InfoSet = new HashSet<>();
         for (Row row : clonotypeDatabase.getRows()) {
             String cdr3aa = row.getAt(clonotypeDatabase.getCdr3ColIdx()).getValue(),
                     group = row.getAt(groupColumnIndex).getValue();
 
-            Cdr3Info cdr3Info = new Cdr3Info(new AminoAcidSequence(cdr3aa), group);
-            stm.put(cdr3Info.cdr3, cdr3Info);
-            cdr3InfoSet.add(cdr3Info);
+            cdr3InfoSet.add(new Cdr3Info(new AminoAcidSequence(cdr3aa), group));
         }
 
-        // perform search for every cdr3 with a given scope, compute scores
-        Map<String, Float> weights = new HashMap<>();
-        cdr3InfoSet
-                .parallelStream()
-                .map(x -> new AbstractMap.SimpleEntry<>(x, computeMatches(clonotypeDatabase.getSearchScope(),
-                        stm, x)))
-                .forEach(x -> weights.put(x.getKey().cdr3.toString(), x.getValue()));
 
-
-        return new DegreeWeightFunction(weights);
+        return create(cdr3InfoSet, clonotypeDatabase.getSearchScope());
     }
 
     private static float computeMatches(SearchScope searchScope,
@@ -84,13 +91,21 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
         return -(float) Math.log1p(matches.size());
     }
 
-    private class Cdr3Info {
-        final AminoAcidSequence cdr3;
-        final String group;
+    public static class Cdr3Info {
+        private final AminoAcidSequence cdr3;
+        private final String group;
 
-        Cdr3Info(AminoAcidSequence cdr3, String group) {
+        public Cdr3Info(AminoAcidSequence cdr3, String group) {
             this.cdr3 = cdr3;
             this.group = group;
+        }
+
+        public AminoAcidSequence getCdr3() {
+            return cdr3;
+        }
+
+        public String getGroup() {
+            return group;
         }
 
         @Override
