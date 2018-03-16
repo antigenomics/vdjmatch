@@ -35,10 +35,10 @@ sourceSets {
     build {
         resources {
             srcDir 'src/test/resources/'
+
         }
     }
 }
-
 
 dependencies {
     compile 'org.codehaus.groovy:groovy-all:2.4.13'

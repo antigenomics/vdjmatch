@@ -86,7 +86,7 @@ class SequenceFilter implements Filter {
      * @param greedy if set to false, will also consider variants with more mismatches than previous hits (only applicable within search scope and when exhaustive search is on)
      */
     SequenceFilter(String columnId, String query,
-                   TreeSearchParameters treeSearchParameters = new TreeSearchParameters(0, 0, 0, 0),
+                   TreeSearchParameters treeSearchParameters = new TreeSearchParameters(0, 0, 0, 0, false),
                    int maxIndels = -1,
                    AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE,
                    boolean exhaustive = true,

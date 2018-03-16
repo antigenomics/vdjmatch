@@ -63,8 +63,9 @@ class ClonotypeDatabaseTest {
     @Test
     void sampleTest2() {
         def database = new ClonotypeDatabase(resourceAsStream("vdjdb_legacy.meta.txt"),
-                false, false, new SearchScope(new TreeSearchParameters(3, 0, 0, 3),
-                ScoringProvider.loadScoring("v1")))
+                false, false, new SearchScope(3, 1, 3),
+                ScoringProvider.loadVdjamScoring(0)
+        )
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
 

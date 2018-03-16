@@ -17,10 +17,7 @@
 package com.antigenomics.vdjdb.impl
 
 import com.antigenomics.vdjdb.db.Column
-import com.antigenomics.vdjdb.db.ColumnwiseFilterBatch
 import com.antigenomics.vdjdb.db.Database
-import com.antigenomics.vdjdb.db.DummyFilterBatch
-import com.antigenomics.vdjdb.db.ExpressionFilterBatch
 import com.antigenomics.vdjdb.impl.filter.DummyResultFilter
 import com.antigenomics.vdjdb.impl.filter.ResultFilter
 import com.antigenomics.vdjdb.impl.model.AggregateScoring

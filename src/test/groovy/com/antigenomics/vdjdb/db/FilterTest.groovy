@@ -71,7 +71,7 @@ class FilterTest {
         assert database.search([new ExactTextFilter(PEPTIDE_COL, "NLVPMVATV", false),
                                 new ExactTextFilter(SOURCE_COL, "CMV", false)], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF")]).size() > 0
 
-        assert database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF", new TreeSearchParameters(2, 1, 1))]).size() >
+        assert database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF", new TreeSearchParameters(2, 1, 1, false))]).size() >
                 database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF")]).size()
     }
 
@@ -80,7 +80,7 @@ class FilterTest {
         def database = loadLegacyDb()
 
         assert new HashSet<>(database.search([new ExactTextFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF", false)], [])*.row)
-                .containsAll(database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF", new TreeSearchParameters(0, 0, 0))])*.row)
+                .containsAll(database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF", new TreeSearchParameters(0, 0, 0, false))])*.row)
 
         assert database.search([], [new SequenceFilter(CDR3_COL_DEFAULT, "CASSLAPGATNEKLFF"),
                                     new SequenceFilter(PEPTIDE_COL, "NLVPMVATV")]).size() > 0

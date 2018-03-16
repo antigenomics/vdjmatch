@@ -20,7 +20,7 @@ class EpitopeSuggestionGenerator {
 
         epiColumn.values.collectEntries() { value ->
             def filter = new SequenceFilter(EPITOPE_COLUMN_NAME, new AminoAcidSequence(value),
-                    new TreeSearchParameters(maxMm, maxIndel, maxIndel, maxTotal))
+                    new TreeSearchParameters(maxMm, maxIndel, maxIndel, maxTotal, false))
 
             def suggestionSet = new HashSet<EpitopeSuggestion>()
             epiColumn.search(filter).each { result ->
