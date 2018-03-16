@@ -49,8 +49,7 @@ public class Hit {
 
     @Override
     public String toString() {
-        return "<hit>\n" + AlignmentUtils.toStringSimple(query, mutations) +
-                "s=" + alignmentScore + "\n" +
-                "</hit>";
+        return "[" + AlignmentUtils.toStringSimple(query, mutations).replaceAll("\n", ",") +
+                "s=" + alignmentScore + "]";
     }
 }

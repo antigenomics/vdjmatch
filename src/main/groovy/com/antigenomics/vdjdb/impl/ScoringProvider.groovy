@@ -29,10 +29,11 @@ import static com.milaboratory.core.sequence.AminoAcidSequence.ALPHABET
 
 class ScoringProvider {
     static ScoringBundle loadScoringBundle(String species, String gene,
-                                           boolean residueWiseMaxScoring = true,
+                                           boolean residueWiseMaxScoring = false,
                                            String[] fileNames = ["score_coef.txt", "segm_score.txt", "vdjam.txt"],
                                            boolean fromResource = true) {
-        def intercept = Float.NaN, cc1 = Float.NaN, cc2 = Float.NaN, cv = Float.NaN, cj = Float.NaN, cg = Float.NaN
+        Float intercept = Float.NaN, cc1 = Float.NaN, cc2 = Float.NaN, cc3 = Float.NaN,
+                cv = Float.NaN, cj = Float.NaN, cg = Float.NaN
         def colIndices = new HashMap<String, Integer>()
         def linkType = "linear"
 
@@ -49,6 +50,7 @@ class ScoringProvider {
                         intercept = splitLine[colIndices["(Intercept)"]].toDouble()
                         cc1 = splitLine[colIndices["cdr1.score"]].toDouble()
                         cc2 = splitLine[colIndices["cdr2.score"]].toDouble()
+                        cc3 = splitLine[colIndices["cdr3.score"]].toDouble()
                         cv = splitLine[colIndices["v.score"]].toDouble()
                         cj = splitLine[colIndices["j.score"]].toDouble()
                         cg = colIndices.containsKey("gap") ? splitLine[colIndices["gap"]].toDouble() : 0
@@ -65,13 +67,13 @@ class ScoringProvider {
 
         switch (linkType.toLowerCase()) {
             case "cloglog":
-                scoring = new CloglogAggregateScoring(intercept, cc1, cc2, cv, cj)
+                scoring = new CloglogAggregateScoring(intercept, cc1, cc2, cc3, cv, cj)
                 break
             case "logit":
-                scoring = new LogitAggregateScoring(intercept, cc1, cc2, cv, cj)
+                scoring = new LogitAggregateScoring(intercept, cc1, cc2, cc3, cv, cj)
                 break
             default:
-                scoring = new LinearAggregateScoring(intercept, cc1, cc2, cv, cj)
+                scoring = new LinearAggregateScoring(intercept, cc1, cc2, cc3, cv, cj)
         }
 
         new ScoringBundle(loadVdjamScoring(cg, residueWiseMaxScoring, fileNames[2], fromResource),

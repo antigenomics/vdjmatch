@@ -2,8 +2,8 @@ package com.antigenomics.vdjdb.impl.model;
 
 
 public class LogitAggregateScoring extends LinearAggregateScoring {
-    public LogitAggregateScoring(float intercept, float cc1, float cc2, float cv, float cj) {
-        super(intercept, cc1, cc2, cv, cj);
+    public LogitAggregateScoring(float intercept, float cc1, float cc2, float cc3, float cv, float cj) {
+        super(intercept, cc1, cc2, cc3, cv, cj);
     }
 
     @Override

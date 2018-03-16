@@ -27,7 +27,7 @@ class AlignmentScoringTest {
         def filterE = new SequenceFilter("sc", "CASTLAAAPSATNDKLFF",
                 new SearchScope(3, 2, 0, 5, true),
                 SM2AlignmentScoring.DEFAULT_BLOSUM62)
-        def hit = SequenceColumnTest.SC.search(filterE).values().first()
+        def hit = ExampleSequenceColumn.SC.search(filterE).values().first()
         assert hit.mutations == nwAln.absoluteMutations
 
         // Test score calculation between sequence column and NW aligner
@@ -39,17 +39,19 @@ class AlignmentScoringTest {
         ScoringProvider.loadVdjamScoring(0, false, "vdjam_legacy.txt")
     }
 
+    // todo: residueWiseMax = true test
+
     @Test
     void vdjamScoringTest() {
         def filterE = new SequenceFilter("sc", "CASSDWGASSYEQYF",
                 new SearchScope(3, 2, 4, true),
                 ScoringProvider.loadVdjamScoring(0, false, "vdjam_legacy.txt"))
-        assert SequenceColumnTest.SC.search(filterE).values().first().alignmentScore == -3.0665207f
+        assert Math.round(100 * ExampleSequenceColumn.SC.search(filterE).values().first().alignmentScore) == Math.round(100 * -3.0665207f)
 
         filterE = new SequenceFilter("sc", "CLVGEGDNYQLIW",
                 new SearchScope(3, 0, 3, true),
                 ScoringProvider.loadVdjamScoring(0, false, "vdjam_legacy.txt"))
-        assert SequenceColumnTest.SC.search(filterE).values().first().alignmentScore == -7.1182404f
+        assert Math.round(100 * ExampleSequenceColumn.SC.search(filterE).values().first().alignmentScore) == Math.round(100 * -7.1182404f)
 
         // this also tests exhaustive mode - two hits, best is insertion first
 
@@ -57,6 +59,19 @@ class AlignmentScoringTest {
         filterE = new SequenceFilter("sc", "CLVGETNAGKSTF",
                 new SearchScope(2, 1, 3, true),
                 ScoringProvider.loadVdjamScoring(0, false, "vdjam_legacy.txt"))
-        assert SequenceColumnTest.SC.search(filterE).values().first().alignmentScore == -6.5490856f
+        def score1 = ExampleSequenceColumn.SC.search(filterE).values().find {
+            it.mutations.size() > 0 // no exact match
+        }.alignmentScore
+
+        assert Math.round(100 * score1) == Math.round(100 * -6.5490856f)
+
+        filterE = new SequenceFilter("sc", "CAVGAGTNAGKSTF",
+                new SearchScope(2, 1, 3, true),
+                ScoringProvider.loadVdjamScoring(0, false, "vdjam_legacy.txt"))
+        def score2 = ExampleSequenceColumn.SC.search(filterE).values().find {
+            it.mutations.size() > 0 // no exact match
+        }.alignmentScore
+
+        assert Math.round(100 * score1) == Math.round(100 * score2)
     }
 }

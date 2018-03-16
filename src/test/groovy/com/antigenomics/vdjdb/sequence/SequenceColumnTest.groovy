@@ -1,35 +1,11 @@
 package com.antigenomics.vdjdb.sequence
 
-import com.antigenomics.vdjdb.db.Database
 import com.milaboratory.core.tree.TreeSearchParameters
 import org.junit.Test
 
-class SequenceColumnTest {
-    static final SequenceColumn SC = new SequenceColumn("sc")
-    static final Database DUMMY_DB = new Database([SC])
-    static {
-        DUMMY_DB.addEntries(
-                [
-                        // -
-                        ["CASSLAPGAATNEKLFF"], // 1ins
-                        ["CASSLAPGATNEKLFF"],
-                        ["CASSLAPGAANEKLFF"],  // 1mm
-                        ["CASSLAPGTNEKLFF"],   // 1del
-                        ["CASSLAPGNNEKLFF"],   // 1del+1mm
-                        ["CASSLPGATNAEKLFF"],  // 1del+1ins
-                        ["ASSLAPGATNAEKLFF"],  // 1del+1ins
-                        ["CASSLAPTNEKLFF"],    // 2del
-                        // -
-                        ["CAGAAAWAAF"],        // exhaustive test
-                        ["CAAAAAAAF"],         // exhaustive test
-                        // -
-                        ["CASSDWGSYEQYF"],     // vdjam test1
-                        ["CLVGDLTNYQLIW"],     // vdjam test2
-                        ["CAVGAGTNAGKSTF"]     // vdjam test3
-                ]
-        )
-    }
+import static com.antigenomics.vdjdb.sequence.ExampleSequenceColumn.*
 
+class SequenceColumnTest {
     @Test
     void exactSearchTest() {
         def filter = new SequenceFilter("sc", "CASSLAPGATNEKLFF")
@@ -43,24 +19,24 @@ class SequenceColumnTest {
     // FIXME
     void scopeSearchTest1() {
         def filter = new SequenceFilter("sc", "CASSLAPGATNEKLFF",
-                new TreeSearchParameters(1, 1, 1, 2),
+                new TreeSearchParameters(1, 1, 1, 2, false),
                 2)
 
         assert SC.search(filter).size() == 7
 
         filter = new SequenceFilter("sc", "CASSLAPGATNEKLFF",
-                new TreeSearchParameters(1, 2, 1, 2),
+                new TreeSearchParameters(1, 2, 1, 2, false),
                 2)
 
         assert SC.search(filter).size() == 8
 
         filter = new SequenceFilter("sc", "CASSLAPGATNEKLFF",
-                new TreeSearchParameters(1, 1, 0, 1))
+                new TreeSearchParameters(1, 1, 0, 1, false))
 
         assert SC.search(filter).size() == 3
 
         filter = new SequenceFilter("sc", "CASSLAPGATNEKLFF",
-                new TreeSearchParameters(1, 1, 1, 1))
+                new TreeSearchParameters(1, 1, 1, 1, false))
 
         assert SC.search(filter).size() == 4
     }
