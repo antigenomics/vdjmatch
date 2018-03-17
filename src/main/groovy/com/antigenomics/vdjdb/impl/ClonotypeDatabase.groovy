@@ -80,7 +80,6 @@ class ClonotypeDatabase extends Database {
      * @param speciesColName species column name
      * @param geneColName receptor gene column name
      */
-    // todo: filter & informativeness factory
     ClonotypeDatabase(List<Column> columns, boolean matchV = false, boolean matchJ = false,
                       SearchScope searchScope = SearchScope.EXACT,
                       AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE,
