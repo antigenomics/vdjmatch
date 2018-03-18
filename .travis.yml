@@ -15,6 +15,11 @@ install:
   - git checkout tags/1.1.7
   - mvn clean install -q -Dmaven.test.skip=true
   - cd ..
+  - git clone https://github.com/antigenomics/milib-a.git
+  - cd milib-a/
+  - git checkout tags/a1.8.4
+  - mvn clean install -q -Dmaven.test.skip=true
+  - cd ..
 
 script:
   - jdk_switcher use oraclejdk8
