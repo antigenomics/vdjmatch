@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Mikhail Shugay
+ * Copyright 2015-2017 Mikhail Shugay
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,15 @@
 
 package com.antigenomics.vdjdb
 
+import com.antigenomics.vdjdb.impl.ClonotypeSearchResult
+import com.antigenomics.vdjdb.impl.ScoringBundle
 import com.antigenomics.vdjdb.impl.ScoringProvider
+import com.antigenomics.vdjdb.impl.filter.DummyResultFilter
+import com.antigenomics.vdjdb.impl.filter.MaxScoreResultFilter
+import com.antigenomics.vdjdb.impl.filter.ScoreThresholdResultFilter
+import com.antigenomics.vdjdb.impl.filter.TopNResultFilter
+import com.antigenomics.vdjdb.impl.weights.DegreeWeightFunctionFactory
+import com.antigenomics.vdjdb.impl.weights.DummyWeightFunctionFactory
 import com.antigenomics.vdjdb.sequence.SearchScope
 import com.antigenomics.vdjdb.stat.ClonotypeCounter
 import com.antigenomics.vdjdb.stat.ClonotypeSearchSummary
@@ -27,76 +35,125 @@ import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.sample.SampleCollection
 import com.antigenomics.vdjtools.sample.metadata.MetadataTable
 import com.antigenomics.vdjtools.misc.ExecUtil
-import com.milaboratory.core.tree.TreeSearchParameters
+
+def scriptName = getClass().canonicalName.split("\\.")[-1]
 
 if (args.length > 0 && args[0].toLowerCase() == "update") {
     Util.checkDatabase(true)
     System.exit(0)
 }
 
-def DEFAULT_SEARCH_SCOPE = "0,0,0,0",
-    DEFAULT_SEARCH_SCORING = ScoringProvider.DUMMY_SCORING_ID,
+//
+// Command line options
+//
+
+def cli = new CliBuilder(usage: "vdjdb [options] " +
+        "[sample1 sample2 sample3 ... if -m is not specified] output_prefix\n" +
+        "Input samples should be provided in VDJtools format if --software is not " +
+        "specified/supported.")
+
+def DEFAULT_SEARCH_SCOPE = "0,0,0",
+    DEFAULT_EXHAUSTIVE = "1",
+    DEFAULT_SCORING_MODE = "1",
     DEFAULT_CONFIDENCE_THRESHOLD = "0",
     ALLOWED_SPECIES_ALIAS = ["human" : "homosapiens", "mouse": "musmusculus",
                              "monkey": "macacamulatta"],
     ALLOWED_GENES = ["TRA", "TRB"]
 
-def cli = new CliBuilder(usage: "vdjdb [options] " +
-        "[sample1 sample2 sample3 ... if -m is not specified] output_prefix\n" +
-        "Input samples should be provided in VDJtools format if --software is not specified/supported.")
-cli.h("display help message")
+cli.h("Displays help message")
+
+
 cli.m(longOpt: "metadata", argName: "filename", args: 1,
         "Metadata file. First and second columns should contain file name and sample id. " +
                 "Header is mandatory and will be used to assign column names for metadata.")
-cli._(longOpt: "search-scope", argName: "s,i,d,t", args: 1,
-        "Sets CDR3 sequence search parameters: " +
-                "allowed number of substitutions (s), insertions (i), deletions (d) and total number of mutations. " +
-                "[default=$DEFAULT_SEARCH_SCOPE]")
-cli._(longOpt: "search-scoring", argName: "name", args: 1,
-        "Sets CDR3 alignment scoring preset. " +
-                "Either '${ScoringProvider.DUMMY_SCORING_ID}' that counts number the number of " +
-                "matched bases, or 'v1' that uses a pre-computed scoring matrix." +
-                "[default='$DEFAULT_SEARCH_SCORING']")
-cli._(longOpt: "database", argName: "string", args: 1, "Path and prefix of an external database. " +
-        "The prefix should point to a '.txt' file (database itself) and '.meta.txt' (database column metadata).")
-cli._(longOpt: "use-fat-db", "Use a more redundant database version, with extra fields (meta, method, etc). " +
-        "Fat database can contain several records for a " +
-        "TCR:pMHC pair corresponding to different replicates/tissue sources/targets.")
-cli._(longOpt: "summary-columns", argName: "col1,col2,...", args: 1,
-        "Table columns for summarizing, see DB metadata for column names. " +
-                "[default=${ClonotypeSearchSummary.FIELDS_PLAIN_TEXT.join(",")}]. ")
-cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
-        "Logical filter evaluated for database columns. Supports Regex, .contains(), .startsWith(), etc.")
-cli.S(longOpt: "species", argName: "name", args: 1, required: true,
-        "Species of input sample(s), allowed values: ${ALLOWED_SPECIES_ALIAS.keySet()}.")
 cli._(longOpt: "software", argName: "string", args: 1,
         "Input RepSeq data format. Currently supported: ${Software.values().join(", ")}. " +
                 "[default = ${Software.VDJtools}]")
-cli.R(longOpt: "gene", argName: "name", args: 1, required: true,
-        "Receptor gene of input sample(s), allowed values: $ALLOWED_GENES.")
-cli._(longOpt: "vdjdb-conf", argName: "[0,3]", args: 1,
-        "VDJdb confidence level threshold, from lowest to highest. [default=$DEFAULT_CONFIDENCE_THRESHOLD]")
-cli.v(longOpt: "v-match", "Require V segment matching.")
-cli.j(longOpt: "j-match", "Require J segment matching.")
 cli.c("Compressed output")
 
-def opt = cli.parse(args)
 
+cli.S(longOpt: "species", argName: "name", args: 1, required: true,
+        "Species of input sample(s), allowed values: ${ALLOWED_SPECIES_ALIAS.keySet()}.")
+cli.R(longOpt: "gene", argName: "name", args: 1, required: true,
+        "Receptor gene of input sample(s), allowed values: $ALLOWED_GENES.")
+cli._(longOpt: "vdjdb-conf", argName: "0..3", args: 1,
+        "VDJdb confidence level threshold, from lowest to highest. [default=$DEFAULT_CONFIDENCE_THRESHOLD]")
+cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
+        "[advanced] Logical filter evaluated for database columns. " +
+                "Supports Regex, .contains(), .startsWith(), etc.")
+
+
+cli._(longOpt: "database", argName: "string", args: 1,
+        "[advanced] Path and prefix of an external database. " +
+                "The prefix should point to a '.txt' file (database itself) and " +
+                "'.meta.txt' (database column metadata).")
+cli._(longOpt: "use-fat-db",
+        "[advanced] Use a more redundant database version, with extra fields (meta, method, etc). " +
+                "Fat database can contain several records for a " +
+                "TCR:pMHC pair corresponding to different replicates/tissue sources/targets.")
+
+
+cli.v(longOpt: "v-match", "Require exact (up to allele) V segment id matching.")
+cli.j(longOpt: "j-match", "Require exact (up to allele) J segment id matching.")
+cli._(longOpt: "search-scope", argName: "s,id,t or s,i,d,t", args: 1,
+        "Sets CDR3 sequence matching parameters aka 'search scope': " +
+                "allowed number of substitutions (s), insertions (i), deletions (d) / or indels (id) and " +
+                "total number of mutations (t). [default=$DEFAULT_SEARCH_SCOPE]")
+cli._(longOpt: "search-exhaustive", argName: "0..2", args: 1,
+        "Perform exhaustive CDR3 alignment: 0 - no (fast), " +
+                "1 - check and select best alignment for smallest edit distance, " +
+                "2 - select best alignment across all edit distances within search scope (slow). " +
+                "[default=$DEFAULT_EXHAUSTIVE]")
+
+
+cli._(longOpt: "scoring-vdjmatch",
+        "Use VDJMATCH algorithm that computes full alignment score as a function of " +
+                "CDR3 mutations (weighted with VDJAM scoring matrix) and pre-computed V/J segment " +
+                "match scores. If not set, will just count the number of mismatches.")
+cli._(longOpt: "scoring-mode", argName: "0..1", args: 1,
+        "Either '0': scores mismatches only (faster) or '1': compute scoring for whole sequences (slower). " +
+                "[default=$DEFAULT_SCORING_MODE]")
+
+
+cli._(longOpt: "hit-filter-score", argName: "threshold", args: 1,
+        "Drops hits with a score less than the specified threshold.")
+cli._(longOpt: "hit-filter-max",
+        "Only select hit with maximal score for a given query clonotype " +
+                "(will consider all max score hits in case of ties).")
+cli._(longOpt: "hit-filter-topn", argName: "n", args: 1,
+        "Select best 'n' hits by score " +
+                "(can randomly drop hits in case of ties).")
+
+
+cli._(longOpt: "hit-weight-info",
+        "Weight database hits by their 'informativeness', i.e. the log probability of them " +
+                "being matched by chance.")
+
+cli._(longOpt: "summary-columns", argName: "col1,col2,...", args: 1,
+        "Table columns for summarizing, see DB metadata for column names. " +
+                "[default=${ClonotypeSearchSummary.FIELDS_PLAIN_TEXT.join(",")}]. ")
+
+//
+// Parse arguments & run checks
+//
+
+def opt = cli.parse(args)
 if (opt == null) {
     System.exit(1)
 }
-
 if (opt.h || opt.arguments().size() == 0) {
     cli.usage()
     System.exit(1)
 }
 
-// Check if metadata is provided
+/* software type, metadata, input files & output options */
 
-def metadataFileName = opt.m
-
-if (metadataFileName ? opt.arguments().size() != 1 : opt.arguments().size() < 2) {
-    if (metadataFileName)
+def optMetadataFileName = opt.m,
+    optSoftware = opt.'software' ? Software.byName((String) opt.'software') : Software.VDJtools,
+    optCompress = (boolean) opt.c,
+    outputPrefix = opt.arguments()[-1]
+if (optMetadataFileName ? opt.arguments().size() != 1 : opt.arguments().size() < 2) {
+    if (optMetadataFileName)
         println "[ERROR] Only output prefix should be provided in case of -m"
     else
         println "[ERROR] At least 1 sample files should be provided if not using -m"
@@ -104,82 +161,130 @@ if (metadataFileName ? opt.arguments().size() != 1 : opt.arguments().size() < 2)
     System.exit(1)
 }
 
-// Basic arguments
+/* species, gene, pre-filtering */
 
-def dbPrefix = (String) (opt.'database' ?: null),
-    compress = (boolean) opt.c,
-    vMatch = (boolean) opt."v-match", jMatch = (boolean) opt."j-match",
-    species = (String) opt.S, gene = (String) opt.R,
-    q = (opt.'vdjdb-conf' ?: DEFAULT_CONFIDENCE_THRESHOLD).toInteger(),
-    filterStr = opt.'filter',
-    useFatDb = (boolean) opt.'use-fat-db',
-    outputPrefix = opt.arguments()[-1],
-    software = opt.'software' ? Software.byName(opt.'software') : Software.VDJtools,
-    summaryColumns = (opt.'summary-columns' ?: ClonotypeSearchSummary.FIELDS_PLAIN_TEXT.join(",")).split(",") as List<String>
-
+def optSpecies = (String) opt.S, optGene = (String) opt.R,
+    optVdjdbConf = (opt.'vdjdb-conf' ?: DEFAULT_CONFIDENCE_THRESHOLD).toInteger(),
+    optFilterString = (String) (opt.'filter' ?: null)
 def allowedSpecies = [ALLOWED_SPECIES_ALIAS.keySet(), ALLOWED_SPECIES_ALIAS.values()].flatten()
-if (!allowedSpecies.any { species.equalsIgnoreCase(it) }) {
+if (!allowedSpecies.any { optSpecies.equalsIgnoreCase((String) it) }) {
     println "Wrong species name, use one of ${allowedSpecies} (case-insensitive)"
     System.exit(1)
 }
-
-species = ALLOWED_SPECIES_ALIAS[species.toLowerCase()] ?: species
-
-if (!ALLOWED_GENES.any { gene.equalsIgnoreCase(it) }) {
+optSpecies = ALLOWED_SPECIES_ALIAS[optSpecies.toLowerCase()] ?: optSpecies
+if (!ALLOWED_GENES.any { optGene.equalsIgnoreCase(it) }) {
     println "Wrong gene name, use one of $ALLOWED_GENES (case-insensitive)"
     System.exit(1)
 }
 
-def scriptName = getClass().canonicalName.split("\\.")[-1]
+/* advanced db setup */
 
-// Search parameters
+def dbPrefix = (String) (opt.'database' ?: null),
+    useFatDb = (boolean) opt.'use-fat-db'
 
-def searchScope = opt.'search-scope' ?: DEFAULT_SEARCH_SCOPE,
-    searchScoring = opt.'search-scoring' ?: DEFAULT_SEARCH_SCORING
+/* initial search */
 
-def ss = searchScope.split(",").collect { it.toInteger() }
+def optVMatch = (boolean) opt.'v-match',
+    optJMatch = (boolean) opt.'j-match',
+    optSearchScope = (opt.'search-scope' ?: DEFAULT_SEARCH_SCOPE).split(",").collect { it.toInteger() },
+    optExhaustive = (opt.'search-exhaustive' ?: DEFAULT_EXHAUSTIVE).toInteger()
+def searchScope = optSearchScope.size() == 3 ?
+        new SearchScope(optSearchScope[0], optSearchScope[1], optSearchScope[2],
+                optExhaustive > 0, optExhaustive < 2)
+        :
+        new SearchScope(optSearchScope[0], optSearchScope[1], optSearchScope[2], optSearchScope[3],
+                optExhaustive > 0, optExhaustive < 2)
 
-parameterPreset = new SearchScope(
-        new TreeSearchParameters(ss[0], ss[1], ss[2], ss[3]),
-        ScoringProvider.loadScoring(searchScoring))
+/* scoring */
+
+def optVdjmatchScoring = (boolean) opt.'scoring-vdjmatch',
+    optScoringMode = (opt.'scoring-mode' ?: DEFAULT_SCORING_MODE).toInteger()
+def scoringBundle = optVdjmatchScoring ?
+        ScoringProvider.loadScoringBundle(optSpecies, optGene,
+                optScoringMode == 0) :
+        ScoringBundle.DUMMY
+
+/* filtering */
+
+def optScoreThreshold = (opt.'hit-filter-score' ?: "-Infinity").toFloat()
+def resultFilter
+if (opt.'hit-filter-max') {
+    resultFilter = new MaxScoreResultFilter(optScoreThreshold)
+} else if (opt.'hit-filter-topn') {
+    resultFilter = new TopNResultFilter(optScoreThreshold,
+            (int) (opt.'hit-filter-topn').toInteger())
+} else if (opt.'hit-filter-score') {
+    resultFilter = new ScoreThresholdResultFilter(optScoreThreshold)
+} else {
+    resultFilter = DummyResultFilter.INSTANCE
+}
+
+/* weighting */
+
+def optWeightByInfo = opt.'hit-weight-info'
+def weightFunctionFactory = optWeightByInfo ?
+        DegreeWeightFunctionFactory.DEFAULT :
+        DummyWeightFunctionFactory.INSTANCE
+
+/* summary */
+
+def summaryColumns = (opt.'summary-columns' ?: ClonotypeSearchSummary.FIELDS_PLAIN_TEXT.join(",")).split(",") as List<String>
+
+//
+// Database loading and filtering
+//
 
 println "[${new Date()} $scriptName] Loading database..."
 
-// Either load db from specified path, or use built-in database
-
-def database
+def vdjdbInstance
 
 if (dbPrefix) {
+    /* load from specified path */
     def metaStream = new FileInputStream("${dbPrefix}.meta.txt"),
         dataStream = new FileInputStream("${dbPrefix}.txt")
-    database = new VdjdbInstance(metaStream, dataStream)
+    vdjdbInstance = new VdjdbInstance(metaStream, dataStream)
 } else {
-    database = new VdjdbInstance(useFatDb)
+    /* load local */
+    vdjdbInstance = new VdjdbInstance(useFatDb)
 }
 
-def missingSummaryCols = summaryColumns.findAll { !database.header*.name.contains(it) }
+/* Re-check summary columns */
+
+def missingSummaryCols = summaryColumns.findAll { !vdjdbInstance.header*.name.contains(it) }
 if (!missingSummaryCols.empty) {
-    println "Columns $missingSummaryCols specified for summary generation are missing in the database."
+    println "[ERROR] Columns $missingSummaryCols specified for summary generation are missing in the database."
     System.exit(1)
 }
+println "[${new Date()} $scriptName] Loaded database. \n${vdjdbInstance.dbInstance}"
 
-println "[${new Date()} $scriptName] Loaded database. \n${database.dbInstance}"
+/* Expression filtering if specified */
 
-// Expression filtering if specified
-if (filterStr) {
-    println "[${new Date()} $scriptName] Filtering using $filterStr."
-    database = database.filter(filterStr)
-    println "[${new Date()} $scriptName] Done. \n${database.dbInstance}"
+if (optFilterString) {
+    println "[${new Date()} $scriptName] Filtering using $optFilterString."
+    vdjdbInstance = vdjdbInstance.filter(optFilterString)
+    println "[${new Date()} $scriptName] Done. \n${vdjdbInstance.dbInstance}"
 }
 
-println "[${new Date()} $scriptName] Preparing clonotype database for $species $gene."
+//
+// Initialize clonotype database - filter by species and gene, specify search parameters
+//
 
-database = database.asClonotypeDatabase(vMatch, jMatch, parameterPreset, species, gene, q)
+println "[${new Date()} $scriptName] Preparing clonotype database for $optSpecies $optGene."
 
-println "[${new Date()} $scriptName] Done. \n$database"
+def clonotypeDatabase = vdjdbInstance.asClonotypeDatabase(
+        optSpecies, optGene,
+        searchScope,
+        scoringBundle,
+        weightFunctionFactory,
+        resultFilter,
+        optVMatch, optJMatch,
+        optVdjdbConf)
 
-if (database.rows.empty) {
-    println "No records present in filtered database"
+println "[${new Date()} $scriptName] Done. \n$clonotypeDatabase"
+
+/* Re-check if we have any records */
+if (clonotypeDatabase.rows.empty) {
+    println "[ERROR] No records present in filtered database"
     System.exit(1)
 }
 
@@ -189,19 +294,19 @@ if (database.rows.empty) {
 
 println "[${new Date()} $scriptName] Reading sample(s)..."
 
-def sampleCollection = metadataFileName ?
-        new SampleCollection((String) metadataFileName, software) :
-        new SampleCollection(opt.arguments()[0..-2], software)
+def sampleCollection = optMetadataFileName ?
+        new SampleCollection((String) optMetadataFileName, optSoftware) :
+        new SampleCollection(opt.arguments()[0..-2], optSoftware)
 
 println "[${new Date()} $scriptName] ${sampleCollection.size()} sample(s) to process."
 
 //
-// Main loop
+// Main loop - processing, summarizing, writing output
 //
 
 println "[${new Date()} $scriptName] Annotating sample(s) & writing results."
 
-def sw = new SampleWriter(compress)
+def sw = new SampleWriter(optCompress)
 
 new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWriter { pwSummary ->
     pwSummary.println([MetadataTable.SAMPLE_ID_COLUMN,
@@ -215,17 +320,22 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWri
 
         def sampleId = sample.sampleMetadata.sampleId
 
-        def results = database.search(sample)
+        def results = clonotypeDatabase.search(sample)
 
         def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId, "annot"))
 
-        writer.println(sw.getFullHeader(sample) + "\tid.in.sample\tscore\t" + database.header)
+        writer.println(sw.getFullHeader(sample) +
+                "\tid.in.sample\t" +
+                "match.score\tmatch.weight\t" +
+                clonotypeDatabase.header)
 
-        results.sort { -it.key.count }.each { result ->
-            result.value.each {
-                writer.println(sw.getFullClonotypeString(result.key) + "\t" +
-                        it.id + "\t" +
-                        it.result.score + "\t" + it.row.toString())
+        results.sort { -it.key.count }.each { matchListEntry ->
+            matchListEntry.value.each { ClonotypeSearchResult match ->
+                writer.println(sw.getFullClonotypeString(matchListEntry.key) + "\t" +
+                        match.id + "\t" +
+                        match.score + "\t" +
+                        match.weight + "\t" +
+                        match.row.toTabDelimitedString())
             }
         }
 
@@ -233,7 +343,7 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWri
 
         println "[${new Date()} $scriptName] Summarizing..."
 
-        def summary = new ClonotypeSearchSummary(results, sample, summaryColumns, database)
+        def summary = new ClonotypeSearchSummary(results, sample, summaryColumns, clonotypeDatabase)
 
         def summaryPrefix = sampleId + "\t" + sample.sampleMetadata.toString()
 
@@ -252,7 +362,7 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWri
     }
 }
 
-sampleCollection.metadataTable.storeWithOutput(outputPrefix, compress,
-        "vdjdb:${filterStr ?: "all"}")
+sampleCollection.metadataTable.storeWithOutput(outputPrefix, optCompress,
+        "vdjdb:${optFilterString ?: "all"}")
 
 println "[${new Date()} $scriptName] Finished."

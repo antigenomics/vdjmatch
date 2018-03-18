@@ -12,7 +12,7 @@ import java.util.*;
 
 public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
     // todo: to glossary / pre-set in ClonotypeDatabase
-    public static final DegreeWeightFunctionFactory DEFAULT = new DegreeWeightFunctionFactory("antigen.epitope");
+    public static final DegreeWeightFunctionFactory DEFAULT = new DegreeWeightFunctionFactory(ClonotypeDatabase.getEPITOPE_COL_DEFAULT());
 
     private final String groupingColumnName;
 
@@ -78,7 +78,7 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
         Set<AminoAcidSequence> matches = new HashSet<>();
 
         NeighborhoodIterator<AminoAcidSequence, Cdr3Info> ni = stm.getNeighborhoodIterator(query.cdr3,
-                searchScope.getParameters());
+                searchScope.getTreeSearchParameters());
 
         Cdr3Info target;
         while ((target = ni.next()) != null) {

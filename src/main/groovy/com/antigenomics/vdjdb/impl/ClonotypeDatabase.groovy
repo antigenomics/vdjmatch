@@ -50,7 +50,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class ClonotypeDatabase extends Database {
     final static String CDR3_COL_DEFAULT = "cdr3", V_COL_DEFAULT = "v.segm", J_COL_DEFAULT = "j.segm",
-                        SPECIES_COL_DEFAULT = "species", GENE_COL_DEFAULT = "gene"
+                        SPECIES_COL_DEFAULT = "species", GENE_COL_DEFAULT = "gene",
+                        EPITOPE_COL_DEFAULT = "antigen.epitope"
 
     final String cdr3ColName, vColName, jColName, speciesColName, geneColName
     final int vColIdx, jColIdx, cdr3ColIdx // speed up fetching corresponding entries

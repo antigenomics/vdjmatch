@@ -64,10 +64,11 @@ class SequenceColumn extends Column {
      * @return a map of rows that were found and corresponding sequence alignment results
      */
     Map<Row, Hit> search(SequenceFilter filter) {
-        def ni = stm.getNeighborhoodIterator(filter.query,
-                filter.treeSearchParameters) // 'search scope' iterator
+        def searchScope = filter.searchScope, // allowed edit distance & search mode,
+            scoring = filter.alignmentScoring // alignment and global scoring
 
-        def scoring = filter.alignmentScoring // alignment and global scoring
+        def ni = stm.getNeighborhoodIterator(filter.query,
+                searchScope.treeSearchParameters) // 'search scope' iterator
 
         def matchBuffer = new HashMap<String, SequenceSearchResult>()
         List<Entry> entries
@@ -78,7 +79,7 @@ class SequenceColumn extends Column {
 
             // need this workaround as it is not possible to implement (ins+dels) <= X scope with tree searcher
             // due to separate insertion and deletion counting
-            if (mutations.countOfIndels() > filter.maxIndels)
+            if (mutations.countOfIndels() > searchScope.maxIndels)
                 continue
 
             def previousResult = matchBuffer[matchSequence] // need buffer here as hits are not guaranteed to be ordered
@@ -90,8 +91,8 @@ class SequenceColumn extends Column {
                 float alignmentScore = scoring.computeScore(filter.query, mutations)
                 matchBuffer.put(matchSequence, new SequenceSearchResult(alignmentScore, mutations, entries))
                 //println(mutations.toString() + " " + alignmentScore)
-            } else if (filter.exhaustive && // exhaustive search - don't take first hit but try to compare scores
-                    !(filter.greedy && // if filter is greedy - only consider hits that do not have more mutations than previous hit
+            } else if (searchScope.exhaustive && // exhaustive search - don't take first hit but try to compare scores
+                    !(searchScope.greedy && // if filter is greedy - only consider hits that do not have more mutations than previous hit
                             previousResult.mutations.size() < mutations.size())) {
                 float alignmentScore = scoring.computeScore(filter.query, mutations)
                 //println(mutations.toString() + " " +alignmentScore)
@@ -121,10 +122,10 @@ class SequenceColumn extends Column {
         results
     }
 
-/**
- * Gets the set of all possible values in the column
- * @return a set of unique values in the column
- */
+    /**
+     * Gets the set of all possible values in the column
+     * @return a set of unique values in the column
+     */
     @JsonIgnore
     @Override
     Set<String> getValues() {
@@ -150,5 +151,4 @@ class SequenceColumn extends Column {
             this.entries = entries
         }
     }
-
 }

@@ -8,6 +8,8 @@ import com.antigenomics.vdjdb.sequence.AlignmentScoring
 import com.antigenomics.vdjdb.sequence.DummyAlignmentScoring
 
 class ScoringBundle {
+    static final ScoringBundle DUMMY = new ScoringBundle()
+
     final AggregateScoring aggregateScoring
     final SegmentScoring segmentScoring
     final AlignmentScoring alignmentScoring

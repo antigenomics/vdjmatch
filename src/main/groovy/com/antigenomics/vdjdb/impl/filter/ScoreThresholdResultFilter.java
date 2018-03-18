@@ -17,7 +17,7 @@ public class ScoreThresholdResultFilter implements ResultFilter {
         List<ClonotypeSearchResult> filteredResults = new ArrayList<>();
 
         for (ClonotypeSearchResult result : results) {
-            if (result.getFullScore() >= threshold) {
+            if (result.getScore() >= threshold) {
                 filteredResults.add(result);
             }
         }

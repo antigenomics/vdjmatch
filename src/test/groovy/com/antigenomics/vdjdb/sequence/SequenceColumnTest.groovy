@@ -1,6 +1,5 @@
 package com.antigenomics.vdjdb.sequence
 
-import com.milaboratory.core.tree.TreeSearchParameters
 import org.junit.Test
 
 import static com.antigenomics.vdjdb.sequence.ExampleSequenceColumn.*
@@ -16,27 +15,24 @@ class SequenceColumnTest {
     }
 
     @Test
-    // FIXME
     void scopeSearchTest1() {
         def filter = new SequenceFilter("sc", "CASSLAPGATNEKLFF",
-                new TreeSearchParameters(1, 1, 1, 2, false),
-                2)
+                new SearchScope(2, 1, 1, 2, false))
 
         assert SC.search(filter).size() == 7
 
         filter = new SequenceFilter("sc", "CASSLAPGATNEKLFF",
-                new TreeSearchParameters(1, 2, 1, 2, false),
-                2)
+                new SearchScope(2, 2, 1, 2, false))
 
         assert SC.search(filter).size() == 8
 
         filter = new SequenceFilter("sc", "CASSLAPGATNEKLFF",
-                new TreeSearchParameters(1, 1, 0, 1, false))
+                new SearchScope(1, 1, 0, 1, false))
 
         assert SC.search(filter).size() == 3
 
         filter = new SequenceFilter("sc", "CASSLAPGATNEKLFF",
-                new TreeSearchParameters(1, 1, 1, 1, false))
+                new SearchScope(1, 1, 1, 1, false))
 
         assert SC.search(filter).size() == 4
     }

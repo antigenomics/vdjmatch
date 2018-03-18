@@ -1,6 +1,7 @@
 package com.antigenomics.vdjdb.web
 
 import com.antigenomics.vdjdb.VdjdbInstance
+import com.antigenomics.vdjdb.sequence.SearchScope
 import com.antigenomics.vdjdb.sequence.SequenceColumn
 import com.antigenomics.vdjdb.sequence.SequenceFilter
 import com.milaboratory.core.mutations.MutationType
@@ -20,7 +21,7 @@ class EpitopeSuggestionGenerator {
 
         epiColumn.values.collectEntries() { value ->
             def filter = new SequenceFilter(EPITOPE_COLUMN_NAME, new AminoAcidSequence(value),
-                    new TreeSearchParameters(maxMm, maxIndel, maxIndel, maxTotal, false))
+                    new SearchScope(maxMm, maxIndel, maxTotal, false))
 
             def suggestionSet = new HashSet<EpitopeSuggestion>()
             epiColumn.search(filter).each { result ->
