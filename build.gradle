@@ -14,7 +14,7 @@ repositories {
 }
 
 jar {
-    baseName = 'vdjdb'
+    baseName = 'vdjmatch'
     version = "$version"
 
     manifest {

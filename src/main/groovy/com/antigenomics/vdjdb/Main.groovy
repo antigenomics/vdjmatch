@@ -93,9 +93,9 @@ cli._(longOpt: "use-fat-db",
                 "TCR:pMHC pair corresponding to different replicates/tissue sources/targets.")
 
 
-cli.v(longOpt: "v-match", "Require exact (up to allele) V segment id matching.")
-cli.j(longOpt: "j-match", "Require exact (up to allele) J segment id matching.")
-cli._(longOpt: "search-scope", argName: "s,id,t or s,i,d,t", args: 1,
+cli._(longOpt: "v-match", "Require exact (up to allele) V segment id matching.")
+cli._(longOpt: "j-match", "Require exact (up to allele) J segment id matching.")
+cli.O(longOpt: "search-scope", argName: "s,id,t or s,i,d,t", args: 1,
         "Sets CDR3 sequence matching parameters aka 'search scope': " +
                 "allowed number of substitutions (s), insertions (i), deletions (d) / or indels (id) and " +
                 "total number of mutations (t). [default=$DEFAULT_SEARCH_SCOPE]")
@@ -106,7 +106,7 @@ cli._(longOpt: "search-exhaustive", argName: "0..2", args: 1,
                 "[default=$DEFAULT_EXHAUSTIVE]")
 
 
-cli._(longOpt: "scoring-vdjmatch",
+cli.A(longOpt: "scoring-vdjmatch",
         "Use VDJMATCH algorithm that computes full alignment score as a function of " +
                 "CDR3 mutations (weighted with VDJAM scoring matrix) and pre-computed V/J segment " +
                 "match scores. If not set, will just count the number of mismatches.")
@@ -115,9 +115,9 @@ cli._(longOpt: "scoring-mode", argName: "0..1", args: 1,
                 "[default=$DEFAULT_SCORING_MODE]")
 
 
-cli._(longOpt: "hit-filter-score", argName: "threshold", args: 1,
+cli.T(longOpt: "hit-filter-score", argName: "threshold", args: 1,
         "Drops hits with a score less than the specified threshold.")
-cli._(longOpt: "hit-filter-max",
+cli.X(longOpt: "hit-filter-max",
         "Only select hit with maximal score for a given query clonotype " +
                 "(will consider all max score hits in case of ties).")
 cli._(longOpt: "hit-filter-topn", argName: "n", args: 1,
@@ -188,6 +188,11 @@ def optVMatch = (boolean) opt.'v-match',
     optJMatch = (boolean) opt.'j-match',
     optSearchScope = (opt.'search-scope' ?: DEFAULT_SEARCH_SCOPE).split(",").collect { it.toInteger() },
     optExhaustive = (opt.'search-exhaustive' ?: DEFAULT_EXHAUSTIVE).toInteger()
+
+if (!opt.'scoring-vdjmatch') {
+    optExhaustive = 0 // has no effect in case no scoring is used
+}
+
 def searchScope = optSearchScope.size() == 3 ?
         new SearchScope(optSearchScope[0], optSearchScope[1], optSearchScope[2],
                 optExhaustive > 0, optExhaustive < 2)

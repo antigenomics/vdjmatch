@@ -10,6 +10,7 @@ import com.milaboratory.core.tree.SequenceTreeMap;
 
 import java.util.*;
 
+// Todo: move filters and weights to java --- this will require rewriting some classes in pure jva, otherwise won't compile
 public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
     // todo: to glossary / pre-set in ClonotypeDatabase
     public static final DegreeWeightFunctionFactory DEFAULT = new DegreeWeightFunctionFactory(ClonotypeDatabase.getEPITOPE_COL_DEFAULT());
@@ -25,7 +26,8 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
     }
 
     public WeightFunction create(final Set<Cdr3Info> cdr3InfoSet, final SearchScope searchScope) {
-        SequenceTreeMap<AminoAcidSequence, Cdr3Info> stm = new SequenceTreeMap<>(AminoAcidSequence.ALPHABET);
+        final SequenceTreeMap<AminoAcidSequence, Cdr3Info> stm = new SequenceTreeMap<>(AminoAcidSequence.ALPHABET);
+
         for (Cdr3Info cdr3Info : cdr3InfoSet) {
             stm.put(cdr3Info.cdr3, cdr3Info);
         }
@@ -35,7 +37,7 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
         cdr3InfoSet
                 .parallelStream()
                 .map(x -> new AbstractMap.SimpleEntry<>(x, computeMatches(searchScope,
-                        stm, x)))
+                        stm, x, cdr3InfoSet.size())))
                 .forEach(x -> weights.put(x.getKey().cdr3.toString(), x.getValue()));
 
 
@@ -74,7 +76,8 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
 
     private static float computeMatches(SearchScope searchScope,
                                         SequenceTreeMap<AminoAcidSequence, Cdr3Info> stm,
-                                        Cdr3Info query) {
+                                        Cdr3Info query,
+                                        int size) {
         Set<AminoAcidSequence> matches = new HashSet<>();
 
         NeighborhoodIterator<AminoAcidSequence, Cdr3Info> ni = stm.getNeighborhoodIterator(query.cdr3,
@@ -88,7 +91,7 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
             }
         }
 
-        return -(float) Math.log1p(matches.size());
+        return -(float) Math.log((matches.size() + 1) / (double) size);
     }
 
     public static class Cdr3Info {

@@ -68,8 +68,10 @@ class ClonotypeSearchSummary {
             fieldCounters.put(columnName, counterMap)
         }
 
+        // Go through results
         GParsPool.withPool ExecUtil.THREADS, {
             searchResults.eachParallel { Map.Entry<Clonotype, List<ClonotypeSearchResult>> clonotypeResult ->
+                // Set of results for a given clonotype
                 clonotypeResult.value.each { result ->
                     columnNameList.each { columnId ->
                         def subMap = fieldCounters[columnId],
@@ -85,6 +87,7 @@ class ClonotypeSearchSummary {
             }
         }
 
+        // Just compute not found counter explicitly here
         notFoundCounter = new ClonotypeCounter(sample.diversity - totalCounter.unique,
                 sample.count - totalCounter.reads,
                 sample.freq - totalCounter.frequency,

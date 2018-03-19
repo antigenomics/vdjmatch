@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VDJDB="java -Xmx4G -jar `ls ../build/libs/vdjdb-*.jar`"
+VDJDB="java -Xmx4G -jar `ls ../build/libs/vdjmatch-*.jar`"
 RES="../src/test/resources"
 
 $VDJDB -S human -R TRB --search-scope 3,1,3 -v-match -j-match $RES/sergey_anatolyevich.gz test
