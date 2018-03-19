@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 VDJDB="java -Xmx4G -jar `ls ../build/libs/vdjdb-*.jar`"
-RES="src/test/resources"
+RES="../src/test/resources"
 
 $VDJDB -S human -R TRB --search-scope 3,1,3 -v-match -j-match $RES/sergey_anatolyevich.gz test
 if [[ ! -s test.sergey_anatolyevich.annot.txt ]]; then echo "No results file"; exit 1; fi; rm test.sergey_anatolyevich.annot.txt
