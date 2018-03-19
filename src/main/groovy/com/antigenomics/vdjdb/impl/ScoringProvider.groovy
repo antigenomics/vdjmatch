@@ -53,7 +53,7 @@ class ScoringProvider {
                         cc3 = splitLine[colIndices["cdr3.score"]].toDouble()
                         cv = splitLine[colIndices["v.score"]].toDouble()
                         cj = splitLine[colIndices["j.score"]].toDouble()
-                        cg = colIndices.containsKey("gap") ? splitLine[colIndices["gap"]].toDouble() : 0
+                        cg = colIndices.containsKey("indels") ? splitLine[colIndices["indels"]].toDouble() : 0
                         linkType = splitLine[colIndices["fun"]]
                     }
                 }

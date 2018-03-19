@@ -30,6 +30,7 @@ public class SM2AlignmentScoring implements AlignmentScoring {
     public SM2AlignmentScoring(float[][] substitutionMatrix, float gapFactor) {
         this.substitutionMatrix = substitutionMatrix;
         this.gapFactor = gapFactor;
+        assert gapFactor <= 0;
     }
 
     @Override
@@ -83,7 +84,7 @@ public class SM2AlignmentScoring implements AlignmentScoring {
         //System.out.println(targetScore);
         //System.out.println(indels);
 
-        return score - Math.max(queryScore, targetScore) - gapFactor * indels;
+        return score - Math.max(queryScore, targetScore) + gapFactor * indels;
     }
 
     public float[][] getSubstitutionMatrix() {

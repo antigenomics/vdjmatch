@@ -37,6 +37,8 @@ public class SM1AlignmentScoring implements AlignmentScoring {
             }
         }
         this.gapFactor = gapFactor;
+
+        assert gapFactor <= 0;
     }
 
     @Override
@@ -59,7 +61,7 @@ public class SM1AlignmentScoring implements AlignmentScoring {
             }
         }
 
-        return score - indels * gapFactor;
+        return score + indels * gapFactor;
     }
 
     public float[][] getSubstitutionPenalties() {
