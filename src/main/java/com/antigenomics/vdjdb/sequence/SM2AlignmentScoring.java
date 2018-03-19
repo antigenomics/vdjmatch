@@ -24,7 +24,7 @@ public class SM2AlignmentScoring implements AlignmentScoring {
                 maxScore = Math.max(maxScore, Math.abs(score));
             }
         }
-        DEFAULT_BLOSUM62 = new SM2AlignmentScoring(sm, (float) (maxScore + 1));
+        DEFAULT_BLOSUM62 = new SM2AlignmentScoring(sm, -(float) (maxScore + 1));
     }
 
     public SM2AlignmentScoring(float[][] substitutionMatrix, float gapFactor) {
