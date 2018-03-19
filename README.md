@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/antigenomics/vdjdb-standalone.svg?branch=master)](https://travis-ci.org/antigenomics/vdjdb-standalone)
+[![Build Status](https://travis-ci.org/antigenomics/vdjmatch.svg?branch=master)](https://travis-ci.org/antigenomics/vdjmatch)
 
 ## VDJmatch: a software for database-guided prediction of T-cell receptor antigen specificity
 
@@ -25,23 +25,23 @@ First part of the command runs the JAR file and sets the memory limit to 4GB (sh
 
 #### General
 
-| Shorthand | Long  name                 | Required | Argument example                 |  Description |
-|-----------|----------------------------|----------|----------------------------------|--------------|
-| ``-h``    |                            |          |                                  |  Display help message |
-| ``-m``    | ``--metadata``             |          | ``/path/to/metadata.txt``        |  A [metadata](http://vdjtools-doc.readthedocs.org/en/latest/input.html#metadata) file, holding paths to samples and user-provided information. |
-|           | ``--software``             |          | ``MITCR``,``MIGEC``,etc          |  Input RepSeq data format, see [formats supported for conversion](http://vdjtools-doc.readthedocs.io/en/latest/input.html#formats-supported-for-conversion). By default expects input in [VDJtools format](http://vdjtools-doc.readthedocs.io/en/latest/input.html#vdjtools-format). |
-| ``-c``    | ``--compress``             |          |                                  |  Compress sample-level summary output with GZIP. |
+| Shorthand | Long  name                 | Argument example                |  Description |
+|-----------|----------------------------|---------------------------------|--------------|
+| ``-h``    |                            |                                 |  Display help message |
+| ``-m``    | ``--metadata``             | ``/path/to/metadata.txt``       |  A [metadata](http://vdjtools-doc.readthedocs.org/en/latest/input.html#metadata) file, holding paths to samples and user-provided information. |
+|           | ``--software``             | ``MITCR``,``MIGEC``,etc         |  Input RepSeq data format, see [formats supported for conversion](http://vdjtools-doc.readthedocs.io/en/latest/input.html#formats-supported-for-conversion). By default expects input in [VDJtools format](http://vdjtools-doc.readthedocs.io/en/latest/input.html#vdjtools-format). |
+| ``-c``    | ``--compress``             |                                 |  Compress sample-level summary output with GZIP. |
 
 If ``-m`` option is specified the list of sample file names should be omitted and the list of options should be followed by ``output_prefix``.
 
 #### Database pre-filtering
 
-| Shorthand | Long  name                 | Required | Argument example                 |  Description |
-|-----------|----------------------------|----------|----------------------------------|--------------|
-| ``-S``    | ``--species``              | **Yes**  | ``human``,``mouse``,etc          |  Species name. All samples should belong to the same species, only one species is allowed. |
-| ``-R``    | ``--gene``                 | **Yes**  | ``TRA``,``TRB``,etc              |  Name of the receptor gene. All samples should contain to the same receptor gene, only one gene is allowed. |
-|           | ``--filter``               |          | ``__antigen.species__ =~ "EBV"`` |  **Advanced** Logical filter expresstion that will be evaluated for database columns. |
-|           | ``--vdjdb-conf``           |          | ``1``                            |  VDJdb confidence level threshold, from ``0`` (lowest) to ``3`` (highest), default is ``0``.  |
+| Shorthand | Long  name                 | Argument example                 |  Description |
+|-----------|----------------------------|----------------------------------|--------------|
+| ``-S``    | ``--species``              | ``human``,``mouse``,etc          |  **(Required)** Species name. All samples should belong to the same species, only one species is allowed. |
+| ``-R``    | ``--gene``                 | ``TRA``,``TRB``,etc              |  **(Required)** Name of the receptor gene. All samples should contain to the same receptor gene, only one gene is allowed. |
+|           | ``--filter``               | ``__antigen.species__ =~ "EBV"`` |  **(Advanced)** Logical filter expresstion that will be evaluated for database columns. |
+|           | ``--vdjdb-conf``           | ``1``                            |  VDJdb confidence level threshold, from ``0`` (lowest) to ``3`` (highest), default is ``0``.  |
 
 The ``--filter`` option supports Java/Groovy syntax, Regex, ``.contains()``, ``.startsWith()``, etc. Parts of the expression marked with double underscore (``__``, e.g. ``__antigen.epitope__``) will be substituted with corresponding values from database rows. Those parts should be named exactly as columns in the database, see [VDJdb specification](https://github.com/antigenomics/vdjdb-db#database-specification) for the list of column names.
 
@@ -49,21 +49,21 @@ VDJdb confidence level used by ``--vdjdb-conf`` is assigned based on the details
 
 #### Using external database (advanced)
 
-| Shorthand | Long  name                 | Required | Argument example                 |  Description |
-|-----------|----------------------------|----------|----------------------------------|--------------|
-|           | ``--database``             |          | ``/path/to/my_db``               |  Path and prefix of an external database. Should point to files with '.txt', and '.meta.txt' suffices (the database itself and database metadata).|
-|           | ``--use-fat-db``           |          |                                  |  In case running with a built-in database, will use **full database** version instead of slim one. |
+| Shorthand | Long  name                 | Argument example                 |  Description |
+|-----------|----------------------------|----------------------------------|--------------|
+|           | ``--database``             | ``/path/to/my_db``               |  Path and prefix of an external database. Should point to files with '.txt', and '.meta.txt' suffices (the database itself and database metadata).|
+|           | ``--use-fat-db``           |                                  |  In case running with a built-in database, will use **full database** version instead of slim one. |
 
 **Full database** contains extended info on method used to identify a given specific TCR and sample source, but has a higher degree of redundancy (several identical TCR:pMHC pairs from different publications, etc) that can complicate post-analysis
 
 #### Search parameters
 
-| Shorthand | Long  name                 | Required | Argument example                 |  Description |
-|-----------|----------------------------|----------|----------------------------------|--------------|
-|           | ``--v-match``              |          |                                  |  Require exact Variable segment ID match (ignoring alleles) when searching the database. |
-|           | ``--j-match``              |          |                                  |  Require exact Joining segment ID match (ignoring alleles) when searching the database. |
-|  ``-O``   | ``--search-scope``         |          |  ``2,1,2``, ``3,0,0,3``, ...     |  Sets CDR3 sequence search parameters aka *search scope*: allowed number of substitutions (``s``), insertions (``i``), deletions (``d``) / or indels (``id``) and total number of mutations (``t``). Default is ``0,0,0`` |
-|           | ``--search-exhaustive``    |          | ``0``, ``1`` or ``2``            | Perform exhaustive CDR3 alignment: ``0`` - no (fast), ``1`` - check and select best alignment for smallest edit distance, ``2`` - select best alignment across all edit distances within search scope (slow). Default is ``1``.
+| Shorthand | Long  name                 | Argument example                 |  Description |
+|-----------|----------------------------|----------------------------------|--------------|
+|           | ``--v-match``              |                                  |  Require exact Variable segment ID match (ignoring alleles) when searching the database. |
+|           | ``--j-match``              |                                  |  Require exact Joining segment ID match (ignoring alleles) when searching the database. |
+|  ``-O``   | ``--search-scope``         |  ``2,1,2``, ``3,0,0,3``, ...     |  Sets CDR3 sequence search parameters aka *search scope*: allowed number of substitutions (``s``), insertions (``i``), deletions (``d``) / or indels (``id``) and total number of mutations (``t``). Default is ``0,0,0`` |
+|           | ``--search-exhaustive``    | ``0``, ``1`` or ``2``            | Perform exhaustive CDR3 alignment: ``0`` - no (fast), ``1`` - check and select best alignment for smallest edit distance, ``2`` - select best alignment across all edit distances within search scope (slow). Default is ``1``.
 
 Search scope should be specified in either ``s,i,d,t`` or ``s,id,t`` form. While the second form is symmetric and counts the sum of insertions and deletions (indels), the first form is not symmetric - insertions and deletions are counted with respect to the query TCR sequence (i.e. clonotype records from input samples). Total number of mutations ``t`` specifies the edit distance threshold.
 
@@ -73,10 +73,10 @@ With a ``--search-exhaustive 2`` the algorithm will compute an exact global alig
 
 #### Scoring parameters
 
-| Shorthand | Long  name                 | Required | Argument example                 |  Description |
-|-----------|----------------------------|----------|----------------------------------|--------------|
-| ``-A``    | ``--scoring-vdjmatch``     |          |                                  |  Use full VDJMATCH algorithm that computes full alignment score as a function of CDR3 mutations (weighted with VDJAM scoring matrix) and pre-computed V/J segment match scores.  |
-|           | ``--scoring-mode``         |          |  ``0`` or ``1``                  |  Either ``0``: scores mismatches only (faster) or ``1``: compute scoring for whole sequences (slower). Default is ``1``. |
+| Shorthand | Long  name                 | Argument example                 |  Description |
+|-----------|----------------------------|----------------------------------|--------------|
+| ``-A``    | ``--scoring-vdjmatch``     |                                  |  Use full VDJMATCH algorithm that computes full alignment score as a function of CDR3 mutations (weighted with VDJAM scoring matrix) and pre-computed V/J segment match scores.  |
+|           | ``--scoring-mode``         |  ``0`` or ``1``                  |  Either ``0``: scores mismatches only (faster) or ``1``: compute scoring for whole sequences (slower). Default is ``1``. |
 
 If ``--scoring-vdjmatch`` is not set, will just count the number of mismatches and ignore V/J segment alignment.
 
@@ -89,12 +89,12 @@ Full score / probability of matching the same antigen is computed using a Genera
 
 #### Hit filtering and weighting
 
-| Shorthand | Long  name                 | Required | Argument example                 |  Description |
-|-----------|----------------------------|----------|----------------------------------|--------------|
-| ``-T``    | ``--hit-filter-score``     |          |                                  |  Drops hits with a score less than the specified threshold.  |
-| ``-X``    | ``--hit-filter-max``       |          |                                  |  Only select hit with maximal score for a given query clonotype (will consider all max score hits in case of ties).  |
-|           | ``--hit-filter-topn``      |          |       ``3``                      |  Select best ``n`` hits by score (can randomly drop hits in case of ties).  |
-|           | ``--hit-weight-info``      |          |                                  |  Weight database hits by their 'informativeness', i.e. the log probability of them being matched by chance.  |
+| Shorthand | Long  name                 | Argument example                 |  Description |
+|-----------|----------------------------|----------------------------------|--------------|
+| ``-T``    | ``--hit-filter-score``     |                                  |  Drops hits with a score less than the specified threshold.  |
+| ``-X``    | ``--hit-filter-max``       |                                  |  Only select hit with maximal score for a given query clonotype (will consider all max score hits in case of ties).  |
+|           | ``--hit-filter-topn``      |       ``3``                      |  Select best ``n`` hits by score (can randomly drop hits in case of ties).  |
+|           | ``--hit-weight-info``      |                                  |  Weight database hits by their 'informativeness', i.e. the log probability of them being matched by chance.  |
 
 Note that score threshold is applied to unweighted (see below) full scores, thus has little sense to use in case ``--scoring-vdjmatch`` is not set. For VDJmatch scoring the range of scores is ``[0, 1]`` and the recommended value for the threshold lies in the range of ``0.1-0.5``. Filtered records will be removed from output annotation files and will not affect the resulting summary statistics.
 
@@ -102,9 +102,11 @@ The idea behind ``--hit-weight-info`` is to give less score to more redundant 'p
 
 #### Database search summary
 
-| Shorthand | Long  name                 | Required | Argument example                 |  Description |
-|-----------|----------------------------|----------|----------------------------------|--------------|
-|           | ``--summary-columns``        |          | ``antigen.species,antigen.gene`` |  Table columns for which a summary output is provided for each sample, see [VDJdb specification](https://github.com/antigenomics/vdjdb-db#database-specification) and database metadata file for more information on available columns. Default is ``mhc.class,antigen.species,antigen.gene,antigen.epitope``|
+| Shorthand | Long  name                 | Argument example                 |  Description |
+|-----------|----------------------------|----------------------------------|--------------|
+|           | ``--summary-columns``      | ``antigen.species,antigen.gene`` |  Table columns for which a summary output is provided for each sample, see [VDJdb specification](https://github.com/antigenomics/vdjdb-db#database-specification) and database metadata file for more information on available columns. |
+
+Default summary columns are ``mhc.class,antigen.species,antigen.gene,antigen.epitope``, see [VDJdb specification](https://github.com/antigenomics/vdjdb-db#database-specification) for the full list of column names.
 
 ### VDJmatch output
 
@@ -119,6 +121,8 @@ The following output files will be generated:
     * Clonotype information from the sample (count, frequency, cdr3 sequence, v/d/j segments and v/d/j markup) is preserved.
     * As a clonotype can be represented by multiple rows in the output (i.e. match to several records in the database), ``id.in.sample`` column can be used to make the correspondence between annotation record and 0-based index of clonotype in the original sample. For the information on database columns that are appended see database schema in [VDJdb-db repository](https://github.com/antigenomics/vdjdb-db) readme.
     * The ``score`` column contains CDR3 alignment score that is computed as described below (not to be confused with [VDJdb record confidence score](https://github.com/antigenomics/vdjdb-db#vdjdb-scoring).
+
+> TODO : weighted score
 
 ### Some useful notes / tricks
 
@@ -136,7 +140,7 @@ A web-based GUI for querying VDJdb and annotating RepSeq samples can be both acc
 
 ### Compiling from source (advanced)
 
-> TODO
+> TODO : more details
 
 To compile VDJdb-standalone from source:
 * Install VDJtools of appropriate version (see ``build.gradle`` in repository root folder) using Maven (``mvn clean install`` from VDJtools repository root folder).
