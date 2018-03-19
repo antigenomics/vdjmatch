@@ -15,7 +15,7 @@ install:
   - git checkout tags/1.1.7
   - mvn clean install -q -Dmaven.test.skip=true
   - cd ..
-  - git https://github.com/milaboratory/milib.git
+  - git clone https://github.com/milaboratory/milib.git
   - cd milib/
   - git checkout stm-greedy
   - mvn clean install -q -Dmaven.test.skip=true
