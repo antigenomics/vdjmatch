@@ -41,6 +41,6 @@ class ScoringBundleTest {
 
 
         assert scoringBundle.aggregateScoring.computeFullScore(segmentScores.vScore,
-                segmentScores.cdr1Score, segmentScores.cdr2Score, alignmentScore, segmentScores.jScore) == 0.060580313f
+                segmentScores.cdr1Score, segmentScores.cdr2Score, alignmentScore, segmentScores.jScore) == 0.04822117f
     }
 }
