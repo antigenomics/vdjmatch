@@ -1,1 +1,0 @@
-/Users/mikesh/vcs/vdjdb-standalone/src/test/resources/empty.txt
