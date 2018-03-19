@@ -12,6 +12,8 @@ VDJdb is distributed as an executable JAR that can be downloaded from the [relea
 
 To run the executable JAR use the ``java -jar path/to/vdjmatch-version.jar [options]`` command as described below. Running without any ``[options]`` or with ``-h`` option will display the help message.
 
+The latest version of VDJdb will be downloaded the first time you run VDJmatch. Note that in order to update to the most recent version next time, you will need to run ``java -jar path/to/vdjmatch-version.jar Update`` command.
+
 ### VDJmatch command line options
 
 The following syntax should be used to run VDJmatch for RepSeq sample(s)
@@ -140,8 +142,11 @@ A web-based GUI for querying VDJdb and annotating RepSeq samples can be both acc
 
 ### Compiling from source (advanced)
 
-> TODO : more details
+Pre-requisites: Git, Maven and Gradle.
 
-To compile VDJdb-standalone from source:
-* Install VDJtools of appropriate version (see ``build.gradle`` in repository root folder) using Maven (``mvn clean install`` from VDJtools repository root folder).
-* Build VDJdb-standalone with Gradle by running ``gradle clean build`` from the repository root folder.
+First install the dependencies:
+
+* Check the ``build.gradle`` file in this repository for the version of *milib* library, clone the correct version from [this repository](https://github.com/milaboratory/milib) and install with ``mvn clean install``
+* Do the same for *vdjtools* library, which can be obtained from [this repository](https://github.com/mikessh/vdjtools). **Important** the *milib* version in ``pom.xml`` in *vdjtools* folder should match the one from ``build.gradle`` of *vdjmatch*.
+
+After installing both *milib* and *vdjtools* to your local maven repository using ``mvn clean install``, navigate to the *vdjmatch* folder and build it using ``gradle clean build``.
