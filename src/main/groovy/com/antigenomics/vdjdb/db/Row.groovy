@@ -76,8 +76,12 @@ class Row {
         index
     }
 
+    String toTabDelimitedString() {
+        entries.collect { Entry it -> it.value }.join("\t")
+    }
+
     @Override
     String toString() {
-        entries.collect { Entry it -> it.value }.join("\t")
+        entries.collect { Entry it -> it.value }.toString()
     }
 }

@@ -16,11 +16,9 @@
 
 package com.antigenomics.vdjdb.stat
 
-import com.antigenomics.vdjdb.db.DatabaseSearchResult
 import com.antigenomics.vdjdb.db.Row
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjdb.impl.ClonotypeSearchResult
-import com.antigenomics.vdjdb.text.ExactTextFilter
 import com.antigenomics.vdjtools.sample.Clonotype
 import com.antigenomics.vdjtools.sample.Sample
 import com.antigenomics.vdjtools.misc.ExecUtil
@@ -70,9 +68,15 @@ class ClonotypeSearchSummary {
             fieldCounters.put(columnName, counterMap)
         }
 
+        // Go through results
         GParsPool.withPool ExecUtil.THREADS, {
             searchResults.eachParallel { Map.Entry<Clonotype, List<ClonotypeSearchResult>> clonotypeResult ->
+                // Set of results for a given clonotype
+                double weightSum = 0
                 clonotypeResult.value.each { result ->
+                    double weight = result.weight
+                    weightSum += weight
+
                     columnNameList.each { columnId ->
                         def subMap = fieldCounters[columnId],
                             value = result.row[columnId].value
@@ -80,17 +84,20 @@ class ClonotypeSearchSummary {
                         // Todo: can optimize/check that the map already has counter
 
                         def counter = subMap.computeIfAbsent(value, countergen)
-                        counter.update(clonotypeResult.key)
+
+                        counter.update(clonotypeResult.key, weight)
                     }
                 }
-                totalCounter.update(clonotypeResult.key)
+                totalCounter.update(clonotypeResult.key, weightSum)
             }
         }
 
+        // Just compute not found counter explicitly here
         notFoundCounter = new ClonotypeCounter(sample.diversity - totalCounter.unique,
                 sample.count - totalCounter.reads,
                 sample.freq - totalCounter.frequency,
-                database[database.cdr3ColName].values.size())
+                database[database.cdr3ColName].values.size(),
+                (1.0 - totalCounter.unique / (double) sample.diversity) * totalCounter.weight)
     }
 
     ClonotypeCounter getCounter(String columnId, String value) {

@@ -18,16 +18,12 @@ package com.antigenomics.vdjdb.sequence
 
 import com.antigenomics.vdjdb.Util
 import com.antigenomics.vdjdb.db.Filter
-import com.antigenomics.vdjdb.scoring.AlignmentScoring
-import com.antigenomics.vdjdb.scoring.DummyAlignmentScoring
-import com.antigenomics.vdjdb.scoring.SequenceSearcherPreset
-import com.antigenomics.vdjdb.scoring.VdjdbAlignmentScoring
-import com.antigenomics.vdjdb.scoring.AlignmentScoringProvider
 import com.milaboratory.core.sequence.AminoAcidSequence
 import com.milaboratory.core.tree.TreeSearchParameters
 
 /**
- * An amino acid sequence search rule 
+ * An amino acid sequence search rule. Holds sequence search parameters (max number of mismatches and alignment
+ * scoring method) and query sequence
  */
 class SequenceFilter implements Filter {
     /**
@@ -41,88 +37,44 @@ class SequenceFilter implements Filter {
     final AminoAcidSequence query
 
     /**
-     * Alignment parameters 
+     * Sequence search parameters/thresholds
      */
-    final TreeSearchParameters treeSearchParameters
+    final SearchScope searchScope
 
     /**
-     * Alignment scoring
+     * Sequence alignment scoring
      */
     final AlignmentScoring alignmentScoring
 
     /**
-     * If set to true will search all possible re-alignments between two pairs of two sequences
-     * and select the one with highest score. If set to false will take the first alignment
-     */
-    final boolean exhaustive
-
-    /**
-     * If set to true stop if new variant has more mismatches than the previous one when doing exhaustive search, i.e.
-     * will only consider and score cases with equal number of substitutions + indels.
-     */
-    final boolean greedy
-
-    /**
-     * Creates a new amino acid sequence search rule
-     * @param columnId sequence column id
-     * @param query query sequence, will be converted to amino acid sequence
-     * @param preset alignment and scoring parameter preset
-     */
-    SequenceFilter(String columnId, String query,
-                   SequenceSearcherPreset preset) {
-        this(columnId, query, preset.parameters, preset.scoring, preset.exhaustive, preset.greedy)
-    }
-
-    /**
-     * Creates a new amino acid sequence search rule 
-     * @param columnId sequence column id
-     * @param query query sequence, will be converted to amino acid sequence
-     * @param treeSearchParameters alignment parameters
-     * @param alignmentScoring alignment scoring containing substitution and gap scores, as well as a total score threshold
-     * @param exhaustive if set to false stop with first variant from tree search, otherwise search all possible re-alignments
-     * @param greedy if set to true stop if new variant has more mismatches than the previous one
-     */
-    SequenceFilter(String columnId, String query,
-                   TreeSearchParameters treeSearchParameters = new TreeSearchParameters(0, 0, 0, 0),
-                   AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE,
-                   boolean exhaustive = false,
-                   boolean greedy = true) {
-        this(columnId, Util.convert(query), treeSearchParameters, alignmentScoring, exhaustive, greedy)
-    }
-
-    /**
      * Creates a new amino acid sequence search rule
      * @param columnId sequence column id
      * @param query amino acid sequence query
-     * @param preset alignment and scoring parameter preset
+     * @param searchScope sequence search parameters/thresholds
+     * @param alignmentScoring alignment scoring containing substitution and gap scores, as well as a total score threshold
      */
-    SequenceFilter(String columnId, AminoAcidSequence query,
-                   SequenceSearcherPreset preset) {
-        this(columnId, query, preset.parameters, preset.scoring, preset.exhaustive, preset.greedy)
+    SequenceFilter(String columnId, String query,
+                   SearchScope searchScope = SearchScope.EXACT,
+                   AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE) {
+        this(columnId, Util.convert(query), searchScope, alignmentScoring)
     }
 
     /**
      * Creates a new amino acid sequence search rule 
      * @param columnId sequence column id
      * @param query amino acid sequence query
-     * @param treeSearchParameters alignment parameters
+     * @param searchScope sequence search parameters/thresholds
      * @param alignmentScoring alignment scoring containing substitution and gap scores, as well as a total score threshold
-     * @param exhaustive if set to false stop with first variant from tree search, otherwise search all possible re-alignments
-     * @param greedy if set to true stop if new variant has more mismatches than the previous one
      */
     SequenceFilter(String columnId, AminoAcidSequence query,
-                   TreeSearchParameters treeSearchParameters = new TreeSearchParameters(0, 0, 0, 0),
-                   AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE,
-                   boolean exhaustive = false,
-                   boolean greedy = true) {
+                   SearchScope searchScope = SearchScope.EXACT,
+                   AlignmentScoring alignmentScoring = DummyAlignmentScoring.INSTANCE) {
         this.columnId = columnId
         this.query = query
-        this.treeSearchParameters = treeSearchParameters
+        this.searchScope = searchScope
         this.alignmentScoring = alignmentScoring
-        this.exhaustive = exhaustive
-        this.greedy = greedy
 
-        if (query == null)
+        if (columnId == null || query == null)
             throw new RuntimeException("Bad sequence filter query")
     }
 

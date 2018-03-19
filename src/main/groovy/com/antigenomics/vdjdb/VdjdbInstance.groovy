@@ -21,7 +21,12 @@ import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Database
 import com.antigenomics.vdjdb.db.ExpressionFilterBatch
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
-import com.antigenomics.vdjdb.scoring.SequenceSearcherPreset
+import com.antigenomics.vdjdb.impl.ScoringBundle
+import com.antigenomics.vdjdb.impl.filter.DummyResultFilter
+import com.antigenomics.vdjdb.impl.filter.ResultFilter
+import com.antigenomics.vdjdb.impl.weights.DummyWeightFunctionFactory
+import com.antigenomics.vdjdb.impl.weights.WeightFunctionFactory
+import com.antigenomics.vdjdb.sequence.SearchScope
 import com.antigenomics.vdjdb.sequence.SequenceColumn
 import com.antigenomics.vdjdb.sequence.SequenceFilter
 import com.antigenomics.vdjdb.text.ExactTextFilter
@@ -31,7 +36,7 @@ import com.antigenomics.vdjdb.text.TextFilter
 
 /**
  * A simple API to operate with current VDJdb database.
- * The database is loaded from local database copy. In case it doesn't exist,
+ * The database is loaded from a local copy. In case it doesn't exist,
  * the latest database release is downloaded from GitHub.
  *
  * This class contains methods to create, filter and wrap the database.
@@ -107,21 +112,33 @@ class VdjdbInstance {
      * {@link com.antigenomics.vdjtools.sample.Sample} vdjtools objects that facilitates
      * searching of specific clonotypes in database.
      *
-     * Clonotype searcher parameters and filtering of database records based on VDJdb confidence score can be set here.
+     * Clonotype searcher parameters and pre-filtering of database records based on
+     * species, gene, segment and VDJdb confidence score can be set here.
      *
-     * @param matchV should Variable segment matching be performed when searching
-     * @param matchJ should Joining segment matching be performed when searching
-     * @param searchParameters cdr3 matching parameter preset
      * @param species species name
      * @param gene receptor gene name
+     * @param searchScope initial CDR3 sequence matching edit distance threshold & other search parameters
+     * @param scoringBundle a bundle holding rules for CDR3 alignment scoring, segment scoring and score aggregation
+     * @param matchV if true requires exact (up to allele) V segment match during search
+     * @param matchJ if true requires exact (up to allele) J segment match during search
      * @param vdjdbRecordConfidenceThreshold VDJdb record confidence score threshold
-     * @return a clonotype database object
+     *
+     * @return a clonotype database object with specified search parameters
      */
-    ClonotypeDatabase asClonotypeDatabase(boolean matchV = false, boolean matchJ = false,
-                                          SequenceSearcherPreset searchParameters = SequenceSearcherPreset.EXACT,
-                                          String species = null, String gene = null,
+    ClonotypeDatabase asClonotypeDatabase(String species = null, String gene = null,
+                                          SearchScope searchScope = SearchScope.EXACT,
+                                          ScoringBundle scoringBundle = ScoringBundle.DUMMY,
+                                          WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE,
+                                          ResultFilter resultFilter = DummyResultFilter.INSTANCE,
+                                          boolean matchV = false, boolean matchJ = false,
                                           int vdjdbRecordConfidenceThreshold = -1) {
-        def cdb = new ClonotypeDatabase(header, matchV, matchJ, searchParameters)
+        def cdb = new ClonotypeDatabase(header, matchV, matchJ,
+                searchScope,
+                scoringBundle.alignmentScoring,
+                scoringBundle.segmentScoring,
+                scoringBundle.aggregateScoring,
+                weightFunctionFactory,
+                resultFilter)
 
         def filters = []
 

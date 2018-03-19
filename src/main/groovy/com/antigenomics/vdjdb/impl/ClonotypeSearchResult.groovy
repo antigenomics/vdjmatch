@@ -18,40 +18,63 @@ package com.antigenomics.vdjdb.impl
 
 import com.antigenomics.vdjdb.db.Row
 import com.antigenomics.vdjdb.db.SearchResult
-import com.antigenomics.vdjdb.sequence.Alignment
-import com.milaboratory.core.alignment.Alignment
+import com.antigenomics.vdjdb.sequence.Hit
+import groovy.transform.CompileStatic
 
 /**
  * Clonotype search result 
  */
+@CompileStatic
 class ClonotypeSearchResult implements Comparable<ClonotypeSearchResult>, SearchResult {
     /**
      * CDR3 sequence alignment result 
      */
-    final Alignment result
+    final Hit hit
+
     /**
      * Database row that was found
      */
     final Row row
+
     /**
      * Clonotype id (order in sample), if specified, -1 otherwise
      */
     final int id
 
     /**
+     * TCR similarity score
+     */
+    final float score
+
+    /**
+     * Weight/informativeness of a hit
+     */
+    final float weight
+
+    /**
+     * A product of score and weight
+     */
+    final float weightedScore
+
+    /**
      * Creates a new clonotype search result
      * @param result CDR3 sequence alignment result
      * @param row database row
      * @param id clonotype id in sample
+     * @param score full TCR similarity score
+     * @param weight hit weight/informativeness
      */
-    ClonotypeSearchResult(Alignment result, Row row, int id) {
-        this.result = result
+    ClonotypeSearchResult(Hit hit, Row row, int id, float score, float weight) {
+        this.hit = hit
         this.row = row
         this.id = id
+        this.score = score
+        this.weight = weight
+        this.weightedScore = weight * score
     }
 
     @Override
     int compareTo(ClonotypeSearchResult o) {
-        -Double.compare(result.score, o.result.score)
+        -Double.compare(weightedScore, o.weightedScore)
     }
 }

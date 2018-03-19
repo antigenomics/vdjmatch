@@ -20,10 +20,8 @@ import com.antigenomics.vdjdb.Util
 import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.db.Entry
 import com.antigenomics.vdjdb.db.Row
-import com.antigenomics.vdjdb.db.SearchResult
 import com.fasterxml.jackson.annotation.JsonIgnore
-import com.milaboratory.core.Range
-import com.milaboratory.core.alignment.Alignment
+import com.milaboratory.core.mutations.Mutations
 import com.milaboratory.core.sequence.AminoAcidSequence
 import com.milaboratory.core.tree.SequenceTreeMap
 import groovy.transform.CompileStatic
@@ -65,60 +63,60 @@ class SequenceColumn extends Column {
      * @param filter amino acid query
      * @return a map of rows that were found and corresponding sequence alignment results
      */
-    Map<Row, Alignment> search(SequenceFilter filter) {
-        def results = new HashMap<Row, Alignment>()
+    Map<Row, Hit> search(SequenceFilter filter) {
+        def searchScope = filter.searchScope, // allowed edit distance & search mode,
+            scoring = filter.alignmentScoring // alignment and global scoring
 
         def ni = stm.getNeighborhoodIterator(filter.query,
-                filter.treeSearchParameters)
+                searchScope.treeSearchParameters) // 'search scope' iterator
 
-        def scoring = filter.alignmentScoring
-
-        def baseScore = scoring.computeBaseScore(filter.query),
-            refLength = filter.query.size()
-
-
-        def resultBuffer = new HashMap<String, SearchResult>()
+        def matchBuffer = new HashMap<String, SequenceSearchResult>()
         List<Entry> entries
 
-        while ((entries = ni.next()) != null) {
-            def seq = entries.first().value
+        while ((entries = ni.next()) != null) { // until no more alignments found within 'search scope'
+            def matchSequence = entries.first().value
             def mutations = ni.currentMutations
-            def previousResult = resultBuffer[seq]
+
+            // need this workaround as it is not possible to implement (ins+dels) <= X scope with tree searcher
+            // due to separate insertion and deletion counting
+            if (mutations.countOfIndels() > searchScope.maxIndels)
+                continue
+
+            def previousResult = matchBuffer[matchSequence] // need buffer here as hits are not guaranteed to be ordered
+            // by match sequence. using hashmap as we'll need to store
+            // previous score
 
             if (previousResult == null) {
                 // compute new if we don't have any previous alignments with this sequence
-                float score = scoring.computeScore(mutations, baseScore, refLength)
-                def alignment = new Alignment(filter.query, mutations,
-                        new Range(0, refLength), new Range(0, seq.size()),
-                        score)
-
-                resultBuffer.put(seq,
-                        new SearchResult(alignment, entries))
-            } else if (filter.exhaustive) {
-                def previousMutationCount = previousResult.alignment.absoluteMutations.size()
-                // exhaustive search - compare scores
-                if (!filter.greedy || // non-greedy case: check even if we have more mutations
-                        previousMutationCount >= mutations.size()) { // greedy: previous case has the same number of mutations or more
-                    // Note: more mutations case N/A to current tree impl
-                    float score = scoring.computeScore(mutations, baseScore, refLength)
-
-                    if (score > previousResult.alignment.score) {
-                        // replace if better score
-                        def alignment = new Alignment(filter.query, mutations,
-                                new Range(0, refLength), new Range(0, seq.size()),
-                                score)
-
-                        resultBuffer.put(seq,
-                                new SearchResult(alignment, entries))
-                    }
+                float alignmentScore = scoring.computeScore(filter.query, mutations)
+                matchBuffer.put(matchSequence, new SequenceSearchResult(alignmentScore, mutations, entries))
+                //println(mutations.toString() + " " + alignmentScore)
+            } else if (searchScope.exhaustive && // exhaustive search - don't take first hit but try to compare scores
+                    !(searchScope.greedy && // if filter is greedy - only consider hits that do not have more mutations than previous hit
+                            previousResult.mutations.size() < mutations.size())) {
+                float alignmentScore = scoring.computeScore(filter.query, mutations)
+                //println(mutations.toString() + " " +alignmentScore)
+                if (alignmentScore > previousResult.alignmentScore) {
+                    // replace if better score
+                    matchBuffer.put(matchSequence, new SequenceSearchResult(alignmentScore, mutations, entries))
                 }
             }
         }
 
-        resultBuffer.values().each { result ->
-            result.entries.each { entry ->
-                results.put(entry.row, result.alignment)
-            }
+        // Flatten results and wrap them into 'hits'
+
+        def results = new HashMap<Row, Hit>()
+
+        matchBuffer.each {
+            matchKvp ->
+                def searchResult = matchKvp.value
+                searchResult.entries.each { entry -> // iterate through matched rows
+                    results.put(entry.row, new Hit(filter.query, // query sequence
+                            searchResult.mutations, // query -> db match mutations
+                            matchKvp.key.length(), // db match sequence length
+                            searchResult.alignmentScore // alignment (e.g. CDR3 alignment) score
+                    ))
+                }
         }
 
         results
@@ -142,12 +140,14 @@ class SequenceColumn extends Column {
         values
     }
 
-    private class SearchResult {
-        Alignment alignment
-        List<Entry> entries
+    private class SequenceSearchResult {
+        final float alignmentScore
+        final Mutations<AminoAcidSequence> mutations
+        final List<Entry> entries
 
-        SearchResult(Alignment alignment, List<Entry> entries) {
-            this.alignment = alignment
+        SequenceSearchResult(float alignmentScore, Mutations<AminoAcidSequence> mutations, List<Entry> entries) {
+            this.alignmentScore = alignmentScore
+            this.mutations = mutations
             this.entries = entries
         }
     }

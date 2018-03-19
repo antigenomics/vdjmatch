@@ -16,12 +16,11 @@
 
 package com.antigenomics.vdjdb.db
 
+import com.antigenomics.vdjdb.sequence.Hit
 import com.antigenomics.vdjdb.sequence.SequenceColumn
 import com.antigenomics.vdjdb.sequence.SequenceFilter
-import com.antigenomics.vdjdb.sequence.Alignment
 import com.antigenomics.vdjdb.text.TextColumn
 import com.antigenomics.vdjdb.text.TextFilter
-import com.milaboratory.core.alignment.Alignment
 import groovy.transform.CompileStatic
 
 /**
@@ -286,11 +285,11 @@ class Database {
 
         if (sequenceFilters.empty) {
             results = rows.findAll { filterBatch.pass(it) }
-                    .collect { new DatabaseSearchResult(it, new Alignment[0]) }
+                    .collect { new DatabaseSearchResult(it, new Hit[0]) }
         } else {
             results = new ArrayList<>()
 
-            def sequenceSearchResults = new Map<Row, Alignment>[sequenceFilters.size()]
+            def sequenceSearchResults = new Map<Row, Hit>[sequenceFilters.size()]
 
             for (int i = 0; i < sequenceFilters.size(); i++) {
                 sequenceSearchResults[i] = ((SequenceColumn) columns[sequenceFilterColIds[i]]).search(sequenceFilters[i])
@@ -301,7 +300,7 @@ class Database {
             OUTER:
             for (Row row : minRowSet) {
                 if (filterBatch.pass(row)) {
-                    def sequenceSearchResultsByRow = new Alignment[sequenceFilters.size()]
+                    def sequenceSearchResultsByRow = new Hit[sequenceFilters.size()]
 
                     for (int i = 0; i < sequenceFilters.size(); i++) {
                         def sequenceSearchResult = sequenceSearchResults[i][row]

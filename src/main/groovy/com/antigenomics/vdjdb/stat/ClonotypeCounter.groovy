@@ -27,40 +27,34 @@ class ClonotypeCounter {
     private final AtomicInteger uniqueCounter
     private final AtomicLong readCounter
     private final AtomicDouble frequencyCounter
+    private final AtomicDouble weightCounter
     private final Set<Clonotype> clonotypes = ConcurrentHashMap.newKeySet()
     private final int databaseUnique
 
-    ClonotypeCounter() {
-        this(0, 0, 0)
+    ClonotypeCounter(int databaseUnique = -1) {
+        this(0, 0, 0, databaseUnique, 0)
     }
 
-    ClonotypeCounter(int databaseUnique) {
-        this(0, 0, 0, databaseUnique)
-    }
-
-    ClonotypeCounter(int unique, long reads, double frequency) {
-        this(unique, reads, frequency, 0)
-    }
-
-
-    ClonotypeCounter(int unique, long reads, double frequency, databaseUnique) {
+    ClonotypeCounter(int unique, long reads, double frequency, double databaseUnique, double weight) {
         this.uniqueCounter = new AtomicInteger(unique)
         this.readCounter = new AtomicLong(reads)
         this.frequencyCounter = new AtomicDouble(frequency)
-        this.databaseUnique = databaseUnique;
+        this.weightCounter = new AtomicDouble(weight)
+        this.databaseUnique = databaseUnique
     }
 
     /**
      * Updates the counter with abundance of current clonotype
      * @param clonotype clonotype to append
      */
-    void update(Clonotype clonotype) {
+    void update(Clonotype clonotype, double weight = 1.0) {
         if (!clonotypes.contains(clonotype)) {
             clonotypes.add(clonotype)
 
             uniqueCounter.incrementAndGet()
             readCounter.addAndGet(clonotype.count)
             frequencyCounter.addAndGet(clonotype.freq)
+            weightCounter.addAndGet(weight) // todo: perhaps we need to compute max weight..
         }
     }
 
@@ -96,14 +90,22 @@ class ClonotypeCounter {
         databaseUnique
     }
 
+    /**
+     * Total weight of DB hits
+     * @return weight
+     */
+    double getWeight() {
+        weightCounter.get()
+    }
+
     Set<Clonotype> getClonotypes() {
         Collections.unmodifiableSet(clonotypes)
     }
 
-    static final String HEADER = "unique\tfrequency\treads\tdb.unique"
+    static final String HEADER = "unique\tfrequency\treads\tdb.unique\tweight"
 
     @Override
     String toString() {
-        unique + "\t" + frequency + "\t" + reads + "\t" + databaseUnique
+        unique + "\t" + frequency + "\t" + reads + "\t" + databaseUnique + "\t" + weight
     }
 }

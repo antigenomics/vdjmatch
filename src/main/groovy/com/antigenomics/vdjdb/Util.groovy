@@ -21,9 +21,17 @@ import com.milaboratory.core.sequence.AminoAcidSequence
 import groovy.transform.CompileStatic
 
 class Util {
+    /**
+     * Parent directory of executable JAR
+     */
     static
     final String HOME_DIR = new File(Util.class.protectionDomain.codeSource.location.path).parent.replaceAll("%20", " ")
 
+    /**
+     * Check if a local copy of the database exists and downloads one if required.
+     * @param updateIfNewer perform update if the local copy is older than the one available online
+     * @return true if a new database was downloaded
+     */
     static boolean checkDatabase(boolean updateIfNewer = false) {
         def version
 
@@ -62,10 +70,20 @@ class Util {
         false
     }
 
+    /**
+     * Gets an input stream for a given resource
+     * @param resourceName resource file name
+     * @return input stream
+     */
     static InputStream resourceAsStream(String resourceName) {
         Util.class.classLoader.getResourceAsStream(resourceName)
     }
 
+    /**
+     * Converts a given string to amino acid sequence
+     * @param aaSeq amino acid string
+     * @return binary AminoAcidSequence object or null if failed to convert
+     */
     static AminoAcidSequence convert(String aaSeq) {
         aaSeq = aaSeq.trim()
         if (aaSeq.length() > 0 && aaSeq =~ /^[FLSYCWPHQRIMTNKVADEG]+$/)
