@@ -29,6 +29,6 @@ class WeightingTest {
 
         def weighting = dwff.create(cdr3InfoSet, new SearchScope(2, 1, 3))
 
-        assert (float) (Math.exp(-weighting.computeWeight("", "", "AAAAAAA")) - 1) == 4f
+        assert (float) (Math.exp(-weighting.computeWeight("", "", "AAAAAAA")) * cdr3InfoSet.size() - 1) == 4f
     }
 }

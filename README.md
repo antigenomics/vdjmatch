@@ -27,8 +27,8 @@ First part of the command runs the JAR file and sets the memory limit to 4GB (sh
 
 | Option name                 | Argument example                |  Description |
 |-----------------------------|---------------------------------|--------------|
-| ``-h``                      |                                 |  Display help message |
-| ``-m``, ``--metadata``      | ``/path/to/metadata.txt``       |  A [metadata](http://vdjtools-doc.readthedocs.org/en/latest/input.html#metadata) file, holding paths to samples and user-provided information. |
+| ```-h```                    |                                 |  Display help message |
+| ```-m```, ```--metadata```  | ``/path/to/metadata.txt``       |  A [metadata](http://vdjtools-doc.readthedocs.org/en/latest/input.html#metadata) file, holding paths to samples and user-provided information. |
 |  ``--software``             | ``MITCR``,``MIGEC``,etc         |  Input RepSeq data format, see [formats supported for conversion](http://vdjtools-doc.readthedocs.io/en/latest/input.html#formats-supported-for-conversion). By default expects input in [VDJtools format](http://vdjtools-doc.readthedocs.io/en/latest/input.html#vdjtools-format). |
 | ``-c``,``--compress``       |                                 |  Compress sample-level summary output with GZIP. |
 
@@ -114,18 +114,15 @@ The following output files will be generated:
 
 1. ``annot.summary.txt`` annotation summary containing the number of unique clonotypes (``unique``), their cumulative share of reads (``frequency``) and total read count (``reads``).
     * Sample metadata will be appended to this table if provided via the ``-m`` option.
-    * Each row corresponds to a combination of database field values from the columns specified by the ``--summary-columns`` option. If a single clonotype is matched to several VDJdb records, its reads count and frequency and will be appended to all of them and the ``unique`` counter for each of the records will be incremented by ``1``.
-> TODO : weighted score
-
+    * Each row corresponds to a combination of database field values from the columns specified by the ``--summary-columns`` option (e.g. epitope and parent species, ``antigen.epitope + antigen.species``). If a single clonotype is matched to several VDJdb records, its reads count and frequency and will be appended to all of them and the ``unique`` counter for each of the records will be incremented by ``1``.
+    * The weight/informativeness sum of database hits for each row is stored in the ``weight`` column and can be used to scale the results, together with the ``db.unique`` column, storing the total number of unique database TCR entries for a given combination of summary columns.
     * Each of database records is tagged as ``entry`` in ``counter.type`` column of summary table, statistics (total number of clonotypes, read share and count) of annotated and unannotated clonotypes is stored in rows tagged as ``found`` and ``not.found`` respectively.
-2. ``$sample_id.annot.txt`` annotation for each of the clonotypes found in database.
+2. ``$sample_id.annot.txt`` annotation for each of the clonotypes found in database, a separate file is generated for each input sample.
     * This is an all-to-all merge table between the sample and database that includes all matches.
     * Clonotype information from the sample (count, frequency, cdr3 sequence, v/d/j segments and v/d/j markup) is preserved.
     * As a clonotype can be represented by multiple rows in the output (i.e. match to several records in the database), ``id.in.sample`` column can be used to make the correspondence between annotation record and 0-based index of clonotype in the original sample. For the information on database columns that are appended see database schema in [VDJdb-db repository](https://github.com/antigenomics/vdjdb-db) readme.
     * The ``score`` column contains CDR3 alignment score that is computed as described **Scoring parameters** section (not to be confused with [VDJdb record confidence score](https://github.com/antigenomics/vdjdb-db#vdjdb-scoring).
     * The ``weight`` column contains the weight (or informativeness) of corresponding database records, see **Hit filtering and weighting** section for details.
-
-
 
 ### Some useful notes / tricks
 
