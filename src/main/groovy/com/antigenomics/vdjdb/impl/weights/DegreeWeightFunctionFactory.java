@@ -9,6 +9,7 @@ import com.milaboratory.core.tree.NeighborhoodIterator;
 import com.milaboratory.core.tree.SequenceTreeMap;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 // Todo: move filters and weights to java --- this will require rewriting some classes in pure jva, otherwise won't compile
 public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
@@ -33,7 +34,7 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
         }
 
         // perform search for every cdr3 with a given scope, compute scores
-        Map<String, Float> weights = new HashMap<>();
+        Map<String, Float> weights = new ConcurrentHashMap<>();
         cdr3InfoSet
                 .parallelStream()
                 .map(x -> new AbstractMap.SimpleEntry<>(x, computeMatches(searchScope,
@@ -63,13 +64,13 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
         // create sequence tree map holding epitope info & aux. set of cdrs
         // todo: here we don't handle/overwrite cross-reactive clonotypes
         Set<Cdr3Info> cdr3InfoSet = new HashSet<>();
+
         for (Row row : clonotypeDatabase.getRows()) {
             String cdr3aa = row.getAt(clonotypeDatabase.getCdr3ColIdx()).getValue(),
                     group = row.getAt(groupColumnIndex).getValue();
 
             cdr3InfoSet.add(new Cdr3Info(new AminoAcidSequence(cdr3aa), group));
         }
-
 
         return create(cdr3InfoSet, clonotypeDatabase.getSearchScope());
     }

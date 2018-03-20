@@ -1,5 +1,6 @@
 package com.antigenomics.vdjdb.impl
 
+import com.antigenomics.vdjdb.VdjdbInstance
 import com.antigenomics.vdjdb.impl.weights.DegreeWeightFunctionFactory
 import com.antigenomics.vdjdb.sequence.SearchScope
 import com.milaboratory.core.sequence.AminoAcidSequence
@@ -29,6 +30,21 @@ class WeightingTest {
 
         def weighting = dwff.create(cdr3InfoSet, new SearchScope(2, 1, 3))
 
+        cdr3InfoSet*.cdr3.each { assert weighting.computeWeight("", "", it.toString()) > 0 }
         assert (float) (Math.exp(-weighting.computeWeight("", "", "AAAAAAA")) * cdr3InfoSet.size() - 1) == 4f
+    }
+
+    @Test
+    void databaseBuildTest() {
+        def vdj = new VdjdbInstance().asClonotypeDatabase("HomoSapiens", "TRB",
+                SearchScope.getEXACT(),
+                ScoringBundle.DUMMY,
+                DegreeWeightFunctionFactory.DEFAULT)
+
+        //assert vdj.cdr3Sequences.size() == vdj.weightFunction.size()
+
+        vdj.cdr3Sequences.each {
+            assert vdj.weightFunction.computeWeight("", "", it) > 0
+        }
     }
 }

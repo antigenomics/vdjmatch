@@ -10,4 +10,9 @@ public class DummyWeightFunction implements WeightFunction {
     public float computeWeight(String v, String j, String cdr3aa) {
         return 1.0f;
     }
+
+    @Override
+    public int size() {
+        return 0;
+    }
 }

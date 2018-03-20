@@ -118,6 +118,15 @@ class Database {
     }
 
     /**
+     * A hook to be called every time entries are added to the database.
+     * Note that all database constructors create an empty database,
+     * so only time this hook is active is when addEntries(...) is called.
+     */
+    protected void onAdd() {
+
+    }
+
+    /**
      * Override it if you need to check for presence of specific columns
      * @return true if all necessary columns are present, false otherwise
      */
@@ -184,6 +193,8 @@ class Database {
                 }
             }
         }
+
+        onAdd()
     }
 
     /**
@@ -229,6 +240,8 @@ class Database {
                 rows.add(row)
             }
         }
+
+        onAdd()
     }
 
     @CompileStatic

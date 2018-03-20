@@ -108,8 +108,6 @@ class ClonotypeDatabase extends Database {
         this.vColIdx = columns.findIndexOf { it.name == vColName }
         this.jColIdx = columns.findIndexOf { it.name == jColName }
         this.cdr3ColIdx = columns.findIndexOf { it.name == cdr3ColName }
-
-        onUpdate()
     }
 
     /**
@@ -167,7 +165,8 @@ class ClonotypeDatabase extends Database {
                 columns.any { it.name == jColName && it instanceof TextColumn }
     }
 
-    private void onUpdate() {
+    @Override
+    protected void onAdd() {
         weightFunction = weightFunctionFactory.create(this)
     }
 
@@ -182,7 +181,6 @@ class ClonotypeDatabase extends Database {
     void addEntries(InputStream source, String species, String gene) {
         addEntries(source, [new ExactTextFilter(speciesColName, species, false),
                             new ExactTextFilter(geneColName, gene, false)])
-        onUpdate()
     }
 
     /**
@@ -196,19 +194,6 @@ class ClonotypeDatabase extends Database {
     void addEntries(List<List<String>> entries, String species, String gene) {
         addEntries(entries, [new ExactTextFilter(speciesColName, species, false),
                              new ExactTextFilter(geneColName, gene, false)])
-        onUpdate()
-    }
-
-    @Override
-    void addEntries(InputStream source, List<TextFilter> filters = []) {
-        super.addEntries(source, filters)
-        onUpdate()
-    }
-
-    @Override
-    void addEntries(InputStream source, String expression) {
-        super.addEntries(source, expression)
-        onUpdate()
     }
 
     /**
@@ -295,5 +280,9 @@ class ClonotypeDatabase extends Database {
             }
         }
         results
+    }
+
+    Set<String> getCdr3Sequences() {
+        getAt(cdr3ColName).values
     }
 }

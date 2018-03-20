@@ -13,4 +13,9 @@ public class DegreeWeightFunction implements WeightFunction {
     public float computeWeight(String v, String j, String cdr3aa) {
         return weights.get(cdr3aa);
     }
+
+    @Override
+    public int size() {
+        return weights.size();
+    }
 }
