@@ -143,11 +143,4 @@ A web-based GUI for querying VDJdb and annotating RepSeq samples can be both acc
 
 ### Compiling from source (advanced)
 
-Pre-requisites: Git, Maven and Gradle.
-
-First install the dependencies:
-
-* Check the ``build.gradle`` file in this repository for the version of *milib* library, clone the correct version from [this repository](https://github.com/milaboratory/milib) and install with ``mvn clean install``
-* Do the same for *vdjtools* library, which can be obtained from [this repository](https://github.com/mikessh/vdjtools). **Important** the *milib* version in ``pom.xml`` in *vdjtools* folder should match the one from ``build.gradle`` of *vdjmatch*.
-
-After installing both *milib* and *vdjtools* to your local maven repository using ``mvn clean install``, navigate to the *vdjmatch* folder and build it using ``gradle clean build``.
+Just clone the repository and run ``gradle clean build``.
