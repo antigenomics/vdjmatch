@@ -42,7 +42,7 @@ If ``-m`` option is specified the list of sample file names should be omitted an
 |-----------------------------|----------------------------------|--------------|
 | ``‑S``, ``‑‑species``       | ``human``,``mouse``,etc          |  **(Required)** Species name. All samples should belong to the same species, only one species is allowed. |
 | ``‑R``, ``‑‑gene``          | ``TRA``,``TRB``,etc              |  **(Required)** Name of the receptor gene. All samples should contain to the same receptor gene, only one gene is allowed. |
-|  ``‑‑filter``               | ``__antigen.species__=~"EBV"`` |  **(Advanced)** Logical filter expresstion that will be evaluated for database columns. |
+|  ``‑‑filter``               | ``"__antigen.species__=~'EBV'"`` |  **(Advanced)** Logical filter expresstion that will be evaluated for database columns. |
 |  ``‑‑vdjdb‑conf``           | ``1``                            |  VDJdb confidence level threshold, from ``0`` (lowest) to ``3`` (highest), default is ``0``.  |
 
 The ``--filter`` option supports Java/Groovy syntax, Regex, ``.contains()``, ``.startsWith()``, etc. Parts of the expression marked with double underscore (``__``, e.g. ``__antigen.epitope__``) will be substituted with corresponding values from database rows. Those parts should be named exactly as columns in the database, see [VDJdb specification](https://github.com/antigenomics/vdjdb-db#database-specification) for the list of column names.
