@@ -8,6 +8,9 @@ addons:
     packages:
       - oracle-java9-installer
 
+install:
+  - jdk_switcher use oraclejdk8
+
 script:
   - jdk_switcher use oraclejdk8
   - gradle clean build
