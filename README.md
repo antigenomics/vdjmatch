@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.org/antigenomics/vdjmatch.svg?branch=master)](https://travis-ci.org/antigenomics/vdjmatch)
+[![JitPack](https://jitpack.io/v/antigenomics/vdjmatch.svg)](https://jitpack.io/#antigenomics/vdjmatch)
 
 ## VDJmatch: a software for database-guided prediction of T-cell receptor antigen specificity
 
