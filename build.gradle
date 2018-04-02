@@ -3,6 +3,9 @@ apply plugin: 'java'
 apply plugin: 'application'
 apply plugin: 'maven'
 
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
 group = 'com.antigenomics'
 version = '1.2.0'
 
