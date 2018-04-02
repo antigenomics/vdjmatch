@@ -20,5 +20,5 @@ if [[ ! -s test_empty2.no_found.txt ]]; then echo "No results file"; exit 1; fi;
 if [[ ! -s test_empty2.annot.summary.txt ]]; then echo "No summary file"; exit 1; fi; cat test_empty2.annot.summary.txt | head
 
 # Test compatibility with VDJtools
-java -Xmx4G -jar ../vdjtools/target/vdjtools-*.jar Annotate test.sergey_anatolyevich.annot.txt annot/
-if [[ ! -s annot/metadata.txt ]]; then echo "No metadata file"; exit 1; fi
+#java -Xmx4G -jar ../vdjtools/target/vdjtools-*.jar Annotate test.sergey_anatolyevich.annot.txt annot/
+#if [[ ! -s annot/metadata.txt ]]; then echo "No metadata file"; exit 1; fi
