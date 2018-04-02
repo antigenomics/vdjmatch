@@ -125,7 +125,7 @@ cli._(longOpt: "hit-filter-topn", argName: "n", args: 1,
                 "(can randomly drop hits in case of ties).")
 
 
-cli._(longOpt: "hit-weight-info",
+cli._(longOpt: "hit-weight-inf",
         "Weight database hits by their 'informativeness', i.e. the log probability of them " +
                 "being matched by chance.")
 
@@ -159,6 +159,12 @@ if (optMetadataFileName ? opt.arguments().size() != 1 : opt.arguments().size() <
         println "[ERROR] At least 1 sample files should be provided if not using -m"
     cli.usage()
     System.exit(1)
+}
+
+if (optMetadataFileName) {
+    println "Will use metadata from " + optMetadataFileName
+} else {
+    println "Will use provided sample files: " + opt.arguments()[0..-2]
 }
 
 /* species, gene, pre-filtering */
@@ -200,6 +206,8 @@ def searchScope = optSearchScope.size() == 3 ?
         new SearchScope(optSearchScope[0], optSearchScope[1], optSearchScope[2], optSearchScope[3],
                 optExhaustive > 0, optExhaustive < 2)
 
+//println
+
 /* scoring */
 
 def optVdjmatchScoring = (boolean) opt.'scoring-vdjmatch',
@@ -226,7 +234,7 @@ if (opt.'hit-filter-max') {
 
 /* weighting */
 
-def optWeightByInfo = opt.'hit-weight-info'
+def optWeightByInfo = opt.'hit-weight-inf'
 def weightFunctionFactory = optWeightByInfo ?
         DegreeWeightFunctionFactory.DEFAULT :
         DummyWeightFunctionFactory.INSTANCE
@@ -327,7 +335,7 @@ new File(ExecUtil.formOutputPath(outputPrefix, "annot", "summary")).withPrintWri
 
         def results = clonotypeDatabase.search(sample)
 
-        def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId, "annot"))
+        def writer = sw.getWriter(ExecUtil.formOutputPath(outputPrefix, sampleId))
 
         writer.println(sw.getFullHeader(sample) +
                 "\tid.in.sample\t" +

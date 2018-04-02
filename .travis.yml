@@ -8,18 +8,6 @@ addons:
     packages:
       - oracle-java9-installer
 
-install:
-  - jdk_switcher use oraclejdk8
-  - git clone https://github.com/milaboratory/milib.git
-  - cd milib/
-  - git checkout stm-greedy
-  - mvn clean install -q -Dmaven.test.skip=true
-  - cd ..
-  - git clone https://github.com/mikessh/vdjtools.git
-  - cd vdjtools/
-  - mvn clean install -q -Dmaven.test.skip=true
-  - cd ..
-
 script:
   - jdk_switcher use oraclejdk8
   - gradle clean build

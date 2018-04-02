@@ -96,7 +96,7 @@ Full score / probability of matching the same antigen is computed using a Genera
 | ``‑T``, ``‑‑hit‑filter‑score``     |                                  |  Drops hits with a score less than the specified threshold.  |
 | ``‑X``, ``‑‑hit‑filter‑max``       |                                  |  Only select hit with maximal score for a given query clonotype (will consider all max score hits in case of ties).  |
 |    ``‑‑hit‑filter‑topn``           |       ``3``                      |  Select best ``n`` hits by score (can randomly drop hits in case of ties).  |
-|    ``‑‑hit‑weight‑info``           |                                  |  Weight database hits by their 'informativeness', i.e. the log probability of them being matched by chance.  |
+|    ``‑‑hit‑weight‑inf``            |                                  |  Weight database hits by their 'informativeness', i.e. the log probability of them being matched by chance.  |
 
 Note that score threshold is applied to unweighted (see below) full scores, thus has little sense to use in case ``--scoring-vdjmatch`` is not set. For VDJmatch scoring the range of scores is ``[0, 1]`` and the recommended value for the threshold lies in the range of ``0.1-0.5``. Filtered records will be removed from output annotation files and will not affect the resulting summary statistics.
 

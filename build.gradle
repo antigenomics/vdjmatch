@@ -10,7 +10,7 @@ mainClassName = 'com.antigenomics.vdjdb.Main'
 
 repositories {
     mavenCentral()
-    mavenLocal()
+    maven { url 'https://jitpack.io' }
 }
 
 jar {
@@ -43,8 +43,8 @@ dependencies {
     compile 'org.codehaus.groovy:groovy-all:2.4.13'
     compile 'org.codehaus.gpars:gpars:1.2.1'
     compile 'junit:junit:4.12'
-    compile 'com.antigenomics:vdjtools:1.1.8-SNAPSHOT'
-    compile 'com.milaboratory:milib:1.8.3-SNAPSHOT'
+    compile 'com.github.mikessh:vdjtools:1.1.8'
+    compile 'com.milaboratory:milib:1.8.3'
     compile 'com.fasterxml.jackson.core:jackson-core:2.7.1'
     compile 'org.apache.ant:ant:1.9.4'
 }
