@@ -50,4 +50,5 @@ dependencies {
     compile 'com.milaboratory:milib:1.8.3'
     compile 'com.fasterxml.jackson.core:jackson-core:2.7.1'
     compile 'org.apache.ant:ant:1.9.4'
+    compile 'com.github.haifengl:smile-core:1.5.1'
 }

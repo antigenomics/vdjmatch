@@ -16,7 +16,7 @@
 
 package com.antigenomics.vdjdb.stat
 
-import com.antigenomics.vdjdb.AtomicDouble
+import com.antigenomics.vdjdb.misc.AtomicDouble
 import com.antigenomics.vdjtools.sample.Clonotype
 
 import java.util.concurrent.ConcurrentHashMap
