@@ -178,10 +178,10 @@ class ClonotypeDatabase extends Database {
      * @param species species name
      * @param gene receptor gene name
      */
-    void addEntries(InputStream source, String species, String gene) {
-        addEntries(source, [new ExactTextFilter(speciesColName, species, false),
-                            new ExactTextFilter(geneColName, gene, false)])
-    }
+    //void addEntries(InputStream source, String species, String gene) {
+    //    addEntries(source, [new ExactTextFilter(speciesColName, species, false),
+    //                        new ExactTextFilter(geneColName, gene, false)])
+    //}
 
     /**
      * Adds a matrix of strings (entries) to the database. 
@@ -191,10 +191,10 @@ class ClonotypeDatabase extends Database {
      * @param species species name
      * @param gene receptor gene name
      */
-    void addEntries(List<List<String>> entries, String species, String gene) {
-        addEntries(entries, [new ExactTextFilter(speciesColName, species, false),
-                             new ExactTextFilter(geneColName, gene, false)])
-    }
+    //void addEntries(List<List<String>> entries, String species, String gene) {
+    //    addEntries(entries, [new ExactTextFilter(speciesColName, species, false),
+    //                         new ExactTextFilter(geneColName, gene, false)])
+    //}
 
     /**
      * Searches a database for a given clonotype 

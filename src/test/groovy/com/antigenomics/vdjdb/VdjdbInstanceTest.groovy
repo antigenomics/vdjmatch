@@ -18,7 +18,13 @@ package com.antigenomics.vdjdb
 
 import com.antigenomics.vdjdb.db.Column
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
+import com.antigenomics.vdjtools.io.InputStreamFactory
+import com.antigenomics.vdjtools.io.SampleStreamConnection
 import org.junit.Test
+
+import java.util.zip.GZIPInputStream
+
+import static com.antigenomics.vdjdb.Util.resourceAsStream
 
 
 class VdjdbInstanceTest {
@@ -47,5 +53,19 @@ class VdjdbInstanceTest {
                 row[ClonotypeDatabase.J_COL_DEFAULT].value,
                 row[ClonotypeDatabase.CDR3_COL_DEFAULT].value
         ).empty
+    }
+
+    @Test
+    void clonotypesFromSampleTest() {
+        def sample = SampleStreamConnection.load([
+                create: {
+                    new GZIPInputStream(resourceAsStream("sergey_anatolyevich.gz"))
+                },
+                getId : { "sergey_anatolyevich.gz" }
+        ] as InputStreamFactory)
+
+        def db = VdjdbInstance.fromSample(sample)
+
+        assert db.rows.size() == sample.findAll { it.coding }.size()
     }
 }

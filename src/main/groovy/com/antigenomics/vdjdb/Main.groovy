@@ -47,7 +47,7 @@ if (args.length > 0 && args[0].toLowerCase() == "update") {
 // Command line options
 //
 
-def cli = new CliBuilder(usage: "vdjdb [options] " +
+def cli = new CliBuilder(usage: "vdjmatch [options] " +
         "[sample1 sample2 sample3 ... if -m is not specified] output_prefix\n" +
         "Input samples should be provided in VDJtools format if --software is not " +
         "specified/supported.")

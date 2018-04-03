@@ -33,6 +33,8 @@ import com.antigenomics.vdjdb.text.ExactTextFilter
 import com.antigenomics.vdjdb.text.LevelFilter
 import com.antigenomics.vdjdb.text.TextColumn
 import com.antigenomics.vdjdb.text.TextFilter
+import com.antigenomics.vdjtools.sample.Clonotype
+import com.antigenomics.vdjtools.sample.Sample
 
 /**
  * A simple API to operate with current VDJdb database.
@@ -119,13 +121,15 @@ class VdjdbInstance {
      * @param gene receptor gene name
      * @param searchScope initial CDR3 sequence matching edit distance threshold & other search parameters
      * @param scoringBundle a bundle holding rules for CDR3 alignment scoring, segment scoring and score aggregation
+     * @param weightFunctionFactory a factory for database hit weight functions (computes weighting on database creation/update)
+     * @param resultFilter database search result filter
      * @param matchV if true requires exact (up to allele) V segment match during search
      * @param matchJ if true requires exact (up to allele) J segment match during search
      * @param vdjdbRecordConfidenceThreshold VDJdb record confidence score threshold
      *
      * @return a clonotype database object with specified search parameters
      */
-    ClonotypeDatabase asClonotypeDatabase(String species = null, String gene = null,
+    ClonotypeDatabase asClonotypeDatabase(String species, String gene,
                                           SearchScope searchScope = SearchScope.EXACT,
                                           ScoringBundle scoringBundle = ScoringBundle.DUMMY,
                                           WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE,
@@ -156,4 +160,76 @@ class VdjdbInstance {
 
         cdb
     }
+
+    /**
+     * Creates a clonotype database from sample, for the purpose of performing annotation between RepSeq samples
+     * and unsupervised clustering of sample(s). The database will hold clonotype counts in 'count' column,
+     * frequencies in 'freq' column and index in 'id' column (strictly as in sample). Non-coding clonotypes
+     * are ignored.
+     *
+     * @param sample sample to convert
+     * @param searchScope initial CDR3 sequence matching edit distance threshold & other search parameters
+     * @param scoringBundle a bundle holding rules for CDR3 alignment scoring, segment scoring and score aggregation
+     * @param weightFunctionFactory a factory for database hit weight functions (computes weighting on database creation/update)
+     * @param resultFilter database search result filter
+     * @param matchV if true requires exact (up to allele) V segment match during search
+     * @param matchJ if true requires exact (up to allele) J segment match during search
+     *
+     * @return a clonotype database object with specified search parameters
+     */
+    static ClonotypeDatabase fromSample(Sample sample,
+                                        SearchScope searchScope = SearchScope.EXACT,
+                                        ScoringBundle scoringBundle = ScoringBundle.DUMMY,
+                                        WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE,
+                                        ResultFilter resultFilter = DummyResultFilter.INSTANCE,
+                                        boolean matchV = false, boolean matchJ = false) {
+
+        def cdb = new ClonotypeDatabase(getSampleHeader(), matchV, matchJ,
+                searchScope,
+                scoringBundle.alignmentScoring,
+                scoringBundle.segmentScoring,
+                scoringBundle.aggregateScoring,
+                weightFunctionFactory,
+                resultFilter)
+
+        int epitopeColId = sample.annotationHeader ? sample.annotationHeader.split("\t").findIndexOf {
+            it.equalsIgnoreCase("antigen.epitope")
+        } : -1
+
+        def entries = new ArrayList<List<String>>()
+        int id = 0
+
+        sample.each { Clonotype clonotype ->
+            if (clonotype.coding) {
+                entries.add(
+                        [id,
+                         clonotype.count, clonotype.freq,
+                         clonotype.cdr3aa, clonotype.v, clonotype.j,
+                         epitopeColId >= 0 ? clonotype.annotation.split("\t")[epitopeColId] : ""] as List<String>
+                )
+            }
+            id++
+        }
+
+        cdb.addEntries(entries)
+
+        cdb
+    }
+
+    static final String CLONOTYPE_SAMPLE_ID_COL = "id",
+                        CLONOTYPE_SAMPLE_COUNT_COL = "count",
+                        CLONOTYPE_SAMPLE_FREQ_COL = "freq"
+
+    private static List<Column> getSampleHeader() {
+        [
+                new TextColumn(CLONOTYPE_SAMPLE_ID_COL),
+                new TextColumn(CLONOTYPE_SAMPLE_COUNT_COL),
+                new TextColumn(CLONOTYPE_SAMPLE_FREQ_COL),
+                new SequenceColumn(ClonotypeDatabase.CDR3_COL_DEFAULT),
+                new TextColumn(ClonotypeDatabase.V_COL_DEFAULT),
+                new TextColumn(ClonotypeDatabase.J_COL_DEFAULT),
+                new TextColumn(ClonotypeDatabase.EPITOPE_COL_DEFAULT)
+        ]
+    }
+
 }

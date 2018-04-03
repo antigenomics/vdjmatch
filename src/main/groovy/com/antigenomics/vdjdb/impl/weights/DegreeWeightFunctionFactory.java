@@ -86,7 +86,8 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
 
         Cdr3Info target;
         while ((target = ni.next()) != null) {
-            if (!Objects.equals(target.group, query.group) && // different groups
+            if ((target.group.length() == 0 || // undefined group, e.g. unannotated sample
+                    !Objects.equals(target.group, query.group)) && // different groups
                     Math.abs(target.cdr3.size() - query.cdr3.size()) <= searchScope.getMaxIndels()) { // indel sum threshold
                 matches.add(target.cdr3);
             }
