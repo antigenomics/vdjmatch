@@ -117,8 +117,8 @@ class VdjdbInstance {
      * Clonotype searcher parameters and pre-filtering of database records based on
      * species, gene, segment and VDJdb confidence score can be set here.
      *
-     * @param species species name
-     * @param gene receptor gene name
+     * @param species species name (set to 'null' for all possible species)
+     * @param gene receptor gene name (set to 'null' for all possible genes)
      * @param searchScope initial CDR3 sequence matching edit distance threshold & other search parameters
      * @param scoringBundle a bundle holding rules for CDR3 alignment scoring, segment scoring and score aggregation
      * @param weightFunctionFactory a factory for database hit weight functions (computes weighting on database creation/update)
@@ -129,7 +129,7 @@ class VdjdbInstance {
      *
      * @return a clonotype database object with specified search parameters
      */
-    ClonotypeDatabase asClonotypeDatabase(String species, String gene,
+    ClonotypeDatabase asClonotypeDatabase(String species = null, String gene = null,
                                           SearchScope searchScope = SearchScope.EXACT,
                                           ScoringBundle scoringBundle = ScoringBundle.DUMMY,
                                           WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE,
