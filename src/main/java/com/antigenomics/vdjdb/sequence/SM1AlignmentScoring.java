@@ -64,6 +64,11 @@ public class SM1AlignmentScoring implements AlignmentScoring {
         return score + indels * gapFactor;
     }
 
+    @Override
+    public ScoringType getScoringType() {
+        return ScoringType.Probabilistic;
+    }
+
     public float[][] getSubstitutionPenalties() {
         return substitutionPenalties;
     }

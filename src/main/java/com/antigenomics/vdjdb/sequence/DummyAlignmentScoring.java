@@ -15,4 +15,9 @@ public class DummyAlignmentScoring implements AlignmentScoring {
                               Mutations<AminoAcidSequence> mutations) {
         return -mutations.size();
     }
+
+    @Override
+    public ScoringType getScoringType() {
+        return ScoringType.EditScore;
+    }
 }

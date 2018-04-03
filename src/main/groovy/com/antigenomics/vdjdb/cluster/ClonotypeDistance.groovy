@@ -1,44 +1,64 @@
 package com.antigenomics.vdjdb.cluster
 
-import com.antigenomics.vdjdb.misc.DistanceEdge
 import com.antigenomics.vdjtools.sample.Clonotype
 
-class ClonotypeDistance implements DistanceEdge {
-    final int idQuery, idTarget
-    final Clonotype query, target
+/**
+ * Distance (dissimilarity) between a pair of clonotypes
+ */
+class ClonotypeDistance {
+    /**
+     * Id of 'from' clonotype in parent sample
+     */
+    final int from
+    /**
+     * Id of 'to' clonotype in parent sample
+     */
+    final int to
+    /**
+     * 'from' clonotype
+     */
+    final Clonotype query
+    /**
+     * 'to' clonotype
+     */
+    final Clonotype target
+    /**
+     * TCR alignment score / probability of TCR specificity match
+     */
     final float score
+    /**
+     * Weight aka informativeness of 'from' clonotype (typically undefined)
+     */
     final float weight
-    final float weightedScore
+    /**
+     * TCR alignment score transformed into dissimilarity
+     */
+    final double dissimilarity
 
-    ClonotypeDistance(int idQuery, int idTarget, Clonotype query, Clonotype target,
-                      float score, float weight, float weightedScore) {
-        this.idQuery = idQuery
-        this.idTarget = idTarget
+    /**
+     * Constructor
+     * @param from id of 'from' clonotype in parent sample
+     * @param to id of 'to' clonotype in parent sample
+     * @param query 'from' clonotype
+     * @param target 'to' clonotype
+     * @param score TCR alignment score / probability of TCR specificity match
+     * @param weight informativeness of 'from' clonotype
+     * @param dissimilarity TCR alignment score transformed into dissimilarity
+     */
+    ClonotypeDistance(int from, int to, Clonotype query, Clonotype target,
+                      float score, float weight, double dissimilarity) {
+        this.from = from
+        this.to = to
         this.query = query
         this.target = target
         this.score = score
         this.weight = weight
-        this.weightedScore = weightedScore
+        this.dissimilarity = dissimilarity
     }
 
 
     @Override
     String toString() {
-        "(" + idQuery + "," + idTarget + "):" + weightedScore
-    }
-
-    @Override
-    int getFrom() {
-        idQuery
-    }
-
-    @Override
-    int getTo() {
-        idTarget
-    }
-
-    @Override
-    double getDissimilarity() {
-        (1.0d - score) / (double) weight
+        "(" + from + "," + to + "):" + dissimilarity
     }
 }

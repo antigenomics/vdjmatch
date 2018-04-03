@@ -5,42 +5,52 @@ import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjdb.impl.ScoringBundle
 import com.antigenomics.vdjdb.impl.weights.DummyWeightFunctionFactory
 import com.antigenomics.vdjdb.impl.weights.WeightFunctionFactory
+import com.antigenomics.vdjdb.sequence.ScoringType
 import com.antigenomics.vdjdb.sequence.SearchScope
 import com.antigenomics.vdjtools.sample.Sample
 
+/**
+ * Compute pairwise distance (dissimilarity) between clonotypes in the same sample / different pair of sample
+ */
 class ClonotypeDistanceCalculator {
     final ClonotypeDatabase clonotypeDatabase
-    final Sample target
+    final Sample sample
+    final boolean probabilisticScoring
 
-    ClonotypeDistanceCalculator(Sample target,
+    ClonotypeDistanceCalculator(Sample sample,
                                 SearchScope searchScope = SearchScope.EXACT,
                                 ScoringBundle scoringBundle = ScoringBundle.DUMMY,
                                 WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE) {
-        this.target = target
-        this.clonotypeDatabase = VdjdbInstance.fromSample(target,
+        this.sample = sample
+        this.clonotypeDatabase = VdjdbInstance.fromSample(sample,
                 searchScope, scoringBundle, weightFunctionFactory)
+        this.probabilisticScoring = scoringBundle.alignmentScoring.scoringType == ScoringType.Probabilistic
     }
 
-    List<ClonotypeDistance> computeDistances(Sample sample) {
+    List<ClonotypeDistance> computeDistancesTo(Sample otherSample) {
         def results = new ArrayList<ClonotypeDistance>()
-        clonotypeDatabase.search(sample).each { entry ->
+        clonotypeDatabase.search(otherSample).each { entry ->
             entry.value.each { result ->
-                int idInTarget = result.row[VdjdbInstance.CLONOTYPE_SAMPLE_ID_COL].value.toInteger()
+                int idInSample = result.row[VdjdbInstance.CLONOTYPE_SAMPLE_ID_COL].value.toInteger()
                 results.add(new ClonotypeDistance(
-                        result.id,
-                        idInTarget,
-                        entry.key,
-                        target[idInTarget],
+                        idInSample,
+                        result.id, // id in other sample
+                        sample[idInSample],
+                        entry.key, // clonotype in other sample
                         result.score,
                         result.weight,
-                        result.weightedScore
+                        probabilisticScoring ? (1.0d - result.score) : (-result.score)
                 ))
             }
         }
         results
     }
 
-    List<ClonotypeDistance> computeDistances() {
-        computeDistances(target)
+    /**
+     * Computes distances between clonotypes in the sample and converts them to clonotype graph.
+     * @return clonotype graph object
+     */
+    ClonotypeGraph computeClonotypeGraph() {
+        new ClonotypeGraph(sample, computeDistancesTo(sample))
     }
 }

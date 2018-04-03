@@ -87,6 +87,11 @@ public class SM2AlignmentScoring implements AlignmentScoring {
         return score - Math.max(queryScore, targetScore) + gapFactor * indels;
     }
 
+    @Override
+    public ScoringType getScoringType() {
+        return ScoringType.Probabilistic;
+    }
+
     public float[][] getSubstitutionMatrix() {
         return substitutionMatrix;
     }

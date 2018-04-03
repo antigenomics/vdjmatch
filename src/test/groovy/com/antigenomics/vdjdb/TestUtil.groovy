@@ -17,12 +17,17 @@
 package com.antigenomics.vdjdb
 
 import com.antigenomics.vdjdb.db.Database
+import com.antigenomics.vdjtools.io.InputStreamFactory
+import com.antigenomics.vdjtools.io.SampleStreamConnection
+import com.antigenomics.vdjtools.sample.Sample
+
+import java.util.zip.GZIPInputStream
 
 import static com.antigenomics.vdjdb.Util.resourceAsStream
 
 class TestUtil {
     static final String ID_COL = "id", SOURCE_COL = "source", PEPTIDE_COL = "antigen.seq"
-    
+
     static Database loadLegacyDb() {
         def database = new Database(resourceAsStream("vdjdb_legacy.meta.txt"))
 
@@ -30,4 +35,11 @@ class TestUtil {
 
         database
     }
+
+    static final Sample TEST_SAMPLE = SampleStreamConnection.load([
+            create: {
+                new GZIPInputStream(resourceAsStream("sergey_anatolyevich.gz"))
+            },
+            getId : { "sergey_anatolyevich.gz" }
+    ] as InputStreamFactory)
 }

@@ -20,11 +20,11 @@ import com.antigenomics.vdjdb.TestUtil
 import com.antigenomics.vdjdb.sequence.SearchScope
 import com.antigenomics.vdjtools.io.InputStreamFactory
 import com.antigenomics.vdjtools.io.SampleStreamConnection
-import com.milaboratory.core.tree.TreeSearchParameters
 import org.junit.Test
 
 import java.util.zip.GZIPInputStream
 
+import static com.antigenomics.vdjdb.TestUtil.TEST_SAMPLE
 import static com.antigenomics.vdjdb.Util.resourceAsStream
 
 class ClonotypeDatabaseTest {
@@ -69,13 +69,6 @@ class ClonotypeDatabaseTest {
 
         database.addEntries(resourceAsStream("vdjdb_legacy.txt"))
 
-        def sample = SampleStreamConnection.load([
-                create: {
-                    new GZIPInputStream(resourceAsStream("sergey_anatolyevich.gz"))
-                },
-                getId : { "sergey_anatolyevich.gz" }
-        ] as InputStreamFactory)
-
-        def results = database.search(sample)
+        assert database.search(TEST_SAMPLE).size() > 0
     }
 }

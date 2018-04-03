@@ -12,7 +12,7 @@
  * to use AtomicLongFieldUpdater instead of sun.misc.Unsafe)
  */
 
-package com.antigenomics.vdjdb.misc;
+package com.antigenomics.vdjdb;
 
 import static java.lang.Double.doubleToRawLongBits;
 import static java.lang.Double.longBitsToDouble;
