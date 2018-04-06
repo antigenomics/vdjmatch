@@ -1,7 +1,6 @@
 package com.antigenomics.vdjdb.cluster
 
 import com.antigenomics.vdjdb.VdjdbInstance
-import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjdb.impl.ScoringBundle
 import com.antigenomics.vdjdb.impl.weights.DummyWeightFunctionFactory
 import com.antigenomics.vdjdb.impl.weights.WeightFunctionFactory
@@ -13,29 +12,44 @@ import com.antigenomics.vdjtools.sample.Sample
  * Compute pairwise distance (dissimilarity) between clonotypes in the same sample / different pair of sample
  */
 class ClonotypeDistanceCalculator {
-    final ClonotypeDatabase clonotypeDatabase
-    final Sample sample
+    final SearchScope searchScope
+    final ScoringBundle scoringBundle
+    final WeightFunctionFactory weightFunctionFactory
     final boolean probabilisticScoring
 
-    ClonotypeDistanceCalculator(Sample sample,
-                                SearchScope searchScope = SearchScope.EXACT,
+    /**
+     *
+     * @param searchScope
+     * @param scoringBundle
+     * @param weightFunctionFactory
+     */
+    ClonotypeDistanceCalculator(SearchScope searchScope = SearchScope.EXACT,
                                 ScoringBundle scoringBundle = ScoringBundle.DUMMY,
                                 WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE) {
-        this.sample = sample
-        this.clonotypeDatabase = VdjdbInstance.fromSample(sample,
-                searchScope, scoringBundle, weightFunctionFactory)
+        this.searchScope = searchScope
+        this.scoringBundle = scoringBundle
+        this.weightFunctionFactory = weightFunctionFactory
         this.probabilisticScoring = scoringBundle.alignmentScoring.scoringType == ScoringType.Probabilistic
     }
 
-    List<ClonotypeDistance> computeDistancesTo(Sample otherSample) {
+    /**
+     *
+     * @param from
+     * @param to
+     * @return
+     */
+    List<ClonotypeDistance> computeDistances(Sample from, Sample to) {
         def results = new ArrayList<ClonotypeDistance>()
-        clonotypeDatabase.search(otherSample).each { entry ->
+        def clonotypeDatabase = VdjdbInstance.fromSample(from,
+                searchScope, scoringBundle, weightFunctionFactory)
+
+        clonotypeDatabase.search(to).each { entry ->
             entry.value.each { result ->
                 int idInSample = result.row[VdjdbInstance.CLONOTYPE_SAMPLE_ID_COL].value.toInteger()
                 results.add(new ClonotypeDistance(
                         idInSample,
                         result.id, // id in other sample
-                        sample[idInSample],
+                        from[idInSample],
                         entry.key, // clonotype in other sample
                         result.score,
                         result.weight,
@@ -47,10 +61,11 @@ class ClonotypeDistanceCalculator {
     }
 
     /**
-     * Computes distances between clonotypes in the sample and converts them to clonotype graph.
-     * @return clonotype graph object
+     * Compute pairwise distances between clonotypes in a given sample
+     * @param sample
+     * @return
      */
-    ClonotypeGraph computeClonotypeGraph() {
-        new ClonotypeGraph(sample, computeDistancesTo(sample))
+    List<ClonotypeDistance> computeDistances(Sample sample) {
+        computeDistances(sample, sample)
     }
 }

@@ -1,68 +1,71 @@
 package com.antigenomics.vdjdb.cluster
 
-import com.antigenomics.vdjdb.impl.ScoringBundle
-import com.antigenomics.vdjdb.impl.weights.DummyWeightFunctionFactory
-import com.antigenomics.vdjdb.sequence.SearchScope
-import com.antigenomics.vdjtools.sample.Sample
+import com.antigenomics.vdjtools.misc.ExecUtil
+import groovyx.gpars.GParsPool
 import smile.graph.Graph
 import smile.math.Math
 
-class ClonotypeEmbeddingCalculator {
-    final ClonotypeDistanceCalculator clonotypeDistanceCalculator
+import java.util.concurrent.ConcurrentLinkedQueue
 
-    ClonotypeEmbeddingCalculator(Sample sample,
-                                 SearchScope searchScope = SearchScope.EXACT,
-                                 ScoringBundle scoringBundle = ScoringBundle.DUMMY) {
-        this.clonotypeDistanceCalculator = new ClonotypeDistanceCalculator(sample,
-                searchScope, scoringBundle, DummyWeightFunctionFactory.INSTANCE)
+class ClonotypeEmbeddingCalculator {
+
+    private ClonotypeEmbeddingCalculator() {
     }
 
-    List<ClonotypeEmbedding> isoMap(int minComponentSize = 5, boolean infoWeight = true, int d = 2) {
-        def clonotypeEmbeddings = new ArrayList<ClonotypeEmbedding>()
-
-        // compute full clonotype graph
-        def clonotypeGraph = clonotypeDistanceCalculator.computeClonotypeGraph()
+    /**
+     *
+     * @param clonotypeGraph
+     * @param minComponentSize
+     * @param infoWeight
+     * @param d
+     * @return
+     */
+    static Collection<ClonotypeEmbedding> isoMap(ClonotypeGraph clonotypeGraph,
+                                           int minComponentSize = 5, boolean infoWeight = true, int d = 2) {
+        def clonotypeEmbeddings = new ConcurrentLinkedQueue<ClonotypeEmbedding>()
 
         // iterate over connected components
-        clonotypeGraph.getConnectedComponents().each { component ->
-            int n = component.index.length
-            def graph = component.graph
+        GParsPool.withPool ExecUtil.THREADS, {
+            clonotypeGraph.getConnectedComponents().eachParallel { component ->
+                int n = component.index.length
+                Graph graph = component.graph
 
-            double[][] coords
+                double[][] coords
 
-            if (n >= minComponentSize) {
-                // a-la C-Isomap
-                if (infoWeight) {
-                    for (Graph.Edge edge : graph.getEdges()) {
-                        double d1 = graph.getDegree(edge.v1),
-                               d2 = graph.getDegree(edge.v2);
-                        edge.weight *= (Math.log2(d1 + 1) + Math.log2(d2 + 1)) / 2;
+                if (n >= minComponentSize) {
+                    // a-la C-Isomap
+                    if (infoWeight) {
+                        for (Graph.Edge edge : graph.getEdges()) {
+                            double d1 = graph.getDegree(edge.v1),
+                                   d2 = graph.getDegree(edge.v2)
+                            edge.weight *= (Math.log2(d1 + 1) + Math.log2(d2 + 1)) / 2d
+                        }
                     }
+
+                    // isoMap algorithm
+                    coords = EmbeddingHelper.isoMap(graph, d)
+                } else {
+                    // return dummy coordinates for components that are too small
+                    coords = new double[n][d]
                 }
 
-                // isoMap algorithm
-                coords = EmbeddingHelper.isoMap(graph, d)
-            } else {
-                // return dummy coordinates for components that are too small
-                coords = new double[n][d]
-            }
+                for (int i = 0; i < n; i++) {
+                    // id as in sample
+                    int id = clonotypeGraph.index[i]
 
-            for (int i = 0; i < n; i++) {
-                // id as in sample
-                int id = clonotypeGraph.index[i]
+                    // add component index to coordinate vector
+                    double[] vector = new double[d + 1]
+                    vector[0] = (double) component.componentIndex
+                    for (int j = 0; j < d; j++) {
+                        vector[j + 1] = coords[i][j]
+                    }
 
-                // add component index to coordinate vector
-                double[] vector = new double[d + 1]
-                vector[0] = (double) component.componentIndex
-                for (int j = 0; j < d; j++) {
-                    vector[j + 1] = coords[i][j]
+                    // create embedding
+                    clonotypeEmbeddings.add(new ClonotypeEmbedding(vector,
+                            clonotypeGraph.sample[id],
+                            id
+                    ))
                 }
-
-                // create embedding
-                clonotypeEmbeddings.add(new ClonotypeEmbedding(vector,
-                        clonotypeDistanceCalculator.sample[id],
-                        id
-                ))
             }
         }
 
