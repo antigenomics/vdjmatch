@@ -172,6 +172,8 @@ class VdjdbInstance {
      * frequencies in 'freq' column and index in 'id' column (strictly as in sample). Non-coding clonotypes
      * are ignored.
      *
+     * N.B. allowExact should be set to false (default value here) if the database will be used for clustering
+     *
      * @param sample sample to convert
      * @param searchScope initial CDR3 sequence matching edit distance threshold & other search parameters
      * @param scoringBundle a bundle holding rules for CDR3 alignment scoring, segment scoring and score aggregation
@@ -179,6 +181,7 @@ class VdjdbInstance {
      * @param resultFilter database search result filter
      * @param matchV if true requires exact (up to allele) V segment match during search
      * @param matchJ if true requires exact (up to allele) J segment match during search
+     * @param allowExact allows exact matches if true. Can be disabled by setting to false when querying database or sample against itself.
      *
      * @return a clonotype database object with specified search parameters
      */
@@ -187,7 +190,8 @@ class VdjdbInstance {
                                         ScoringBundle scoringBundle = ScoringBundle.DUMMY,
                                         WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE,
                                         ResultFilter resultFilter = DummyResultFilter.INSTANCE,
-                                        boolean matchV = false, boolean matchJ = false) {
+                                        boolean matchV = false, boolean matchJ = false,
+                                        boolean allowExact = false) {
 
         def cdb = new ClonotypeDatabase(getSampleHeader(), matchV, matchJ,
                 searchScope,
@@ -195,7 +199,8 @@ class VdjdbInstance {
                 scoringBundle.segmentScoring,
                 scoringBundle.aggregateScoring,
                 weightFunctionFactory,
-                resultFilter)
+                resultFilter,
+                allowExact)
 
         int epitopeColId = sample.annotationHeader ? sample.annotationHeader.split("\t").findIndexOf {
             it.equalsIgnoreCase(ClonotypeDatabase.EPITOPE_COL_DEFAULT)

@@ -33,7 +33,7 @@ class ScoringProvider {
                                            String[] fileNames = ["score_coef.txt", "segm_score.txt", "vdjam.txt"],
                                            boolean fromResource = true) {
         Float intercept = Float.NaN, cc1 = Float.NaN, cc2 = Float.NaN, cc3 = Float.NaN,
-                cv = Float.NaN, cj = Float.NaN, cg = Float.NaN
+              cv = Float.NaN, cj = Float.NaN, cg = Float.NaN
         def colIndices = new HashMap<String, Integer>()
         def linkType = "linear"
 
@@ -59,8 +59,13 @@ class ScoringProvider {
                 }
             }
         } catch (Exception e) {
-            throw new RuntimeException("Error loading scoring ${fileNames[0]}: " +
+            throw new RuntimeException("Error loading scoring $species $gene from ${fileNames[0]}: " +
                     e.toString())
+        }
+
+        if ([intercept, cc1, cc2, cc3, cv, cj, cg].any { it.isNaN() }) {
+            throw new IllegalArgumentException("Error loading scoring $species $gene from ${fileNames[0]}: " +
+                    "unable to parse coefficients.")
         }
 
         def scoring
@@ -72,8 +77,11 @@ class ScoringProvider {
             case "logit":
                 scoring = new LogitAggregateScoring(intercept, cc1, cc2, cc3, cv, cj)
                 break
-            default:
+            case "linear":
                 scoring = new LinearAggregateScoring(intercept, cc1, cc2, cc3, cv, cj)
+                break
+            default:
+                throw new RuntimeException("Unknown scoring function $linkType")
         }
 
         new ScoringBundle(loadVdjamScoring(cg, residueWiseMaxScoring, fileNames[2], fromResource),
@@ -121,6 +129,11 @@ class ScoringProvider {
         } catch (Exception e) {
             throw new RuntimeException("Error loading scoring $fileName: " +
                     e.toString())
+        }
+
+        if ([vScores, jScores].any { it.isEmpty() }) {
+            throw new IllegalArgumentException("Error loading segment scoring $species $gene from $fileName: " +
+                    "unable to parse coefficients.")
         }
 
         return new PrecomputedSegmentScoring(vScores, jScores)

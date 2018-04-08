@@ -21,6 +21,7 @@ limitations under the License.
 */
 
 import smile.graph.Graph;
+import smile.manifold.IsoMap;
 import smile.math.Math;
 import smile.math.matrix.Matrix;
 import smile.math.matrix.DenseMatrix;

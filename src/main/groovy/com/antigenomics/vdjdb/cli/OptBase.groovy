@@ -121,7 +121,8 @@ class OptBase {
         def optVdjmatchScoring = (boolean) opt.'scoring-vdjmatch',
             optScoringMode = (opt.'scoring-mode' ?: CliBase.DEFAULT_SCORING_MODE).toInteger()
         this.scoringBundle = optVdjmatchScoring ?
-                ScoringProvider.loadScoringBundle(optSpecies, optGene,
+                ScoringProvider.loadScoringBundle(
+                        this.optSpecies, this.optGene,
                         optScoringMode == 0) :
                 ScoringBundle.DUMMY
 

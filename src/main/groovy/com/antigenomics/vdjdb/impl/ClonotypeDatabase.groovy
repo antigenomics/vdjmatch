@@ -62,7 +62,7 @@ class ClonotypeDatabase extends Database {
     final ResultFilter resultFilter
     final WeightFunctionFactory weightFunctionFactory
     WeightFunction weightFunction
-    final boolean matchV, matchJ
+    final boolean matchV, matchJ, allowExact
 
     /**
      * Creates an empty clonotype database 
@@ -75,6 +75,7 @@ class ClonotypeDatabase extends Database {
      * @param aggregateScoring score aggregating function
      * @param weightFunctionFactory a factory for database hit weight functions (computes weighting on database creation/update)
      * @param resultFilter database search result filter
+     * @param allowExact allows exact matches if true. Can be disabled by setting to false when querying database or sample against itself
      * @param cdr3ColName CDR3 containing column name
      * @param vColName Variable segment containing column name
      * @param jColName Joining segment containing column name
@@ -88,6 +89,7 @@ class ClonotypeDatabase extends Database {
                       AggregateScoring aggregateScoring = DummyAggregateScoring.INSTANCE,
                       WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE,
                       ResultFilter resultFilter = DummyResultFilter.INSTANCE,
+                      boolean allowExact = true,
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
                       String speciesColName = SPECIES_COL_DEFAULT, String geneColName = GENE_COL_DEFAULT) {
         super(columns)
@@ -103,6 +105,7 @@ class ClonotypeDatabase extends Database {
         this.aggregateScoring = aggregateScoring
         this.weightFunctionFactory = weightFunctionFactory
         this.resultFilter = resultFilter
+        this.allowExact = allowExact
         this.speciesColName = speciesColName
         this.geneColName = geneColName
         this.vColIdx = columns.findIndexOf { it.name == vColName }
@@ -123,6 +126,7 @@ class ClonotypeDatabase extends Database {
      * @param aggregateScoring score aggregating function
      * @param weightFunctionFactory a factory for database hit weight functions (computes weighting on database creation/update)
      * @param resultFilter database search result filter
+     * @param allowExact allows exact matches if true. Can be disabled by setting to false when querying database or sample against itself
      * @param cdr3ColName CDR3 containing column name
      * @param vColName Variable segment containing column name
      * @param jColName Joining segment containing column name
@@ -136,6 +140,7 @@ class ClonotypeDatabase extends Database {
                       AggregateScoring aggregateScoring = DummyAggregateScoring.INSTANCE,
                       WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE,
                       ResultFilter resultFilter = DummyResultFilter.INSTANCE,
+                      boolean allowExact = true,
                       String cdr3ColName = CDR3_COL_DEFAULT, String vColName = V_COL_DEFAULT, String jColName = J_COL_DEFAULT,
                       String speciesColName = SPECIES_COL_DEFAULT, String geneColName = GENE_COL_DEFAULT) {
         super(metadata)
@@ -151,6 +156,7 @@ class ClonotypeDatabase extends Database {
         this.aggregateScoring = aggregateScoring
         this.weightFunctionFactory = weightFunctionFactory
         this.resultFilter = resultFilter
+        this.allowExact = allowExact
         this.speciesColName = speciesColName
         this.geneColName = geneColName
         this.vColIdx = columns.findIndexOf { it.name == vColName }
@@ -210,7 +216,7 @@ class ClonotypeDatabase extends Database {
      * Searches a database for a given clonotype 
      * @param v clonotype V segment name
      * @param j clonotype J segment name
-     * @param cdr3aa clonotype CDR3 amino acid sequence 
+     * @param cdr3aa clonotype CDR3 amino acid sequence
      * @return clonotype search result
      */
     @CompileStatic
@@ -222,7 +228,7 @@ class ClonotypeDatabase extends Database {
      * Searches a database for a given clonotype 
      * @param v clonotype V segment name
      * @param j clonotype J segment name
-     * @param cdr3aa clonotype CDR3 amino acid sequence 
+     * @param cdr3aa clonotype CDR3 amino acid sequence
      * @return clonotype search result
      */
     @CompileStatic
@@ -241,21 +247,27 @@ class ClonotypeDatabase extends Database {
                 [new SequenceFilter(cdr3ColName, cdr3aa, searchScope)])
 
         // weighted/scored results
-        def results2 = results.collect {
+        def results2 = new ArrayList<ClonotypeSearchResult>(results.size())
+
+        results.each {
             def hit = it.hits[0]
 
             def dbV = it.row[vColIdx].value,
                 dbJ = it.row[jColIdx].value,
                 dbCdr3 = it.row[cdr3ColIdx].value
 
-            def segmentScores = segmentScoring.computeScores(v, dbV, j, dbJ),
-                fullScore = aggregateScoring.computeFullScore(segmentScores.vScore,
-                        segmentScores.cdr1Score,
-                        segmentScores.cdr2Score,
-                        hit.alignmentScore,
-                        segmentScores.jScore
-                )
-            new ClonotypeSearchResult(hit, it.row, id, fullScore, weightFunction.computeWeight(dbV, dbJ, dbCdr3))
+            if (allowExact || dbV != v || dbJ != j || hit.mutations.size() > 0) {
+                def segmentScores = segmentScoring.computeScores(v, dbV, j, dbJ),
+                    fullScore = aggregateScoring.computeFullScore(segmentScores.vScore,
+                            segmentScores.cdr1Score,
+                            segmentScores.cdr2Score,
+                            hit.alignmentScore,
+                            segmentScores.jScore
+                    )
+
+                results2 << new ClonotypeSearchResult(hit, it.row, id, fullScore,
+                        weightFunction.computeWeight(dbV, dbJ, dbCdr3))
+            }
         }
 
         // filter results

@@ -18,7 +18,7 @@ class ClonotypeDistanceCalculator {
     final ScoringBundle scoringBundle
     final WeightFunctionFactory weightFunctionFactory
     final ResultFilter resultFilter
-    final boolean probabilisticScoring, matchV, matchJ, allowSelfMatch
+    final boolean probabilisticScoring, matchV, matchJ
 
     /**
      *
@@ -30,8 +30,7 @@ class ClonotypeDistanceCalculator {
                                 ScoringBundle scoringBundle = ScoringBundle.DUMMY,
                                 WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE,
                                 ResultFilter resultFilter = DummyResultFilter.INSTANCE,
-                                boolean matchV = false, matchJ = false,
-                                boolean allowSelfMatch = false) {
+                                boolean matchV = false, matchJ = false) {
         this.searchScope = searchScope
         this.scoringBundle = scoringBundle
         this.weightFunctionFactory = weightFunctionFactory
@@ -39,7 +38,6 @@ class ClonotypeDistanceCalculator {
         this.matchV = matchV
         this.matchJ = matchJ
         this.probabilisticScoring = scoringBundle.alignmentScoring.scoringType == ScoringType.Probabilistic
-        this.allowSelfMatch = allowSelfMatch
     }
 
     /**
@@ -54,26 +52,25 @@ class ClonotypeDistanceCalculator {
         def clonotypeDatabase = VdjdbInstance.fromSample(from,
                 searchScope, scoringBundle,
                 weightFunctionFactory, resultFilter,
-                matchV, matchJ)
+                matchV, matchJ, from.sampleMetadata != to.sampleMetadata)
 
         clonotypeDatabase.search(to).each { entry ->
             entry.value.each { result ->
                 int idInSample = result.row[VdjdbInstance.CLONOTYPE_SAMPLE_ID_COL].value.toInteger()
                 def fromClonotype = from[idInSample], toClonotype = entry.key
 
-                if (fromClonotype != toClonotype || allowSelfMatch) { // exclude self-matches
-                    results.add(new ClonotypeDistance(
-                            idInSample,
-                            result.id, // id in other sample
-                            fromClonotype,
-                            toClonotype, // clonotype in other sample
-                            result.score,
-                            result.weight,
-                            probabilisticScoring ? (1.0d - result.score) : (-result.score)
-                    ))
-                }
+                results.add(new ClonotypeDistance(
+                        idInSample,
+                        result.id, // id in other sample
+                        fromClonotype,
+                        toClonotype, // clonotype in other sample
+                        result.score,
+                        result.weight,
+                        probabilisticScoring ? -Math.log(Math.max(1e-21, result.score)) : (-result.score)
+                ))
             }
         }
+
         results
     }
 

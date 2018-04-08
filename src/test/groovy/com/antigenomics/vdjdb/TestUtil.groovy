@@ -42,4 +42,18 @@ class TestUtil {
             },
             getId : { "sergey_anatolyevich.gz" }
     ] as InputStreamFactory)
+
+    static final Sample TEST_SAMPLE2 = SampleStreamConnection.load([
+            create: {
+                new GZIPInputStream(resourceAsStream("sergey_anatolyevich.gz"))
+            },
+            getId : { "sergey_anatolyevich2.gz" }
+    ] as InputStreamFactory)
+
+    static final Sample TEST_VDJDB_SAMPLE = SampleStreamConnection.load([
+            create: {
+                new GZIPInputStream(resourceAsStream("vdjdb_as_sample.gz"))
+            },
+            getId : { "vdjdb_as_sample.gz" }
+    ] as InputStreamFactory)
 }

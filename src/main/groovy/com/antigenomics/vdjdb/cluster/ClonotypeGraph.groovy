@@ -30,6 +30,8 @@ class ClonotypeGraph {
      */
     final List<ClonotypeDistance> clonotypeDistanceList
 
+    private List<ClonotypeGraph> components = null
+
     /**
      * INTERNAL - for subgraph initialization
      */
@@ -67,18 +69,20 @@ class ClonotypeGraph {
      * @return
      */
     List<ClonotypeGraph> getConnectedComponents() {
-        if (componentIndex > 0) {
-            throw new IllegalStateException("Cannot call connected components from subgraph")
-        }
+        if (components == null) {
+            if (componentIndex > 0) {
+                throw new IllegalStateException("Cannot call connected components from subgraph")
+            }
 
-        def components = new ArrayList<ClonotypeGraph>()
-        int[][] cc = graph.bfs()
+            components = new ArrayList<ClonotypeGraph>()
+            int[][] cc = graph.bfs()
 
-        for (int i = 0; i < cc.length; i++) {
-            int[] copyIndex = cc[i]
+            for (int i = 0; i < cc.length; i++) {
+                int[] copyIndex = cc[i]
 
-            components.add(new ClonotypeGraph(sample,
-                    i + 1, copyIndex, graph.subgraph(copyIndex)))
+                components.add(new ClonotypeGraph(sample,
+                        i + 1, copyIndex, graph.subgraph(copyIndex)))
+            }
         }
 
         components

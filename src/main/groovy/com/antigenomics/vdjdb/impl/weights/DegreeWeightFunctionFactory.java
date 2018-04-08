@@ -56,10 +56,13 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
             }
         }
 
-        if (groupColumnIndex == -1) {
-            throw new IllegalArgumentException("Clonotype database doesn't have specified grouping column '" +
-                    groupingColumnName + "'");
-        }
+        boolean noGroupingColumn = groupColumnIndex < 0 || groupColumnIndex >= clonotypeDatabase.getColumns().size();
+
+        // todo: warning
+        //if (noGroupingColumn) {
+        //throw new IllegalArgumentException("Clonotype database doesn't have specified grouping column '" +
+        //        groupingColumnName + "'");
+        //}
 
         // create sequence tree map holding epitope info & aux. set of cdrs
         // todo: here we don't handle/overwrite cross-reactive clonotypes
@@ -67,7 +70,7 @@ public class DegreeWeightFunctionFactory implements WeightFunctionFactory {
 
         for (Row row : clonotypeDatabase.getRows()) {
             String cdr3aa = row.getAt(clonotypeDatabase.getCdr3ColIdx()).getValue(),
-                    group = row.getAt(groupColumnIndex).getValue();
+                    group = noGroupingColumn ? "" : row.getAt(groupColumnIndex).getValue();
 
             cdr3InfoSet.add(new Cdr3Info(new AminoAcidSequence(cdr3aa), group));
         }

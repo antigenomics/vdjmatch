@@ -21,7 +21,7 @@ class ClonotypeEmbeddingCalculator {
      * @return
      */
     static Collection<ClonotypeEmbedding> isoMap(ClonotypeGraph clonotypeGraph,
-                                           int minComponentSize = 5, boolean infoWeight = true, int d = 2) {
+                                           int minComponentSize = 5, int d = 2) {
         def clonotypeEmbeddings = new ConcurrentLinkedQueue<ClonotypeEmbedding>()
 
         // iterate over connected components
@@ -34,13 +34,13 @@ class ClonotypeEmbeddingCalculator {
 
                 if (n >= minComponentSize) {
                     // a-la C-Isomap
-                    if (infoWeight) {
+                    /*if (infoWeight) {
                         for (Graph.Edge edge : graph.getEdges()) {
                             double d1 = graph.getDegree(edge.v1),
                                    d2 = graph.getDegree(edge.v2)
                             edge.weight *= (Math.log2(d1 + 1) + Math.log2(d2 + 1)) / 2d
                         }
-                    }
+                    }*/
 
                     // isoMap algorithm
                     coords = EmbeddingHelper.isoMap(graph, d)
