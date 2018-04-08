@@ -6,7 +6,7 @@ import com.antigenomics.vdjdb.stat.ClonotypeSearchSummary
 
 class OptMatch extends OptBase {
     final VdjdbInstance vdjdbInstance
-    final int optVdjdbConf
+    final int optVdjdbConf, optMinEpiSize
     final String optFilterString
     final List<String> summaryColumns
 
@@ -37,6 +37,7 @@ class OptMatch extends OptBase {
         // Additional VDJdb record filtering options
 
         optVdjdbConf = (opt.'vdjdb-conf' ?: CliMatch.DEFAULT_CONFIDENCE_THRESHOLD).toInteger()
+        optMinEpiSize = (opt.'min-epi-size' ?: CliMatch.DEFAULT_MIN_EPI_SIZE).toInteger()
         optFilterString = (String) (opt.'filter' ?: null)
 
         // List of summary columns

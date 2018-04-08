@@ -3,7 +3,7 @@ package com.antigenomics.vdjdb.cli
 import com.antigenomics.vdjdb.stat.ClonotypeSearchSummary
 
 class CliMatch extends CliBase<OptMatch> {
-    static def DEFAULT_CONFIDENCE_THRESHOLD = "0"
+    static def DEFAULT_CONFIDENCE_THRESHOLD = "0", DEFAULT_MIN_EPI_SIZE = "10"
 
     CliMatch() {
         super("match")
@@ -12,6 +12,9 @@ class CliMatch extends CliBase<OptMatch> {
 
         cli._(longOpt: "vdjdb-conf", argName: "0..3", args: 1,
                 "VDJdb confidence level threshold, from lowest to highest. [default=$DEFAULT_CONFIDENCE_THRESHOLD]")
+        cli._(longOpt: "min-epi-size", argName: "integer", args: 1,
+                "Minimal number of unique CDR3 sequences per epitope in VDJdb, " +
+                        "filters underrepresented epitopes. [default=$DEFAULT_MIN_EPI_SIZE]")
         cli._(longOpt: "filter", argName: "logical expression(__field__,...)", args: 1,
                 "[advanced] Logical filter evaluated for database columns. " +
                         "Supports Regex, .contains(), .startsWith(), etc.")

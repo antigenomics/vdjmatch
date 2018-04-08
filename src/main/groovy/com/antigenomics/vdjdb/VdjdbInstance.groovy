@@ -29,6 +29,7 @@ import com.antigenomics.vdjdb.impl.weights.WeightFunctionFactory
 import com.antigenomics.vdjdb.sequence.SearchScope
 import com.antigenomics.vdjdb.sequence.SequenceColumn
 import com.antigenomics.vdjdb.sequence.SequenceFilter
+import com.antigenomics.vdjdb.text.EpitopeSizeFilterUtil
 import com.antigenomics.vdjdb.text.ExactTextFilter
 import com.antigenomics.vdjdb.text.LevelFilter
 import com.antigenomics.vdjdb.text.TextColumn
@@ -135,7 +136,8 @@ class VdjdbInstance {
                                           WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE,
                                           ResultFilter resultFilter = DummyResultFilter.INSTANCE,
                                           boolean matchV = false, boolean matchJ = false,
-                                          int vdjdbRecordConfidenceThreshold = -1) {
+                                          int vdjdbRecordConfidenceThreshold = -1,
+                                          int minEpiSize = -1) {
         def cdb = new ClonotypeDatabase(header, matchV, matchJ,
                 searchScope,
                 scoringBundle.alignmentScoring,
@@ -154,6 +156,9 @@ class VdjdbInstance {
         }
         if (vdjdbRecordConfidenceThreshold > 0) {
             filters << new LevelFilter(SCORE_COLUMN_DEFAULT, vdjdbRecordConfidenceThreshold.toString(), false)
+        }
+        if (minEpiSize > 0) {
+            filters << EpitopeSizeFilterUtil.createEpitopeSizeFilter(this, species, gene, minEpiSize)
         }
 
         cdb.addEntries(dbInstance.rows.collect { row -> row.entries.collect { it.value } }, filters)
@@ -193,7 +198,7 @@ class VdjdbInstance {
                 resultFilter)
 
         int epitopeColId = sample.annotationHeader ? sample.annotationHeader.split("\t").findIndexOf {
-            it.equalsIgnoreCase("antigen.epitope")
+            it.equalsIgnoreCase(ClonotypeDatabase.EPITOPE_COL_DEFAULT)
         } : -1
 
         def entries = new ArrayList<List<String>>()

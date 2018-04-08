@@ -1,6 +1,5 @@
 package com.antigenomics.vdjdb.web
 
-import com.antigenomics.vdjdb.HashSetStringGen
 import com.antigenomics.vdjdb.VdjdbInstance
 import com.antigenomics.vdjdb.impl.ClonotypeDatabase
 import com.antigenomics.vdjdb.sequence.SearchScope
@@ -13,19 +12,6 @@ import com.milaboratory.core.sequence.AminoAcidSequence
  * Created by mikesh on 7/23/17.
  */
 class EpitopeSuggestionGenerator {
-    static Map<String, Integer> generateEpitopeCounts(VdjdbInstance vdjdbInstance) {
-        def epiCdr3Map = new HashMap<String, Set<String>>()
-
-        vdjdbInstance.dbInstance.rows.each { row ->
-            def epi = row[ClonotypeDatabase.EPITOPE_COL_DEFAULT].value,
-                cdr3 = row[ClonotypeDatabase.CDR3_COL_DEFAULT].value
-
-            epiCdr3Map.computeIfAbsent(epi, HashSetStringGen.INSTANCE).add(cdr3)
-        }
-
-        (epiCdr3Map.collectEntries { [(it.key): it.value.size()] } as Map<String, Integer>)
-    }
-
     static Map<String, List<EpitopeSuggestion>> generateSuggestions(VdjdbInstance vdjdbInstance,
                                                                     int maxMm = 3, int maxIndel = 2,
                                                                     int maxTotal = 5) {

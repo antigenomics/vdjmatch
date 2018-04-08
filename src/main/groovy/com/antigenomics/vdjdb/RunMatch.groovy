@@ -38,7 +38,7 @@ def clonotypeDatabase = vdjdbInstance.asClonotypeDatabase(
         opts.weightFunctionFactory,
         opts.resultFilter,
         opts.optVMatch, opts.optJMatch,
-        opts.optVdjdbConf)
+        opts.optVdjdbConf, opts.optMinEpiSize)
 opts.cliBase.progress("Done.\n$clonotypeDatabase")
 
 /* Re-check if we have any records */
