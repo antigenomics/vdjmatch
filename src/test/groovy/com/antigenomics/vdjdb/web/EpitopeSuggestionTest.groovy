@@ -9,10 +9,22 @@ import org.junit.Test
  */
 class EpitopeSuggestionTest {
     @Test
-    void test() {
+    void testSuggestion() {
         final VdjdbInstance vdjdbInst = new VdjdbInstance(Util.resourceAsStream("vdjdb_17.meta.txt"),
                 Util.resourceAsStream("vdjdb_17.txt"))
 
         assert EpitopeSuggestionGenerator.generateSuggestions(vdjdbInst)["EAAGIGILTV"].size() > 0
+    }
+
+    @Test
+    void testCount() {
+        final VdjdbInstance vdjdbInst = new VdjdbInstance(Util.resourceAsStream("vdjdb_17.meta.txt"),
+                Util.resourceAsStream("vdjdb_17.txt"))
+
+        def counts = EpitopeSuggestionGenerator.generateEpitopeCounts(vdjdbInst)
+
+        println counts.sort { -it.value }
+
+        assert counts["GLCTLVAML"] == 804
     }
 }

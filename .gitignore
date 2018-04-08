@@ -3,5 +3,5 @@ build/
 *.iml
 .gradle/
 out/
-test/
-!test/test.sh
+benchmark/
+!benchmark/benchmark.sh
