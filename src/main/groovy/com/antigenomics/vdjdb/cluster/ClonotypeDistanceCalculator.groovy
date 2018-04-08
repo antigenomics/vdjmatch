@@ -2,6 +2,8 @@ package com.antigenomics.vdjdb.cluster
 
 import com.antigenomics.vdjdb.VdjdbInstance
 import com.antigenomics.vdjdb.impl.ScoringBundle
+import com.antigenomics.vdjdb.impl.filter.DummyResultFilter
+import com.antigenomics.vdjdb.impl.filter.ResultFilter
 import com.antigenomics.vdjdb.impl.weights.DummyWeightFunctionFactory
 import com.antigenomics.vdjdb.impl.weights.WeightFunctionFactory
 import com.antigenomics.vdjdb.sequence.ScoringType
@@ -15,7 +17,8 @@ class ClonotypeDistanceCalculator {
     final SearchScope searchScope
     final ScoringBundle scoringBundle
     final WeightFunctionFactory weightFunctionFactory
-    final boolean probabilisticScoring
+    final ResultFilter resultFilter
+    final boolean probabilisticScoring, matchV, matchJ, allowSelfMatch
 
     /**
      *
@@ -25,11 +28,18 @@ class ClonotypeDistanceCalculator {
      */
     ClonotypeDistanceCalculator(SearchScope searchScope = SearchScope.EXACT,
                                 ScoringBundle scoringBundle = ScoringBundle.DUMMY,
-                                WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE) {
+                                WeightFunctionFactory weightFunctionFactory = DummyWeightFunctionFactory.INSTANCE,
+                                ResultFilter resultFilter = DummyResultFilter.INSTANCE,
+                                boolean matchV = false, matchJ = false,
+                                boolean allowSelfMatch = false) {
         this.searchScope = searchScope
         this.scoringBundle = scoringBundle
         this.weightFunctionFactory = weightFunctionFactory
+        this.resultFilter = resultFilter
+        this.matchV = matchV
+        this.matchJ = matchJ
         this.probabilisticScoring = scoringBundle.alignmentScoring.scoringType == ScoringType.Probabilistic
+        this.allowSelfMatch = allowSelfMatch
     }
 
     /**
@@ -40,21 +50,28 @@ class ClonotypeDistanceCalculator {
      */
     List<ClonotypeDistance> computeDistances(Sample from, Sample to) {
         def results = new ArrayList<ClonotypeDistance>()
+
         def clonotypeDatabase = VdjdbInstance.fromSample(from,
-                searchScope, scoringBundle, weightFunctionFactory)
+                searchScope, scoringBundle,
+                weightFunctionFactory, resultFilter,
+                matchV, matchJ)
 
         clonotypeDatabase.search(to).each { entry ->
             entry.value.each { result ->
                 int idInSample = result.row[VdjdbInstance.CLONOTYPE_SAMPLE_ID_COL].value.toInteger()
-                results.add(new ClonotypeDistance(
-                        idInSample,
-                        result.id, // id in other sample
-                        from[idInSample],
-                        entry.key, // clonotype in other sample
-                        result.score,
-                        result.weight,
-                        probabilisticScoring ? (1.0d - result.score) : (-result.score)
-                ))
+                def fromClonotype = from[idInSample], toClonotype = entry.key
+
+                if (fromClonotype != toClonotype || allowSelfMatch) { // exclude self-matches
+                    results.add(new ClonotypeDistance(
+                            idInSample,
+                            result.id, // id in other sample
+                            fromClonotype,
+                            toClonotype, // clonotype in other sample
+                            result.score,
+                            result.weight,
+                            probabilisticScoring ? (1.0d - result.score) : (-result.score)
+                    ))
+                }
             }
         }
         results

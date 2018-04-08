@@ -18,7 +18,6 @@
 package com.antigenomics.vdjdb
 
 import com.milaboratory.core.sequence.AminoAcidSequence
-import groovy.transform.CompileStatic
 
 class Util {
     /**
@@ -91,5 +90,19 @@ class Util {
 
         System.err.println("Error converting '$aaSeq' to amino acid sequences, entry will be skipped from search")
         null
+    }
+
+
+    static void sout(String header, String message) {
+        println "[${new Date()} $header] $message"
+    }
+
+    static void error(String message) {
+        sout("ERROR", message)
+        System.exit(1)
+    }
+
+    static void info(String message) {
+        sout("INFO", message)
     }
 }

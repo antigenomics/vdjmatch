@@ -11,7 +11,7 @@ VDJmatch accepts TCR clonotype table(s) as an input and relies on [VDJtools](htt
 
 VDJdb is distributed as an executable JAR that can be downloaded from the [releases section](https://github.com/antigenomics/vdjdb/releases), the software is cross-platform and requires [Java v1.8](http://www.oracle.com/technetwork/java/javase/downloads/jre8-downloads-2133155.html) or higher to run.
 
-To run the executable JAR use the ``java -jar path/to/vdjmatch-version.jar [options]`` command as described below. Running without any ``[options]`` or with ``-h`` option will display the help message.
+To run the executable JAR use the ``java -jar path/to/vdjmatch-version.jar match [options]`` command as described below. Running without any ``[options]`` or with ``-h`` option will display the help message.
 
 The latest version of VDJdb will be downloaded the first time you run VDJmatch. Note that in order to update to the most recent version next time, you will need to run ``java -jar path/to/vdjmatch-version.jar Update`` command.
 
@@ -20,7 +20,7 @@ The latest version of VDJdb will be downloaded the first time you run VDJmatch. 
 The following syntax should be used to run VDJmatch for RepSeq sample(s)
 
 ```
-java -Xmx4G -jar path/to/vdjmatch-version.jar \
+java -Xmx4G -jar path/to/vdjmatch-version.jar match \
       [options] [sample1 sample2 sample3 ... if -m is not specified] output_prefix
 ```
 
@@ -115,12 +115,12 @@ Default summary columns are ``mhc.class,antigen.species,antigen.gene,antigen.epi
 
 The following output files will be generated:
 
-1. ``annot.summary.txt`` annotation summary containing the number of unique clonotypes (``unique``), their cumulative share of reads (``frequency``) and total read count (``reads``).
+1. ``$output_prefix.annot.summary.txt`` annotation summary containing the number of unique clonotypes (``unique``), their cumulative share of reads (``frequency``) and total read count (``reads``).
     * Sample metadata will be appended to this table if provided via the ``-m`` option.
     * Each row corresponds to a combination of database field values from the columns specified by the ``--summary-columns`` option (e.g. epitope and parent species, ``antigen.epitope + antigen.species``). If a single clonotype is matched to several VDJdb records, its reads count and frequency and will be appended to all of them and the ``unique`` counter for each of the records will be incremented by ``1``.
     * The weight/informativeness sum of database hits for each row is stored in the ``weight`` column and can be used to scale the results, together with the ``db.unique`` column, storing the total number of unique database TCR entries for a given combination of summary columns.
     * Each of database records is tagged as ``entry`` in ``counter.type`` column of summary table, statistics (total number of clonotypes, read share and count) of annotated and unannotated clonotypes is stored in rows tagged as ``found`` and ``not.found`` respectively.
-2. ``$sample_id.annot.txt`` annotation for each of the clonotypes found in database, a separate file is generated for each input sample.
+2. ``$output_prefix.$sample_id.txt`` annotation for each of the clonotypes found in database, a separate file is generated for each input sample.
     * This is an all-to-all merge table between the sample and database that includes all matches.
     * Clonotype information from the sample (count, frequency, cdr3 sequence, v/d/j segments and v/d/j markup) is preserved.
     * As a clonotype can be represented by multiple rows in the output (i.e. match to several records in the database), ``id.in.sample`` column can be used to make the correspondence between annotation record and 0-based index of clonotype in the original sample. For the information on database columns that are appended see database schema in [VDJdb-db repository](https://github.com/antigenomics/vdjdb-db) readme.

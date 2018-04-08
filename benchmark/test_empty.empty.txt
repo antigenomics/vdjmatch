@@ -1,0 +1,1 @@
+count	freq	cdr3nt	cdr3aa	v	d	j	VEnd	DStart	DEnd	JStart	id.in.sample	match.score	match.weight	gene	cdr3	species	antigen.epitope	antigen.gene	antigen.species	complex.id	v.segm	j.segm	v.end	j.start	mhc.a	mhc.b	mhc.class	reference.id	vdjdb.score

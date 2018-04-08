@@ -15,6 +15,6 @@ script:
   - jdk_switcher use oraclejdk8
   - gradle clean build
   - jdk_switcher use oraclejdk9
-  - cd test/
-  - chmod +x test.sh
-  - bash test.sh
+  - cd benchmark/
+  - chmod +x benchmark.sh
+  - bash benchmark.sh

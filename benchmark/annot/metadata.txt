@@ -1,0 +1,2 @@
+file_name	sample_id	..filter..
+test.sergey_anatolyevich.txt	test.sergey_anatolyevich	annot:cdr3length,ndnsize,insertsize,hydropathy,charge,polarity,strength,cdr3contact

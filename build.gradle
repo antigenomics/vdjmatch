@@ -21,7 +21,7 @@ jar {
     version = "$version"
 
     manifest {
-        attributes "Main-Class": "$mainClassName"
+        attributes("Main-Class": "$mainClassName", "Implementation-Version": version)
     }
 
     from {
