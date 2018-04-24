@@ -2,8 +2,16 @@ package com.antigenomics.vdjdb.impl.model;
 
 
 public class LogitAggregateScoring extends LinearAggregateScoring {
+    private final float precomputedZeroFullScore;
+
     public LogitAggregateScoring(float intercept, float cc1, float cc2, float cc3, float cv, float cj) {
         super(intercept, cc1, cc2, cc3, cv, cj);
+        this.precomputedZeroFullScore = this.computeFullScore(0, 0,0, 0, 0);
+    }
+
+    @Override
+    public float getPrecomputedZeroFullScore() {
+        return this.precomputedZeroFullScore;
     }
 
     @Override

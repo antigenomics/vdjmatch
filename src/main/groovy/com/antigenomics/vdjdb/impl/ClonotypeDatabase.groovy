@@ -265,7 +265,7 @@ class ClonotypeDatabase extends Database {
                             segmentScores.jScore
                     )
 
-                results2 << new ClonotypeSearchResult(hit, it.row, id, fullScore,
+                results2 << new ClonotypeSearchResult(hit, it.row, id, (float) (fullScore / aggregateScoring.getPrecomputedZeroFullScore()),
                         weightFunction.computeWeight(dbV, dbJ, dbCdr3))
             }
         }

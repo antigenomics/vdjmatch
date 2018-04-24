@@ -3,6 +3,7 @@ package com.antigenomics.vdjdb.impl.model;
 
 public class LinearAggregateScoring implements AggregateScoring {
     private final float intercept, cc1, cc2, cc3, cv, cj;
+    private final float precomputedZeroFullScore;
 
     public LinearAggregateScoring(float intercept,
                                   float cc1, float cc2, float cc3,
@@ -13,6 +14,7 @@ public class LinearAggregateScoring implements AggregateScoring {
         this.cc3 = cc3;
         this.cv = cv;
         this.cj = cj;
+        this.precomputedZeroFullScore = this.computeFullScore(0, 0, 0, 0, 0);
     }
 
     public float getIntercept() {
@@ -37,6 +39,11 @@ public class LinearAggregateScoring implements AggregateScoring {
 
     public float getCj() {
         return cj;
+    }
+
+    @Override
+    public float getPrecomputedZeroFullScore() {
+        return precomputedZeroFullScore;
     }
 
     @Override
