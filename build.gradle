@@ -7,7 +7,7 @@ sourceCompatibility = 1.8
 targetCompatibility = 1.8
 
 group = 'com.antigenomics'
-version = '1.2.1-SNAPSHOT.1'
+version = '1.2.1-SNAPSHOT'
 
 mainClassName = 'com.antigenomics.vdjdb.Main'
 
