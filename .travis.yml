@@ -1,20 +1,9 @@
-language: java
-sudo: required
+language: groovy
 
-jdk: oraclejdk9
-
-addons:
-  apt:
-    packages:
-      - oracle-java9-installer
-
-install:
-  - jdk_switcher use oraclejdk8
+jdk: openjdk10
 
 script:
-  - jdk_switcher use oraclejdk8
-  - gradle clean build
-  - jdk_switcher use oraclejdk9
+  - ./gradlew build
   - cd benchmark/
   - chmod +x benchmark.sh
   - bash benchmark.sh
