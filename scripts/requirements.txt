@@ -1,0 +1,4 @@
+numpy>=1.23
+pandas>=2.0
+tqdm>=4.66
+mir @ git+https://github.com/antigenomics/mirpy
