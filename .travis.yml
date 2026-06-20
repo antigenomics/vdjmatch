@@ -1,9 +1,0 @@
-language: groovy
-
-jdk: openjdk8
-
-script:
-  - ./gradlew build
-  - cd benchmark/
-  - chmod +x benchmark.sh
-  - bash benchmark.sh

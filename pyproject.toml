@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vdjmatch"
+version = "2.0.0a0"
+description = "Fast, control-calibrated annotation of T-cell receptor antigen specificity"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "ISALGO laboratory", email = "mikhail.shugay@gmail.com" }]
+keywords = ["TCR", "VDJdb", "antigen-specificity", "immunology", "AIRR", "repertoire", "E-value"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "seqtree>=0.0.3b1",   # local editable until seqtree 0.0.3 is published to PyPI
+    "polars>=1.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.4", "hypothesis"]
+bench = ["psutil"]
+control = ["seqtree[control]"]   # HuggingFace controls beyond the bundled human_trb_aa
+ods = ["ezodf"]                   # read ImmuneWatch DETECT golden .ods in tests
+
+[project.scripts]
+vdjmatch = "vdjmatch.cli.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/antigenomics/vdjmatch"
+Repository = "https://github.com/antigenomics/vdjmatch"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vdjmatch"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/vdjmatch/resources" = "vdjmatch/resources"

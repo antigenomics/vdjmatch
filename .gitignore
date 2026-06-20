@@ -1,7 +1,19 @@
-.idea/
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
 build/
+dist/
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+.cache/
+# vdjmatch caches / outputs
+*.annot.txt
+*.annot.summary.txt
+.vdjmatch_cache/
+# editors / OS
+.idea/
 *.iml
-.gradle/
-out/
-benchmark/
-!benchmark/benchmark.sh
+.DS_Store
