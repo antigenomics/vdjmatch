@@ -20,3 +20,6 @@ dist/
 
 # Sphinx build output
 docs/_build/
+
+# third-party comparison matrices (downloaded on demand, not redistributed)
+bench/matrices/

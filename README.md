@@ -51,7 +51,9 @@ An empirical study on VDJdb (see `appendix/vdjmatch_scoring.tex`) settles the sc
   (≈ 0.70); the NDN core is also ~30–36% glycine (insertion/D-gene signature).
 - **No *standard* substitution matrix beats BLOSUM62** for epitope retrieval (BLOSUM62 ≈ PAM250 >
   structural > Hamming > the data-derived VDJAM; region weighting helps VDJAM a little but not past
-  BLOSUM) — the substitution *alphabet* is a second-order lever.
+  BLOSUM) — the substitution *alphabet* is a second-order lever. A published TCR-specific matrix,
+  [tcrBLOSUM](https://doi.org/10.1093/bib/bbae602), is in fact *worse* than BLOSUM62 on held-out-epitope
+  retrieval (0.303 vs 0.330; `bench/tcrblosum_refute.py`) — its same-epitope counts don't transfer.
 - **Position-weighting BLOSUM62 does beat it.** Encoding the central-substitution finding as a
   seqtree positional matrix (`PositionalMatrix.from_weights(BLOSUM62, …)`, centre ~1.4× the V/J
   borders) raises leave-one-out retrieval PR-AUC above flat BLOSUM62 in **8/8 held-out epitopes** at

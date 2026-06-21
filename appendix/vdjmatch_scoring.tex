@@ -278,9 +278,21 @@ its border-position cost. This is the only scoring change that beats flat BLOSUM
 \emph{at every held-out epitope}: $0.333\!\to\!0.356$ at distance~$\le2$ and $0.218\!\to\!0.236$ at
 distance~$\le4$, winning $8/8$ epitopes at both radii (Table~\ref{tab:matrices}). The gain is modest in
 absolute PR-AUC but uniformly signed, exactly because the matrix re-ranks within a ball whose purity is
-already set by the radius. The remaining first-order lever is the \emph{V-gene} dimension (cross-V
-comparisons and V-similarity grouping), where germline-flank differences are common and this central
-weighting should matter most.
+already set by the radius. The remaining lever, the \emph{V-gene} dimension, is taken up
+in~\S\ref{sec:vgene}.
+
+\paragraph{A purpose-built TCR matrix (tcrBLOSUM) does not transfer.} Postovskaya
+et~al.~\cite{Postovskaya2024} report that tcrBLOSUM --- a BLOSUM-style matrix counted from same-epitope,
+equal-length CDR3 pairs --- improves epitope-specific TCR clustering over BLOSUM62. Two features make
+that gain suspect: the counts apply \emph{no} redundancy clustering (so convergent public clonotypes
+dominate the statistics), and the matrix is validated on the same same-epitope relation it is fit to.
+Run through our leave-one-out-by-epitope retrieval (their published tcrBLOSUM\textsubscript{b},
+\texttt{bench/tcrblosum\_refute.py}), it does \emph{not} beat BLOSUM62: it is slightly worse at both
+radii ($0.303$ vs $0.330$ at distance~$\le2$, winning $0/8$ epitopes; $0.197$ vs $0.211$ at
+distance~$\le4$), while their bundled BLOSUM62 reproduces ours exactly (a sanity check on the loader).
+Reweighting \emph{either} matrix by the central-significance PSSM helps, and it helps BLOSUM62 more than
+tcrBLOSUM ($0.354$ vs $0.336$). The lesson is consistent: a re-counted amino-acid alphabet does not
+transfer across epitopes; position does.
 
 \begin{table}[ht]\centering\small\setlength{\tabcolsep}{4pt}
 \begin{tabular}{lccccccc}
@@ -390,6 +402,47 @@ it. The V signal is gene identity, not loop chemistry.}
 \label{tab:vgene-sim}
 \end{table}
 
+\paragraph{The pattern holds across species, chain and MHC class.} Sweeping every
+\{human,mouse\}$\times$\{TRA,TRB\}$\times$\{MHC-I,MHC-II\} cell of VDJdb (\texttt{bench/vgene\_scan.py},
+Fig.~\ref{fig:vgene_scan}, Table~\ref{tab:vgene-scan}) reproduces both findings everywhere: a V match is
+a large co-specificity prior (same/cross ratio $1.4$--$17\times$), and germline CDR1$+$CDR2 similarity
+barely predicts cross-V co-specificity (point-biserial $r$ between $-0.06$ and $+0.13$ in every
+adequately powered cell; the single $r=0.33$ is mouse TRB MHC-II with only $35$ cross-V pairs). The
+near-empty high-similarity bins are themselves telling: germline-similar but non-identical V genes are
+rare, so CDR1/CDR2 clustering has almost no pairs to act on. We conclude --- comprehensively, not just
+on human TRB --- that focusing on CDR1/CDR2 to soften the V match is not supported; V should enter the
+model as a strong, near-binary prior.
+
+\begin{figure}[ht]\centering
+  \includegraphics[width=0.72\linewidth]{figures/vgene_scan.pdf}
+  \caption{Same-V vs cross-V CDR3-neighbour co-specificity across species/chain/MHC-class cells of
+  VDJdb (h/m $=$ human/mouse; A/B $=$ TRA/TRB; I/II $=$ MHC class). A V match is a universal
+  co-specificity prior; cross-V neighbours are far less likely to share the epitope, and germline
+  CDR1/CDR2 similarity does not bridge the gap (Table~\ref{tab:vgene-scan}).}
+  \label{fig:vgene_scan}
+\end{figure}
+
+\begin{table}[ht]\centering\small\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lrrrr}
+\hline
+cell (species / chain / class) & same-V & cross-V & ratio & $r(\mathrm{vsim},\text{co-spec})$\\
+\hline
+human TRA MHC-I  & 53.8\% & 18.4\% &  2.9 & $0.086$\\
+human TRA MHC-II & 96.1\% & 10.2\% &  9.4 & $0.126$\\
+human TRB MHC-I  & 69.0\% &  9.7\% &  7.1 & $0.046$\\
+human TRB MHC-II & 94.2\% & 67.2\% &  1.4 & $0.039$\\
+mouse TRA MHC-I  & 82.8\% & 34.8\% &  2.4 & $0.047$\\
+mouse TRB MHC-I  & 80.6\% & 56.3\% &  1.4 & $-0.056$\\
+mouse TRB MHC-II & 99.7\% &  5.7\% & 17.4 & $0.331$\\
+\hline
+\end{tabular}
+\caption{Per-cell same-V vs cross-V co-specificity and the point-biserial correlation between germline
+CDR1$+$CDR2 similarity and co-specificity among cross-V pairs (unit-cost candidates, top 6
+epitopes/cell, $\ge30$ CDR3/epitope; mouse TRA MHC-II omitted, $n$ too small). The V prior holds
+everywhere; $r\approx0$ wherever it is well powered.}
+\label{tab:vgene-scan}
+\end{table}
+
 \section{Worked examples}
 \paragraph{Pairwise (different lengths).} \texttt{seqtree} aligns CDR3s of differing length, placing
 indels where the loop genuinely lengthens. The edit-distance alignments below (influenza GIL-specific
@@ -433,7 +486,18 @@ V$+$CDR3 E-value rather than to soften the V match, plus a per-chain treatment (
 the
 control's V--J usage must match the query repertoire's or the null is mis-specified --- whether to
 renormalize V--J usage (at the risk of erasing genuine V-gene bias) is an open question to settle on
-held-out epitopes. These extensions, and the full benchmark against existing tools, are ongoing work.
+held-out epitopes.
+
+A further direction is to predict, \emph{a priori}, which epitopes are intrinsically easy versus hard
+to annotate --- the wide spread of per-epitope PR-AUC in our experiments (e.g.\ the convergent,
+``featured'' CMV NLV vs the diffuse, ``featureless'' influenza GIL) is not noise but biology. A pMHC
+with prominent TCR-facing features selects a focused, motif-rich repertoire that clusters cleanly,
+whereas a featureless one is recognised by structurally diverse TCRs in varied docking modes and yields
+no tight motif~\cite{Turner2005,Yang2017,Song2017,Peng2014}; clustering-based specificity inference
+succeeds or fails accordingly~\cite{Hudson2024}. A model that scores epitope ``annotability'' from
+repertoire convergence (and, where available, pMHC structural features) would let us report calibrated
+confidence per epitope and triage GIL-like hard cases --- a planned addition to the benchmark. These
+extensions, and the full comparison against existing tools, are ongoing work.
 
 \bibliographystyle{plain}
 \bibliography{refs}

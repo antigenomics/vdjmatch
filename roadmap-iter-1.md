@@ -98,7 +98,43 @@ CDR1/2/2.5; cross-V comparisons, where flank weighting should matter) + control 
   or beats a single global matrix on VDJdb-vs-VDJdb retrieval.
 - V+CDR3 fusion and the two control nulls compared on epitope PR/AUC; pick the winner.
 
+**DONE — central-significance PSSM beats BLOSUM62.** Encoded experiment-2 (central CDR3 mismatches
+carry the specificity signal) as a native seqtree `PositionalMatrix.from_weights(BLOSUM62, ω)` (centre
+~1.4×, V/J borders ~0.7×; `regions.significance_pssm`). Beats flat BLOSUM62 in **8/8** held-out epitopes
+at edit distance ≤2 (0.333→0.356) and ≤4 (0.218→0.236). The substitution *alphabet* is second-order;
+*position* is the first-order matrix lever.
+
+**DONE — refuted tcrBLOSUM (Postovskaya et al., Brief Bioinform 2024, doi:10.1093/bib/bbae602).** Their
+claim that a TCR-specific matrix beats BLOSUM62 does not survive held-out-epitope retrieval
+(`bench/tcrblosum_refute.py`): tcrBLOSUMb scores **below** BLOSUM62 (0.303 vs 0.330 @≤2, 0/8 wins;
+0.197 vs 0.211 @≤4), while their bundled BLOSUM62 reproduces ours exactly. Their counts use no
+redundancy clustering and are validated on the same same-epitope relation they are fit to → in-sample.
+
+**DONE — V-gene dimension is a strong but near-binary prior; CDR1/2 clustering refuted.** Comprehensive
+scan over {human,mouse}×{TRA,TRB}×{MHC-I,MHC-II} (`bench/vgene_scan.py`, `vgene_strat.py`;
+`match/vgene.py` ships germline-loop similarity + `v_clusters`): a V match is a **1.4–17× co-specificity
+prior** in every cell, but germline CDR1+CDR2 similarity barely predicts cross-V co-specificity
+(point-biserial r ∈ [−0.06, +0.13] in every well-powered cell). Soft V-clustering by CDR1/2 does **not**
+recover the prior — V is gene identity, not loop chemistry. Open work: model V as a strong prior in a
+joint V+CDR3 E-value (not soften it); per-chain TRA/TRB; control V–J normalization.
+
 ## Later (subsequent iterations)
+- **Hard vs easy (featured/featureless) epitopes.** Per-epitope PR-AUC varies enormously (convergent
+  CMV NLV ≫ diffuse influenza GIL); this is biology, not noise. Build an *a-priori* "annotability"
+  score from repertoire convergence (and, where available, pMHC structural features) to report
+  calibrated per-epitope confidence and triage hard cases. Featured pMHC select focused motif-rich
+  repertoires; featureless pMHC give structurally diverse TCRs and no tight motif — clustering-based
+  inference succeeds/fails accordingly. Refs (verified via PubMed):
+  - Turner et al. 2005, *Nat Immunol* 6(4):382–389, doi:10.1038/ni1175 (PMID 15735650) — featureless
+    pMHC → limited/public repertoire; mutating one feature collapses diversity.
+  - Yang et al. 2017, *J Biol Chem* 292(45):18618–18627, doi:10.1074/jbc.M117.810382 (PMID 28931605) —
+    GIL/HLA-A2 recognised by structurally distinct TCRs in different docking modes.
+  - Song et al. 2017, *Nat Struct Mol Biol* 24(4):395–406, doi:10.1038/nsmb.3383 (PMC5383516) — broad
+    repertoire / diverse structural solutions for the featureless M1/HLA-A2 epitope.
+  - Peng et al. 2014, *PNAS* 111(26):E2656–E2665, doi:10.1073/pnas.1401131111 (PMC4084487) — biophysics
+    of recognising "featureless" surfaces (antibody; transferable principle).
+  - Hudson et al. 2024, *Immunoinformatics* 13:100033, doi:10.1016/j.immuno.2024.100033 (PMC10955519) —
+    clustering models for TCR specificity succeed/fail by epitope.
 - Task #9: VDJAM extractor + leave-one-out-by-epitope (the NDN matrix; feeds the manuscript).
 - Task #7: golden tests vs DETECT `.ods`, property tests, 300k-scale benchmark harness.
 - Task #10: NAR manuscript skeleton + transfer of the seqtree E-value appendix.
