@@ -88,3 +88,25 @@ def test_overlap_within_drops_self():
     # CASSF ~ CASSL (1 sub) should pair
     got = {(r["a_cdr3"], r["b_cdr3"]) for r in pairs.iter_rows(named=True)}
     assert ("CASSF", "CASSL") in got
+
+
+# --- paired alpha/beta E-value ---
+def test_paired_evalue():
+    from seqtree import Index
+    from vdjmatch.match import PairedVdjdbIndex, search_params, load_vdjam
+    vdjdb = pl.DataFrame({
+        "species": ["HomoSapiens"] * 4,
+        "complex_id": [1, 1, 2, 2],
+        "gene": ["TRA", "TRB", "TRA", "TRB"],
+        "cdr3": ["CAVRDSNYQLIW", "CASSIRSSYEQYF", "CAGHTGNQFYF", "CASSPGTGGYGYTF"],
+        "epitope": ["GILGFVFTL", "GILGFVFTL", "NLVPMVATV", "NLVPMVATV"],
+    })
+    pidx = PairedVdjdbIndex.build(vdjdb, species="HomoSapiens")
+    assert pidx.n_pairs == 2
+    # controls of unrelated random clonotypes (low background)
+    ctrl = Index.build(["CAAAAAAAAF", "CBBBBBBBBF".replace("B", "G"), "CWWWWWWWWF"], "aa")
+    pairs = pl.DataFrame({"cdr3a": ["CAVRDSNYQLIW"], "cdr3b": ["CASSIRSSYEQYF"]})
+    res = pidx.annotate_pairs(pairs, ctrl, ctrl, search_params("1,0,0,1", matrix=load_vdjam()))
+    assert res["n_joint"][0] >= 1                 # the true complex matches both chains
+    assert res["epitope"][0] == "GILGFVFTL"
+    assert res["p_joint"][0] < 1.0                # enriched over background
