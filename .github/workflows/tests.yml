@@ -23,12 +23,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Build tooling (seqtree is a scikit-build-core C++ ext built from source)
-        run: python -m pip install --upgrade pip cmake ninja
-      - name: Install seqtree from source
-        # seqtree (the search engine) is not yet on PyPI; install the published source from GitHub.
-        run: pip install "git+https://github.com/antigenomics/seqtree.git@master"
-      - name: Install vdjmatch + test deps
-        run: pip install -e ".[test,bench]"
+      - name: Install vdjmatch + test deps (seqtree resolved from PyPI)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test,bench]"
       - name: Run unit tests
         run: pytest -m "not slow" -ra

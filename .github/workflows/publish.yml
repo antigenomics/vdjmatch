@@ -46,12 +46,10 @@ jobs:
         with:
           name: python-dist
           path: dist/
-      - name: Install built wheel (+ seqtree from source until it is on PyPI)
+      - name: Install built wheel (deps incl. seqtree resolved from PyPI)
         run: |
-          pip install --upgrade pip cmake ninja
-          pip install "git+https://github.com/antigenomics/seqtree.git@master"
-          pip install --no-deps dist/*.whl
-          pip install polars
+          pip install --upgrade pip
+          pip install dist/*.whl
       - name: Import vdjmatch
         run: python -c "import vdjmatch; print('[OK] vdjmatch', vdjmatch.__version__)"
 
