@@ -219,6 +219,79 @@ the first-order signal is the control-calibrated neighbour count (\S\ref{sec:agg
   \label{fig:loo}
 \end{figure}
 
+\section{Edit distance, position, and the matrix comparison}\label{sec:empirical}
+Four analyses (\texttt{bench/scoring\_analysis.py}, \texttt{bench/loo\_vdjam.py}) settle what scoring
+actually buys on VDJdb (human TRB).
+
+\paragraph{Hamming distance 1 is the signal:noise optimum.} The fraction of CDR3 neighbours that share
+an epitope --- the precision of a similarity call --- falls steeply with edit distance:
+$0.53,\,0.27,\,0.19,\,0.15,\,0.13$ at distance $1\ldots5$ (Fig.~\ref{fig:purity}). A distance-1
+neighbour is twice as likely to be a true co-specific as a distance-2 one and four times a distance-5
+one. This reproduces the original VDJdb observation~\cite{Shugay2018} that single-mismatch neighbours
+are the sweet spot, and it frames everything below: the search ball, not the substitution matrix, is
+the dominant lever; the matrix only re-ranks within a ball whose purity is already set by its radius.
+
+\paragraph{Central substitutions carry the specificity signal.} Conditioning on \emph{where} a single
+substitution falls (Fig.~\ref{fig:possig}), the probability that the two CDR3s still share an epitope
+dips to $\approx0.41$ in the NDN core but rises to $\approx0.70$ toward the J border: a central
+mismatch most often \emph{changes} specificity (it is contact-proximal and informative), while a
+border mismatch is usually germline noise (the conserved V/J stems). This is the empirical basis for
+weighting the centre more --- exactly what the germline-retention weight $1-w(p)$ does
+(\S\ref{sec:vdjam}) --- and it validates the direction even though, per Fig.~\ref{fig:loo}, it moves
+retrieval little (the variation is already central). It also matches the contacting-region picture of
+Shcherbinin~et~al.~\cite{Shcherbinin2023}.
+
+\paragraph{The NDN core is glycine-rich.} Central CDR3 positions reach $\sim30$--$36\%$ glycine in
+both chains (Fig.~\ref{fig:gly}) --- the N-region/D-gene insertion signature --- a strongly
+non-BLOSUM composition. Notably TRA is comparably central-G-rich to TRB, so this is an
+insertion-diversity feature, not a TRB-D-gene-exclusive one; either way the NDN alphabet is distinctive
+enough that a general matrix is a poor fit there in principle.
+
+\paragraph{No matrix beats BLOSUM62; can we design one?} Re-scoring the held-out-epitope candidates
+(leave-one-out, \S above) with each substitution matrix gives the same verdict at every scope
+(Table~\ref{tab:matrices}): BLOSUM62 and PAM250 are the best and essentially tied, the structural
+matrix sits between them and plain Hamming, Hamming (unit) is a strong baseline, and the data-derived
+NDN-VDJAM --- flat or region-weighted --- trails them all (region beats flat by a small, consistent,
+scope-growing margin). So the honest answer to ``can we beat BLOSUM62'' is, so far, no: a
+substitution matrix is a second-order lever once the ball radius is fixed, and the first-order
+statistic remains the control-calibrated neighbour count at distance~1 (\S\ref{sec:agg}). The one
+regime still worth pushing is the \emph{V-gene} dimension (cross-V comparisons and V-similarity
+grouping), where germline-flank differences are common and the central weighting should matter most.
+
+\begin{table}[ht]\centering\small
+\begin{tabular}{lcccccc}
+\hline
+mean retrieval PR-AUC & unit & BLOSUM62 & PAM250 & structural & VDJAM & VDJAM-region\\
+\hline
+edit distance $\le2$ & 0.288 & \textbf{0.323} & 0.321 & 0.301 & 0.269 & 0.275\\
+edit distance $\le4$ & 0.207 & \textbf{0.223} & 0.222 & --- & 0.179 & 0.184\\
+\hline
+\end{tabular}
+\caption{Substitution matrices compared by leave-one-out-by-epitope VDJdb-vs-VDJdb retrieval (TRB,
+8 largest epitopes, micro PR-AUC). BLOSUM62 $\approx$ PAM250 lead at both radii; the data-derived
+VDJAM trails; region weighting consistently beats flat VDJAM.}
+\label{tab:matrices}
+\end{table}
+
+\begin{figure}[ht]\centering
+  \includegraphics[width=0.5\linewidth]{figures/purity_vs_distance.pdf}
+  \caption{Fraction of CDR3 neighbours sharing an epitope vs Hamming distance (TRB): distance~1 is the
+  signal:noise optimum~\cite{Shugay2018}.}
+  \label{fig:purity}
+\end{figure}
+\begin{figure}[ht]\centering
+  \includegraphics[width=0.52\linewidth]{figures/position_significance.pdf}
+  \caption{$\Pr(\text{neighbour shares epitope}\mid\text{single substitution at relative position})$,
+  TRB. The NDN core is where a mismatch most changes specificity; the V/J borders are germline noise.}
+  \label{fig:possig}
+\end{figure}
+\begin{figure}[ht]\centering
+  \includegraphics[width=0.52\linewidth]{figures/tra_trb_gly.pdf}
+  \caption{Glycine fraction by relative CDR3 position: the NDN core is $\sim30$--$36\%$ glycine in
+  both TRA and TRB (insertion/D-gene signature).}
+  \label{fig:gly}
+\end{figure}
+
 \section{Worked examples}
 \paragraph{Pairwise (different lengths).} \texttt{seqtree} aligns CDR3s of differing length, placing
 indels where the loop genuinely lengthens. The edit-distance alignments below (influenza GIL-specific

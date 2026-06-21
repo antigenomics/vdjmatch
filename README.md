@@ -31,6 +31,20 @@ pip install -e .[test,bench]
 
 `seqtree` (the search engine) is installed from PyPI as a dependency.
 
+## Scoring: what works (and what doesn't)
+
+An empirical study on VDJdb (see `appendix/scoring.tex`) settles the scoring question honestly:
+
+- **Hamming distance 1 is the signal:noise optimum** — neighbour purity falls 0.53 → 0.13 across edit
+  distance 1–5 (reproducing the original VDJdb observation, Shugay et al. NAR 2018). The search-ball
+  radius, not the substitution matrix, is the dominant lever.
+- **Central (NDN) substitutions carry the specificity signal** — a mismatch in the CDR3 core most
+  often changes specificity (P(same epitope) ≈ 0.41) while V/J-border mismatches are germline noise
+  (≈ 0.70); the NDN core is also ~30–36% glycine (insertion/D-gene signature).
+- **No substitution matrix beats BLOSUM62** for epitope retrieval (BLOSUM62 ≈ PAM250 > structural >
+  Hamming > the data-derived VDJAM; region weighting helps VDJAM a little but not past BLOSUM). The
+  matrix is a second-order lever; the first-order statistic is the control-calibrated E-value.
+
 ## License
 
 GPL-3.0-or-later (it builds on `seqtree`, which is GPL-3.0-or-later).

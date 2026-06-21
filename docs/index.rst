@@ -59,8 +59,16 @@ antigen-driven selection. The theory is derived in the ``seqtree`` appendix.
 **Scope / budget.** ``--scope s,i,d,t`` sets the maximum substitutions, insertions, deletions and
 total edits of the CDR3 search ball.
 
-**VDJAM.** A TCR-specific amino-acid substitution matrix (bundled) used to score CDR3 alignments,
-in place of BLOSUM.
+**VDJAM.** A TCR-specific amino-acid substitution matrix (bundled), with optional region-aware
+weighting that emphasises the antigen-contacting NDN core over the germline-fixed V/J flanks
+(germline-retention profiles derived from the OLGA model via ``mirpy``).
+
+**What scoring actually buys.** An empirical study on VDJdb (the scoring appendix) finds that
+**Hamming distance 1 is the signal:noise optimum** (neighbour purity 0.53 → 0.13 over edit distance
+1–5; the original VDJdb observation), that **central substitutions carry the specificity signal**
+(a core mismatch changes specificity far more than a germline-flank one), and that **no substitution
+matrix beats BLOSUM62** for epitope retrieval — so the substitution matrix is a second-order lever and
+the first-order statistic is the control-calibrated E-value.
 
 .. toctree::
    :hidden:

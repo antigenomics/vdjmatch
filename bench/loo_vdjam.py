@@ -36,9 +36,26 @@ def dissim_from_scores(scores: dict[tuple[str, str], float]) -> dict[tuple[str, 
     return {k: hi - v for k, v in off.items()}
 
 
-def blosum_dissim() -> dict[tuple[str, str], float]:
-    b = substitution_matrices.load("BLOSUM62")
+def named_dissim(name: str) -> dict[tuple[str, str], float]:
+    """similarity matrix (BLOSUM62 / PAM250 / ...) -> non-negative off-diagonal dissimilarity."""
+    b = substitution_matrices.load(name)
     vals = {(a, c): float(b[a, c]) for a in AA for c in AA if a != c}
+    hi = max(vals.values())
+    return {k: hi - v for k, v in vals.items()}
+
+
+def structural_dissim(inc="/Users/mikesh/vcs/code/seqtree/src/structural.inc") -> dict | None:
+    """seqtree's TeXshade structural similarity matrix (sidechain volume + hydropathy) -> dissim.
+    Parsed from the seqtree source .inc (24-symbol order ARNDCQEGHILKMFPSTWYVBZX*); None if absent."""
+    import re
+    from pathlib import Path
+    if not Path(inc).exists():
+        return None
+    order = "ARNDCQEGHILKMFPSTWYVBZX*"
+    txt = Path(inc).read_text().split("kStructural[24 * 24] = {", 1)[-1]
+    nums = [int(x) for x in re.findall(r"-?\d+", txt.split("};")[0])][:24 * 24]
+    sim = {(order[i], order[j]): nums[i * 24 + j] for i in range(24) for j in range(24)}
+    vals = {(a, c): sim[(a, c)] for a in AA for c in AA if a != c}
     hi = max(vals.values())
     return {k: hi - v for k, v in vals.items()}
 
@@ -92,7 +109,9 @@ def main():
     uc = vdj.select("cdr3", "v", "j", "epitope").unique()
     bg = position_background(uc["cdr3"].unique().to_list())
     ret = regions.load_retention()
-    blo = blosum_dissim()
+    blo = named_dissim("BLOSUM62")
+    pam = named_dissim("PAM250")
+    struc = structural_dissim() or blo  # fall back to BLOSUM if the seqtree source isn't present
     unit = {(a, c): 1.0 for a in AA for c in AA if a != c}
 
     refs = uc.group_by("cdr3").agg(pl.col("epitope").first())
@@ -104,9 +123,9 @@ def main():
     sizes = (uc.group_by("epitope").agg(pl.col("cdr3").n_unique().alias("n"))
                .filter(pl.col("n") >= args.min_epi).sort("n", descending=True))
     held = sizes["epitope"].to_list()[:args.top]
-    print(f"chain={args.chain}; held-out epitopes={len(held)}")
-    print(f"{'epitope':13}{'n':>5}{'unit':>8}{'BLOSUM':>8}{'VDJAM':>8}{'VDJAM_reg':>10}")
-    acc = {k: [] for k in ("unit", "blosum", "vdjam", "region")}
+    print(f"chain={args.chain}; held-out epitopes={len(held)}; subs={args.subs}")
+    print(f"{'epitope':13}{'n':>5}{'unit':>8}{'BLOSUM':>8}{'PAM250':>8}{'struct':>8}{'VDJAM':>8}{'VDJAM_reg':>10}")
+    acc = {k: [] for k in ("unit", "blosum", "pam", "struct", "vdjam", "region")}
     for epi in held:
         ev = []
         for e in sizes["epitope"].to_list():
@@ -119,18 +138,17 @@ def main():
         q = uc.filter(pl.col("epitope") == epi).unique("cdr3").head(args.max_queries)
         qs, qv, qj = q["cdr3"].to_list(), q["v"].to_list(), q["j"].to_list()
         cand = [[h.ref_id for h in hl] for hl in index.search_batch(qs, cand_params, 0)]
-        row = {
-            "unit": pr_auc(score_pairs(qs, qv, qj, cand, ref_cdr3, ref_epi, epi, args.chain, ret, unit, False)),
-            "blosum": pr_auc(score_pairs(qs, qv, qj, cand, ref_cdr3, ref_epi, epi, args.chain, ret, blo, False)),
-            "vdjam": pr_auc(score_pairs(qs, qv, qj, cand, ref_cdr3, ref_epi, epi, args.chain, ret, vdis, False)),
-            "region": pr_auc(score_pairs(qs, qv, qj, cand, ref_cdr3, ref_epi, epi, args.chain, ret, vdis, True)),
-        }
+        sp = lambda dis, w: pr_auc(score_pairs(qs, qv, qj, cand, ref_cdr3, ref_epi, epi,  # noqa: E731
+                                               args.chain, ret, dis, w))
+        row = {"unit": sp(unit, False), "blosum": sp(blo, False), "pam": sp(pam, False),
+               "struct": sp(struc, False), "vdjam": sp(vdis, False), "region": sp(vdis, True)}
         for k in acc:
             acc[k].append(row[k])
-        print(f"{epi:13}{len(qs):>5}{row['unit']:>8.3f}{row['blosum']:>8.3f}"
-              f"{row['vdjam']:>8.3f}{row['region']:>10.3f}")
-    print(f"\nmean PR-AUC:  unit {st.mean(acc['unit']):.3f}  BLOSUM {st.mean(acc['blosum']):.3f}  "
-          f"VDJAM {st.mean(acc['vdjam']):.3f}  VDJAM-region {st.mean(acc['region']):.3f}")
+        print(f"{epi:13}{len(qs):>5}{row['unit']:>8.3f}{row['blosum']:>8.3f}{row['pam']:>8.3f}"
+              f"{row['struct']:>8.3f}{row['vdjam']:>8.3f}{row['region']:>10.3f}")
+    mean = {k: st.mean(acc[k]) for k in acc}
+    print(f"\nmean PR-AUC:  unit {mean['unit']:.3f}  BLOSUM {mean['blosum']:.3f}  PAM250 {mean['pam']:.3f}  "
+          f"struct {mean['struct']:.3f}  VDJAM {mean['vdjam']:.3f}  VDJAM-region {mean['region']:.3f}")
     print(f"region vs flat VDJAM: {st.mean(acc['region']) - st.mean(acc['vdjam']):+.3f}  | "
           f"region vs BLOSUM: {st.mean(acc['region']) - st.mean(acc['blosum']):+.3f}  | "
           f"region>BLOSUM in {sum(1 for a,b in zip(acc['region'],acc['blosum']) if a>b)}/{len(held)}")
