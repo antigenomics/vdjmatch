@@ -22,9 +22,10 @@ from vdjmatch.match import cigar, load_vdjam, search_params
 OUT = Path("appendix")
 # results from bench/gen_vdjam.py (human) and bench/loo_vdjam.py (TRB, scope 2)
 REGION_CORR = {"V": (0.08, 0.07), "NDN": (0.42, 0.35), "J": (0.22, 0.11)}  # (TRB, TRA) r(BLOSUM62)
-LOO = [("GILGFVFTL", 0.655, 0.651, 0.600), ("NLVPMVATV", 0.211, 0.208, 0.183),
-       ("GLCTLVAML", 0.347, 0.383, 0.339), ("YLQPRTFLL", 0.708, 0.744, 0.688),
-       ("RAKFKQLL", 0.152, 0.161, 0.132), ("ELAGIGILTV", 0.098, 0.095, 0.082)]
+# (epitope, unit, BLOSUM62, VDJAM-flat, VDJAM-region) retrieval PR-AUC, leave-one-out by epitope
+LOO = [("GILGFVFTL", 0.579, 0.657, 0.578, 0.585), ("NLVPMVATV", 0.182, 0.268, 0.180, 0.192),
+       ("GLCTLVAML", 0.312, 0.354, 0.231, 0.231), ("YLQPRTFLL", 0.679, 0.712, 0.712, 0.724),
+       ("RAKFKQLL", 0.145, 0.167, 0.095, 0.095), ("KLGGALQAK", 0.285, 0.287, 0.287, 0.289)]
 
 
 def _gnuplot(script: str, cwd: Path):
@@ -54,11 +55,46 @@ plot 'region_corr.dat' using 3:xtic(2) title 'TRB' lc rgb '#2563eb', \
 """, figdir)
 
 
+def retention_fig(figdir: Path):
+    """Germline-retention profiles (OLGA-derived, via mirpy) for a few V/J genes: probability each
+    CDR3 offset from the anchor is germline-encoded — the basis for the region weight 1 - retention."""
+    tsv = "src/vdjmatch/resources/trimming/human_vj_retention.tsv"
+    want = [("V", "TRBV19"), ("V", "TRBV9"), ("J", "TRBJ2-7"), ("J", "TRBJ1-1")]
+    prof = {k: {} for k in want}
+    with open(tsv) as fh:
+        next(fh)
+        for line in fh:
+            chain, seg, gene, off, p, _aa = line.rstrip("\n").split("\t")
+            from vdjmatch.match.regions import gene_family
+            key = (seg, gene_family(gene))
+            if chain == "TRB" and key in prof:
+                prof[key][int(off)] = float(p)
+    cols = [f"{seg}:{g}" for seg, g in want]
+    rows = ["off " + " ".join(c.replace(" ", "") for c in cols)]
+    for off in range(12):
+        rows.append(str(off) + " " + " ".join(f"{prof[k].get(off, 0.0):.4f}" for k in want))
+    (figdir / "retention.dat").write_text("\n".join(rows) + "\n")
+    plots = ", ".join(
+        f"'retention.dat' using 1:{i+2} with linespoints lw 2 pt 7 ps 0.5 title '{cols[i]}'"
+        for i in range(len(want)))
+    _gnuplot(f"""
+set terminal svg size 560,360 font 'Helvetica,12' background rgb 'white'
+set output 'retention.svg'
+set xlabel 'CDR3 offset from anchor (aa)'
+set ylabel 'P(position is germline-encoded)'
+set yrange [0:1.02]
+set grid lc rgb '#e5e7eb'
+set key bottom left
+set title 'OLGA-derived germline-retention (V from N-anchor, J from C-anchor)'
+plot {plots}
+""", figdir)
+
+
 def loo_fig(figdir: Path):
-    rows = "\n".join(f"{i} {e} {v} {b} {u}" for i, (e, v, b, u) in enumerate(LOO))
-    (figdir / "loo_prauc.dat").write_text("i epi VDJAM BLOSUM unit\n" + rows + "\n")
+    rows = "\n".join(f"{i} {e} {u} {b} {v} {r}" for i, (e, u, b, v, r) in enumerate(LOO))
+    (figdir / "loo_prauc.dat").write_text("i epi unit BLOSUM VDJAM region\n" + rows + "\n")
     _gnuplot("""
-set terminal svg size 720,400 font 'Helvetica,12' background rgb 'white'
+set terminal svg size 760,400 font 'Helvetica,12' background rgb 'white'
 set output 'loo_prauc.svg'
 set style data histogram
 set style histogram cluster gap 1
@@ -70,9 +106,10 @@ set grid ytics lc rgb '#e5e7eb'
 set xtics nomirror rotate by -30
 set key top right
 set title 'Leave-one-out-by-epitope retrieval (TRB, scope 2)'
-plot 'loo_prauc.dat' using 3:xtic(2) title 'VDJAM (NDN)' lc rgb '#2563eb', \\
+plot 'loo_prauc.dat' using 3:xtic(2) title 'unit' lc rgb '#d1d5db', \\
      '' using 4 title 'BLOSUM62' lc rgb '#9ca3af', \\
-     '' using 5 title 'unit' lc rgb '#d1d5db'
+     '' using 5 title 'VDJAM (flat)' lc rgb '#93c5fd', \\
+     '' using 6 title 'VDJAM (region)' lc rgb '#2563eb'
 """, figdir)
 
 
@@ -152,6 +189,7 @@ def main():
     figdir = OUT / "figures"; alndir = OUT / "aln"
     figdir.mkdir(parents=True, exist_ok=True); alndir.mkdir(parents=True, exist_ok=True)
     region_corr_fig(figdir)
+    retention_fig(figdir)
     loo_fig(figdir)
     vdj = db.load("/Users/mikesh/vcs/manuscripts/2026-vdjmatch/test_data/sample3_vdjdb.txt",
                   asset="full", species="HomoSapiens")

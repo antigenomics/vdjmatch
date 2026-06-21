@@ -78,9 +78,19 @@ Per-region correlation of the learned matrix with BLOSUM62, on VDJdb same-antige
 
 NDN carries the BLOSUM-like free-substitution signal; the V region is germline-dominated (≈no free
 substitution chemistry) → confirms VDJAM should be **learned on NDN** and V/J **auto-computed from
-germline + trimming**. Next: the germline+trimming V/J model (mirpy `GeneLibrary` + OLGA marginals;
-add a trimming-probability accessor + CDR3 region-segmentation to mirpy and bump it), then
-leave-one-out-by-epitope evaluation vs BLOSUM62/unit, then wire per-region scoring into the engine.
+germline + trimming**.
+
+**DONE — germline+trimming V/J model + region-aware scoring.** Added `mir.basic.trimming`
+(OLGA-derived per-gene germline-retention profiles + germline-match-aware `PgenLite`, mirpy v1.3.0);
+emitted the retention profiles to `src/vdjmatch/resources/trimming/human_vj_retention.tsv`. New
+`vdjmatch.match.regions`: per-position weight `1 − P(germline-retained)` (NDN core → ~1, V/J flanks →
+~0) + VDJAM penalties + region-aware substitution/aligned scoring; wired into `engine.annotate`
+(`region_aware=True` → `region_score` column). Leave-one-out-by-epitope (TRB, `bench/loo_vdjam.py`,
+4 arms): **region weighting beats flat VDJAM (+0.004 @scope2, +0.007 @scope3, never worse, grows with
+scope) but BLOSUM62 stays strongest** at this narrow-scope retrieval — CDR3 variation is already
+NDN-concentrated, so flank down-weighting moves few hits. Documented honestly in `appendix/scoring.tex`
+(retention figure + 4-arm LOO figure). **Next lever:** the V-gene dimension (V clustering by
+CDR1/2/2.5; cross-V comparisons, where flank weighting should matter) + control V–J normalization.
 
 ### Verification for iteration 1
 - Paired E < min single-chain E for true pairs (TCRvdb sample6).

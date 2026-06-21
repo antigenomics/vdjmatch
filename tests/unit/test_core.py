@@ -110,3 +110,27 @@ def test_paired_evalue():
     assert res["n_joint"][0] >= 1                 # the true complex matches both chains
     assert res["epitope"][0] == "GILGFVFTL"
     assert res["p_joint"][0] < 1.0                # enriched over background
+
+
+# --- region-aware scoring (germline-retention weighting) ---
+def test_region_weights_downweight_germline_flanks():
+    from vdjmatch.match import regions
+    ret = regions.load_retention()
+    # CASSIRSSYEQYF (len 13), TRBV19 / TRBJ2-7: CASS prefix + (Y)EQYF suffix are germline-retained
+    w = regions.position_weights(13, "TRBV19", "TRBJ2-7", "TRB", ret)
+    assert len(w) == 13
+    assert w[0] < 0.2 and w[1] < 0.2          # C, A of CASS -> germline -> low weight
+    assert w[-1] < 0.2                         # terminal F (J anchor) -> germline -> low weight
+    assert max(w[4:8]) > 0.7                   # NDN core -> high weight
+    # unknown genes -> full weight everywhere (no germline credit)
+    assert all(x == 1.0 for x in regions.position_weights(10, "NOPE", "NOPE", "TRB", ret))
+
+
+def test_region_aware_engine_path():
+    idx = VdjdbIndex.build(_tiny_vdjdb(), species="HomoSapiens")
+    q = pl.DataFrame({"cdr3": ["CASSIRSSYEQYF"], "v": ["TRBV19"], "j": ["TRBJ2-7"],
+                      "locus": ["TRB"], "count": [1]})
+    hits = idx.annotate(q, search_params("1,0,0,1", matrix=scoring.load_vdjam()),
+                        gene="TRB", align=True, region_aware=True)
+    assert "region_score" in hits.columns
+    assert all(s >= 0 for s in hits["region_score"])

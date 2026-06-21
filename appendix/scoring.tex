@@ -139,9 +139,12 @@ background when trimmed; so the V/J contribution is a per-position conservation 
 }p\text{ is germline-retained}]$, determined by the gene's trimming-length distribution, rather than a
 substitution matrix learned from data. Combined, the NDN matrix scores the core and $w(p)$ down-weights
 substitutions at germline-retained flanks (realized through a per-position weighting of the base
-matrix). \emph{Status:} the NDN matrix and the region decomposition are implemented and evaluated
-below; the germline$+$trimming V/J profile (from the OLGA recombination model, via \texttt{mirpy}) is
-in progress.
+matrix). The germline-retention profile $w(p)$ is computed from the OLGA recombination model
+(per-gene V/J deletion distributions and germline CDR3-portion segment lengths, via \texttt{mirpy}'s
+\texttt{mir.basic.trimming}) and bundled with \texttt{vdjmatch}; Fig.~\ref{fig:retention} shows it
+drops monotonically from each anchor (the \texttt{CASS} V-stem and the J motif are germline; the core
+is insert). Region-aware scoring weights each CDR3 column by $1-\Pr[\text{germline}]$ and applies the
+NDN matrix --- implemented in \texttt{vdjmatch.match.regions} and evaluated below.
 
 \begin{figure}[ht]\centering
   \includegraphics[width=0.62\linewidth]{figures/region_corr.pdf}
@@ -149,6 +152,14 @@ in progress.
   off-diagonal scores), human VDJdb. The free-substitution signal lives in the NDN core; the V flank is
   germline-determined.}
   \label{fig:region}
+\end{figure}
+
+\begin{figure}[ht]\centering
+  \includegraphics[width=0.6\linewidth]{figures/retention.pdf}
+  \caption{OLGA-derived germline-retention $w(p)$ (via \texttt{mirpy}): probability that each CDR3
+  offset from the V-Cys (or J) anchor is germline-encoded. It falls monotonically into the insert
+  core, defining the region weight $1-w(p)$ used in scoring.}
+  \label{fig:retention}
 \end{figure}
 
 \section{Score aggregation and significance}\label{sec:agg}
@@ -183,17 +194,23 @@ two chains' hits are treated as independent tests, the equivalent statistic is F
 the per-chain enrichments; the appendix \texttt{seqtree} co-occupancy term quantifies the residual
 dependence.)
 
-\section{Results: does VDJAM help?}
+\section{Results: does VDJAM (and region weighting) help?}
 A matrix derived from same-antigen pairs must be tested on epitopes it never saw, or the evaluation is
 circular. For each held-out epitope $E^\ast$ we re-derive the NDN matrix from \emph{all other}
-epitopes, then run VDJdb-vs-VDJdb retrieval on $E^\ast$ (exact self excluded), ranking neighbours by
-each matrix, and score the micro precision--recall AUC for ``neighbour shares $E^\ast$''. Across the
-eight largest TRB epitopes (scope $2$, Fig.~\ref{fig:loo}) the learned NDN matrix improves over unit
-(edit-distance) cost (mean $\Delta\mathrm{PR\text{-}AUC}=+0.018$) and is on par with BLOSUM62
-($-0.009$; better on $4/8$). At this scope the search ball already supplies most of the
-specific-vs-nonspecific discrimination and the matrix only re-ranks within it; the larger gains are
-expected from the region-aware combination (NDN matrix $+$ germline/trimming flank weighting) and at
-wider scopes, which is the current line of work.
+epitopes, fix the candidate set with a single unit-cost search on $E^\ast$ (exact self excluded), and
+re-score each (query, hit) pair four ways --- unit, BLOSUM62, NDN-VDJAM, and region-weighted NDN-VDJAM
+--- ranking by score and reporting micro PR-AUC for ``hit shares $E^\ast$'' (Fig.~\ref{fig:loo}, eight
+largest TRB epitopes). Two honest findings. (i) \emph{Region weighting is a real, consistent, but small
+improvement over the flat matrix} ($+0.004$ at scope 2, $+0.007$ at scope 3; never worse on any
+epitope, and the gain grows with scope) --- modest because CDR3 variation is \emph{already}
+NDN-concentrated, so down-weighting the rarely-varying germline flanks moves few hits; it should matter
+more for cross-V-gene comparisons, where flank (germline-allele) differences are common. (ii)
+\emph{BLOSUM62 remains the strongest substitution matrix at this narrow-scope retrieval task} (mean
+PR-AUC $0.32$ vs $0.28$ region-VDJAM vs $0.29$ unit): the data-derived NDN matrix captures general
+substitution tolerance that BLOSUM already encodes well, and with limited same-antigen pairs it is
+noisier. At scope $2$ the search ball supplies most of the specific-vs-nonspecific discrimination and
+any matrix only re-ranks within it; the substitution model is therefore a second-order lever here, and
+the first-order signal is the control-calibrated neighbour count (\S\ref{sec:agg}).
 
 \begin{figure}[ht]\centering
   \includegraphics[width=0.78\linewidth]{figures/loo_prauc.pdf}
@@ -232,12 +249,14 @@ recognition.
 
 \section{Limitations and roadmap}
 The NDN matrix is estimated from a limited set of same-antigen single-substitution pairs and, at narrow
-scope, matches rather than beats BLOSUM62; the region-aware V/J germline$+$trimming model (in progress)
-and per-position weighting are expected to add discrimination, as is a per-chain treatment (TRA vs TRB)
-and a V-gene similarity term (grouping V genes by CDR1/CDR2/CDR2.5 distance). The control's V--J usage
-must match the query repertoire's, or the null is mis-specified; whether to renormalize V--J usage
-(at the risk of erasing genuine V-gene bias) is an open question evaluated on held-out epitopes. These
-extensions, and the full benchmark against existing tools, are the subject of ongoing work.
+scope, does not beat BLOSUM62; the region-aware germline$+$trimming weighting (now implemented) gives a
+small, consistent, scope-growing gain over the flat matrix but not over BLOSUM62 at this task. The
+clearest remaining lever is the \emph{V-gene} dimension: a V-gene similarity term (grouping V genes by
+CDR1/CDR2/CDR2.5 distance) and cross-V comparisons, where germline-flank differences are common and the
+region weighting should matter most; a per-chain treatment (TRA vs TRB) is also pending. Separately, the
+control's V--J usage must match the query repertoire's or the null is mis-specified --- whether to
+renormalize V--J usage (at the risk of erasing genuine V-gene bias) is an open question to settle on
+held-out epitopes. These extensions, and the full benchmark against existing tools, are ongoing work.
 
 \bibliographystyle{plain}
 \bibliography{refs}

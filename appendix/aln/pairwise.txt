@@ -1,27 +1,27 @@
-query (ref): CASSPLSTDTQYF   epitope GILGFVFTL   (unit / edit-distance alignment)
+query (ref): CASSPRSGETQYF   epitope GILGFVFTL   (unit / edit-distance alignment)
 
-vs CASSRLSTDTQYF  (len 13; subs=1 ins=0 dels=0; CIGAR 4=1X8=)
-  CASSPLSTDTQYF
+vs CASSNRSGETQYF  (len 13; subs=1 ins=0 dels=0; CIGAR 4=1X8=)
+  CASSPRSGETQYF
   |||| ||||||||
-  CASSRLSTDTQYF
+  CASSNRSGETQYF
 
-vs CASSHLMSTDTQYF  (len 14; subs=1 ins=1 dels=0; CIGAR 4=1X1=1I7=)
-  CASSPL-STDTQYF
-  |||| | |||||||
-  CASSHLMSTDTQYF
+vs CASSIRSGESTQYF  (len 14; subs=1 ins=1 dels=0; CIGAR 4=1X4=1I4=)
+  CASSPRSGE-TQYF
+  |||| |||| ||||
+  CASSIRSGESTQYF
 
-vs CASSFSTDTQYF  (len 12; subs=1 ins=0 dels=1; CIGAR 4=1D1X7=)
-  CASSPLSTDTQYF
-  ||||  |||||||
-  CASS-FSTDTQYF
-
-vs CASSLAPLSTDTQYF  (len 15; subs=0 ins=2 dels=0; CIGAR 4=2I9=)
-  CASS--PLSTDTQYF
-  ||||  |||||||||
-  CASSLAPLSTDTQYF
-
-vs CASSGSDTQYF  (len 11; subs=1 ins=0 dels=2; CIGAR 4=1D1X1=1D5=)
-  CASSPLSTDTQYF
+vs CASSLFSETQYF  (len 12; subs=2 ins=0 dels=1; CIGAR 4=2X1=1D5=)
+  CASSPRSGETQYF
   ||||  | |||||
-  CASS-GS-DTQYF
+  CASSLFS-ETQYF
+
+vs CASSLGETQYF  (len 11; subs=1 ins=0 dels=2; CIGAR 4=2D1X6=)
+  CASSPRSGETQYF
+  ||||   ||||||
+  CASS--LGETQYF
+
+vs CASSPWSGSQETQYF  (len 15; subs=1 ins=2 dels=0; CIGAR 5=1X2=2I5=)
+  CASSPRSG--ETQYF
+  ||||| ||  |||||
+  CASSPWSGSQETQYF
 

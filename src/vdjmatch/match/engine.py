@@ -52,7 +52,7 @@ class VdjdbIndex:
 
     def annotate(self, queries: pl.DataFrame, params: SearchParams, *, gene: str,
                  threads: int = 0, match_v: bool = False, match_j: bool = False,
-                 align: bool = False) -> pl.DataFrame:
+                 align: bool = False, region_aware: bool = False) -> pl.DataFrame:
         """Annotate single-gene query clonotypes; returns a long per-hit frame.
 
         ``queries`` schema: ``cdr3, v, j, locus, count`` (one gene). Output: query_*, db_*
@@ -89,13 +89,24 @@ class VdjdbIndex:
             "epitope", "mhc_a", "mhc_class", "antigen_species", "vdjdb_score", "complex_id",
             "score", "n_subs", "n_ins", "n_dels",
         )
-        if align:
-            cig, ml = [], []
-            for ref, qc in zip(out["ref_id"], out["query_cdr3"]):
+        if align or region_aware:
+            ret = pen = None
+            if region_aware:
+                from . import regions
+                ret, pen = regions.load_retention(), regions.vdjam_penalties()
+            cig, ml, rs = [], [], []
+            qv, qj = out["query_v"].to_list(), out["query_j"].to_list()
+            for k, (ref, qc) in enumerate(zip(out["ref_id"], out["query_cdr3"])):
                 aln = idx.align(int(ref), qc, params)
                 cig.append(cigar.to_cigar(aln.ops))
                 ml.append(cigar.match_line(aln.ops))
-            out = out.with_columns(pl.Series("cigar", cig), pl.Series("match", ml))
+                if region_aware:
+                    rs.append(regions.aligned_score(aln.aligned_query, aln.aligned_ref, aln.ops,
+                                                    qv[k], qj[k], gene, ret, pen))
+            cols = [pl.Series("cigar", cig), pl.Series("match", ml)]
+            if region_aware:
+                cols.append(pl.Series("region_score", rs))
+            out = out.with_columns(cols)
         return out.drop("ref_id")
 
 
