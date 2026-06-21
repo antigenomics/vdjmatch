@@ -5,4 +5,4 @@ reporting control-calibrated E-values and enriched antigen labels. See ROADMAP i
 seqtree repo and the project README for the design.
 """
 
-__version__ = "2.0.0a0"
+__version__ = "0.0.1"

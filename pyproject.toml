@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vdjmatch"
-version = "2.0.0a0"
+version = "0.0.1"
 description = "Fast, control-calibrated annotation of T-cell receptor antigen specificity"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,9 +35,9 @@ vdjmatch = "vdjmatch.cli.__main__:main"
 [project.urls]
 Homepage = "https://github.com/antigenomics/vdjmatch"
 Repository = "https://github.com/antigenomics/vdjmatch"
+Documentation = "https://antigenomics.github.io/vdjmatch/"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vdjmatch"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/vdjmatch/resources" = "vdjmatch/resources"
+# resources/ (vdjam.txt, score_coef.txt, segm_score.txt) live inside the package dir and are
+# shipped automatically by hatchling — no force-include needed.
