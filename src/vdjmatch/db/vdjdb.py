@@ -106,3 +106,15 @@ def load(source: str | os.PathLike | None = None, *, asset: str = "slim",
     if paired_only:
         df = df.filter(pl.col("complex_id") != 0)
     return df
+
+
+def replicated(df: pl.DataFrame, min_refs: int = 2) -> pl.DataFrame:
+    """High-confidence shortlist: clonotype-epitope associations independently reported in at least
+    ``min_refs`` distinct references. Returns unique ``(gene, cdr3, v, j, epitope, mhc_class)`` rows
+    whose ``(gene, cdr3, v, j, epitope)`` key is backed by >= ``min_refs`` distinct ``reference_id``,
+    with an ``n_refs`` column. Reference-replicated entries are the most trustworthy labels for
+    benchmarking against the latest VDJdb release (cf. the mhcmatch shortlist)."""
+    key = ["gene", "cdr3", "v", "j", "epitope"]
+    keep = (df.group_by(key).agg(pl.col("reference_id").n_unique().alias("n_refs"))
+              .filter(pl.col("n_refs") >= min_refs))
+    return df.join(keep, on=key, how="inner").select(*key, "mhc_class", "n_refs").unique()

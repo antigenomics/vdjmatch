@@ -65,7 +65,19 @@ An empirical study on VDJdb (see `appendix/vdjmatch_scoring.tex`) settles the sc
   with germline CDR1/CDR2 similarity (cross-V co-specificity stays flat ~12–13% across the similarity
   range). So soft V-clustering by contacting-loop similarity does **not** recover the prior — the V
   signal is gene identity, not loop chemistry, and a near-hard V constraint stays the default
-  (analysis in `bench/vgene_strat.py`; similarity/clustering helpers in `vdjmatch.match.vgene`).
+  (analysis in `bench/vgene_strat.py`; similarity/clustering helpers in `vdjmatch.match.vgene`). And
+  not in the framework either: an exact-match decomposition across all FR/CDR regions
+  (`bench/vregion_decompose.py`) shows no region — not even identical CDR1+CDR2 — recovers the same-V
+  co-specificity.
+
+## Benchmark
+
+The standing benchmark is the **latest VDJdb release**. Its highest-confidence subset — the
+**shortlist** of clonotype–epitope pairs reported in **≥2 independent references** (`db.replicated`,
+1214 TRB + 839 TRA in the current human release) — is the gold standard (as in `mhcmatch`). Leave-one-out
+nearest-neighbour annotation (`bench/shortlist_accuracy.py`, subs 1, exact self excluded) reaches
+**~53% top-1 on the shortlist vs ~16%** on size-matched single-reference controls — replicated TCRs are
+the public, learnable ones; single-reference entries are mostly private singletons (recall ~20–29%).
 
 ## License
 

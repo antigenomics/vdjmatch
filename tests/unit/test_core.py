@@ -4,7 +4,7 @@ import pytest
 
 from vdjmatch.match import scope, cigar, scoring, VdjdbIndex, search_params
 from vdjmatch.io import columns
-from vdjmatch import cluster, aggregate
+from vdjmatch import cluster, aggregate, db
 
 
 # --- scope ---
@@ -140,6 +140,23 @@ def test_significance_weights_centre_heavy_and_pssm_builds():
     p.pos_matrix = pm
     hits = idx.search_batch(["CASSIRSSYEQYF"], p, 0)[0]
     assert any(h.n_subs == 0 for h in hits)    # exact self is found
+
+
+def test_replicated_shortlist_needs_two_references():
+    # benchmark gold standard = clonotype-epitope pairs confirmed in >=2 distinct references
+    # (against the latest VDJdb release; see bench/shortlist_accuracy.py)
+    df = pl.DataFrame({
+        "gene": ["TRB", "TRB", "TRB", "TRA"],
+        "cdr3": ["CASSLAPGATNEKLFF", "CASSLAPGATNEKLFF", "CASSPROIVATEYF", "CAVRDSNYQLIW"],
+        "v": ["TRBV7-9", "TRBV7-9", "TRBV5-1", "TRAV1-2"],
+        "j": ["TRBJ1-4", "TRBJ1-4", "TRBJ2-7", "TRAJ33"],
+        "epitope": ["NLVPMVATV", "NLVPMVATV", "GILGFVFTL", "GILGFVFTL"],
+        "mhc_class": ["MHCI"] * 4,
+        "reference_id": ["PMID:1", "PMID:2", "PMID:3", "PMID:4"],
+    })
+    sl = db.replicated(df, min_refs=2)
+    assert sl.height == 1                                  # only the 2-reference TRB pair survives
+    assert sl["cdr3"][0] == "CASSLAPGATNEKLFF" and sl["n_refs"][0] == 2
 
 
 def test_vgene_similarity_and_clusters():

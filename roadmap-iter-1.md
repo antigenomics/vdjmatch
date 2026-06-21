@@ -118,6 +118,22 @@ prior** in every cell, but germline CDR1+CDR2 similarity barely predicts cross-V
 recover the prior — V is gene identity, not loop chemistry. Open work: model V as a strong prior in a
 joint V+CDR3 E-value (not soften it); per-chain TRA/TRB; control V–J normalization.
 
+**DONE — FR/CDR exact-match decomposition (which region carries the V prior? none).**
+`bench/vregion_decompose.py` (human TRB MHC-I, germline FR1/CDR1/FR2/CDR2/FR3 from mirpy, bundled
+`resources/vgene/human_v_regions.tsv`): among cross-V neighbour pairs, **no** framework or CDR region —
+identical or not, and not even CDR1∧CDR2 identical (4.5%, n=22) — lifts co-specificity toward same-V
+(70%); all strata sit at/below the cross-V floor (~22%), and CDR1+CDR2 edit distance shows a
+flat-to-negative gradient (closer ≠ more co-specific). Decisive feature = exact gene identity (CDR3
+germline anchor + integrated geometry), not transferable contacting-loop similarity. Robust at subs 1&2.
+
+**DONE — benchmark = latest VDJdb release; gold-standard shortlist.** Standing benchmark is the latest
+VDJdb release (`db.load`/`fetch_latest`; bench paths via `$VDJDB_SAMPLE`, no hardcoding). High-confidence
+shortlist = clonotype–epitope pairs in **≥2 distinct references** (`db.replicated`, min_refs=2; 1214 TRB
++ 839 TRA human). Accuracy (`bench/shortlist_accuracy.py`, LOO NN vote, subs=1, exact self excluded):
+**~53% top-1 on the shortlist vs ~16% on single-reference controls** (~3×); recall ~58–62% vs ~20–29%.
+V-restriction helps more at wider scope (TRB subs=2: 54→58%). Replicated = public/learnable; single-ref
+= private singletons. (Cf. the mhcmatch shortlist; noted in tests + memory.)
+
 ## Later (subsequent iterations)
 - **Hard vs easy (featured/featureless) epitopes.** Per-epitope PR-AUC varies enormously (convergent
   CMV NLV ≫ diffuse influenza GIL); this is biology, not noise. Build an *a-priori* "annotability"

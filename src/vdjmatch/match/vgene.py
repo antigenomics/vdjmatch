@@ -32,6 +32,21 @@ def load_v_cdr12(chain: str | None = None, path=None) -> dict[str, str]:
     return out
 
 
+def load_v_regions(chain: str | None = None, path=None) -> dict[str, dict[str, str]]:
+    """Map V gene family -> germline framework/CDR regions ``{fwr1,cdr1,fwr2,cdr2,fwr3}`` (first
+    allele per family, from ``resources/vgene/human_v_regions.tsv``; the DE-loop/"CDR2.5" lives inside
+    ``fwr3``). Used to ask which FR/CDR region's identity, if any, recovers the same-V prior."""
+    src = path or (resources.files("vdjmatch.resources") / "vgene" / "human_v_regions.tsv")
+    out: dict[str, dict[str, str]] = {}
+    with open(src) as fh:
+        hdr = next(fh).rstrip("\n").split("\t")
+        for line in fh:
+            d = dict(zip(hdr, line.rstrip("\n").split("\t")))
+            if chain is None or d["chain"] == chain:
+                out[d["v"]] = {r: d[r] for r in ("fwr1", "cdr1", "fwr2", "cdr2", "fwr3")}
+    return out
+
+
 _LOOPS: dict[str, str] = {}
 
 

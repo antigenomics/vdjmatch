@@ -443,6 +443,76 @@ everywhere; $r\approx0$ wherever it is well powered.}
 \label{tab:vgene-scan}
 \end{table}
 
+\paragraph{No framework or CDR region recovers it --- it is gene identity.} The coarse similarity above
+leaves two escapes: maybe the signal lives in the framework (FR) rather than CDR1/CDR2, or maybe it is
+CDR1/CDR2 but --- like CDR3 --- needs \emph{near-exact} identity that a ratio washes out. An exact-match
+decomposition closes both (\texttt{bench/vregion\_decompose.py}, human TRB MHC-I): among cross-V
+neighbour pairs we stratify by \emph{which} germline region is identical between the two V genes. No
+region does it (Table~\ref{tab:vregion}): every FR- or CDR-identical stratum sits \emph{at or below} the
+cross-V floor ($22\%$), nowhere near the same-V level ($70\%$); CDR2 alone is the only one above floor
+($1.3\times$) and still far short. Even both CDR1 \emph{and} CDR2 identical does not help ($4.5\%$,
+$n=22$), and binning by CDR1$+$CDR2 edit distance gives a \emph{flat-to-negative} gradient --- identical
+loops $4.5\%$, distance $1$--$2$ $18.7\%$, $3$--$5$ $28.2\%$, $6+$ $22.0\%$ --- the opposite of
+``closer~$\Rightarrow$~more co-specific''. So there is no decisive FR--CDR combination short of full
+gene identity: a different V gene with the same CDR1/CDR2 loops still does not behave like the same V.
+The V prior is the exact gene (its CDR3-germline anchor and integrated docking geometry), not a
+transferable contacting-loop similarity --- which is why V belongs in the model as a near-binary prior,
+not a soft loop-similarity term. (Robust across scope: subs~$1$ and subs~$2$ give the same picture.)
+
+\begin{table}[ht]\centering\small
+\begin{tabular}{lrr}
+\hline
+cross-V stratum (human TRB MHC-I) & co-specific & $n$\\
+\hline
+\emph{cross-V baseline} & 22.4\% & 40\,388\\
+FR1 identical  & 14.3\% &   328\\
+CDR1 identical & 16.3\% &   760\\
+FR2 identical  & 13.3\% &   300\\
+CDR2 identical & 28.6\% &   584\\
+FR3 identical  & 15.5\% &   200\\
+CDR1 \& CDR2 identical & 4.5\% & 22\\
+all FR identical & 15.5\% & 200\\
+\emph{same-V reference} & 69.5\% & 16\,492\\
+\hline
+\end{tabular}
+\caption{Cross-V co-specificity stratified by which germline region is identical between the two V
+genes (edit distance $\le2$, exact self excluded). No framework or CDR region --- nor CDR1\,$\wedge$\,CDR2
+together --- lifts co-specificity toward the same-V level; the decisive feature is gene identity itself.}
+\label{tab:vregion}
+\end{table}
+
+\section{Benchmark: the reference-replicated shortlist}\label{sec:shortlist}
+The latest VDJdb release is our standing benchmark, but its labels vary in confidence. The cleanest gold
+standard is a clonotype--epitope association reported independently in $\ge2$ references
+(\texttt{db.replicated}; $1214$ TRB and $839$ TRA such pairs in the current human release) --- the same
+``shortlist'' idea used for \texttt{mhcmatch}. We measure annotation accuracy on it by leave-one-out
+nearest-neighbour voting against the rest of VDJdb at the signal:noise-optimal scope (subs~$1$),
+excluding the clonotype's own exact CDR3 so the label must come from \emph{other} TCRs
+(\texttt{bench/shortlist\_accuracy.py}). Replicated TCRs are annotated at $\sim$$53\%$ top-1 versus
+$\sim$$16\%$ for size-matched single-reference controls of the same epitopes (Table~\ref{tab:shortlist})
+--- a $\sim$3$\times$ gap: reference-replicated entries are the public, convergent, learnable TCRs, while
+single-reference entries are largely private singletons whose epitope is simply not reachable from
+neighbours (recall $\sim$$20$--$29\%$). Restricting neighbours to the same V family helps, and helps
+\emph{more} at the wider subs~$2$ scope ($54.1\!\to\!58.4\%$ for TRB) --- exactly where cross-V false
+neighbours appear (\S\ref{sec:vgene}), confirming the V prior is worth its place in the model.
+
+\begin{table}[ht]\centering\small
+\begin{tabular}{llrrrr}
+\hline
+chain & set & $n$ & top-1 (CDR3) & top-1 (V-restr.) & recall\\
+\hline
+TRA & shortlist ($\ge2$ ref) &  839 & 52.1\% & 53.3\% & 62.3\%\\
+TRA & control ($1$ ref)      &  839 & 15.9\% & 15.0\% & 29.1\%\\
+TRB & shortlist ($\ge2$ ref) & 1214 & 53.3\% & 54.4\% & 57.7\%\\
+TRB & control ($1$ ref)      & 1214 & 17.2\% & 15.7\% & 19.7\%\\
+\hline
+\end{tabular}
+\caption{Leave-one-out epitope-annotation accuracy on the reference-replicated shortlist vs a
+size-matched single-reference control (human, subs~$1$, exact self excluded). Top-1 $=$
+nearest-neighbour-vote epitope correct; recall $=$ true epitope reachable within scope.}
+\label{tab:shortlist}
+\end{table}
+
 \section{Worked examples}
 \paragraph{Pairwise (different lengths).} \texttt{seqtree} aligns CDR3s of differing length, placing
 indels where the loop genuinely lengthens. The edit-distance alignments below (influenza GIL-specific
