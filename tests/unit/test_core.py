@@ -126,6 +126,22 @@ def test_region_weights_downweight_germline_flanks():
     assert all(x == 1.0 for x in regions.position_weights(10, "NOPE", "NOPE", "TRB", ret))
 
 
+def test_significance_weights_centre_heavy_and_pssm_builds():
+    from seqtree import Index, SearchParams
+    from vdjmatch.match import regions
+    w = regions.significance_weights(12)
+    assert len(w) == 12
+    c = len(w) // 2
+    assert w[c] > w[0] and w[c] > w[-1]        # central substitutions weighted above V/J borders
+    # native seqtree PSSM path: build + search must run with the positional matrix attached
+    pm = regions.significance_pssm(12)
+    idx = Index.build(["CASSIRSSYEQYF", "CASSIRSAYEQYF"], "aa")
+    p = SearchParams(max_subs=2, max_total_edits=2, max_penalty=10 ** 9, engine="seqtrie")
+    p.pos_matrix = pm
+    hits = idx.search_batch(["CASSIRSSYEQYF"], p, 0)[0]
+    assert any(h.n_subs == 0 for h in hits)    # exact self is found
+
+
 def test_region_aware_engine_path():
     idx = VdjdbIndex.build(_tiny_vdjdb(), species="HomoSapiens")
     q = pl.DataFrame({"cdr3": ["CASSIRSSYEQYF"], "v": ["TRBV19"], "j": ["TRBJ2-7"],

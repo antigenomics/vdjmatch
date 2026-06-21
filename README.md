@@ -41,9 +41,15 @@ An empirical study on VDJdb (see `appendix/scoring.tex`) settles the scoring que
 - **Central (NDN) substitutions carry the specificity signal** — a mismatch in the CDR3 core most
   often changes specificity (P(same epitope) ≈ 0.41) while V/J-border mismatches are germline noise
   (≈ 0.70); the NDN core is also ~30–36% glycine (insertion/D-gene signature).
-- **No substitution matrix beats BLOSUM62** for epitope retrieval (BLOSUM62 ≈ PAM250 > structural >
-  Hamming > the data-derived VDJAM; region weighting helps VDJAM a little but not past BLOSUM). The
-  matrix is a second-order lever; the first-order statistic is the control-calibrated E-value.
+- **No *standard* substitution matrix beats BLOSUM62** for epitope retrieval (BLOSUM62 ≈ PAM250 >
+  structural > Hamming > the data-derived VDJAM; region weighting helps VDJAM a little but not past
+  BLOSUM) — the substitution *alphabet* is a second-order lever.
+- **Position-weighting BLOSUM62 does beat it.** Encoding the central-substitution finding as a
+  seqtree positional matrix (`PositionalMatrix.from_weights(BLOSUM62, …)`, centre ~1.4× the V/J
+  borders) raises leave-one-out retrieval PR-AUC above flat BLOSUM62 in **8/8 held-out epitopes** at
+  both edit distance ≤2 (0.333 → 0.356) and ≤4 (0.218 → 0.236). For CDR3, *where* a mismatch falls
+  matters more than *which* residue it is. The first-order statistic is still the control-calibrated
+  E-value.
 
 ## License
 

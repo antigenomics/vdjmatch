@@ -75,11 +75,17 @@ def pr_auc(pairs: list[tuple[int, float]]) -> float:
     return area
 
 
-def score_pairs(qseqs, qv, qj, cand, ref_cdr3, ref_epi, true_epi, chain, ret, dis, weighted):
-    """(label, -score) pairs over all candidate hits; score = sum of (weighted) dissimilarity."""
+def score_pairs(qseqs, qv, qj, cand, ref_cdr3, ref_epi, true_epi, chain, ret, dis, wmode=None):
+    """(label, -score) pairs over all candidate hits; score = sum of (weighted) dissimilarity.
+    wmode: None (flat) | 'region' (germline-retention) | 'possig' (positional significance)."""
     out = []
     for i, hl in enumerate(cand):
-        w = regions.position_weights(len(qseqs[i]), qv[i], qj[i], chain, ret) if weighted else None
+        if wmode == "region":
+            w = regions.position_weights(len(qseqs[i]), qv[i], qj[i], chain, ret)
+        elif wmode == "possig":
+            w = regions.significance_weights(len(qseqs[i]))
+        else:
+            w = None
         for ri in hl:
             r = ref_cdr3[ri]
             if len(r) != len(qseqs[i]):
@@ -124,8 +130,9 @@ def main():
                .filter(pl.col("n") >= args.min_epi).sort("n", descending=True))
     held = sizes["epitope"].to_list()[:args.top]
     print(f"chain={args.chain}; held-out epitopes={len(held)}; subs={args.subs}")
-    print(f"{'epitope':13}{'n':>5}{'unit':>8}{'BLOSUM':>8}{'PAM250':>8}{'struct':>8}{'VDJAM':>8}{'VDJAM_reg':>10}")
-    acc = {k: [] for k in ("unit", "blosum", "pam", "struct", "vdjam", "region")}
+    print(f"{'epitope':13}{'n':>5}{'unit':>8}{'BLOSUM':>8}{'PAM250':>8}{'struct':>8}{'VDJAM':>8}"
+          f"{'VDJAM_reg':>10}{'B+possig':>10}")
+    acc = {k: [] for k in ("unit", "blosum", "pam", "struct", "vdjam", "region", "bps")}
     for epi in held:
         ev = []
         for e in sizes["epitope"].to_list():
@@ -140,18 +147,22 @@ def main():
         cand = [[h.ref_id for h in hl] for hl in index.search_batch(qs, cand_params, 0)]
         sp = lambda dis, w: pr_auc(score_pairs(qs, qv, qj, cand, ref_cdr3, ref_epi, epi,  # noqa: E731
                                                args.chain, ret, dis, w))
-        row = {"unit": sp(unit, False), "blosum": sp(blo, False), "pam": sp(pam, False),
-               "struct": sp(struc, False), "vdjam": sp(vdis, False), "region": sp(vdis, True)}
+        row = {"unit": sp(unit, None), "blosum": sp(blo, None), "pam": sp(pam, None),
+               "struct": sp(struc, None), "vdjam": sp(vdis, None), "region": sp(vdis, "region"),
+               "bps": sp(blo, "possig")}
         for k in acc:
             acc[k].append(row[k])
         print(f"{epi:13}{len(qs):>5}{row['unit']:>8.3f}{row['blosum']:>8.3f}{row['pam']:>8.3f}"
-              f"{row['struct']:>8.3f}{row['vdjam']:>8.3f}{row['region']:>10.3f}")
+              f"{row['struct']:>8.3f}{row['vdjam']:>8.3f}{row['region']:>10.3f}{row['bps']:>10.3f}")
     mean = {k: st.mean(acc[k]) for k in acc}
     print(f"\nmean PR-AUC:  unit {mean['unit']:.3f}  BLOSUM {mean['blosum']:.3f}  PAM250 {mean['pam']:.3f}  "
-          f"struct {mean['struct']:.3f}  VDJAM {mean['vdjam']:.3f}  VDJAM-region {mean['region']:.3f}")
+          f"struct {mean['struct']:.3f}  VDJAM {mean['vdjam']:.3f}  VDJAM-region {mean['region']:.3f}  "
+          f"BLOSUM+possig {mean['bps']:.3f}")
     print(f"region vs flat VDJAM: {st.mean(acc['region']) - st.mean(acc['vdjam']):+.3f}  | "
           f"region vs BLOSUM: {st.mean(acc['region']) - st.mean(acc['blosum']):+.3f}  | "
           f"region>BLOSUM in {sum(1 for a,b in zip(acc['region'],acc['blosum']) if a>b)}/{len(held)}")
+    print(f"BLOSUM+possig vs BLOSUM: {st.mean(acc['bps']) - st.mean(acc['blosum']):+.3f}  | "
+          f"B+possig>BLOSUM in {sum(1 for a,b in zip(acc['bps'],acc['blosum']) if a>b)}/{len(held)}")
 
 
 if __name__ == "__main__":

@@ -236,9 +236,10 @@ substitution falls (Fig.~\ref{fig:possig}), the probability that the two CDR3s s
 dips to $\approx0.41$ in the NDN core but rises to $\approx0.70$ toward the J border: a central
 mismatch most often \emph{changes} specificity (it is contact-proximal and informative), while a
 border mismatch is usually germline noise (the conserved V/J stems). This is the empirical basis for
-weighting the centre more --- exactly what the germline-retention weight $1-w(p)$ does
-(\S\ref{sec:vdjam}) --- and it validates the direction even though, per Fig.~\ref{fig:loo}, it moves
-retrieval little (the variation is already central). It also matches the contacting-region picture of
+weighting the centre more --- the same direction as the germline-retention weight $1-w(p)$
+(\S\ref{sec:vdjam}) --- and, encoded directly as a positional weight on BLOSUM62 (the PSSM of
+\S\ref{sec:possig}), it is the one change that consistently improves retrieval over flat BLOSUM62
+(Table~\ref{tab:matrices}). It also matches the contacting-region picture of
 Shcherbinin~et~al.~\cite{Shcherbinin2023}.
 
 \paragraph{The NDN core is glycine-rich.} Central CDR3 positions reach $\sim30$--$36\%$ glycine in
@@ -247,31 +248,57 @@ non-BLOSUM composition. Notably TRA is comparably central-G-rich to TRB, so this
 insertion-diversity feature, not a TRB-D-gene-exclusive one; either way the NDN alphabet is distinctive
 enough that a general matrix is a poor fit there in principle.
 
-\paragraph{No matrix beats BLOSUM62; can we design one?} Re-scoring the held-out-epitope candidates
+\paragraph{No \emph{standard} matrix beats BLOSUM62.} Re-scoring the held-out-epitope candidates
 (leave-one-out, \S above) with each substitution matrix gives the same verdict at every scope
-(Table~\ref{tab:matrices}): BLOSUM62 and PAM250 are the best and essentially tied, the structural
-matrix sits between them and plain Hamming, Hamming (unit) is a strong baseline, and the data-derived
-NDN-VDJAM --- flat or region-weighted --- trails them all (region beats flat by a small, consistent,
-scope-growing margin). So the honest answer to ``can we beat BLOSUM62'' is, so far, no: a
-substitution matrix is a second-order lever once the ball radius is fixed, and the first-order
-statistic remains the control-calibrated neighbour count at distance~1 (\S\ref{sec:agg}). The one
-regime still worth pushing is the \emph{V-gene} dimension (cross-V comparisons and V-similarity
-grouping), where germline-flank differences are common and the central weighting should matter most.
+(Table~\ref{tab:matrices}, Fig.~\ref{fig:matrices}): BLOSUM62 and PAM250 are the best and essentially
+tied, the structural matrix sits between them and plain Hamming, Hamming (unit) is a strong baseline,
+and the data-derived NDN-VDJAM --- flat or region-weighted --- trails them all (region beats flat by a
+small, consistent, scope-growing margin). So among off-the-shelf and data-derived \emph{amino-acid}
+matrices, the honest answer to ``can we beat BLOSUM62'' is no: the substitution matrix is a
+second-order lever once the ball radius is fixed, and the first-order statistic remains the
+control-calibrated neighbour count at distance~1 (\S\ref{sec:agg}).
 
-\begin{table}[ht]\centering\small
-\begin{tabular}{lcccccc}
+\paragraph{But position-weighting BLOSUM62 does (the significance PSSM).}\label{sec:possig}
+Experiment~2 says \emph{where} a substitution falls matters more than \emph{which} substitution it is.
+We encode that directly as a positional factor on top of BLOSUM62 rather than as a new alphabet matrix.
+From the position-significance curve (Fig.~\ref{fig:possig}) we take a per-relative-position weight
+$\omega(p)=\bigl(1-\Pr(\text{same}\mid\text{sub at }p)\bigr)$, normalised to mean~1 (centre
+$\approx1.4$, J border $\approx0.7$), and interpolate it to any CDR3 length. \texttt{seqtree} consumes
+this natively: \texttt{regions.significance\_pssm()} builds a fixed-width
+\texttt{PositionalMatrix.from\_weights(BLOSUM62, $\lfloor100\,\omega(p)\rceil$)}, so the engine scores
+$\mathrm{pen}(p,a,b)=\omega(p)\cdot\mathrm{BLOSUM62}(a,b)$ --- a central mismatch costs $\sim1.4\times$
+its border-position cost. This is the only scoring change that beats flat BLOSUM62, and it does so
+\emph{at every held-out epitope}: $0.333\!\to\!0.356$ at distance~$\le2$ and $0.218\!\to\!0.236$ at
+distance~$\le4$, winning $8/8$ epitopes at both radii (Table~\ref{tab:matrices}). The gain is modest in
+absolute PR-AUC but uniformly signed, exactly because the matrix re-ranks within a ball whose purity is
+already set by the radius. The remaining first-order lever is the \emph{V-gene} dimension (cross-V
+comparisons and V-similarity grouping), where germline-flank differences are common and this central
+weighting should matter most.
+
+\begin{table}[ht]\centering\small\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccccccc}
 \hline
-mean retrieval PR-AUC & unit & BLOSUM62 & PAM250 & structural & VDJAM & VDJAM-region\\
+mean retrieval PR-AUC & unit & BLOSUM62 & PAM250 & structural & VDJAM & VDJAM-region & BLOSUM+possig\\
 \hline
-edit distance $\le2$ & 0.288 & \textbf{0.323} & 0.321 & 0.301 & 0.269 & 0.275\\
-edit distance $\le4$ & 0.207 & \textbf{0.223} & 0.222 & --- & 0.179 & 0.184\\
+edit distance $\le2$ & 0.306 & 0.333 & 0.329 & 0.314 & 0.284 & 0.287 & \textbf{0.356}\\
+edit distance $\le4$ & 0.203 & 0.218 & 0.218 & 0.192 & 0.177 & 0.181 & \textbf{0.236}\\
 \hline
 \end{tabular}
 \caption{Substitution matrices compared by leave-one-out-by-epitope VDJdb-vs-VDJdb retrieval (TRB,
-8 largest epitopes, micro PR-AUC). BLOSUM62 $\approx$ PAM250 lead at both radii; the data-derived
-VDJAM trails; region weighting consistently beats flat VDJAM.}
+8 largest epitopes, micro PR-AUC). Among standard/data-derived amino-acid matrices BLOSUM62 $\approx$
+PAM250 lead and VDJAM trails; the only scoring that beats BLOSUM62 is BLOSUM62 reweighted by the
+positional-significance PSSM (centre $>$ V/J borders), which wins all $8/8$ held-out epitopes at both
+radii.}
 \label{tab:matrices}
 \end{table}
+
+\begin{figure}[ht]\centering
+  \includegraphics[width=0.62\linewidth]{figures/matrices.pdf}
+  \caption{Mean leave-one-out retrieval PR-AUC by scoring (TRB, distance~$\le2$). No standard
+  amino-acid matrix beats BLOSUM62; reweighting BLOSUM62 by the central-position significance factor
+  (green) does.}
+  \label{fig:matrices}
+\end{figure}
 
 \begin{figure}[ht]\centering
   \includegraphics[width=0.5\linewidth]{figures/purity_vs_distance.pdf}
@@ -321,12 +348,15 @@ recognition.
 \end{figure}
 
 \section{Limitations and roadmap}
-The NDN matrix is estimated from a limited set of same-antigen single-substitution pairs and, at narrow
-scope, does not beat BLOSUM62; the region-aware germline$+$trimming weighting (now implemented) gives a
-small, consistent, scope-growing gain over the flat matrix but not over BLOSUM62 at this task. The
-clearest remaining lever is the \emph{V-gene} dimension: a V-gene similarity term (grouping V genes by
-CDR1/CDR2/CDR2.5 distance) and cross-V comparisons, where germline-flank differences are common and the
-region weighting should matter most; a per-chain treatment (TRA vs TRB) is also pending. Separately, the
+The data-derived NDN matrix is estimated from a limited set of same-antigen single-substitution pairs
+and does not beat BLOSUM62 at any scope; region-aware germline$+$trimming weighting gives a small,
+consistent gain over the flat matrix but not over BLOSUM62. The substitution \emph{alphabet} is thus a
+second-order lever. What does move the needle is \emph{position}: reweighting BLOSUM62 by the
+central-significance PSSM beats flat BLOSUM62 at every held-out epitope (\S\ref{sec:possig}), confirming
+that for CDR3 \emph{where} a mismatch falls matters more than \emph{which} residue it is. The clearest
+remaining lever is the \emph{V-gene} dimension: a V-gene similarity term (grouping V genes by
+CDR1/CDR2/CDR2.5 distance) and cross-V comparisons, where germline-flank differences are common and this
+position weighting should matter most; a per-chain treatment (TRA vs TRB) is also pending. Separately, the
 control's V--J usage must match the query repertoire's or the null is mis-specified --- whether to
 renormalize V--J usage (at the risk of erasing genuine V-gene bias) is an open question to settle on
 held-out epitopes. These extensions, and the full benchmark against existing tools, are ongoing work.

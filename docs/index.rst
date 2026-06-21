@@ -66,9 +66,11 @@ weighting that emphasises the antigen-contacting NDN core over the germline-fixe
 **What scoring actually buys.** An empirical study on VDJdb (the scoring appendix) finds that
 **Hamming distance 1 is the signal:noise optimum** (neighbour purity 0.53 → 0.13 over edit distance
 1–5; the original VDJdb observation), that **central substitutions carry the specificity signal**
-(a core mismatch changes specificity far more than a germline-flank one), and that **no substitution
-matrix beats BLOSUM62** for epitope retrieval — so the substitution matrix is a second-order lever and
-the first-order statistic is the control-calibrated E-value.
+(a core mismatch changes specificity far more than a germline-flank one), and that **no standard
+substitution matrix beats BLOSUM62** for epitope retrieval — but **reweighting BLOSUM62 by that
+central-position significance** (a native ``seqtree`` ``PositionalMatrix``) does, in 8/8 held-out
+epitopes at edit distance ≤2 and ≤4. The substitution alphabet is a second-order lever, position is the
+first-order matrix lever, and the overall first-order statistic is the control-calibrated E-value.
 
 .. toctree::
    :hidden:

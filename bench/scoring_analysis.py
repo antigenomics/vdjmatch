@@ -96,6 +96,14 @@ def position_significance(vdj, chain="TRB", n_queries=2000, bins=8, seed=0):
     prob = [same[b] / tot[b] if tot[b] else 0.0 for b in range(bins)]
     print(f"[{chain}] P(same epitope | sub at rel-pos bin):", [round(p, 3) for p in prob],
           "| n:", [tot[b] for b in range(bins)])
+    # bundle the well-populated profile as a positional informativeness factor for scoring:
+    # weight(relpos) = 1 - P(same | sub here), normalised to mean 1 (centre > borders).
+    good = [(b, prob[b]) for b in range(bins) if tot[b] >= 20]
+    raw = [1.0 - p for _, p in good]
+    mean = sum(raw) / len(raw)
+    res = Path("src/vdjmatch/resources/trimming/position_significance.tsv")
+    res.write_text("relpos\tp_same\tweight\n" + "".join(
+        f"{(b+0.5)/bins:.4f}\t{p:.4f}\t{(1.0-p)/mean:.4f}\n" for b, p in good))
     # only plot well-populated bins (the conserved flanks rarely vary -> tiny, noisy counts)
     rows = "\n".join(f"{(b+0.5)/bins:.3f} {prob[b]:.4f} {tot[b]}" for b in range(bins) if tot[b] >= 20)
     (OUT / "possig.dat").write_text("relpos psame n\n" + rows + "\n")
@@ -141,6 +149,28 @@ plot 'gly.dat' using 1:3 with linespoints lw 2.5 pt 7 lc rgb '#2563eb' title 'TR
     return pa, pb
 
 
+def matrices_fig():
+    """Summary bar chart: no standard substitution matrix beats BLOSUM62 for leave-one-out retrieval
+    (dist <=2) -- but BLOSUM62 weighted by the positional-significance factor (experiment 2) does.
+    Means from bench/loo_vdjam.py --subs 2 (TRB, 8 largest epitopes); B+possig wins 8/8."""
+    data = [("VDJAM", 0.284), ("VDJAM-region", 0.287), ("unit", 0.306), ("structural", 0.314),
+            ("PAM250", 0.329), ("BLOSUM62", 0.333), ("BLOSUM+possig", 0.356)]
+    win = len(data) - 1  # the position-weighted bar, drawn in a contrasting colour
+    rows = "\n".join(f"{i} {n} {v}" for i, (n, v) in enumerate(data))
+    (OUT / "matrices.dat").write_text("i name prauc\n" + rows + "\n")
+    tics = ", ".join(f"'{n}' {i}" for i, (n, _) in enumerate(data))
+    _gnuplot(f"""
+set terminal svg size 600,360 font 'Helvetica,12' background rgb 'white'
+set output 'matrices.svg'
+set style fill solid 0.85 border -1; set boxwidth 0.6
+set ylabel 'mean retrieval PR-AUC (leave-one-out)'; set yrange [0:0.39]
+set grid ytics lc rgb '#e5e7eb'; set xtics ({tics}) rotate by -25; unset key
+set title 'BLOSUM62 + central-position weighting is the only thing that beats BLOSUM62 (TRB, dist <= 2)'
+plot 'matrices.dat' using 1:3 with boxes lc rgb '#94a3b8' notitle, \\
+     'matrices.dat' using 1:($1=={win}?$3:1/0) with boxes lc rgb '#059669' notitle
+""")
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     vdj = db.load("/Users/mikesh/vcs/manuscripts/2026-vdjmatch/test_data/sample3_vdjdb.txt",
@@ -148,7 +178,8 @@ def main():
     purity_vs_distance(vdj, "TRB")
     position_significance(vdj, "TRB")
     tra_trb_gly(vdj)
-    print("wrote purity_vs_distance.svg, position_significance.svg, tra_trb_gly.svg")
+    matrices_fig()
+    print("wrote purity_vs_distance.svg, position_significance.svg, tra_trb_gly.svg, matrices.svg")
 
 
 if __name__ == "__main__":

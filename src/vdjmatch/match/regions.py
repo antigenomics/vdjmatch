@@ -50,6 +50,60 @@ def position_weights(length: int, v: str | None, j: str | None, chain: str,
     return w
 
 
+def load_significance(path=None) -> list[tuple[float, float]]:
+    """Empirical positional informativeness factor (relpos, weight): how much a substitution at a
+    relative CDR3 position changes specificity, from ``bench/scoring_analysis.py`` (weight = 1 −
+    P(neighbour shares epitope | substitution here), normalised to mean 1; centre > V/J borders)."""
+    src = path or (resources.files("vdjmatch.resources") / "trimming" / "position_significance.tsv")
+    out = []
+    with open(src) as fh:
+        next(fh)
+        for line in fh:
+            relpos, _p, w = line.rstrip("\n").split("\t")
+            out.append((float(relpos), float(w)))
+    return out
+
+
+def _interp(x: float, xs: list[float], ys: list[float]) -> float:
+    if x <= xs[0]:
+        return ys[0]
+    if x >= xs[-1]:
+        return ys[-1]
+    for k in range(1, len(xs)):
+        if x <= xs[k]:
+            t = (x - xs[k - 1]) / (xs[k] - xs[k - 1])
+            return ys[k - 1] + t * (ys[k] - ys[k - 1])
+    return ys[-1]
+
+
+_SIG: list[tuple[float, float]] | None = None
+
+
+def significance_weights(length: int, sig=None) -> list[float]:
+    """Per-position informativeness weight for a length-``length`` CDR3 (centre upweighted), by
+    interpolating the empirical profile over relative position. Gene-agnostic (cf. the gene-specific
+    germline-retention weights of :func:`position_weights`)."""
+    global _SIG
+    if length < 2:
+        return [1.0] * length
+    prof = sig if sig is not None else _SIG
+    if prof is None:
+        prof = _SIG = load_significance()
+    xs = [r for r, _ in prof]
+    ws = [w for _, w in prof]
+    return [_interp(i / (length - 1), xs, ws) for i in range(length)]
+
+
+def significance_pssm(length: int, base: str = "blosum62", scale: int = 100):
+    """Experiment-(2) as a native seqtree PSSM: a fixed-width ``PositionalMatrix`` that scales the
+    base substitution matrix by the per-position informativeness factor (centre > V/J borders), so
+    the engine itself up-weights central mismatches. ``pen(pos,a,b) = weight[pos] · base(a,b)``."""
+    from seqtree import PositionalMatrix, SubstitutionMatrix
+    b = getattr(SubstitutionMatrix, base)()
+    w = [max(1, round(scale * x)) for x in significance_weights(length)]
+    return PositionalMatrix.from_weights(b, w)
+
+
 def vdjam_penalties(path=None) -> dict[tuple[str, str], float]:
     """Squared-distance penalty ``pen(a,b)=s_aa+s_bb-2*s_ab`` from the VDJAM similarity table
     (seqtree's ``from_similarity`` convention), computed in Python for region-aware rescoring."""
