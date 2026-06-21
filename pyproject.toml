@@ -26,8 +26,9 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=7.4", "hypothesis"]
 bench = ["psutil"]
-control = ["seqtree[control]"]   # HuggingFace controls beyond the bundled human_trb_aa
+control = ["seqtree[control]", "huggingface_hub"]  # TRA/mouse controls beyond bundled human TRB
 ods = ["ezodf"]                   # read ImmuneWatch DETECT golden .ods in tests
+vdjam = ["biopython>=1.84"]       # bench/gen_vdjam.py: BLOSUM62 baseline (mirpy-lib added for V/J trimming model)
 
 [project.scripts]
 vdjmatch = "vdjmatch.cli.__main__:main"

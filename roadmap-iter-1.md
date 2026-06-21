@@ -64,6 +64,24 @@ seqtree 0.0.3 is published.
   signal. Deliver **both** nulls — (i) matched real control, (ii) V-J-conditioned scaled null — and an
   experiment on held-out epitopes measuring whether renormalization helps or hurts. Decide after data.
 
+### Result so far (bench/gen_vdjam.py — position-debiased CDR3 substitution log-odds)
+Per-region correlation of the learned matrix with BLOSUM62, on VDJdb same-antigen Hamming-1 pairs
+(human; min 30 CDR3s/epitope), **empirically confirms the NDN-vs-V/J split**:
+
+| chain | region | events | r(BLOSUM62) |
+|-------|--------|--------|-------------|
+| TRB | NDN | 6584 | **0.42** |
+| TRB | V   |  749 | 0.08 |
+| TRB | J   | 2797 | 0.22 |
+| TRA | NDN | 5531 | **0.35** |
+| TRA | V   | 8083 | 0.07 |
+
+NDN carries the BLOSUM-like free-substitution signal; the V region is germline-dominated (≈no free
+substitution chemistry) → confirms VDJAM should be **learned on NDN** and V/J **auto-computed from
+germline + trimming**. Next: the germline+trimming V/J model (mirpy `GeneLibrary` + OLGA marginals;
+add a trimming-probability accessor + CDR3 region-segmentation to mirpy and bump it), then
+leave-one-out-by-epitope evaluation vs BLOSUM62/unit, then wire per-region scoring into the engine.
+
 ### Verification for iteration 1
 - Paired E < min single-chain E for true pairs (TCRvdb sample6).
 - Region rescoring reproduces the intended V/NDN/J weighting; NDN-only-learned + computed-V/J matches
