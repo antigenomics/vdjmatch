@@ -8,6 +8,7 @@ Emits SVGs into appendix/figures/: purity_vs_distance.svg, position_significance
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -35,7 +36,7 @@ def cdr3_epitopes(vdj: pl.DataFrame, chain: str) -> dict[str, frozenset]:
     return {c: frozenset(s) for c, s in d.items()}
 
 
-def purity_vs_distance(vdj, chain="TRB", n_queries=300, dmax=5, seed=0):
+def purity_vs_distance(vdj, chain="TRB", n_queries=300, dmax=5, seed=0, org="human"):
     """Fraction of neighbours sharing >=1 epitope, by exact Hamming distance (signal:noise)."""
     ce = cdr3_epitopes(vdj, chain)
     cdrs = list(ce)
@@ -62,13 +63,13 @@ set terminal svg size 540,360 font 'Helvetica,12' background rgb 'white'
 set output 'purity_vs_distance.svg'
 set xlabel 'CDR3 Hamming distance (substitutions)'; set ylabel 'fraction of neighbours sharing epitope'
 set xrange [0.5:{dmax+0.5}]; set yrange [0:*]; set grid lc rgb '#e5e7eb'; set xtics 1
-set key top right; set title 'Signal:noise vs edit distance ({chain})'
+set key top right; set title 'Signal:noise vs edit distance ({org} {chain})'
 plot 'purity.dat' using 1:2 with linespoints lw 2.5 pt 7 lc rgb '#2563eb' notitle
 """)
     return pur
 
 
-def position_significance(vdj, chain="TRB", n_queries=2000, bins=8, seed=0):
+def position_significance(vdj, chain="TRB", n_queries=2000, bins=8, seed=0, org="human"):
     """P(neighbours share epitope | the single substitution falls at relative CDR3 position).
     Centre (NDN/contact) vs V/J borders (germline-fixed)."""
     ce = cdr3_epitopes(vdj, chain)
@@ -113,7 +114,7 @@ set output 'position_significance.svg'
 set xlabel 'relative CDR3 position (0 = V/Cys anchor, 1 = J anchor)'
 set ylabel 'P(neighbour shares epitope | sub here)'
 set xrange [0:1]; set yrange [0:*]; set grid lc rgb '#e5e7eb'
-set title 'Single-substitution significance by CDR3 position ({chain})'; unset key
+set title 'Single-substitution significance by CDR3 position ({org} {chain})'; unset key
 set label 'V border' at 0.06,graph 0.08 tc rgb '#9ca3af'; set label 'NDN core' at 0.42,graph 0.08 tc rgb '#9ca3af'
 set label 'J border' at 0.80,graph 0.08 tc rgb '#9ca3af'
 plot 'possig.dat' using 1:2 with linespoints lw 2.5 pt 7 lc rgb '#7c3aed' notitle
@@ -121,7 +122,7 @@ plot 'possig.dat' using 1:2 with linespoints lw 2.5 pt 7 lc rgb '#7c3aed' notitl
     return prob
 
 
-def tra_trb_gly(vdj, bins=10):
+def tra_trb_gly(vdj, bins=10, org="human"):
     """Glycine fraction by relative CDR3 position, TRA vs TRB (TRB D-gene -> central poly-G)."""
     def gly_profile(chain):
         cdrs = vdj.filter(pl.col("gene") == chain)["cdr3"].unique().to_list()
@@ -142,7 +143,7 @@ set terminal svg size 560,360 font 'Helvetica,12' background rgb 'white'
 set output 'tra_trb_gly.svg'
 set xlabel 'relative CDR3 position'; set ylabel 'glycine (G) fraction'
 set xrange [0:1]; set yrange [0:*]; set grid lc rgb '#e5e7eb'; set key top right
-set title 'Central glycine enrichment: TRB (D gene) vs TRA'
+set title 'Central glycine enrichment ({org}): TRB (D gene) vs TRA'
 plot 'gly.dat' using 1:3 with linespoints lw 2.5 pt 7 lc rgb '#2563eb' title 'TRB', \
      '' using 1:2 with linespoints lw 2.5 pt 5 lc rgb '#f59e0b' title 'TRA'
 """)
@@ -165,7 +166,7 @@ set output 'matrices.svg'
 set style fill solid 0.85 border -1; set boxwidth 0.6
 set ylabel 'mean retrieval PR-AUC (leave-one-out)'; set yrange [0:0.39]
 set grid ytics lc rgb '#e5e7eb'; set xtics ({tics}) rotate by -25; unset key
-set title 'BLOSUM62 + central-position weighting is the only thing that beats BLOSUM62 (TRB, dist <= 2)'
+set title 'BLOSUM62 + central-position weighting is the only thing that beats BLOSUM62 (human TRB, dist <= 2)'
 plot 'matrices.dat' using 1:3 with boxes lc rgb '#94a3b8' notitle, \\
      'matrices.dat' using 1:($1=={win}?$3:1/0) with boxes lc rgb '#059669' notitle
 """)
@@ -173,11 +174,15 @@ plot 'matrices.dat' using 1:3 with boxes lc rgb '#94a3b8' notitle, \\
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    vdj = db.load("/Users/mikesh/vcs/manuscripts/2026-vdjmatch/test_data/sample3_vdjdb.txt",
-                  asset="full", species="HomoSapiens")
-    purity_vs_distance(vdj, "TRB")
-    position_significance(vdj, "TRB")
-    tra_trb_gly(vdj)
+    # Example case: human TRB/TRA. The same pipeline applies to human/mouse and TRA/TRB -- point
+    # VDJDB_SAMPLE at another VDJdb export and set VDJDB_SPECIES to regenerate for a different case.
+    sample = os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt")
+    species = os.environ.get("VDJDB_SPECIES", "HomoSapiens")
+    org = {"HomoSapiens": "human", "MusMusculus": "mouse"}.get(species, species)
+    vdj = db.load(sample, asset="full", species=species)
+    purity_vs_distance(vdj, "TRB", org=org)
+    position_significance(vdj, "TRB", org=org)
+    tra_trb_gly(vdj, org=org)
     matrices_fig()
     print("wrote purity_vs_distance.svg, position_significance.svg, tra_trb_gly.svg, matrices.svg")
 

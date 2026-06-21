@@ -142,6 +142,16 @@ def test_significance_weights_centre_heavy_and_pssm_builds():
     assert any(h.n_subs == 0 for h in hits)    # exact self is found
 
 
+def test_vgene_similarity_and_clusters():
+    from vdjmatch.match import vgene
+    assert vgene.vsim("TRBV5-1", "TRBV5-1*02") == 1.0          # same family -> identical
+    assert vgene.vsim("TRBV5-1", "NOPE") == 0.0                # unknown -> 0
+    # germline contacting-loop similarity tracks relatedness but not family number
+    assert vgene.vsim("TRBV5-1", "TRBV5-8") > vgene.vsim("TRBV5-1", "TRBV19")
+    cl = vgene.v_clusters("TRB", cut=0.8)
+    assert len(set(cl.values())) < len(cl)                     # fuzzy V groups merge some genes
+
+
 def test_region_aware_engine_path():
     idx = VdjdbIndex.build(_tiny_vdjdb(), species="HomoSapiens")
     q = pl.DataFrame({"cdr3": ["CASSIRSSYEQYF"], "v": ["TRBV19"], "j": ["TRBJ2-7"],

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 from collections import Counter, defaultdict
 
 import polars as pl
@@ -140,7 +141,8 @@ def region_of(pos: int, L: int, vlen: int, jlen: int) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pmhc", default="/Users/mikesh/vcs/manuscripts/2026-vdjmatch/test_data/sample3_vdjdb.txt")
+    ap.add_argument("--pmhc", default=os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt"),
+                    help="VDJdb export TSV (default $VDJDB_SAMPLE or test_data/sample3_vdjdb.txt)")
     ap.add_argument("--species", default="HomoSapiens")
     ap.add_argument("--min-epi", type=int, default=30)
     ap.add_argument("--vlen", type=int, default=4)

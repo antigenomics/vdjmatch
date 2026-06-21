@@ -9,6 +9,7 @@ Emits into appendix/:
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -191,7 +192,7 @@ def main():
     region_corr_fig(figdir)
     retention_fig(figdir)
     loo_fig(figdir)
-    vdj = db.load("/Users/mikesh/vcs/manuscripts/2026-vdjmatch/test_data/sample3_vdjdb.txt",
+    vdj = db.load(os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt"),
                   asset="full", species="HomoSapiens")
     msa_blocks(vdj, alndir, ["GILGFVFTL", "NLVPMVATV"])
     pairwise_alns(vdj, alndir)

@@ -71,6 +71,9 @@ substitution matrix beats BLOSUM62** for epitope retrieval — but **reweighting
 central-position significance** (a native ``seqtree`` ``PositionalMatrix``) does, in 8/8 held-out
 epitopes at edit distance ≤2 and ≤4. The substitution alphabet is a second-order lever, position is the
 first-order matrix lever, and the overall first-order statistic is the control-calibrated E-value.
+Finally, the **V gene is a strong but near-binary prior** — same-V neighbours share an epitope ~53% of
+the time vs ~12% cross-V, but that advantage does not interpolate with germline CDR1/CDR2 similarity, so
+soft V-clustering does not recover it and a near-hard V constraint stays the default.
 
 .. toctree::
    :hidden:

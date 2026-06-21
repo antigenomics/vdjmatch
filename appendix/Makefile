@@ -3,8 +3,8 @@
 # Assets (figures + alignments) are produced by ../bench/gen_appendix_assets.py.
 FIGS = figures/region_corr.pdf figures/loo_prauc.pdf aln/GILGFVFTL_msa.pdf aln/NLVPMVATV_msa.pdf
 
-scoring.pdf: scoring.tex refs.bib $(FIGS)
-	latexmk -lualatex -interaction=nonstopmode -halt-on-error scoring.tex
+vdjmatch_scoring.pdf: vdjmatch_scoring.tex refs.bib $(FIGS)
+	latexmk -lualatex -interaction=nonstopmode -halt-on-error vdjmatch_scoring.tex
 
 %.pdf: %.svg
 	rsvg-convert -f pdf -o $@ $<
@@ -13,4 +13,4 @@ scoring.pdf: scoring.tex refs.bib $(FIGS)
 assets:
 	python ../bench/gen_appendix_assets.py
 clean:
-	latexmk -C scoring.tex
+	latexmk -C vdjmatch_scoring.tex

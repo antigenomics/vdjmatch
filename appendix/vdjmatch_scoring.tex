@@ -37,10 +37,15 @@
 
 \title{\scshape Scoring, substitution matrices and score aggregation for
 TCR antigen-specificity search}
-\author{The vdjmatch authors\thanks{Supplementary technical note for the \texttt{vdjmatch} software;
-intended as supplementary material to the main manuscript.}}
-\date{\small\textit{vdjmatch technical appendix} --- draft, regenerated from
-\texttt{bench/gen\_vdjam.py}, \texttt{bench/loo\_vdjam.py}, \texttt{bench/gen\_appendix\_assets.py}}
+\author{Mikhail Shugay\textsuperscript{1,2,3}\thanks{Correspondence:
+  \href{mailto:mikhail.shugay@gmail.com}{mikhail.shugay@gmail.com}}}
+\date{%
+  \small
+  \textsuperscript{1}Institute of Translational Medicine, Russian National Medical State University, Moscow, Russia\\
+  \textsuperscript{2}Department of Genomics of Adaptive Immunity, Shemyakin--Ovchinnikov Institute of Bioorganic Chemistry RAS, Moscow, Russia\\
+  \textsuperscript{3}Institute of Molecular Biology NAS RA, Erevan, Armenia\\[6pt]
+  \normalsize\textit{vdjmatch technical appendix}%
+}
 
 \begin{document}
 \maketitle
@@ -221,7 +226,9 @@ the first-order signal is the control-calibrated neighbour count (\S\ref{sec:agg
 
 \section{Edit distance, position, and the matrix comparison}\label{sec:empirical}
 Four analyses (\texttt{bench/scoring\_analysis.py}, \texttt{bench/loo\_vdjam.py}) settle what scoring
-actually buys on VDJdb (human TRB).
+actually buys on VDJdb. All figures and numbers below are the \emph{human TRB} example case (the
+largest, best-populated slice of VDJdb); the same pipeline applies unchanged to human/mouse and to
+TRA/TRB --- point \texttt{\$VDJDB\_SAMPLE}/\texttt{\$VDJDB\_SPECIES} at another export to regenerate.
 
 \paragraph{Hamming distance 1 is the signal:noise optimum.} The fraction of CDR3 neighbours that share
 an epitope --- the precision of a similarity call --- falls steeply with edit distance:
@@ -302,22 +309,86 @@ radii.}
 
 \begin{figure}[ht]\centering
   \includegraphics[width=0.5\linewidth]{figures/purity_vs_distance.pdf}
-  \caption{Fraction of CDR3 neighbours sharing an epitope vs Hamming distance (TRB): distance~1 is the
-  signal:noise optimum~\cite{Shugay2018}.}
+  \caption{Fraction of CDR3 neighbours sharing an epitope vs Hamming distance (human TRB): distance~1
+  is the signal:noise optimum~\cite{Shugay2018}.}
   \label{fig:purity}
 \end{figure}
 \begin{figure}[ht]\centering
   \includegraphics[width=0.52\linewidth]{figures/position_significance.pdf}
   \caption{$\Pr(\text{neighbour shares epitope}\mid\text{single substitution at relative position})$,
-  TRB. The NDN core is where a mismatch most changes specificity; the V/J borders are germline noise.}
+  human TRB. The NDN core is where a mismatch most changes specificity; the V/J borders are germline
+  noise.}
   \label{fig:possig}
 \end{figure}
 \begin{figure}[ht]\centering
   \includegraphics[width=0.52\linewidth]{figures/tra_trb_gly.pdf}
-  \caption{Glycine fraction by relative CDR3 position: the NDN core is $\sim30$--$36\%$ glycine in
-  both TRA and TRB (insertion/D-gene signature).}
+  \caption{Glycine fraction by relative CDR3 position (human): the NDN core is $\sim30$--$36\%$ glycine
+  in both TRA and TRB (insertion/D-gene signature).}
   \label{fig:gly}
 \end{figure}
+
+\section{The V-gene dimension}\label{sec:vgene}
+The remaining lever is the V gene. Two questions, both tested by leave-one-out retrieval on human TRB
+(\texttt{bench/vgene\_strat.py}, edit distance $\le4$): is a V match itself a specificity signal, and
+can it be \emph{softened} to germline-similar V genes?
+
+\paragraph{A V match is a strong, near-binary specificity prior.} Splitting every scored neighbour
+pair by whether query and hit use the same V family, same-V neighbours share the held-out epitope
+$53\%$ of the time versus $12\%$ for cross-V --- a $\sim$4.3$\times$ prior, far larger than any
+substitution-matrix effect (Table~\ref{tab:vgene}). This is why the legacy tool used V as a hard
+filter, and it argues for carrying V as a strong prior (a soft $S(V)$ term or a per-V null) in a joint
+V$+$CDR3 score rather than discarding it.
+
+\paragraph{Position weighting helps both strata equally.} The central-significance PSSM and the
+germline-retention weighting each add $\approx+0.02$ PR-AUC over flat BLOSUM62 in \emph{both} strata
+(Table~\ref{tab:vgene}). We had expected the gain to concentrate in cross-V pairs, where germline
+V-flank residues differ and should be down-weighted as noise; instead it is uniform. The weighting is
+robust rather than cross-V-specific (in relative terms the cross-V gain is larger only because its
+baseline is far lower).
+
+\paragraph{Germline-loop V-similarity does not recover the prior.} If the same-V advantage were the
+chemistry of the V-encoded contacts, it should degrade gracefully with germline CDR1$+$CDR2 similarity,
+licensing fuzzy V matching (e.g.\ TRBV5-1$\approx$TRBV5-8). It does not: cross-V co-specificity stays
+near $12$--$13\%$ across the whole similarity range, with no monotone gradient and the most-similar
+bin no higher (Table~\ref{tab:vgene-sim}). The V signal is therefore \emph{gene identity}, not
+contacting-loop similarity --- so soft V-clustering by CDR1/CDR2 does not recover it, and a hard or
+near-hard V constraint remains the right default. (The DE-loop / ``CDR2.5'' inside FWR3 is not isolated
+in our germline table; folding it in is a possible refinement, but it is unlikely to bend a flat
+signal.) The clustering machinery (\texttt{match/vgene.py}: germline-loop similarity and single-linkage
+V groups, $66\to47$ TRB groups at a $0.8$ cut) is shipped for downstream use regardless.
+
+\begin{table}[ht]\centering\small
+\begin{tabular}{lrrccc}
+\hline
+V stratum & pairs & co-specific & flat & +possig & +region\\
+\hline
+same V  & 130\,273 & 53.1\% & 0.671 & 0.694 & 0.695\\
+cross V & 901\,819 & 12.3\% & 0.164 & 0.185 & 0.182\\
+\hline
+\end{tabular}
+\caption{V-gene-stratified leave-one-out retrieval (human TRB, edit distance $\le4$, pooled micro
+PR-AUC). A V match is a $\sim$4.3$\times$ co-specificity prior; position weighting ($+$possig,
+$+$region) adds $\approx+0.02$ in both strata.}
+\label{tab:vgene}
+\end{table}
+
+\begin{table}[ht]\centering\small
+\begin{tabular}{lrr}
+\hline
+germline CDR1$+$CDR2 similarity & cross-V pairs & co-specific\\
+\hline
+$[0.0,0.3)$ & 464\,817 & 11.6\%\\
+$[0.3,0.5)$ & 352\,184 & 13.0\%\\
+$[0.5,0.7)$ &  66\,838 & 12.8\%\\
+$[0.7,0.9)$ &  15\,831 & 16.6\%\\
+$[0.9,1.0)$ &   2\,149 &  8.3\%\\
+\hline
+\end{tabular}
+\caption{Cross-V co-specificity does not rise with germline contacting-loop similarity (human TRB):
+the same-V prior (53\%) is not interpolated by V-gene similarity, so soft V-clustering does not recover
+it. The V signal is gene identity, not loop chemistry.}
+\label{tab:vgene-sim}
+\end{table}
 
 \section{Worked examples}
 \paragraph{Pairwise (different lengths).} \texttt{seqtree} aligns CDR3s of differing length, placing
@@ -353,10 +424,13 @@ and does not beat BLOSUM62 at any scope; region-aware germline$+$trimming weight
 consistent gain over the flat matrix but not over BLOSUM62. The substitution \emph{alphabet} is thus a
 second-order lever. What does move the needle is \emph{position}: reweighting BLOSUM62 by the
 central-significance PSSM beats flat BLOSUM62 at every held-out epitope (\S\ref{sec:possig}), confirming
-that for CDR3 \emph{where} a mismatch falls matters more than \emph{which} residue it is. The clearest
-remaining lever is the \emph{V-gene} dimension: a V-gene similarity term (grouping V genes by
-CDR1/CDR2/CDR2.5 distance) and cross-V comparisons, where germline-flank differences are common and this
-position weighting should matter most; a per-chain treatment (TRA vs TRB) is also pending. Separately, the
+that for CDR3 \emph{where} a mismatch falls matters more than \emph{which} residue it is. The
+\emph{V-gene} dimension (\S\ref{sec:vgene}) turns out to be a strong but near-binary lever: a V match is
+a $\sim$4.3$\times$ co-specificity prior, yet it does \emph{not} interpolate with germline
+contacting-loop similarity, so soft V-clustering by CDR1/CDR2 does not recover it and a near-hard V
+constraint stays the default. The open work is therefore to model V as a strong prior in a joint
+V$+$CDR3 E-value rather than to soften the V match, plus a per-chain treatment (TRA vs TRB). Separately,
+the
 control's V--J usage must match the query repertoire's or the null is mis-specified --- whether to
 renormalize V--J usage (at the risk of erasing genuine V-gene bias) is an open question to settle on
 held-out epitopes. These extensions, and the full benchmark against existing tools, are ongoing work.

@@ -18,6 +18,7 @@ candidate set, and each (query, hit) pair is scored four ways and ranked. Micro 
 from __future__ import annotations
 
 import argparse
+import os
 import statistics as st
 
 import polars as pl
@@ -44,12 +45,14 @@ def named_dissim(name: str) -> dict[tuple[str, str], float]:
     return {k: hi - v for k, v in vals.items()}
 
 
-def structural_dissim(inc="/Users/mikesh/vcs/code/seqtree/src/structural.inc") -> dict | None:
+def structural_dissim(inc=None) -> dict | None:
     """seqtree's TeXshade structural similarity matrix (sidechain volume + hydropathy) -> dissim.
-    Parsed from the seqtree source .inc (24-symbol order ARNDCQEGHILKMFPSTWYVBZX*); None if absent."""
+    Parsed from the seqtree source .inc (24-symbol order ARNDCQEGHILKMFPSTWYVBZX*); None if absent.
+    Path from arg or $STRUCTURAL_INC (e.g. <seqtree>/src/structural.inc)."""
     import re
     from pathlib import Path
-    if not Path(inc).exists():
+    inc = inc or os.environ.get("STRUCTURAL_INC", "")
+    if not inc or not Path(inc).exists():
         return None
     order = "ARNDCQEGHILKMFPSTWYVBZX*"
     txt = Path(inc).read_text().split("kStructural[24 * 24] = {", 1)[-1]
@@ -102,7 +105,8 @@ def score_pairs(qseqs, qv, qj, cand, ref_cdr3, ref_epi, true_epi, chain, ret, di
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pmhc", default="/Users/mikesh/vcs/manuscripts/2026-vdjmatch/test_data/sample3_vdjdb.txt")
+    ap.add_argument("--pmhc", default=os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt"),
+                    help="VDJdb export TSV (default $VDJDB_SAMPLE or test_data/sample3_vdjdb.txt)")
     ap.add_argument("--species", default="HomoSapiens")
     ap.add_argument("--chain", default="TRB")
     ap.add_argument("--min-epi", type=int, default=50)
@@ -129,7 +133,7 @@ def main():
     sizes = (uc.group_by("epitope").agg(pl.col("cdr3").n_unique().alias("n"))
                .filter(pl.col("n") >= args.min_epi).sort("n", descending=True))
     held = sizes["epitope"].to_list()[:args.top]
-    print(f"chain={args.chain}; held-out epitopes={len(held)}; subs={args.subs}")
+    print(f"species={args.species} chain={args.chain}; held-out epitopes={len(held)}; subs={args.subs}")
     print(f"{'epitope':13}{'n':>5}{'unit':>8}{'BLOSUM':>8}{'PAM250':>8}{'struct':>8}{'VDJAM':>8}"
           f"{'VDJAM_reg':>10}{'B+possig':>10}")
     acc = {k: [] for k in ("unit", "blosum", "pam", "struct", "vdjam", "region", "bps")}

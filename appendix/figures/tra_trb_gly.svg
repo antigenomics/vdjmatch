@@ -306,7 +306,7 @@
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g transform="translate(307.87,30.91)" stroke="none" fill="black" font-family="Helvetica" font-size="12.00"  text-anchor="middle">
-		<text><tspan font-family="Helvetica" >Central glycine enrichment: TRB (D gene) vs TRA</tspan></text>
+		<text><tspan font-family="Helvetica" >Central glycine enrichment (</tspan><tspan font-family="Helvetica" >org</tspan><tspan font-family="Helvetica" >): TRB (D gene) vs TRA</tspan></text>
 	</g>
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">

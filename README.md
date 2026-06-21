@@ -1,5 +1,13 @@
 # vdjmatch
 
+<p>
+  <a href="https://pypi.org/project/vdjmatch/"><img alt="PyPI" src="https://img.shields.io/pypi/v/vdjmatch"></a>
+  <a href="https://github.com/antigenomics/vdjmatch/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/antigenomics/vdjmatch/actions/workflows/tests.yml/badge.svg"></a>
+  <a href="https://docs.isalgo.dev/vdjmatch/"><img alt="docs" src="https://github.com/antigenomics/vdjmatch/actions/workflows/docs.yml/badge.svg"></a>
+  <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPLv3-green"></a>
+</p>
+
 Fast, control-calibrated annotation of **T-cell receptor antigen specificity**.
 
 `vdjmatch` annotates clonotypes in large AIRR repertoires against [VDJdb](https://github.com/antigenomics/vdjdb-db)
@@ -33,7 +41,7 @@ pip install -e .[test,bench]
 
 ## Scoring: what works (and what doesn't)
 
-An empirical study on VDJdb (see `appendix/scoring.tex`) settles the scoring question honestly:
+An empirical study on VDJdb (see `appendix/vdjmatch_scoring.tex`) settles the scoring question honestly:
 
 - **Hamming distance 1 is the signal:noise optimum** — neighbour purity falls 0.53 → 0.13 across edit
   distance 1–5 (reproducing the original VDJdb observation, Shugay et al. NAR 2018). The search-ball
@@ -50,6 +58,12 @@ An empirical study on VDJdb (see `appendix/scoring.tex`) settles the scoring que
   both edit distance ≤2 (0.333 → 0.356) and ≤4 (0.218 → 0.236). For CDR3, *where* a mismatch falls
   matters more than *which* residue it is. The first-order statistic is still the control-calibrated
   E-value.
+- **The V gene is a strong, near-binary prior — not a similarity gradient.** Same-V neighbours share
+  the epitope **53%** of the time vs **12%** cross-V (~4.3×), but that advantage does *not* interpolate
+  with germline CDR1/CDR2 similarity (cross-V co-specificity stays flat ~12–13% across the similarity
+  range). So soft V-clustering by contacting-loop similarity does **not** recover the prior — the V
+  signal is gene identity, not loop chemistry, and a near-hard V constraint stays the default
+  (analysis in `bench/vgene_strat.py`; similarity/clustering helpers in `vdjmatch.match.vgene`).
 
 ## License
 
