@@ -120,22 +120,17 @@
 	</g>
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
-	<path stroke='black'  d='M169.46,321.00 L169.46,311.25 M169.46,58.51 L169.46,68.26  '/>	<g transform="translate(169.46,344.73)" stroke="none" fill="black" font-family="Helvetica" font-size="13.00"  text-anchor="middle">
+	<path stroke='black'  d='M260.27,321.00 L260.27,311.25  '/>	<g transform="translate(260.27,344.73)" stroke="none" fill="black" font-family="Helvetica" font-size="13.00"  text-anchor="middle">
 		<text><tspan font-family="Helvetica" >V</tspan></text>
 	</g>
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
-	<path stroke='black'  d='M260.27,321.00 L260.27,311.25 M260.27,58.51 L260.27,68.26  '/>	<g transform="translate(260.27,344.73)" stroke="none" fill="black" font-family="Helvetica" font-size="13.00"  text-anchor="middle">
-		<text><tspan font-family="Helvetica" >V</tspan></text>
-	</g>
-</g>
-<g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
-	<path stroke='black'  d='M351.07,321.00 L351.07,311.25 M351.07,58.51 L351.07,68.26  '/>	<g transform="translate(351.07,344.73)" stroke="none" fill="black" font-family="Helvetica" font-size="13.00"  text-anchor="middle">
+	<path stroke='black'  d='M351.07,321.00 L351.07,311.25  '/>	<g transform="translate(351.07,344.73)" stroke="none" fill="black" font-family="Helvetica" font-size="13.00"  text-anchor="middle">
 		<text><tspan font-family="Helvetica" >NDN</tspan></text>
 	</g>
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
-	<path stroke='black'  d='M441.88,321.00 L441.88,311.25 M441.88,58.51 L441.88,68.26  '/>	<g transform="translate(441.88,344.73)" stroke="none" fill="black" font-family="Helvetica" font-size="13.00"  text-anchor="middle">
+	<path stroke='black'  d='M441.88,321.00 L441.88,311.25  '/>	<g transform="translate(441.88,344.73)" stroke="none" fill="black" font-family="Helvetica" font-size="13.00"  text-anchor="middle">
 		<text><tspan font-family="Helvetica" >J</tspan></text>
 	</g>
 </g>

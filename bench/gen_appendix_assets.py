@@ -46,7 +46,7 @@ set boxwidth 0.9
 set ylabel 'Pearson r vs BLOSUM62'
 set yrange [0:0.5]
 set grid ytics lc rgb '#e5e7eb'
-set xtics ('V' 0, 'NDN' 1, 'J' 2)
+set xtics nomirror
 set key top left
 set title 'Substitution-matrix agreement with BLOSUM62 by CDR3 region'
 plot 'region_corr.dat' using 3:xtic(2) title 'TRB' lc rgb '#2563eb', \
@@ -57,9 +57,8 @@ plot 'region_corr.dat' using 3:xtic(2) title 'TRB' lc rgb '#2563eb', \
 def loo_fig(figdir: Path):
     rows = "\n".join(f"{i} {e} {v} {b} {u}" for i, (e, v, b, u) in enumerate(LOO))
     (figdir / "loo_prauc.dat").write_text("i epi VDJAM BLOSUM unit\n" + rows + "\n")
-    tics = ", ".join(f"'{e}' {i}" for i, (e, *_ ) in enumerate(LOO))
-    _gnuplot(f"""
-set terminal svg size 720,380 font 'Helvetica,12' background rgb 'white'
+    _gnuplot("""
+set terminal svg size 720,400 font 'Helvetica,12' background rgb 'white'
 set output 'loo_prauc.svg'
 set style data histogram
 set style histogram cluster gap 1
@@ -68,11 +67,11 @@ set boxwidth 0.9
 set ylabel 'retrieval PR-AUC (held-out epitope)'
 set yrange [0:0.8]
 set grid ytics lc rgb '#e5e7eb'
-set xtics rotate by -30 ({tics})
+set xtics nomirror rotate by -30
 set key top right
 set title 'Leave-one-out-by-epitope retrieval (TRB, scope 2)'
-plot 'loo_prauc.dat' using 3 title 'VDJAM (NDN)' lc rgb '#2563eb', \
-     '' using 4 title 'BLOSUM62' lc rgb '#9ca3af', \
+plot 'loo_prauc.dat' using 3:xtic(2) title 'VDJAM (NDN)' lc rgb '#2563eb', \\
+     '' using 4 title 'BLOSUM62' lc rgb '#9ca3af', \\
      '' using 5 title 'unit' lc rgb '#d1d5db'
 """, figdir)
 
@@ -86,17 +85,18 @@ def _msa_svg(block: list[str], out: Path, title: str):
         col = Counter(s[p] for s in block)
         aa, c = col.most_common(1)[0]
         cons.append((aa, c / rows))
-    cw, ch, x0, y0 = 22, 17, 8, 34
+    cw, ch, x0, y0 = 22, 17, 8, 50      # y0 = grid top; title + conservation track sit above it
+    track_base = y0 - 6                  # bottom of conservation bars (clear gap below the title)
     W, H = x0 + L * cw + 8, y0 + (rows + 1) * ch + 26
     def fill(f):  # white -> blue by conservation
         r = int(255 - f * (255 - 37)); g = int(255 - f * (255 - 99)); b = int(255 - f * (255 - 235))
         return f"rgb({r},{g},{b})"
     e = [f"<svg xmlns='http://www.w3.org/2000/svg' width='{W}' height='{H}' font-family='monospace'>",
          f"<rect width='{W}' height='{H}' fill='white'/>",
-         f"<text x='{x0}' y='20' font-size='13' font-family='Helvetica' font-weight='bold'>{title}</text>"]
-    for p in range(L):  # conservation track
-        bh = cons[p][1] * (ch - 3)
-        e.append(f"<rect x='{x0+p*cw+3}' y='{y0-4-bh:.1f}' width='{cw-6}' height='{bh:.1f}' fill='#94a3b8'/>")
+         f"<text x='{x0}' y='16' font-size='13' font-family='Helvetica' font-weight='bold'>{title}</text>"]
+    for p in range(L):  # conservation track (bars grow up from track_base, below the title)
+        bh = cons[p][1] * 14
+        e.append(f"<rect x='{x0+p*cw+3}' y='{track_base-bh:.1f}' width='{cw-6}' height='{bh:.1f}' fill='#94a3b8'/>")
     for i, s in enumerate(block):
         for p, aa in enumerate(s):
             x, y = x0 + p * cw, y0 + i * ch

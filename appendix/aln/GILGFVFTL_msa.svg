@@ -1,395 +1,395 @@
-<svg xmlns='http://www.w3.org/2000/svg' width='302' height='315' font-family='monospace'>
-<rect width='302' height='315' fill='white'/>
-<text x='8' y='20' font-size='13' font-family='Helvetica' font-weight='bold'>GILGFVFTL  (TRB CDR3, length 13, n=14)</text>
-<rect x='11' y='16.0' width='16' height='14.0' fill='#94a3b8'/>
-<rect x='33' y='16.0' width='16' height='14.0' fill='#94a3b8'/>
-<rect x='55' y='17.0' width='16' height='13.0' fill='#94a3b8'/>
-<rect x='77' y='16.0' width='16' height='14.0' fill='#94a3b8'/>
-<rect x='99' y='27.0' width='16' height='3.0' fill='#94a3b8'/>
-<rect x='121' y='22.0' width='16' height='8.0' fill='#94a3b8'/>
-<rect x='143' y='23.0' width='16' height='7.0' fill='#94a3b8'/>
-<rect x='165' y='25.0' width='16' height='5.0' fill='#94a3b8'/>
-<rect x='187' y='26.0' width='16' height='4.0' fill='#94a3b8'/>
-<rect x='209' y='21.0' width='16' height='9.0' fill='#94a3b8'/>
-<rect x='231' y='18.0' width='16' height='12.0' fill='#94a3b8'/>
-<rect x='253' y='20.0' width='16' height='10.0' fill='#94a3b8'/>
-<rect x='275' y='16.0' width='16' height='14.0' fill='#94a3b8'/>
-<rect x='8' y='34' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='47' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='34' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='47' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='34' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='47' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='34' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='47' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='34' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='47' font-size='12' text-anchor='middle' fill='#334155'>R</text>
-<rect x='118' y='34' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='47' font-size='12' text-anchor='middle' fill='#334155'>T</text>
-<rect x='140' y='34' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='47' font-size='12' text-anchor='middle' fill='#334155'>G</text>
-<rect x='162' y='34' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='47' font-size='12' text-anchor='middle' fill='#334155'>T</text>
-<rect x='184' y='34' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='47' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
-<rect x='206' y='34' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='47' font-size='12' text-anchor='middle' fill='white'>E</text>
-<rect x='228' y='34' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='47' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='34' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='47' font-size='12' text-anchor='middle' fill='white'>Y</text>
-<rect x='272' y='34' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='47' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='51' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='64' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='51' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='64' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='51' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='64' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='51' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='64' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='51' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='64' font-size='12' text-anchor='middle' fill='#334155'>I</text>
-<rect x='118' y='51' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='64' font-size='12' text-anchor='middle' fill='#334155'>S</text>
-<rect x='140' y='51' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='64' font-size='12' text-anchor='middle' fill='#334155'>S</text>
-<rect x='162' y='51' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='64' font-size='12' text-anchor='middle' fill='#334155'>T</text>
-<rect x='184' y='51' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='64' font-size='12' text-anchor='middle' fill='#334155'>G</text>
-<rect x='206' y='51' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='64' font-size='12' text-anchor='middle' fill='white'>E</text>
-<rect x='228' y='51' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='64' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='51' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='64' font-size='12' text-anchor='middle' fill='white'>Y</text>
-<rect x='272' y='51' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='64' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='68' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='81' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='68' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='81' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='68' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='81' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='68' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='81' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='68' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='81' font-size='12' text-anchor='middle' fill='#334155'>R</text>
-<rect x='118' y='68' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='81' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
-<rect x='140' y='68' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='81' font-size='12' text-anchor='middle' fill='#334155'>S</text>
-<rect x='162' y='68' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='81' font-size='12' text-anchor='middle' fill='#334155'>V</text>
-<rect x='184' y='68' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='81' font-size='12' text-anchor='middle' fill='#334155'>D</text>
-<rect x='206' y='68' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='81' font-size='12' text-anchor='middle' fill='white'>T</text>
-<rect x='228' y='68' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='81' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='68' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='81' font-size='12' text-anchor='middle' fill='white'>Y</text>
-<rect x='272' y='68' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='81' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='85' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='98' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='85' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='98' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='85' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='98' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='85' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='98' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='85' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='98' font-size='12' text-anchor='middle' fill='#334155'>D</text>
-<rect x='118' y='85' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='98' font-size='12' text-anchor='middle' fill='#334155'>R</text>
-<rect x='140' y='85' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='98' font-size='12' text-anchor='middle' fill='#334155'>A</text>
-<rect x='162' y='85' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='98' font-size='12' text-anchor='middle' fill='#334155'>T</text>
-<rect x='184' y='85' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='98' font-size='12' text-anchor='middle' fill='#334155'>Q</text>
-<rect x='206' y='85' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='98' font-size='12' text-anchor='middle' fill='white'>P</text>
-<rect x='228' y='85' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='98' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='85' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='98' font-size='12' text-anchor='middle' fill='white'>H</text>
-<rect x='272' y='85' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='98' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='102' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='115' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='102' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='115' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='102' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='115' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='102' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='115' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='102' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='115' font-size='12' text-anchor='middle' fill='#334155'>M</text>
-<rect x='118' y='102' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='115' font-size='12' text-anchor='middle' fill='#334155'>T</text>
-<rect x='140' y='102' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='115' font-size='12' text-anchor='middle' fill='#334155'>G</text>
-<rect x='162' y='102' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='115' font-size='12' text-anchor='middle' fill='#334155'>W</text>
-<rect x='184' y='102' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='115' font-size='12' text-anchor='middle' fill='#334155'>G</text>
-<rect x='206' y='102' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='115' font-size='12' text-anchor='middle' fill='white'>E</text>
-<rect x='228' y='102' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='115' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='102' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='115' font-size='12' text-anchor='middle' fill='white'>Y</text>
-<rect x='272' y='102' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='115' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='119' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='132' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='119' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='132' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='119' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='132' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='119' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='132' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='119' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='132' font-size='12' text-anchor='middle' fill='#334155'>M</text>
-<rect x='118' y='119' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='132' font-size='12' text-anchor='middle' fill='#334155'>R</text>
-<rect x='140' y='119' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='132' font-size='12' text-anchor='middle' fill='#334155'>S</text>
-<rect x='162' y='119' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='132' font-size='12' text-anchor='middle' fill='#334155'>G</text>
-<rect x='184' y='119' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='132' font-size='12' text-anchor='middle' fill='#334155'>Q</text>
-<rect x='206' y='119' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='132' font-size='12' text-anchor='middle' fill='white'>P</text>
-<rect x='228' y='119' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='132' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='119' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='132' font-size='12' text-anchor='middle' fill='white'>H</text>
-<rect x='272' y='119' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='132' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='136' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='149' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='136' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='149' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='136' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='149' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='136' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='149' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='136' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='149' font-size='12' text-anchor='middle' fill='#334155'>T</text>
-<rect x='118' y='136' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='149' font-size='12' text-anchor='middle' fill='#334155'>R</text>
-<rect x='140' y='136' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='149' font-size='12' text-anchor='middle' fill='#334155'>S</text>
-<rect x='162' y='136' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='149' font-size='12' text-anchor='middle' fill='#334155'>T</text>
-<rect x='184' y='136' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='149' font-size='12' text-anchor='middle' fill='#334155'>V</text>
-<rect x='206' y='136' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='149' font-size='12' text-anchor='middle' fill='white'>E</text>
-<rect x='228' y='136' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='149' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='136' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='149' font-size='12' text-anchor='middle' fill='white'>Y</text>
-<rect x='272' y='136' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='149' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='153' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='166' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='153' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='166' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='153' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='166' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='74' y='153' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='166' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='153' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='166' font-size='12' text-anchor='middle' fill='#334155'>Q</text>
-<rect x='118' y='153' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='166' font-size='12' text-anchor='middle' fill='#334155'>R</text>
-<rect x='140' y='153' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='166' font-size='12' text-anchor='middle' fill='#334155'>S</text>
-<rect x='162' y='153' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='166' font-size='12' text-anchor='middle' fill='#334155'>A</text>
-<rect x='184' y='153' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='166' font-size='12' text-anchor='middle' fill='#334155'>T</text>
-<rect x='206' y='153' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='166' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='228' y='153' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='166' font-size='12' text-anchor='middle' fill='white'>E</text>
-<rect x='250' y='153' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='166' font-size='12' text-anchor='middle' fill='white'>Y</text>
-<rect x='272' y='153' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='166' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='170' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='183' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='170' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='183' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='170' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='183' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='170' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='183' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='170' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='183' font-size='12' text-anchor='middle' fill='#334155'>I</text>
-<rect x='118' y='170' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='183' font-size='12' text-anchor='middle' fill='#334155'>R</text>
-<rect x='140' y='170' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='183' font-size='12' text-anchor='middle' fill='#334155'>S</text>
-<rect x='162' y='170' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='183' font-size='12' text-anchor='middle' fill='#334155'>E</text>
-<rect x='184' y='170' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='183' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
-<rect x='206' y='170' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='183' font-size='12' text-anchor='middle' fill='white'>E</text>
-<rect x='228' y='170' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='183' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='170' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='183' font-size='12' text-anchor='middle' fill='white'>Y</text>
-<rect x='272' y='170' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='183' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='187' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='200' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='187' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='200' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='187' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='200' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='187' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='200' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='187' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='200' font-size='12' text-anchor='middle' fill='#334155'>P</text>
-<rect x='118' y='187' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='200' font-size='12' text-anchor='middle' fill='#334155'>R</text>
-<rect x='140' y='187' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='200' font-size='12' text-anchor='middle' fill='#334155'>G</text>
-<rect x='162' y='187' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='200' font-size='12' text-anchor='middle' fill='#334155'>G</text>
-<rect x='184' y='187' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='200' font-size='12' text-anchor='middle' fill='#334155'>G</text>
-<rect x='206' y='187' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='200' font-size='12' text-anchor='middle' fill='white'>E</text>
-<rect x='228' y='187' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='200' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='187' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='200' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='272' y='187' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='200' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='204' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='217' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='204' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='217' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='204' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='217' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='204' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='217' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='204' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='217' font-size='12' text-anchor='middle' fill='#334155'>L</text>
-<rect x='118' y='204' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='217' font-size='12' text-anchor='middle' fill='#334155'>A</text>
-<rect x='140' y='204' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='217' font-size='12' text-anchor='middle' fill='#334155'>A</text>
-<rect x='162' y='204' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='217' font-size='12' text-anchor='middle' fill='#334155'>G</text>
-<rect x='184' y='204' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='217' font-size='12' text-anchor='middle' fill='#334155'>A</text>
-<rect x='206' y='204' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='217' font-size='12' text-anchor='middle' fill='white'>E</text>
-<rect x='228' y='204' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='217' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='204' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='217' font-size='12' text-anchor='middle' fill='white'>Y</text>
-<rect x='272' y='204' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='217' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='221' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='234' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='221' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='234' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='221' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='234' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='221' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='234' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='221' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='234' font-size='12' text-anchor='middle' fill='#334155'>V</text>
-<rect x='118' y='221' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='234' font-size='12' text-anchor='middle' fill='#334155'>R</text>
-<rect x='140' y='221' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='234' font-size='12' text-anchor='middle' fill='#334155'>S</text>
-<rect x='162' y='221' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='234' font-size='12' text-anchor='middle' fill='#334155'>T</text>
-<rect x='184' y='221' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='234' font-size='12' text-anchor='middle' fill='#334155'>G</text>
-<rect x='206' y='221' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='234' font-size='12' text-anchor='middle' fill='white'>E</text>
-<rect x='228' y='221' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='234' font-size='12' text-anchor='middle' fill='white'>L</text>
-<rect x='250' y='221' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='234' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='272' y='221' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='234' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='238' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='251' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='238' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='251' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='238' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='251' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='238' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='251' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='238' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='251' font-size='12' text-anchor='middle' fill='#334155'>P</text>
-<rect x='118' y='238' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='251' font-size='12' text-anchor='middle' fill='#334155'>D</text>
-<rect x='140' y='238' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='251' font-size='12' text-anchor='middle' fill='#334155'>T</text>
-<rect x='162' y='238' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='251' font-size='12' text-anchor='middle' fill='#334155'>E</text>
-<rect x='184' y='238' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='251' font-size='12' text-anchor='middle' fill='#334155'>D</text>
-<rect x='206' y='238' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='251' font-size='12' text-anchor='middle' fill='white'>T</text>
-<rect x='228' y='238' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='251' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='238' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='251' font-size='12' text-anchor='middle' fill='white'>Y</text>
-<rect x='272' y='238' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='251' font-size='12' text-anchor='middle' fill='white'>F</text>
-<rect x='8' y='255' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='19.0' y='268' font-size='12' text-anchor='middle' fill='white'>C</text>
-<rect x='30' y='255' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='41.0' y='268' font-size='12' text-anchor='middle' fill='white'>A</text>
-<rect x='52' y='255' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
-<text x='63.0' y='268' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='74' y='255' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='85.0' y='268' font-size='12' text-anchor='middle' fill='white'>S</text>
-<rect x='96' y='255' width='22' height='17' fill='rgb(208,221,250)' stroke='white'/>
-<text x='107.0' y='268' font-size='12' text-anchor='middle' fill='#334155'>I</text>
-<rect x='118' y='255' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
-<text x='129.0' y='268' font-size='12' text-anchor='middle' fill='#334155'>R</text>
-<rect x='140' y='255' width='22' height='17' fill='rgb(146,177,245)' stroke='white'/>
-<text x='151.0' y='268' font-size='12' text-anchor='middle' fill='#334155'>N</text>
-<rect x='162' y='255' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
-<text x='173.0' y='268' font-size='12' text-anchor='middle' fill='#334155'>S</text>
-<rect x='184' y='255' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
-<text x='195.0' y='268' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
-<rect x='206' y='255' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
-<text x='217.0' y='268' font-size='12' text-anchor='middle' fill='white'>E</text>
-<rect x='228' y='255' width='22' height='17' fill='rgb(68,121,237)' stroke='white'/>
-<text x='239.0' y='268' font-size='12' text-anchor='middle' fill='white'>Q</text>
-<rect x='250' y='255' width='22' height='17' fill='rgb(99,143,240)' stroke='white'/>
-<text x='261.0' y='268' font-size='12' text-anchor='middle' fill='white'>Y</text>
-<rect x='272' y='255' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
-<text x='283.0' y='268' font-size='12' text-anchor='middle' fill='white'>F</text>
-<text x='19.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>C</text>
-<text x='41.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>A</text>
-<text x='63.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>S</text>
-<text x='85.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>S</text>
-<text x='107.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>I</text>
-<text x='129.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>R</text>
-<text x='151.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>S</text>
-<text x='173.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>T</text>
-<text x='195.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>G</text>
-<text x='217.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>E</text>
-<text x='239.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>Q</text>
-<text x='261.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>Y</text>
-<text x='283.0' y='287' font-size='12' text-anchor='middle' font-weight='bold'>F</text>
-<text x='8' y='305' font-size='10' fill='#64748b'>consensus; column shade = conservation (dark = conserved flank, light = variable NDN core)</text>
+<svg xmlns='http://www.w3.org/2000/svg' width='302' height='331' font-family='monospace'>
+<rect width='302' height='331' fill='white'/>
+<text x='8' y='16' font-size='13' font-family='Helvetica' font-weight='bold'>GILGFVFTL  (TRB CDR3, length 13, n=14)</text>
+<rect x='11' y='30.0' width='16' height='14.0' fill='#94a3b8'/>
+<rect x='33' y='31.0' width='16' height='13.0' fill='#94a3b8'/>
+<rect x='55' y='31.0' width='16' height='13.0' fill='#94a3b8'/>
+<rect x='77' y='31.0' width='16' height='13.0' fill='#94a3b8'/>
+<rect x='99' y='39.0' width='16' height='5.0' fill='#94a3b8'/>
+<rect x='121' y='36.0' width='16' height='8.0' fill='#94a3b8'/>
+<rect x='143' y='38.0' width='16' height='6.0' fill='#94a3b8'/>
+<rect x='165' y='40.0' width='16' height='4.0' fill='#94a3b8'/>
+<rect x='187' y='42.0' width='16' height='2.0' fill='#94a3b8'/>
+<rect x='209' y='35.0' width='16' height='9.0' fill='#94a3b8'/>
+<rect x='231' y='35.0' width='16' height='9.0' fill='#94a3b8'/>
+<rect x='253' y='38.0' width='16' height='6.0' fill='#94a3b8'/>
+<rect x='275' y='30.0' width='16' height='14.0' fill='#94a3b8'/>
+<rect x='8' y='50' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='63' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='50' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='63' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='50' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='63' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='50' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='63' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='50' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='63' font-size='12' text-anchor='middle' fill='#334155'>I</text>
+<rect x='118' y='50' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='63' font-size='12' text-anchor='middle' fill='#334155'>S</text>
+<rect x='140' y='50' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='63' font-size='12' text-anchor='middle' fill='#334155'>L</text>
+<rect x='162' y='50' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='63' font-size='12' text-anchor='middle' fill='#334155'>A</text>
+<rect x='184' y='50' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='63' font-size='12' text-anchor='middle' fill='#334155'>A</text>
+<rect x='206' y='50' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='63' font-size='12' text-anchor='middle' fill='white'>E</text>
+<rect x='228' y='50' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='63' font-size='12' text-anchor='middle' fill='white'>Q</text>
+<rect x='250' y='50' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='63' font-size='12' text-anchor='middle' fill='#334155'>F</text>
+<rect x='272' y='50' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='63' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='67' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='80' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='67' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='80' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='67' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='80' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='67' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='80' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='67' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='80' font-size='12' text-anchor='middle' fill='#334155'>P</text>
+<rect x='118' y='67' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='80' font-size='12' text-anchor='middle' fill='#334155'>A</text>
+<rect x='140' y='67' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='80' font-size='12' text-anchor='middle' fill='#334155'>S</text>
+<rect x='162' y='67' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='80' font-size='12' text-anchor='middle' fill='#334155'>G</text>
+<rect x='184' y='67' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='80' font-size='12' text-anchor='middle' fill='#334155'>N</text>
+<rect x='206' y='67' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='80' font-size='12' text-anchor='middle' fill='white'>E</text>
+<rect x='228' y='67' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='80' font-size='12' text-anchor='middle' fill='white'>Q</text>
+<rect x='250' y='67' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='80' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
+<rect x='272' y='67' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='80' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='84' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='97' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='84' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='97' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='84' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='97' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='84' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='97' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='84' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='97' font-size='12' text-anchor='middle' fill='#334155'>G</text>
+<rect x='118' y='84' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='97' font-size='12' text-anchor='middle' fill='#334155'>F</text>
+<rect x='140' y='84' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='97' font-size='12' text-anchor='middle' fill='#334155'>L</text>
+<rect x='162' y='84' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='97' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
+<rect x='184' y='84' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='97' font-size='12' text-anchor='middle' fill='#334155'>S</text>
+<rect x='206' y='84' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='97' font-size='12' text-anchor='middle' fill='white'>P</text>
+<rect x='228' y='84' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='97' font-size='12' text-anchor='middle' fill='white'>L</text>
+<rect x='250' y='84' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='97' font-size='12' text-anchor='middle' fill='#334155'>H</text>
+<rect x='272' y='84' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='97' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='101' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='114' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='101' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='114' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='101' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='114' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='101' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='114' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='101' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='114' font-size='12' text-anchor='middle' fill='#334155'>V</text>
+<rect x='118' y='101' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='114' font-size='12' text-anchor='middle' fill='#334155'>R</text>
+<rect x='140' y='101' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='114' font-size='12' text-anchor='middle' fill='#334155'>A</text>
+<rect x='162' y='101' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='114' font-size='12' text-anchor='middle' fill='#334155'>A</text>
+<rect x='184' y='101' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='114' font-size='12' text-anchor='middle' fill='#334155'>W</text>
+<rect x='206' y='101' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='114' font-size='12' text-anchor='middle' fill='white'>E</text>
+<rect x='228' y='101' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='114' font-size='12' text-anchor='middle' fill='white'>Q</text>
+<rect x='250' y='101' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='114' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
+<rect x='272' y='101' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='114' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='118' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='131' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='118' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='131' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='118' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='131' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='118' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='131' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='118' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='131' font-size='12' text-anchor='middle' fill='#334155'>S</text>
+<rect x='118' y='118' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='131' font-size='12' text-anchor='middle' fill='#334155'>R</text>
+<rect x='140' y='118' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='131' font-size='12' text-anchor='middle' fill='#334155'>S</text>
+<rect x='162' y='118' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='131' font-size='12' text-anchor='middle' fill='#334155'>A</text>
+<rect x='184' y='118' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='131' font-size='12' text-anchor='middle' fill='#334155'>I</text>
+<rect x='206' y='118' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='131' font-size='12' text-anchor='middle' fill='white'>E</text>
+<rect x='228' y='118' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='131' font-size='12' text-anchor='middle' fill='white'>Q</text>
+<rect x='250' y='118' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='131' font-size='12' text-anchor='middle' fill='#334155'>F</text>
+<rect x='272' y='118' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='131' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='135' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='148' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='135' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='148' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='135' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='148' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='135' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='148' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='135' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='148' font-size='12' text-anchor='middle' fill='#334155'>F</text>
+<rect x='118' y='135' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='148' font-size='12' text-anchor='middle' fill='#334155'>R</text>
+<rect x='140' y='135' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='148' font-size='12' text-anchor='middle' fill='#334155'>A</text>
+<rect x='162' y='135' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='148' font-size='12' text-anchor='middle' fill='#334155'>S</text>
+<rect x='184' y='135' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='148' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
+<rect x='206' y='135' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='148' font-size='12' text-anchor='middle' fill='white'>E</text>
+<rect x='228' y='135' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='148' font-size='12' text-anchor='middle' fill='white'>Q</text>
+<rect x='250' y='135' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='148' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
+<rect x='272' y='135' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='148' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='152' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='165' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='152' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='165' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='152' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='165' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='152' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='165' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='152' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='165' font-size='12' text-anchor='middle' fill='#334155'>P</text>
+<rect x='118' y='152' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='165' font-size='12' text-anchor='middle' fill='#334155'>R</text>
+<rect x='140' y='152' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='165' font-size='12' text-anchor='middle' fill='#334155'>G</text>
+<rect x='162' y='152' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='165' font-size='12' text-anchor='middle' fill='#334155'>D</text>
+<rect x='184' y='152' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='165' font-size='12' text-anchor='middle' fill='#334155'>G</text>
+<rect x='206' y='152' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='165' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='228' y='152' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='165' font-size='12' text-anchor='middle' fill='white'>Y</text>
+<rect x='250' y='152' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='165' font-size='12' text-anchor='middle' fill='#334155'>T</text>
+<rect x='272' y='152' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='165' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='169' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='182' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='169' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='182' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='169' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='182' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='169' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='182' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='169' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='182' font-size='12' text-anchor='middle' fill='#334155'>I</text>
+<rect x='118' y='169' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='182' font-size='12' text-anchor='middle' fill='#334155'>R</text>
+<rect x='140' y='169' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='182' font-size='12' text-anchor='middle' fill='#334155'>S</text>
+<rect x='162' y='169' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='182' font-size='12' text-anchor='middle' fill='#334155'>A</text>
+<rect x='184' y='169' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='182' font-size='12' text-anchor='middle' fill='#334155'>G</text>
+<rect x='206' y='169' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='182' font-size='12' text-anchor='middle' fill='white'>P</text>
+<rect x='228' y='169' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='182' font-size='12' text-anchor='middle' fill='white'>L</text>
+<rect x='250' y='169' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='182' font-size='12' text-anchor='middle' fill='#334155'>F</text>
+<rect x='272' y='169' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='182' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='186' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='199' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='186' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='199' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='186' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='199' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='186' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='199' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='186' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='199' font-size='12' text-anchor='middle' fill='#334155'>I</text>
+<rect x='118' y='186' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='199' font-size='12' text-anchor='middle' fill='#334155'>A</text>
+<rect x='140' y='186' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='199' font-size='12' text-anchor='middle' fill='#334155'>A</text>
+<rect x='162' y='186' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='199' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
+<rect x='184' y='186' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='199' font-size='12' text-anchor='middle' fill='#334155'>N</text>
+<rect x='206' y='186' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='199' font-size='12' text-anchor='middle' fill='white'>E</text>
+<rect x='228' y='186' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='199' font-size='12' text-anchor='middle' fill='white'>Q</text>
+<rect x='250' y='186' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='199' font-size='12' text-anchor='middle' fill='#334155'>F</text>
+<rect x='272' y='186' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='199' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='203' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='216' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='203' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='216' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='203' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='216' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='203' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='216' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='203' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='216' font-size='12' text-anchor='middle' fill='#334155'>I</text>
+<rect x='118' y='203' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='216' font-size='12' text-anchor='middle' fill='#334155'>R</text>
+<rect x='140' y='203' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='216' font-size='12' text-anchor='middle' fill='#334155'>S</text>
+<rect x='162' y='203' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='216' font-size='12' text-anchor='middle' fill='#334155'>G</text>
+<rect x='184' y='203' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='216' font-size='12' text-anchor='middle' fill='#334155'>Q</text>
+<rect x='206' y='203' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='216' font-size='12' text-anchor='middle' fill='white'>P</text>
+<rect x='228' y='203' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='216' font-size='12' text-anchor='middle' fill='white'>Q</text>
+<rect x='250' y='203' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='216' font-size='12' text-anchor='middle' fill='#334155'>H</text>
+<rect x='272' y='203' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='216' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='220' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='233' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='220' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='233' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='220' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='233' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='220' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='233' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='220' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='233' font-size='12' text-anchor='middle' fill='#334155'>L</text>
+<rect x='118' y='220' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='233' font-size='12' text-anchor='middle' fill='#334155'>R</text>
+<rect x='140' y='220' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='233' font-size='12' text-anchor='middle' fill='#334155'>S</text>
+<rect x='162' y='220' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='233' font-size='12' text-anchor='middle' fill='#334155'>G</text>
+<rect x='184' y='220' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='233' font-size='12' text-anchor='middle' fill='#334155'>T</text>
+<rect x='206' y='220' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='233' font-size='12' text-anchor='middle' fill='white'>E</text>
+<rect x='228' y='220' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='233' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='250' y='220' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='233' font-size='12' text-anchor='middle' fill='#334155'>F</text>
+<rect x='272' y='220' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='233' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='237' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='250' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='237' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='250' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='237' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='250' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='237' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='250' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='237' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='250' font-size='12' text-anchor='middle' fill='#334155'>I</text>
+<rect x='118' y='237' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='250' font-size='12' text-anchor='middle' fill='#334155'>G</text>
+<rect x='140' y='237' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='250' font-size='12' text-anchor='middle' fill='#334155'>G</text>
+<rect x='162' y='237' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='250' font-size='12' text-anchor='middle' fill='#334155'>D</text>
+<rect x='184' y='237' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='250' font-size='12' text-anchor='middle' fill='#334155'>E</text>
+<rect x='206' y='237' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='250' font-size='12' text-anchor='middle' fill='white'>K</text>
+<rect x='228' y='237' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='250' font-size='12' text-anchor='middle' fill='white'>L</text>
+<rect x='250' y='237' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='250' font-size='12' text-anchor='middle' fill='#334155'>F</text>
+<rect x='272' y='237' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='250' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='254' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='267' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='254' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='267' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='52' y='254' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='267' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='74' y='254' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='267' font-size='12' text-anchor='middle' fill='white'>I</text>
+<rect x='96' y='254' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='267' font-size='12' text-anchor='middle' fill='#334155'>P</text>
+<rect x='118' y='254' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='267' font-size='12' text-anchor='middle' fill='#334155'>T</text>
+<rect x='140' y='254' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='267' font-size='12' text-anchor='middle' fill='#334155'>G</text>
+<rect x='162' y='254' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='267' font-size='12' text-anchor='middle' fill='#334155'>N</text>
+<rect x='184' y='254' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='267' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
+<rect x='206' y='254' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='267' font-size='12' text-anchor='middle' fill='white'>E</text>
+<rect x='228' y='254' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='267' font-size='12' text-anchor='middle' fill='white'>Q</text>
+<rect x='250' y='254' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='267' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
+<rect x='272' y='254' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='267' font-size='12' text-anchor='middle' fill='white'>F</text>
+<rect x='8' y='271' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='19.0' y='284' font-size='12' text-anchor='middle' fill='white'>C</text>
+<rect x='30' y='271' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='41.0' y='284' font-size='12' text-anchor='middle' fill='white'>A</text>
+<rect x='52' y='271' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='63.0' y='284' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='74' y='271' width='22' height='17' fill='rgb(52,110,236)' stroke='white'/>
+<text x='85.0' y='284' font-size='12' text-anchor='middle' fill='white'>S</text>
+<rect x='96' y='271' width='22' height='17' fill='rgb(177,199,247)' stroke='white'/>
+<text x='107.0' y='284' font-size='12' text-anchor='middle' fill='#334155'>Q</text>
+<rect x='118' y='271' width='22' height='17' fill='rgb(130,165,243)' stroke='white'/>
+<text x='129.0' y='284' font-size='12' text-anchor='middle' fill='#334155'>R</text>
+<rect x='140' y='271' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='151.0' y='284' font-size='12' text-anchor='middle' fill='#334155'>S</text>
+<rect x='162' y='271' width='22' height='17' fill='rgb(192,210,249)' stroke='white'/>
+<text x='173.0' y='284' font-size='12' text-anchor='middle' fill='#334155'>S</text>
+<rect x='184' y='271' width='22' height='17' fill='rgb(223,232,252)' stroke='white'/>
+<text x='195.0' y='284' font-size='12' text-anchor='middle' fill='#334155'>H</text>
+<rect x='206' y='271' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='217.0' y='284' font-size='12' text-anchor='middle' fill='white'>E</text>
+<rect x='228' y='271' width='22' height='17' fill='rgb(114,154,242)' stroke='white'/>
+<text x='239.0' y='284' font-size='12' text-anchor='middle' fill='white'>Q</text>
+<rect x='250' y='271' width='22' height='17' fill='rgb(161,188,246)' stroke='white'/>
+<text x='261.0' y='284' font-size='12' text-anchor='middle' fill='#334155'>Y</text>
+<rect x='272' y='271' width='22' height='17' fill='rgb(37,99,235)' stroke='white'/>
+<text x='283.0' y='284' font-size='12' text-anchor='middle' fill='white'>F</text>
+<text x='19.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>C</text>
+<text x='41.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>A</text>
+<text x='63.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>S</text>
+<text x='85.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>S</text>
+<text x='107.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>I</text>
+<text x='129.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>R</text>
+<text x='151.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>S</text>
+<text x='173.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>A</text>
+<text x='195.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>N</text>
+<text x='217.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>E</text>
+<text x='239.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>Q</text>
+<text x='261.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>F</text>
+<text x='283.0' y='303' font-size='12' text-anchor='middle' font-weight='bold'>F</text>
+<text x='8' y='321' font-size='10' fill='#64748b'>consensus; column shade = conservation (dark = conserved flank, light = variable NDN core)</text>
 </svg>

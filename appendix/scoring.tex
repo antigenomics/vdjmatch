@@ -74,13 +74,38 @@ the neighbour count to a matched background control (\S\ref{sec:agg}).
 
 \section{Substitution scoring and the VDJAM matrix}\label{sec:vdjam}
 
-\paragraph{Why BLOSUM/PAM do not transfer.} BLOSUM is a log-odds matrix estimated from gapless columns
-of a trusted multiple alignment of homologous blocks. CDR3s violate both premises: (i) same-specificity
-CDR3s differ in length and have no column homology, so there is no multiple alignment; (ii) the
-germline-encoded ends are over-conserved --- essentially every human TRB CDR3 begins \texttt{CASS} and
-ends in a short J motif (\texttt{\dots F}), so an alanine near the N-terminus is germline-fixed and
-carries no specificity information, while an alanine in the centre does. A single global matrix
-estimated over all positions conflates germline conservation with selection.
+\paragraph{How BLOSUM is built, and why it does not transfer.} BLOSUM is a log-odds matrix estimated
+from the BLOCKS database of \emph{ungapped multiple-alignment blocks} of conserved protein regions. Its
+recipe is: (i) take many trusted blocks --- columns of homologous, gaplessly aligned residues; (ii)
+cluster sequences within a block above a percent-identity threshold and down-weight within-cluster pairs
+so abundant near-duplicates do not dominate; (iii) count, over all blocks, how often residues $a$ and
+$b$ co-occur in the \emph{same alignment column}, $q_{ab}$; (iv) score
+$s(a,b)=\tfrac1\lambda\log\!\big(q_{ab}/p_ap_b\big)$ against the \emph{global} background frequencies
+$p_a$. The signal is ``which residues substitute for one another within conserved, column-homologous
+positions,'' and the background is position-independent.
+
+CDR3 loops break every step. (i) There is no trusted multiple alignment: same-specificity CDR3s differ
+in length and have no column homology, so ``alignment columns'' do not exist. (ii) The germline-encoded
+ends are over-conserved --- essentially every human TRB CDR3 begins \texttt{CASS} and ends in a short J
+motif --- so a \emph{global} background $p_a$ is wrong: an alanine in the N-terminal \texttt{CASS} is
+germline-fixed and carries no specificity signal, while an alanine in the centre does, yet BLOSUM would
+score them identically. A single global matrix estimated over all positions thus conflates germline
+conservation with antigen-driven selection.
+
+\paragraph{What VDJAM changes (point by point).} VDJAM keeps the log-odds idea but replaces the two
+broken ingredients. (a) \emph{Observation unit}: instead of columns of a multiple alignment, the unit is
+a \emph{same-antigen single-substitution pair} --- two CDR3s annotated to the same epitope, equal length,
+differing at exactly one position; this is the only ``aligned residue pair'' obtainable without a
+multiple alignment, and (like a BLOCKS column pair) it records two residues that are interchangeable
+without changing function (here, specificity). (b) \emph{Background}: instead of a global $p_a$, a
+\emph{position-specific} background $\mathrm{bg}(\cdot\mid L,p)$ (the residue frequency at that length and
+position) is used, so over-conserved columns are normalized away analytically rather than masked by hand.
+(c) \emph{Redundancy}: BLOSUM's percent-identity clustering is replaced --- partly by the position-specific
+background (germline-shared residues are ``expected'' and contribute little), and prospectively by the
+control-calibrated significance layer (\S\ref{sec:agg}) that already discounts convergent public clones;
+per-clonotype clustering can be added exactly as in BLOSUM if needed. (d) \emph{Scope}: BLOSUM is one
+global matrix; VDJAM is estimated per chain and per region, because (next paragraph) only the NDN core
+carries a transferable substitution signal.
 
 \paragraph{Observation unit and estimator.} We replace ``alignment columns'' with \emph{same-antigen
 single-substitution pairs}: ordered pairs of CDR3s annotated to the same epitope, of equal length,
@@ -140,13 +165,23 @@ significant only when a clonotype has \emph{more} VDJdb neighbours than the gene
 predicts. The Poisson/Chen--Stein theory, the punctured (self-excluding) null and the choice of $M$ are
 derived in the companion \texttt{seqtree} appendix.
 
-\paragraph{Paired $\alpha\beta$ E-value.} For a paired query the chains are independent under the null,
-so the joint ball mass factorizes, $\pi_0^{\alpha\beta}\approx\pi_0^\alpha\pi_0^\beta$, and among the
-$N$ paired VDJdb complexes the expected number of chance joint matches is $\E_{\alpha\beta}=N\,
-\pi_0^\alpha\pi_0^\beta$ with $p$ the Poisson tail on the count of complexes matched in \emph{both}
-chains. The joint null is far smaller than either chain's, so true pairs are dramatically more
-significant: on the paired TCRvdb benchmark, $296/300$ pairs match a complex and $295/296$ ($99.7\%$)
-recover the correct epitope, with joint $p$ down to $3.6\times10^{-9}$.
+\paragraph{Paired $\alpha\beta$ E-value.} The null factorization is not an approximation of
+convenience: $\alpha$ and $\beta$ chains pair \emph{almost without constraint} in the repertoire at
+large, as shown by integrating structural and paired-sequencing data~\cite{Shcherbinin2020}, so under
+the background (generative) law the joint ball mass genuinely factorizes,
+$\pi_0^{\alpha\beta}\approx\pi_0^\alpha\pi_0^\beta$. Crucially, the \emph{same} analysis finds that
+\emph{antigen-driven selection distorts} this uniform pairing landscape --- i.e.\ conditioned on an
+epitope the two chains are \emph{not} independent. This is exactly the structure the joint E-value
+exploits: the null factorizes (background pairing is unconstrained), so among the $N$ paired VDJdb
+complexes the expected number of chance joint matches is $\E_{\alpha\beta}=N\,\pi_0^\alpha\pi_0^\beta$
+with $p$ the Poisson tail on the count of complexes matched in \emph{both} chains; an excess over this
+factorized null is precisely the epitope-conditional dependence (co-selection of $\alpha$ and $\beta$)
+that signals a true specificity. Because the joint null is far smaller than either chain's, true pairs
+are dramatically more significant: on the paired TCRvdb benchmark, $296/300$ pairs match a complex and
+$295/296$ ($99.7\%$) recover the correct epitope, with joint $p$ down to $3.6\times10^{-9}$. (When the
+two chains' hits are treated as independent tests, the equivalent statistic is Fisher's combination of
+the per-chain enrichments; the appendix \texttt{seqtree} co-occupancy term quantifies the residual
+dependence.)
 
 \section{Results: does VDJAM help?}
 A matrix derived from same-antigen pairs must be tested on epitopes it never saw, or the evaluation is
