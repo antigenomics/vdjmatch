@@ -24,6 +24,7 @@ from math import sqrt
 import polars as pl
 from seqtree import Index, SearchParams
 
+import _bench
 from vdjmatch import db
 from vdjmatch.match import regions, vgene
 
@@ -90,8 +91,8 @@ def scan_cell(uc: pl.DataFrame, chain: str, top: int, min_epi: int, max_q: int, 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pmhc", default=os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt"),
-                    help="VDJdb export TSV (default $VDJDB_SAMPLE or test_data/sample3_vdjdb.txt)")
+    ap.add_argument("--pmhc", default=None,
+                    help="VDJdb export TSV (default: $VDJDB_SAMPLE or the HF-pinned release)")
     ap.add_argument("--top", type=int, default=6)
     ap.add_argument("--min-epi", type=int, default=30)
     ap.add_argument("--max-queries", type=int, default=400)
@@ -106,8 +107,9 @@ def main():
     print(f"subs={args.subs} top={args.top} min-epi={args.min_epi}\n")
     print(f"{'cell':22}{'epi':>4}{'sameV n':>9}{'same%':>7}{'crossV n':>10}{'cross%':>8}"
           f"{'ratio':>7}{'r(vsim,co)':>11}{'lo(n)':>13}{'hi(n)':>13}")
+    src = _bench.source(args.pmhc)
     for sp in ("HomoSapiens", "MusMusculus"):
-        vdj = db.load(args.pmhc, asset="full", species=sp)
+        vdj = db.load(src, species=sp)
         for chain in ("TRA", "TRB"):
             for cls in ("MHCI", "MHCII"):
                 uc = (vdj.filter((pl.col("gene") == chain) & (pl.col("mhc_class") == cls))

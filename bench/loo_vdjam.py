@@ -25,6 +25,7 @@ import polars as pl
 from Bio.Align import substitution_matrices
 from seqtree import Index, SearchParams
 
+import _bench
 from vdjmatch import db
 from vdjmatch.match import regions
 from gen_vdjam import hamming1_events, position_background, estimate_matrix, AA  # noqa: E402
@@ -105,8 +106,8 @@ def score_pairs(qseqs, qv, qj, cand, ref_cdr3, ref_epi, true_epi, chain, ret, di
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pmhc", default=os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt"),
-                    help="VDJdb export TSV (default $VDJDB_SAMPLE or test_data/sample3_vdjdb.txt)")
+    ap.add_argument("--pmhc", default=None,
+                    help="VDJdb export TSV (default: $VDJDB_SAMPLE or the HF-pinned release)")
     ap.add_argument("--species", default="HomoSapiens")
     ap.add_argument("--chain", default="TRB")
     ap.add_argument("--min-epi", type=int, default=50)
@@ -115,8 +116,8 @@ def main():
     ap.add_argument("--subs", type=int, default=2, help="candidate search substitution budget")
     args = ap.parse_args()
 
-    vdj = db.load(args.pmhc, asset="full", species=args.species).filter(pl.col("gene") == args.chain)
-    uc = vdj.select("cdr3", "v", "j", "epitope").unique()
+    vdj = db.load(_bench.source(args.pmhc), species=args.species).filter(pl.col("gene") == args.chain)
+    uc = _bench.valid_cdr3(vdj).select("cdr3", "v", "j", "epitope").unique()
     bg = position_background(uc["cdr3"].unique().to_list())
     ret = regions.load_retention()
     blo = named_dissim("BLOSUM62")

@@ -27,6 +27,7 @@ from pathlib import Path
 import polars as pl
 from seqtree import Index, SearchParams
 
+import _bench
 from vdjmatch import db
 from vdjmatch.match import regions
 from loo_vdjam import named_dissim, pr_auc, score_pairs  # noqa: E402
@@ -64,8 +65,8 @@ def tsv_dissim(path: Path) -> dict[tuple[str, str], float]:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pmhc", default=os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt"),
-                    help="VDJdb export TSV (default $VDJDB_SAMPLE or test_data/sample3_vdjdb.txt)")
+    ap.add_argument("--pmhc", default=None,
+                    help="VDJdb export TSV (default: $VDJDB_SAMPLE or the HF-pinned release)")
     ap.add_argument("--species", default="HomoSapiens")
     ap.add_argument("--chain", default="TRB")
     ap.add_argument("--min-epi", type=int, default=50)
@@ -79,8 +80,8 @@ def main():
            "BLOSUM62(theirs)": tsv_dissim(fetch("blosum62_20aa.tsv")),
            "tcrBLOSUM": tsv_dissim(fetch(tcr_file))}
 
-    vdj = db.load(args.pmhc, asset="full", species=args.species).filter(pl.col("gene") == args.chain)
-    uc = vdj.select("cdr3", "v", "j", "epitope").unique()
+    vdj = db.load(_bench.source(args.pmhc), species=args.species).filter(pl.col("gene") == args.chain)
+    uc = _bench.valid_cdr3(vdj).select("cdr3", "v", "j", "epitope").unique()
     ret = regions.load_retention()
     refs = uc.group_by("cdr3").agg(pl.col("epitope").first())
     ref_cdr3, ref_epi = refs["cdr3"].to_list(), refs["epitope"].to_list()

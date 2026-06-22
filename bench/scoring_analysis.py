@@ -16,6 +16,7 @@ from pathlib import Path
 import polars as pl
 from seqtree import Index, SearchParams
 
+import _bench
 from vdjmatch import db
 
 OUT = Path("appendix/figures")
@@ -29,7 +30,7 @@ def _gnuplot(script: str):
 
 
 def cdr3_epitopes(vdj: pl.DataFrame, chain: str) -> dict[str, frozenset]:
-    sub = vdj.filter(pl.col("gene") == chain)
+    sub = _bench.valid_cdr3(vdj.filter(pl.col("gene") == chain))
     d = defaultdict(set)
     for c, e in zip(sub["cdr3"], sub["epitope"]):
         d[c].add(e)
@@ -49,8 +50,8 @@ def purity_vs_distance(vdj, chain="TRB", n_queries=300, dmax=5, seed=0, org="hum
         qe = ce[qi]
         for h in hl:
             k = h.n_subs
-            if k == 0:
-                continue
+            if k == 0 or cdrs[h.ref_id] == qi:
+                continue                                          # never count exact self-hits
             tot[k] += 1
             if ce[cdrs[h.ref_id]] & qe:
                 same[k] += 1
@@ -176,10 +177,9 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     # Example case: human TRB/TRA. The same pipeline applies to human/mouse and TRA/TRB -- point
     # VDJDB_SAMPLE at another VDJdb export and set VDJDB_SPECIES to regenerate for a different case.
-    sample = os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt")
     species = os.environ.get("VDJDB_SPECIES", "HomoSapiens")
     org = {"HomoSapiens": "human", "MusMusculus": "mouse"}.get(species, species)
-    vdj = db.load(sample, asset="full", species=species)
+    vdj = db.load(_bench.source(), species=species)
     purity_vs_distance(vdj, "TRB", org=org)
     position_significance(vdj, "TRB", org=org)
     tra_trb_gly(vdj, org=org)

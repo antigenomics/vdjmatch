@@ -17,6 +17,7 @@ from pathlib import Path
 import polars as pl
 from seqtree import Index, SearchParams
 
+import _bench
 from vdjmatch import db
 from vdjmatch.match import cigar, load_vdjam, search_params
 
@@ -151,7 +152,7 @@ def _msa_svg(block: list[str], out: Path, title: str):
 
 def msa_blocks(vdj: pl.DataFrame, alndir: Path, epis: list[str], chain="TRB", n=14):
     """Same-length CDR3 block per epitope -> a conservation-shaded SVG (+ FASTA for reference)."""
-    sub = vdj.filter(pl.col("gene") == chain)
+    sub = _bench.valid_cdr3(vdj.filter(pl.col("gene") == chain))
     for epi in epis:
         cds = sub.filter(pl.col("epitope") == epi)["cdr3"].unique().to_list()
         L = Counter(len(c) for c in cds).most_common(1)[0][0]  # modal length
@@ -164,7 +165,8 @@ def pairwise_alns(vdj: pl.DataFrame, alndir: Path, epi="GILGFVFTL", chain="TRB")
     """seqtree pairwise alignments of same-epitope CDR3s, incl. different lengths -> a verbatim block.
     Uses unit (edit-distance) cost for an interpretable display: substitutions stay substitutions,
     indels appear only for genuine length differences."""
-    cds = vdj.filter((pl.col("gene") == chain) & (pl.col("epitope") == epi))["cdr3"].unique().to_list()
+    cds = (_bench.valid_cdr3(vdj).filter((pl.col("gene") == chain) & (pl.col("epitope") == epi))
+           ["cdr3"].unique().to_list())
     ref = next(c for c in cds if len(c) == 13)
     idx = Index.build(cds, "aa")
     p = search_params("2,2,2,4", engine="seqtm", gap_open=1, gap_extend=1)  # unit cost
@@ -192,8 +194,7 @@ def main():
     region_corr_fig(figdir)
     retention_fig(figdir)
     loo_fig(figdir)
-    vdj = db.load(os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt"),
-                  asset="full", species="HomoSapiens")
+    vdj = db.load(_bench.source(), species="HomoSapiens")
     msa_blocks(vdj, alndir, ["GILGFVFTL", "NLVPMVATV"])
     pairwise_alns(vdj, alndir)
     print("wrote appendix figures + alignments")

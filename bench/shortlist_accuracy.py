@@ -21,6 +21,7 @@ from collections import defaultdict
 import polars as pl
 from seqtree import Index, SearchParams
 
+import _bench
 from vdjmatch import db
 from vdjmatch.match import regions
 
@@ -62,14 +63,14 @@ def accuracy(queries, index, params, ref_cdr3, ref_epi_sets, ref_vfam):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pmhc", default=os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt"),
-                    help="VDJdb export TSV (default $VDJDB_SAMPLE or test_data/sample3_vdjdb.txt)")
+    ap.add_argument("--pmhc", default=None,
+                    help="VDJdb export TSV (default: $VDJDB_SAMPLE or the HF-pinned release)")
     ap.add_argument("--species", default="HomoSapiens")
     ap.add_argument("--subs", type=int, default=1)
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
-    vdj = db.load(args.pmhc, asset="full", species=args.species)
+    vdj = db.load(_bench.source(args.pmhc), species=args.species)
     short = db.replicated(vdj, min_refs=2)
     rng = random.Random(args.seed)
     print(f"species={args.species}  subs={args.subs}  (latest-release benchmark)\n")

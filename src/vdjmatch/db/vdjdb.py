@@ -23,6 +23,9 @@ _REPO = "antigenomics/vdjdb-db"
 _UA = {"User-Agent": "vdjmatch", "Accept": "application/vnd.github+json"}
 # requested table -> substring matched against ZIP member basenames (most specific first)
 _MEMBER = {"full": "vdjdb_full.txt", "slim": "vdjdb.slim.txt", "default": "vdjdb.txt"}
+# HuggingFace mirror of pinned VDJdb releases (gzipped tables), our reproducible benchmark source
+_HF_REPO = "isalgo/airr_benchmark"
+_HF_TAG = "2026-06-11-ZENODO"
 
 
 def _release_json(pin: str | None) -> dict:
@@ -78,6 +81,30 @@ def fetch_latest(asset: str = "slim", cache: str | os.PathLike | None = None,
     return out
 
 
+def fetch_hf(tag: str = _HF_TAG, asset: str = "default", cache: str | os.PathLike | None = None,
+             force: bool = False, repo: str = _HF_REPO) -> Path:
+    """Fetch a pinned VDJdb table from the HuggingFace mirror (``isalgo/airr_benchmark``).
+
+    The benchmark releases are mirrored gzipped at ``vdjdb/vdjdb-<tag>/<table>.txt.gz``. This is the
+    reproducible benchmark source (GitHub release assets can change); ``asset`` selects the table
+    (``"default"`` = ``vdjdb.txt``, the canonical long per-record format). Decompresses to the same
+    cache name as :func:`fetch_latest` so the two are interchangeable.
+    """
+    import gzip
+    import shutil
+    cdir = cache_dir(cache)
+    out = cdir / f"vdjdb-{tag}.{asset}.txt"
+    if out.exists() and not force:
+        return out
+    member = _MEMBER.get(asset, _MEMBER["default"])
+    from huggingface_hub import hf_hub_download  # optional dep (extras: bench/control)
+    gz = hf_hub_download(repo_id=repo, repo_type="dataset",
+                         filename=f"vdjdb/vdjdb-{tag}/{member}.gz")
+    with gzip.open(gz, "rb") as fi, open(out, "wb") as fo:
+        shutil.copyfileobj(fi, fo)
+    return out
+
+
 def load(source: str | os.PathLike | None = None, *, asset: str = "slim",
          species: str | None = None, gene: str | None = None, mhc_class: str | None = None,
          min_score: int = 0, paired_only: bool = False, pin: str | None = None) -> pl.DataFrame:
@@ -115,6 +142,8 @@ def replicated(df: pl.DataFrame, min_refs: int = 2) -> pl.DataFrame:
     with an ``n_refs`` column. Reference-replicated entries are the most trustworthy labels for
     benchmarking against the latest VDJdb release (cf. the mhcmatch shortlist)."""
     key = ["gene", "cdr3", "v", "j", "epitope"]
-    keep = (df.group_by(key).agg(pl.col("reference_id").n_unique().alias("n_refs"))
-              .filter(pl.col("n_refs") >= min_refs))
+    ref = pl.col("reference_id")
+    keep = (df.group_by(key)
+              .agg(ref.filter(ref.is_not_null() & (ref != "")).n_unique().alias("n_refs"))
+              .filter(pl.col("n_refs") >= min_refs))                  # null/empty refs never count
     return df.join(keep, on=key, how="inner").select(*key, "mhc_class", "n_refs").unique()

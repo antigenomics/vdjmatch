@@ -22,6 +22,7 @@ import os
 import polars as pl
 from seqtree import Index, SearchParams
 
+import _bench
 from vdjmatch import db
 from vdjmatch.match import regions, vgene
 from loo_vdjam import named_dissim, pr_auc  # noqa: E402
@@ -32,8 +33,8 @@ VSIM_BINS = [0.0, 0.3, 0.5, 0.7, 0.9, 1.0]  # germline CDR1+CDR2 similarity buck
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pmhc", default=os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt"),
-                    help="VDJdb export TSV (default $VDJDB_SAMPLE or test_data/sample3_vdjdb.txt)")
+    ap.add_argument("--pmhc", default=None,
+                    help="VDJdb export TSV (default: $VDJDB_SAMPLE or the HF-pinned release)")
     ap.add_argument("--species", default="HomoSapiens")
     ap.add_argument("--chain", default="TRB")
     ap.add_argument("--min-epi", type=int, default=50)
@@ -42,8 +43,8 @@ def main():
     ap.add_argument("--subs", type=int, default=4)
     args = ap.parse_args()
 
-    vdj = db.load(args.pmhc, asset="full", species=args.species).filter(pl.col("gene") == args.chain)
-    uc = vdj.select("cdr3", "v", "j", "epitope").unique()
+    vdj = db.load(_bench.source(args.pmhc), species=args.species).filter(pl.col("gene") == args.chain)
+    uc = _bench.valid_cdr3(vdj).select("cdr3", "v", "j", "epitope").unique()
     ret = regions.load_retention()
     blo = named_dissim("BLOSUM62")
 

@@ -22,6 +22,7 @@ import os
 import polars as pl
 from seqtree import Index, SearchParams
 
+import _bench
 from vdjmatch import db
 from vdjmatch.match import regions, vgene
 
@@ -42,8 +43,8 @@ def lev(a: str, b: str) -> int:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pmhc", default=os.environ.get("VDJDB_SAMPLE", "test_data/sample3_vdjdb.txt"),
-                    help="VDJdb export TSV (default $VDJDB_SAMPLE or test_data/sample3_vdjdb.txt)")
+    ap.add_argument("--pmhc", default=None,
+                    help="VDJdb export TSV (default: $VDJDB_SAMPLE or the HF-pinned release)")
     ap.add_argument("--species", default="HomoSapiens")
     ap.add_argument("--chain", default="TRB")
     ap.add_argument("--mhc-class", default="MHCI")
@@ -54,7 +55,7 @@ def main():
     args = ap.parse_args()
 
     vreg = vgene.load_v_regions(args.chain)
-    vdj = (db.load(args.pmhc, asset="full", species=args.species)
+    vdj = (db.load(_bench.source(args.pmhc), species=args.species)
              .filter((pl.col("gene") == args.chain) & (pl.col("mhc_class") == args.mhc_class)))
     uc = (vdj.select("cdr3", "v", "epitope").unique()
              .filter(pl.col("cdr3").str.contains("^[ACDEFGHIKLMNPQRSTVWY]+$")))
