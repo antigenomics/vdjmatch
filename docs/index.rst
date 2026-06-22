@@ -63,17 +63,18 @@ total edits of the CDR3 search ball.
 weighting that emphasises the antigen-contacting NDN core over the germline-fixed V/J flanks
 (germline-retention profiles derived from the OLGA model via ``mirpy``).
 
-**What scoring actually buys.** An empirical study on VDJdb (the scoring appendix) finds that
-**Hamming distance 1 is the signal:noise optimum** (neighbour purity 0.53 → 0.13 over edit distance
-1–5; the original VDJdb observation), that **central substitutions carry the specificity signal**
-(a core mismatch changes specificity far more than a germline-flank one), and that **no standard
-substitution matrix beats BLOSUM62** for epitope retrieval — but **reweighting BLOSUM62 by that
-central-position significance** (a native ``seqtree`` ``PositionalMatrix``) does, in 8/8 held-out
-epitopes at edit distance ≤2 and ≤4. The substitution alphabet is a second-order lever, position is the
-first-order matrix lever, and the overall first-order statistic is the control-calibrated E-value.
-Finally, the **V gene is a strong but near-binary prior** — same-V neighbours share an epitope ~53% of
-the time vs ~12% cross-V, but that advantage does not interpolate with germline CDR1/CDR2 similarity, so
-soft V-clustering does not recover it and a near-hard V constraint stays the default.
+**What scoring actually buys.** An empirical study on VDJdb (the scoring appendix; 2026-06-11-ZENODO
+release, composition-controlled) finds that **Hamming distance 1 is the signal:noise optimum** (macro
+purity 0.44 → 0.07 over edit distance 1–5; the original VDJdb observation), that **central substitutions
+carry the specificity signal** (P(same) ≈ 0.31 in the core vs ≈ 0.90 at the V/J borders), and that **no
+amino-acid matrix clearly beats BLOSUM62** — a genetic-code null (VDJAMr) even ties it, so CDR3
+substitution structure is generative, not chemical. **Reweighting BLOSUM62 by the central-position
+significance** (a native ``seqtree`` ``PositionalMatrix``) is the one change that does beat it, in 7/8
+held-out epitopes. The substitution alphabet is second-order, position is the first-order matrix lever,
+and the overall first-order statistic is the control-calibrated E-value. Finally, the **V gene is a
+strong near-binary prior** (same-V neighbours share an epitope up to ~8× more than cross-V); loose
+CDR1/CDR2 similarity does not recover it, but **near-exact germline-loop identity does** (at CDR3-like
+tolerance), so a useful soft-V match must demand near-exact loop identity.
 
 .. toctree::
    :hidden:

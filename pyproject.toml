@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "seqtree>=0.0.3b1",   # local editable until seqtree 0.0.3 is published to PyPI
+    "seqtree>=0.1.0",     # SubstitutionMatrix.penalty Python API (0.1.0)
     "polars>=1.0",
 ]
 

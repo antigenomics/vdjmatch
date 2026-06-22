@@ -134,6 +134,31 @@ shortlist = clonotype–epitope pairs in **≥2 distinct references** (`db.repli
 V-restriction helps more at wider scope (TRB subs=2: 54→58%). Replicated = public/learnable; single-ref
 = private singletons. (Cf. the mhcmatch shortlist; noted in tests + memory.)
 
+**DONE — regenerated everything on the correct release (2026-06-11-ZENODO) + composition controls.**
+We had been benchmarking on a stale local export (`sample3`, 116k rows), NOT the release (`vdjdb.txt`,
+284,546 records). Fixed: `db.fetch_hf` pulls the pinned release from the `isalgo/airr_benchmark` HF
+dataset (uploaded gzipped); all bench scripts default to it via `_bench.source`. The dense 2026 release
+is dominated by 10x mega-studies (SLLMWITQV ~30k), so `_bench.long_list` keeps epitopes ≥30 clonotypes,
+caps each to a random 3000, and drops **spike studies** (one study dumping a length-skewed mega-set into
+one epitope — only PMID:40498839, the SLL len-14 spike; spectratype detector). Metrics are
+imbalance-robust (`bench/metrics.py`: ROC-AUC + balanced PR/F1, π0-renormalised); all tests exclude
+exact self-hits. Re-run results (balanced PR-AUC unless noted):
+- Hamming-1 optimum **holds** (macro purity 0.44→0.07, lift 44×→2.3×); central substitutions **sharper**
+  (P(same) 0.31 core vs 0.90 borders; PSSM now ~2× centre).
+- No amino-acid matrix beats BLOSUM62; **BLOSUM+possig wins 7/8** (0.572→0.623). tcrBLOSUM still ≤ BLOSUM
+  (0.557 vs 0.570).
+- **NEW — VDJAMr**: a genetic-code-only matrix (`loo_vdjam.codon_dissim`, mutational accessibility, no
+  chemistry) **ties BLOSUM62** (0.585 vs 0.572) and beats data-derived VDJAM → CDR3 substitution
+  structure is generative, not chemical.
+- **V-mechanism reversed vs the stale-data conclusion**: cross-V co-specificity **does** rise to ~the
+  same-V level at **near-exact** germline CDR1+CDR2 identity (edit-0 60% n=25; 1-2 20.6%; 3-5 13.7%;
+  6+ 10.9%; same-V 65%) — recovered *whole-loop* (per-position flat except CDR2 pos5 1.67×), at a tight
+  CDR3-like tolerance. Loose similarity still doesn't (r≈0). Supports the V-pseudosequence idea at
+  near-exact tolerance; exact-match bins small (n≈25). (`bench/vregion_decompose.py`, `bench/vpseudo.py`)
+- Shortlist accuracy ~44–47% top-1, **modestly** above single-ref controls — the earlier 3× gap was a
+  sparse-export artefact (dense release makes controls findable too).
+- seqtree bumped to **0.1.0** (`SubstitutionMatrix.penalty` API).
+
 ## Later (subsequent iterations)
 - **Hard vs easy (featured/featureless) epitopes.** Per-epitope PR-AUC varies enormously (convergent
   CMV NLV ≫ diffuse influenza GIL); this is biology, not noise. Build an *a-priori* "annotability"

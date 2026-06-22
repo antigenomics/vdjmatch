@@ -59,14 +59,35 @@ def spectratype(df: pl.DataFrame, normal_min_n: int = 30) -> pl.DataFrame:
 
 
 def spectratype_anomalies(df: pl.DataFrame, min_n: int = 30, min_eff_len: float = 2.0,
-                          max_modal_frac: float = 0.9, max_dev: float = 0.4) -> set[str]:
+                          max_modal_frac: float = 0.9, max_dev: float = 0.4,
+                          dev_min_n: int = 500) -> set[str]:
     """Epitopes with an anomalous CDR3 length spectratype at n >= ``min_n``: too few effective lengths
-    (``eff_len < min_eff_len``), one length dominating (``modal_frac >= max_modal_frac``), or a single
-    bin deviating severely from the normal spectratype (``max_dev >= max_dev``) -- phage-display /
-    synthetic / clonal / single-study artefacts, quarantined from the natural-repertoire long list."""
+    (``eff_len < min_eff_len``) or one length dominating (``modal_frac >= max_modal_frac``) -- the
+    phage/synthetic/clonal signature, flagged at any size -- or a severe single-bin deviation from the
+    normal spectratype (``max_dev >= max_dev``) that is *statistically robust* (``n >= dev_min_n``),
+    so a small epitope's lumpy histogram (n~30) is not mistaken for a study artefact. The clear case is
+    the TRB len-14 spike of the SLLMWITQV 10x mega-study; small-n deviations are left alone."""
     s = spectratype(df).filter(pl.col("n") >= min_n)
     return set(s.filter((pl.col("eff_len") < min_eff_len) | (pl.col("modal_frac") >= max_modal_frac)
-                        | (pl.col("max_dev") >= max_dev))["epitope"].to_list())
+                        | ((pl.col("max_dev") >= max_dev) & (pl.col("n") >= dev_min_n)))
+               ["epitope"].to_list())
+
+
+def spike_studies(df: pl.DataFrame, spike_min: int = 3000, spike_modal: float = 0.5) -> set[str]:
+    """References that single-handedly create a spectratype spike: one study dumping >= ``spike_min``
+    clonotypes into a single epitope with one CDR3 length dominating (modal fraction >= ``spike_modal``)
+    -- e.g. PMID:40498839, which contributes ~30k SLLMWITQV clonotypes (68% at length 14) and reports
+    no other epitope. We drop the offending *study's records* (not the epitope), so the epitope keeps
+    its clonotypes from other studies and no other epitope is touched."""
+    u = (valid_cdr3(df).select("reference_id", "epitope", "cdr3").unique()
+         .with_columns(pl.col("cdr3").str.len_chars().alias("L")))
+    per_len = u.group_by(["reference_id", "epitope", "L"]).len()
+    tot = u.group_by(["reference_id", "epitope"]).len().rename({"len": "n"})
+    top = per_len.group_by(["reference_id", "epitope"]).agg(pl.col("len").max().alias("top"))
+    m = tot.join(top, on=["reference_id", "epitope"]).with_columns(
+        (pl.col("top") / pl.col("n")).alias("modal"))
+    return set(m.filter((pl.col("n") >= spike_min) & (pl.col("modal") >= spike_modal))
+               ["reference_id"].to_list())
 
 
 def multiplex_studies(df: pl.DataFrame, max_epitopes: int = 100) -> pl.DataFrame:
@@ -78,15 +99,17 @@ def multiplex_studies(df: pl.DataFrame, max_epitopes: int = 100) -> pl.DataFrame
 
 
 def long_list(df: pl.DataFrame, cap: int = 3000, min_n: int = 30, seed: int = 0,
-              drop_anomalous: bool = True) -> pl.DataFrame:
+              drop_spikes: bool = True) -> pl.DataFrame:
     """Composition-controlled long list of unique clonotypes ``(cdr3,v,j,epitope,mhc_class)``:
-    keep epitopes with >= ``min_n`` clonotypes, cap each at a random ``cap`` (so a few 10x mega-studies,
-    e.g. SLLMWITQV ~30k, don't dominate sampling or purity), and quarantine spectratype-anomalous
-    (phage/clonal) epitopes. Deterministic via ``seed``. The full database stays available (don't pass
-    through here) for sampling-depth / motif-coverage studies."""
-    u = valid_cdr3(df).select("cdr3", "v", "j", "epitope", "mhc_class").unique()
-    if drop_anomalous:
-        u = u.filter(~pl.col("epitope").is_in(list(spectratype_anomalies(df, min_n=min_n))))
+    drop the records of spike studies (one study dumping a length-skewed mega-set into one epitope;
+    :func:`spike_studies`), keep epitopes with >= ``min_n`` clonotypes, and cap each at a random ``cap``
+    (so legitimate multi-study mega-epitopes, e.g. NLV ~13k, don't dominate sampling or purity).
+    Deterministic via ``seed``. The full database stays available (don't pass through here) for
+    sampling-depth / motif-coverage studies."""
+    d = valid_cdr3(df)
+    if drop_spikes:
+        d = d.filter(~pl.col("reference_id").is_in(list(spike_studies(df))))
+    u = d.select("cdr3", "v", "j", "epitope", "mhc_class").unique()
     keep = u.group_by("epitope").len().filter(pl.col("len") >= min_n)["epitope"]
     u = u.filter(pl.col("epitope").is_in(keep))
     rank = pl.int_range(pl.len()).shuffle(seed=seed).over("epitope")

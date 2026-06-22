@@ -29,40 +29,53 @@ def _gnuplot(script: str):
     (OUT / "_t.gp").unlink()
 
 
-def cdr3_epitopes(vdj: pl.DataFrame, chain: str) -> dict[str, frozenset]:
-    sub = _bench.valid_cdr3(vdj.filter(pl.col("gene") == chain))
+def cdr3_epitopes(df: pl.DataFrame) -> dict[str, frozenset]:
+    """{cdr3 -> frozenset(epitopes)} from a clonotype frame (already composition-controlled)."""
     d = defaultdict(set)
-    for c, e in zip(sub["cdr3"], sub["epitope"]):
+    for c, e in zip(df["cdr3"], df["epitope"]):
         d[c].add(e)
     return {c: frozenset(s) for c, s in d.items()}
 
 
-def purity_vs_distance(vdj, chain="TRB", n_queries=300, dmax=5, seed=0, org="human"):
-    """Fraction of neighbours sharing >=1 epitope, by exact Hamming distance (signal:noise)."""
-    ce = cdr3_epitopes(vdj, chain)
+def purity_vs_distance(ll, chain="TRB", n_queries=500, dmax=5, seed=0, org="human"):
+    """Macro purity (per-epitope average of P[neighbour shares epitope]) and lift (purity / chance
+    pi(E) -- enrichment over the admixed random-control rate, the E-value view), by Hamming distance,
+    on the composition-controlled long list. Macro + lift are robust to the ~100x epitope-size range
+    that makes pooled (micro) purity read ~constant on the 10x-dominated raw release."""
+    import statistics as _st
+    ce = cdr3_epitopes(ll)
     cdrs = list(ce)
+    N = len(cdrs)
+    epi_n = Counter(e for s in ce.values() for e in s)
     idx = Index.build(cdrs, "aa")
     rng = __import__("random").Random(seed)
-    q = rng.sample(cdrs, min(n_queries, len(cdrs)))
+    q = rng.sample(cdrs, min(n_queries, N))
     res = idx.search_batch(q, SearchParams(max_subs=dmax, max_total_edits=dmax, engine="seqtm"), 0)
-    same = Counter(); tot = Counter()
+    macro, lift = defaultdict(list), defaultdict(list)
     for qi, hl in zip(q, res):
         qe = ce[qi]
+        s, n = Counter(), Counter()
         for h in hl:
             k = h.n_subs
             if k == 0 or cdrs[h.ref_id] == qi:
                 continue                                          # never count exact self-hits
-            tot[k] += 1
+            n[k] += 1
             if ce[cdrs[h.ref_id]] & qe:
-                same[k] += 1
-    pur = {k: same[k] / tot[k] for k in sorted(tot) if tot[k]}
-    print(f"[{chain}] purity by Hamming distance:", {k: round(v, 3) for k, v in pur.items()})
-    rows = "\n".join(f"{k} {pur[k]:.4f} {tot[k]}" for k in sorted(pur))
-    (OUT / "purity.dat").write_text("d purity n\n" + rows + "\n")
+                s[k] += 1
+        pi = max(epi_n[e] for e in qe) / N                        # chance a random clonotype shares qe
+        for k in n:
+            p = s[k] / n[k]
+            macro[k].append(p); lift[k].append(p / pi if pi else float("nan"))
+    pur = {k: _st.mean(macro[k]) for k in sorted(macro)}
+    lif = {k: _st.mean(lift[k]) for k in sorted(lift)}
+    print(f"[{org} {chain}] macro purity:", {k: round(v, 3) for k, v in pur.items()},
+          "| lift:", {k: round(v, 1) for k, v in lif.items()})
+    rows = "\n".join(f"{k} {pur[k]:.4f} {lif[k]:.2f}" for k in sorted(pur))
+    (OUT / "purity.dat").write_text("d purity lift\n" + rows + "\n")
     _gnuplot(f"""
 set terminal svg size 540,360 font 'Helvetica,12' background rgb 'white'
 set output 'purity_vs_distance.svg'
-set xlabel 'CDR3 Hamming distance (substitutions)'; set ylabel 'fraction of neighbours sharing epitope'
+set xlabel 'CDR3 Hamming distance (substitutions)'; set ylabel 'macro purity (per-epitope mean)'
 set xrange [0.5:{dmax+0.5}]; set yrange [0:*]; set grid lc rgb '#e5e7eb'; set xtics 1
 set key top right; set title 'Signal:noise vs edit distance ({org} {chain})'
 plot 'purity.dat' using 1:2 with linespoints lw 2.5 pt 7 lc rgb '#2563eb' notitle
@@ -70,10 +83,10 @@ plot 'purity.dat' using 1:2 with linespoints lw 2.5 pt 7 lc rgb '#2563eb' notitl
     return pur
 
 
-def position_significance(vdj, chain="TRB", n_queries=2000, bins=8, seed=0, org="human"):
+def position_significance(ll, chain="TRB", n_queries=2000, bins=8, seed=0, org="human"):
     """P(neighbours share epitope | the single substitution falls at relative CDR3 position).
-    Centre (NDN/contact) vs V/J borders (germline-fixed)."""
-    ce = cdr3_epitopes(vdj, chain)
+    Centre (NDN/contact) vs V/J borders (germline-fixed). On the composition-controlled long list."""
+    ce = cdr3_epitopes(ll)
     cdrs = list(ce)
     idx = Index.build(cdrs, "aa")
     rng = __import__("random").Random(seed)
@@ -124,9 +137,10 @@ plot 'possig.dat' using 1:2 with linespoints lw 2.5 pt 7 lc rgb '#7c3aed' notitl
 
 
 def tra_trb_gly(vdj, bins=10, org="human"):
-    """Glycine fraction by relative CDR3 position, TRA vs TRB (TRB D-gene -> central poly-G)."""
+    """Glycine fraction by relative CDR3 position, TRA vs TRB (TRB D-gene -> central poly-G).
+    On composition-controlled long lists per chain."""
     def gly_profile(chain):
-        cdrs = vdj.filter(pl.col("gene") == chain)["cdr3"].unique().to_list()
+        cdrs = _bench.long_list(vdj.filter(pl.col("gene") == chain), cap=3000, min_n=30)["cdr3"].to_list()
         g = [0] * bins; n = [0] * bins
         for s in cdrs:
             if len(s) < 2:
@@ -152,22 +166,22 @@ plot 'gly.dat' using 1:3 with linespoints lw 2.5 pt 7 lc rgb '#2563eb' title 'TR
 
 
 def matrices_fig():
-    """Summary bar chart: no standard substitution matrix beats BLOSUM62 for leave-one-out retrieval
-    (dist <=2) -- but BLOSUM62 weighted by the positional-significance factor (experiment 2) does.
-    Means from bench/loo_vdjam.py --subs 2 (TRB, 8 largest epitopes); B+possig wins 8/8."""
-    data = [("VDJAM", 0.284), ("VDJAM-region", 0.287), ("unit", 0.306), ("structural", 0.314),
-            ("PAM250", 0.329), ("BLOSUM62", 0.333), ("BLOSUM+possig", 0.356)]
+    """Summary bar chart (2026-06-11-ZENODO, composition-controlled long list, balanced PR-AUC, dist
+    <=2): the data-derived VDJAM trails; the genetic-code null VDJAMr ties BLOSUM62; only BLOSUM62
+    reweighted by the central-position factor (possig) clearly leads. Means from bench/loo_vdjam.py."""
+    data = [("VDJAM", 0.519), ("VDJAM-region", 0.525), ("unit", 0.545), ("structural", 0.572),
+            ("BLOSUM62", 0.572), ("PAM250", 0.575), ("VDJAMr", 0.585), ("BLOSUM+possig", 0.623)]
     win = len(data) - 1  # the position-weighted bar, drawn in a contrasting colour
     rows = "\n".join(f"{i} {n} {v}" for i, (n, v) in enumerate(data))
     (OUT / "matrices.dat").write_text("i name prauc\n" + rows + "\n")
     tics = ", ".join(f"'{n}' {i}" for i, (n, _) in enumerate(data))
     _gnuplot(f"""
-set terminal svg size 600,360 font 'Helvetica,12' background rgb 'white'
+set terminal svg size 620,360 font 'Helvetica,12' background rgb 'white'
 set output 'matrices.svg'
 set style fill solid 0.85 border -1; set boxwidth 0.6
-set ylabel 'mean retrieval PR-AUC (leave-one-out)'; set yrange [0:0.39]
+set ylabel 'mean balanced PR-AUC (leave-one-out)'; set yrange [0.45:0.65]
 set grid ytics lc rgb '#e5e7eb'; set xtics ({tics}) rotate by -25; unset key
-set title 'BLOSUM62 + central-position weighting is the only thing that beats BLOSUM62 (human TRB, dist <= 2)'
+set title 'Only central-position weighting clearly beats BLOSUM62 (human TRB, dist <= 2)'
 plot 'matrices.dat' using 1:3 with boxes lc rgb '#94a3b8' notitle, \\
      'matrices.dat' using 1:($1=={win}?$3:1/0) with boxes lc rgb '#059669' notitle
 """)
@@ -180,8 +194,9 @@ def main():
     species = os.environ.get("VDJDB_SPECIES", "HomoSapiens")
     org = {"HomoSapiens": "human", "MusMusculus": "mouse"}.get(species, species)
     vdj = db.load(_bench.source(), species=species)
-    purity_vs_distance(vdj, "TRB", org=org)
-    position_significance(vdj, "TRB", org=org)
+    ll = _bench.long_list(vdj.filter(pl.col("gene") == "TRB"), cap=3000, min_n=30)
+    purity_vs_distance(ll, "TRB", org=org)
+    position_significance(ll, "TRB", org=org)
     tra_trb_gly(vdj, org=org)
     matrices_fig()
     print("wrote purity_vs_distance.svg, position_significance.svg, tra_trb_gly.svg, matrices.svg")

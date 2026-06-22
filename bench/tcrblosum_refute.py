@@ -28,9 +28,10 @@ import polars as pl
 from seqtree import Index, SearchParams
 
 import _bench
+from metrics import pr_auc_balanced as pr_auc  # noqa: E402  (balanced for the 100x class imbalance)
 from vdjmatch import db
 from vdjmatch.match import regions
-from loo_vdjam import named_dissim, pr_auc, score_pairs  # noqa: E402
+from loo_vdjam import named_dissim, score_pairs  # noqa: E402
 from gen_vdjam import AA  # noqa: E402
 
 RAW = "https://raw.githubusercontent.com/apostovskaya/tcrBLOSUM/main/results"
@@ -81,7 +82,7 @@ def main():
            "tcrBLOSUM": tsv_dissim(fetch(tcr_file))}
 
     vdj = db.load(_bench.source(args.pmhc), species=args.species).filter(pl.col("gene") == args.chain)
-    uc = _bench.valid_cdr3(vdj).select("cdr3", "v", "j", "epitope").unique()
+    uc = _bench.long_list(vdj, cap=3000, min_n=args.min_epi)  # composition-controlled clonotypes
     ret = regions.load_retention()
     refs = uc.group_by("cdr3").agg(pl.col("epitope").first())
     ref_cdr3, ref_epi = refs["cdr3"].to_list(), refs["epitope"].to_list()

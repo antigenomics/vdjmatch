@@ -23,9 +23,10 @@ import polars as pl
 from seqtree import Index, SearchParams
 
 import _bench
+from metrics import pr_auc_balanced as pr_auc  # noqa: E402  (balanced for the 100x class imbalance)
 from vdjmatch import db
 from vdjmatch.match import regions, vgene
-from loo_vdjam import named_dissim, pr_auc  # noqa: E402
+from loo_vdjam import named_dissim  # noqa: E402
 from gen_vdjam import AA  # noqa: E402  (kept for parity / future matrix arms)
 
 VSIM_BINS = [0.0, 0.3, 0.5, 0.7, 0.9, 1.0]  # germline CDR1+CDR2 similarity buckets for cross-V pairs
@@ -44,7 +45,7 @@ def main():
     args = ap.parse_args()
 
     vdj = db.load(_bench.source(args.pmhc), species=args.species).filter(pl.col("gene") == args.chain)
-    uc = _bench.valid_cdr3(vdj).select("cdr3", "v", "j", "epitope").unique()
+    uc = _bench.long_list(vdj, cap=3000, min_n=args.min_epi)  # composition-controlled clonotypes
     ret = regions.load_retention()
     blo = named_dissim("BLOSUM62")
 

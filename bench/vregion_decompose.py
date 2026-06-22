@@ -57,8 +57,7 @@ def main():
     vreg = vgene.load_v_regions(args.chain)
     vdj = (db.load(_bench.source(args.pmhc), species=args.species)
              .filter((pl.col("gene") == args.chain) & (pl.col("mhc_class") == args.mhc_class)))
-    uc = (vdj.select("cdr3", "v", "epitope").unique()
-             .filter(pl.col("cdr3").str.contains("^[ACDEFGHIKLMNPQRSTVWY]+$")))
+    uc = _bench.long_list(vdj, cap=3000, min_n=args.min_epi)  # composition-controlled clonotypes
     refs = uc.group_by("cdr3").agg(pl.col("v").first(), pl.col("epitope").first())
     ref_cdr3, ref_v, ref_epi = refs["cdr3"].to_list(), refs["v"].to_list(), refs["epitope"].to_list()
     index = Index.build(ref_cdr3, "aa")

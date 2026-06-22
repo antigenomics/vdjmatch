@@ -26,6 +26,7 @@ from Bio.Align import substitution_matrices
 from seqtree import Index, SearchParams
 
 import _bench
+from metrics import pr_auc, roc_auc, pr_auc_balanced  # noqa: E402
 from vdjmatch import db
 from vdjmatch.match import regions
 from gen_vdjam import hamming1_events, position_background, estimate_matrix, AA  # noqa: E402
@@ -46,6 +47,49 @@ def named_dissim(name: str) -> dict[tuple[str, str], float]:
     return {k: hi - v for k, v in vals.items()}
 
 
+# standard genetic code (DNA codons -> 1-letter AA); '*' = stop
+_CODE = {
+    "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L", "CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
+    "ATT": "I", "ATC": "I", "ATA": "I", "ATG": "M", "GTT": "V", "GTC": "V", "GTA": "V", "GTG": "V",
+    "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S", "CCT": "P", "CCC": "P", "CCA": "P", "CCG": "P",
+    "ACT": "T", "ACC": "T", "ACA": "T", "ACG": "T", "GCT": "A", "GCC": "A", "GCA": "A", "GCG": "A",
+    "TAT": "Y", "TAC": "Y", "TAA": "*", "TAG": "*", "CAT": "H", "CAC": "H", "CAA": "Q", "CAG": "Q",
+    "AAT": "N", "AAC": "N", "AAA": "K", "AAG": "K", "GAT": "D", "GAC": "D", "GAA": "E", "GAG": "E",
+    "TGT": "C", "TGC": "C", "TGA": "*", "TGG": "W", "CGT": "R", "CGC": "R", "CGA": "R", "CGG": "R",
+    "AGT": "S", "AGC": "S", "AGA": "R", "AGG": "R", "GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G",
+}
+
+
+def codon_dissim() -> dict[tuple[str, str], float]:
+    """VDJAMr: a substitution matrix from the genetic code alone -- how mutationally accessible one
+    amino acid is from another. M(a,b) = P(a single random nucleotide substitution of a uniformly
+    random codon of a yields a codon of b); symmetrised, then converted to off-diagonal dissimilarity
+    (codon-adjacent pairs = cheap). This is the recombination/mutation null: it scores the substitution
+    propensity built into the code, with no chemistry or selection."""
+    from collections import defaultdict
+    codons = defaultdict(list)
+    for c, a in _CODE.items():
+        if a != "*":
+            codons[a].append(c)
+    nts = "ACGT"
+    m = {}
+    for a in AA:
+        for b in AA:
+            tot = hit = 0
+            for c in codons[a]:
+                for i in range(3):
+                    for nt in nts:
+                        if nt == c[i]:
+                            continue
+                        tot += 1
+                        hit += _CODE.get(c[:i] + nt + c[i + 1:]) == b
+            m[(a, b)] = hit / tot if tot else 0.0
+    sim = {(a, b): (m[(a, b)] + m[(b, a)]) / 2 for a in AA for b in AA}
+    off = {k: v for k, v in sim.items() if k[0] != k[1]}
+    hi = max(off.values())
+    return {k: hi - v for k, v in off.items()}
+
+
 def structural_dissim(inc=None) -> dict | None:
     """seqtree's TeXshade structural similarity matrix (sidechain volume + hydropathy) -> dissim.
     Parsed from the seqtree source .inc (24-symbol order ARNDCQEGHILKMFPSTWYVBZX*); None if absent.
@@ -62,21 +106,6 @@ def structural_dissim(inc=None) -> dict | None:
     vals = {(a, c): sim[(a, c)] for a in AA for c in AA if a != c}
     hi = max(vals.values())
     return {k: hi - v for k, v in vals.items()}
-
-
-def pr_auc(pairs: list[tuple[int, float]]) -> float:
-    s = sorted(pairs, key=lambda x: -x[1])
-    P = sum(l for l, _ in s)
-    if P == 0:
-        return float("nan")
-    tp = fp = 0
-    pr, pp, area = 0.0, 1.0, 0.0
-    for lab, _ in s:
-        tp += lab; fp += 1 - lab
-        r, p = tp / P, tp / (tp + fp)
-        area += (r - pr) * (p + pp) / 2
-        pr, pp = r, p
-    return area
 
 
 def score_pairs(qseqs, qv, qj, cand, ref_cdr3, ref_epi, true_epi, chain, ret, dis, wmode=None):
@@ -110,19 +139,20 @@ def main():
                     help="VDJdb export TSV (default: $VDJDB_SAMPLE or the HF-pinned release)")
     ap.add_argument("--species", default="HomoSapiens")
     ap.add_argument("--chain", default="TRB")
-    ap.add_argument("--min-epi", type=int, default=50)
+    ap.add_argument("--min-epi", type=int, default=30)
     ap.add_argument("--top", type=int, default=8)
     ap.add_argument("--max-queries", type=int, default=600)
     ap.add_argument("--subs", type=int, default=2, help="candidate search substitution budget")
     args = ap.parse_args()
 
     vdj = db.load(_bench.source(args.pmhc), species=args.species).filter(pl.col("gene") == args.chain)
-    uc = _bench.valid_cdr3(vdj).select("cdr3", "v", "j", "epitope").unique()
+    uc = _bench.long_list(vdj, cap=3000, min_n=args.min_epi)  # composition-controlled clonotypes
     bg = position_background(uc["cdr3"].unique().to_list())
     ret = regions.load_retention()
     blo = named_dissim("BLOSUM62")
     pam = named_dissim("PAM250")
     struc = structural_dissim() or blo  # fall back to BLOSUM if the seqtree source isn't present
+    codon = codon_dissim()              # VDJAMr: genetic-code / mutation-accessibility null
     unit = {(a, c): 1.0 for a in AA for c in AA if a != c}
 
     refs = uc.group_by("cdr3").agg(pl.col("epitope").first())
@@ -136,8 +166,8 @@ def main():
     held = sizes["epitope"].to_list()[:args.top]
     print(f"species={args.species} chain={args.chain}; held-out epitopes={len(held)}; subs={args.subs}")
     print(f"{'epitope':13}{'n':>5}{'unit':>8}{'BLOSUM':>8}{'PAM250':>8}{'struct':>8}{'VDJAM':>8}"
-          f"{'VDJAM_reg':>10}{'B+possig':>10}")
-    acc = {k: [] for k in ("unit", "blosum", "pam", "struct", "vdjam", "region", "bps")}
+          f"{'VDJAMr':>8}{'VDJAM_reg':>10}{'B+possig':>10}")
+    acc = {k: [] for k in ("unit", "blosum", "pam", "struct", "vdjam", "vdjamr", "region", "bps")}
     for epi in held:
         ev = []
         for e in sizes["epitope"].to_list():
@@ -150,19 +180,22 @@ def main():
         q = uc.filter(pl.col("epitope") == epi).unique("cdr3").head(args.max_queries)
         qs, qv, qj = q["cdr3"].to_list(), q["v"].to_list(), q["j"].to_list()
         cand = [[h.ref_id for h in hl] for hl in index.search_batch(qs, cand_params, 0)]
-        sp = lambda dis, w: pr_auc(score_pairs(qs, qv, qj, cand, ref_cdr3, ref_epi, epi,  # noqa: E731
-                                               args.chain, ret, dis, w))
+        sp = lambda dis, w: pr_auc_balanced(score_pairs(qs, qv, qj, cand, ref_cdr3, ref_epi, epi,  # noqa: E731
+                                                        args.chain, ret, dis, w))
         row = {"unit": sp(unit, None), "blosum": sp(blo, None), "pam": sp(pam, None),
-               "struct": sp(struc, None), "vdjam": sp(vdis, None), "region": sp(vdis, "region"),
-               "bps": sp(blo, "possig")}
+               "struct": sp(struc, None), "vdjam": sp(vdis, None), "vdjamr": sp(codon, None),
+               "region": sp(vdis, "region"), "bps": sp(blo, "possig")}
         for k in acc:
             acc[k].append(row[k])
         print(f"{epi:13}{len(qs):>5}{row['unit']:>8.3f}{row['blosum']:>8.3f}{row['pam']:>8.3f}"
-              f"{row['struct']:>8.3f}{row['vdjam']:>8.3f}{row['region']:>10.3f}{row['bps']:>10.3f}")
+              f"{row['struct']:>8.3f}{row['vdjam']:>8.3f}{row['vdjamr']:>8.3f}{row['region']:>10.3f}"
+              f"{row['bps']:>10.3f}")
     mean = {k: st.mean(acc[k]) for k in acc}
-    print(f"\nmean PR-AUC:  unit {mean['unit']:.3f}  BLOSUM {mean['blosum']:.3f}  PAM250 {mean['pam']:.3f}  "
-          f"struct {mean['struct']:.3f}  VDJAM {mean['vdjam']:.3f}  VDJAM-region {mean['region']:.3f}  "
-          f"BLOSUM+possig {mean['bps']:.3f}")
+    print(f"\nmean balanced PR-AUC:  unit {mean['unit']:.3f}  BLOSUM {mean['blosum']:.3f}  PAM250 {mean['pam']:.3f}  "
+          f"struct {mean['struct']:.3f}  VDJAM {mean['vdjam']:.3f}  VDJAMr {mean['vdjamr']:.3f}  "
+          f"VDJAM-region {mean['region']:.3f}  BLOSUM+possig {mean['bps']:.3f}")
+    print(f"VDJAMr vs BLOSUM: {st.mean(acc['vdjamr']) - st.mean(acc['blosum']):+.3f}  | "
+          f"VDJAMr>BLOSUM in {sum(1 for a,b in zip(acc['vdjamr'],acc['blosum']) if a>b)}/{len(held)}")
     print(f"region vs flat VDJAM: {st.mean(acc['region']) - st.mean(acc['vdjam']):+.3f}  | "
           f"region vs BLOSUM: {st.mean(acc['region']) - st.mean(acc['blosum']):+.3f}  | "
           f"region>BLOSUM in {sum(1 for a,b in zip(acc['region'],acc['blosum']) if a>b)}/{len(held)}")

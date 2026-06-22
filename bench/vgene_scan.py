@@ -112,8 +112,9 @@ def main():
         vdj = db.load(src, species=sp)
         for chain in ("TRA", "TRB"):
             for cls in ("MHCI", "MHCII"):
-                uc = (vdj.filter((pl.col("gene") == chain) & (pl.col("mhc_class") == cls))
-                         .select("cdr3", "v", "epitope").unique())
+                uc = _bench.long_list(vdj.filter((pl.col("gene") == chain)
+                                                  & (pl.col("mhc_class") == cls)),
+                                      cap=3000, min_n=args.min_epi)  # composition-controlled
                 res = scan_cell(uc, chain, args.top, args.min_epi, args.max_queries, args.subs)
                 cell = f"{org[sp]} {chain} {cls}"
                 if res is None:
