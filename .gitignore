@@ -24,6 +24,9 @@ docs/_build/
 # third-party comparison matrices (downloaded on demand, not redistributed)
 bench/matrices/
 
+# external comparator sources + built binaries (cloned/built on demand; recipe in bench/EXTERNAL_TOOLS.md)
+bench/external/
+
 # generated comparison-benchmark output
 bench/out/
 bench/predictions/

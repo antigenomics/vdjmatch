@@ -15,13 +15,30 @@ predictions file. **Where install is non-obvious, the questions below are for @m
 
 ---
 
-## TCRMatch  (PMID 33777034)
-- **Install:** bioconda — `conda create -n cmp-tcrmatch -c bioconda -c conda-forge tcrmatch`. Self-
-  contained C++; reference = IEDB CDR3β set it ships, or feed our VDJdb β as the reference.
-- **I/O:** input = CDR3β list; output = nearest-reference matches + score (k-mer similarity 0–1).
-- **Q1:** Use TCRMatch's bundled IEDB reference, or rebuild its reference from our leakage-removed VDJdb
-  β so it's apples-to-apples? (Recommend the latter — fairness.) β-only, so TRA is N/A for it.
-A:  Use both
+## TCRMatch  (PMID 33777034)  — **DONE (both arms wired)**
+- **Install (corrected — NOT on bioconda):** there is no `tcrmatch` conda package on any subdir; the
+  bioconda assumption was stale. Build from source: `git clone https://github.com/IEDB/TCRMatch`
+  → `bench/external/tcrmatch-src`. Their Makefile's bare `-fopenmp` fails on macOS clang; compile with
+  `clang++ -std=c++11 -O3 -Xpreprocessor -fopenmp -I$(brew --prefix libomp)/include
+  -L$(brew --prefix libomp)/lib -lomp -o tcrmatch src/main.cpp` (`brew install libomp` first).
+- **I/O:** input = newline CDR3β (full `C…F` ok — it trims flanks internally); `-d` takes the bundled
+  6-col TSV (`trimmed_seq … epitopes …`), so a custom VDJdb-β ref carries epitopes. Output: 7 cols,
+  kernel score ∈ [threshold, 1]; unmatched queries emit no rows.
+- **Gotcha — segfault on long CDR3:** `k3_sum` has a fixed `[31][31][31]` stack array; any **trimmed
+  length ≥ 32 overflows it → SIGSEGV** (bundled IEDB is capped at 23). `bench/tcrmatch_samples.py`
+  filters queries and reference to trimmed len ≤ 30 (logs the drop; 4 VDJdb-β entries, incl. a junk
+  len-124 CDR3, dropped).
+- **Producer:** `bench/tcrmatch_samples.py` → `predictions/{tcrmatch,tcrmatch-vdjdb}/samples.tsv`.
+  Both arms (Q1 = use both): `tcrmatch` = bundled IEDB ref, `tcrmatch-vdjdb` = leakage-removed VDJdb-β
+  rebuilt as the 6-col DB. Exact self-matches (`match == trimmed query`) dropped in both, mirroring the
+  vdjmatch arm's `exclude_exact=True`.
+- **Finding (samples mode, 5k-OLGA):** at its standard `-s 0.97`, TCRMatch is a high-precision binary
+  matcher — **0% OLGA spurious** (vs vdjmatch ~9.6%) — but **ROC-AUC ≈ 0.5** on NLV/LLW/LLL: most
+  positives have no ≥0.97 neighbour so they score 0 like negatives; it ranks nothing. Lowering `-s`
+  (0.84) scores ~everything (1.78M rows / 5k queries) but dense popular epitopes (NLV) are approached
+  by random OLGA too → still no separation. Raw similarity ≠ ranking; vdjmatch's control-calibrated
+  E-value (AUC 0.79–0.90) corrects exactly for reference density. β-only, so TRA is N/A.
+- **Q1:** Use both. **A:** Use both — done.
 
 ## tcrdist3  (Mayer-Blackwell 2021)
 - **Install:** `conda create -n cmp-tcrdist python=3.8 && pip install tcrdist3` (pulls parasail, numba).
