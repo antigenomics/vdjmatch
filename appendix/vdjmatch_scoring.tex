@@ -181,6 +181,21 @@ significant only when a clonotype has \emph{more} VDJdb neighbours than the gene
 predicts. The Poisson/Chen--Stein theory, the punctured (self-excluding) null and the choice of $M$ are
 derived in the companion \texttt{seqtree} appendix.
 
+\paragraph{First-hit (adaptive) scope.} Rather than fix the ball radius, \texttt{vdjmatch} widens the
+search to each query's \emph{nearest} VDJdb hit --- up to $5$ total edits with at most $2$ insertions
+and $2$ deletions --- and evaluates the E-value \emph{at that first-hit radius} $r^\ast$. Because the
+background count $n_C(r)$ grows with $r$, the calibration adapts per query: a clonotype whose nearest
+VDJdb neighbour is one substitution away is significant on a single hit (the background ball at $r{=}1$
+is essentially empty), whereas one whose nearest hit appears only at $r{=}5$ is not (the background ball
+is then dense) --- so noise is rejected without a hand-tuned scope. A single wide search per side yields
+the nested counts $n_D(r),n_C(r)$ from the per-hit edit decomposition, and
+$\E=(N/M)\,n_C(r^\ast)$, $p_{\mathrm{enrich}}=\Prob(\Poisson(\E)\ge n_D(r^\ast))$ exactly as above
+(\texttt{evalue.first\_hit}). The radius may equally be a BLOSUM62$+$possig \emph{penalty} budget rather
+than an edit count, defining ``nearest'' by the position-weighted matrix (\S\ref{sec:possig}); we report
+both. This is the operating point for the cross-method benchmark: on random OLGA repertoires it flags
+essentially no spurious hits (a generative-background TCR's nearest VDJdb neighbour is far, so
+$p_{\mathrm{enrich}}\!\to\!1$) while recovering true binders whose nearest labelled neighbour is close.
+
 \paragraph{Paired $\alpha\beta$ E-value.} The null factorization is not an approximation of
 convenience: $\alpha$ and $\beta$ chains pair \emph{almost without constraint} in the repertoire at
 large, as shown by integrating structural and paired-sequencing data~\cite{Shcherbinin2020}, so under

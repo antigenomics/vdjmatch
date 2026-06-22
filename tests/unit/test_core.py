@@ -164,6 +164,20 @@ def test_api_annotator_list_and_frame_label_preserving():
     assert out.height == 2 and out.sort("my_id")["vdjmatch_epitope"].to_list() == ["NLVPMVATV", "GILGFVFTL"]
 
 
+def test_first_hit_evalue_scope_and_significance():
+    from seqtree import Index
+    from vdjmatch.evalue import first_hit
+    tgt = Index.build(["CASSIRSSYEQYF", "CASSLRSSYEQYF", "CASSPGTEAFF"], "aa")
+    epi = ["NLVPMVATV", "NLVPMVATV", "GILGFVFTL"]
+    ctrl = Index.build(["CAGGGGGGGGGGG", "CWWWWWWWWWWWF", "CYYYYYYYYYYYF"], "aa")  # far from queries
+    th, cc = first_hit.scan(tgt, epi, ctrl, ["CASSIRPSYEQYF"], exclude_exact=True)
+    r = first_hit.pvalue(th[0], cc[0], N=3, M=3, epitope="NLVPMVATV")
+    assert r["radius"] == 1 and r["n_target"] >= 1          # nearest NLV hit is one substitution away
+    assert r["p_enrichment"] < 1.0                          # significant: a close hit, ~no background
+    th2, cc2 = first_hit.scan(tgt, epi, ctrl, ["KEKEKEKEKEKEK"], exclude_exact=True)
+    assert first_hit.pvalue(th2[0], cc2[0], 3, 3)["p_enrichment"] == 1.0   # no hit -> not significant
+
+
 def test_replicated_shortlist_needs_two_references():
     # benchmark gold standard = clonotype-epitope pairs confirmed in >=2 distinct references
     # (against the latest VDJdb release; see bench/shortlist_accuracy.py)

@@ -39,6 +39,25 @@ pip install -e .[test,bench]
 
 `seqtree` (the search engine) is installed from PyPI as a dependency.
 
+## Python API
+
+One ergonomic entry point — `list[CDR3] → hits` up to `polars df → df + annotation columns` (ids/labels
+preserved), single- or paired-chain, against any VDJdb version or a custom reference:
+
+```python
+import vdjmatch
+ann = vdjmatch.Annotator.latest()                      # or .version("2026-06-11-ZENODO") / .from_path(...) / .from_frame(df)
+ann.hits(["CASSIRSSYEQYF", "CASSLAPGATNEKLFF"])        # → long per-hit polars frame
+ann.annotate(df, cdr3="junction_aa", locus="locus")    # → df + vdjmatch_{epitope,mhc_class,score,n_hits}
+ann.annotate_paired(cell_df, cdr3a="cdr3_alpha_aa", cdr3b="cdr3_beta_aa")
+vdjmatch.annotate(["CASS..."])                         # module-level shortcut (cached default reference)
+```
+
+**First-hit (adaptive) E-value.** Significance is evaluated at each query's *nearest* VDJdb hit (up to 5
+edits, ≤2 ins, ≤2 del): the control's neighbour count grows with the radius, so a distance-1 hit is
+significant while a distance-5-only hit is not — noise is rejected without a fixed scope
+(`vdjmatch.evalue.first_hit`). Edit-distance and BLOSUM+possig-penalty "nearest" both supported.
+
 ## Scoring: what works (and what doesn't)
 
 An empirical study on VDJdb (see `appendix/vdjmatch_scoring.tex`; regenerated on the **2026-06-11-ZENODO**

@@ -56,6 +56,11 @@ matched **background control** repertoire; the Poisson-tail ``p_enrichment`` is 
 when a clonotype has *more* VDJdb neighbours than the generative process predicts — the hallmark of
 antigen-driven selection. The theory is derived in the ``seqtree`` appendix.
 
+**First-hit (adaptive) scope.** Rather than fix the ball, ``vdjmatch`` widens to each query's *nearest*
+VDJdb hit (up to 5 edits, ≤2 ins, ≤2 del) and evaluates the E-value at that radius: the background count
+grows with the radius, so a distance-1 hit is significant while a distance-5-only hit is not — random
+repertoires are filtered without a hand-tuned scope (``vdjmatch.evalue.first_hit``).
+
 **Scope / budget.** ``--scope s,i,d,t`` sets the maximum substitutions, insertions, deletions and
 total edits of the CDR3 search ball.
 

@@ -12,6 +12,7 @@ External methods plug in via predictions/<method>/<dataset>.tsv (see EXTERNAL_TO
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import statistics as st
 from collections import Counter, defaultdict
@@ -23,6 +24,7 @@ from seqtree import Index, SearchParams
 import _bench
 from metrics import pr_auc_balanced, roc_auc
 from vdjmatch import db
+from vdjmatch.evalue import background, first_hit
 
 TESTDATA = Path(os.environ.get("VDJMATCH_TESTDATA",
                                "/Users/mikesh/vcs/manuscripts/2026-vdjmatch/test_data"))
@@ -46,20 +48,6 @@ def load_sample(name: str) -> pl.DataFrame:
     return _bench.valid_cdr3(d).unique("cdr3")
 
 
-def score_samples(ref_cdr3, ref_epi, queries, subs):
-    """Per query -> {epitope: leakage-removed same-epitope neighbour count}."""
-    index = Index.build(ref_cdr3, "aa")
-    params = SearchParams(max_subs=subs, max_total_edits=subs, engine="seqtm")
-    out = []
-    for qi, hl in zip(queries, index.search_batch(queries, params, 0)):
-        v = Counter()
-        for h in hl:
-            if ref_cdr3[h.ref_id] != qi:                           # leakage: never an exact self-copy
-                v[ref_epi[h.ref_id]] += 1
-        out.append(dict(v))
-    return out
-
-
 def _roc_pr(pairs):
     """(label,score) -> ((fpr,tpr,auc),(recall,prec,ap)) point arrays for plotting."""
     s = sorted(pairs, key=lambda x: -x[1])
@@ -79,22 +67,36 @@ def run_samples(args, out: Path):
     vdj = db.load(_bench.source(), species=args.species).filter(pl.col("gene") == "TRB")
     ref = _bench.valid_cdr3(vdj).group_by("cdr3").agg(pl.col("epitope").first())
     ref_cdr3, ref_epi = ref["cdr3"].to_list(), ref["epitope"].to_list()
+    tgt = Index.build(ref_cdr3, "aa")
+    ctrl = background("TRB")
+    N, M, N_epi = len(tgt), len(ctrl), Counter(ref_epi)
     q1, q2, q5 = load_sample("sample1"), load_sample("sample2"), load_sample("sample5")
     queries = pl.concat([q1, q2, q5]).unique("cdr3")
     qlist = queries["cdr3"].to_list()
     truth = dict(zip(queries["cdr3"], queries["true_epitope"]))
-    methods = {"vdjmatch": dict(zip(qlist, score_samples(ref_cdr3, ref_epi, qlist, args.subs)))}
-    # external methods: predictions/<m>/samples.tsv  (query_id=cdr3, epitope, score)
+    epis = list(SAMPLE_EPI)
+
+    # vdjmatch: one wide first-hit scan; score(query, epitope) = -log10 p_enrichment at the first E-hit;
+    # OLGA "significant" = overall first-hit p_enrichment < alpha (any epitope).
+    th, cc = first_hit.scan(tgt, ref_epi, ctrl, qlist, exclude_exact=True)
+    vdj_score, olga_sig = {}, {"vdjmatch": {}}
+    for q, t, c in zip(qlist, th, cc):
+        olga_sig["vdjmatch"][q] = first_hit.pvalue(t, c, N, M)["p_enrichment"] < args.alpha
+        vdj_score[q] = {e: -math.log10(max(first_hit.pvalue(t, c, N_epi.get(e, 1), M, epitope=e)
+                                           ["p_enrichment"], 1e-300)) for e in epis}
+    methods = {"vdjmatch": vdj_score}
+    # external methods: predictions/<m>/samples.tsv (query_id, epitope, score [, significant])
     for m in args.methods:
         if m == "vdjmatch":
             continue
         p = Path(args.pred_dir) / m / "samples.tsv"
         if p.exists():
-            sc = defaultdict(dict)
-            d = pl.read_csv(p, separator="\t")
-            for c, e, s in zip(d["query_id"], d["epitope"], d["score"]):
-                sc[c][e] = float(s)
-            methods[m] = sc
+            sc, sig = defaultdict(dict), {}
+            for row in pl.read_csv(p, separator="\t").iter_rows(named=True):
+                sc[row["query_id"]][row["epitope"]] = float(row["score"])
+                sig[row["query_id"]] = sig.get(row["query_id"], False) or bool(row.get("significant"))
+            methods[m] = dict(sc)
+            olga_sig[m] = {q: sig.get(q, max(sc.get(q, {}).values(), default=0) > 0) for q in qlist}
 
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -115,11 +117,11 @@ def run_samples(args, out: Path):
     fig.tight_layout(); fig.savefig(out / "samples_roc_pr.png", dpi=150)
     print("wrote", out / "samples_roc_pr.png")
 
-    print("\nOLGA spurious-hit filtering (fraction of random OLGA queries called significant; lower=better):")
+    print(f"\nOLGA spurious-hit filtering (fraction called significant at p<{args.alpha}; lower=better):")
     olga = [c for c in qlist if truth[c] is None]
-    for m, sc in methods.items():
-        frac = sum(1 for c in olga if max(sc.get(c, {}).values(), default=0) >= 1) / len(olga)
-        print(f"  {m:12} {frac*100:5.1f}%  (n={len(olga)})")
+    for m in methods:
+        frac = sum(1 for c in olga if olga_sig[m].get(c, False)) / len(olga)
+        print(f"  {m:12} {frac*100:6.3f}%  (n={len(olga)})")
         rows.append((m, "OLGA", "spurious_rate", frac))
     pl.DataFrame(rows, schema=["method", "epitope", "metric", "value"], orient="row").write_csv(
         out / "samples_metrics.tsv", separator="\t")
@@ -213,6 +215,7 @@ def main():
     ap.add_argument("--species", default="HomoSapiens")
     ap.add_argument("--locus", nargs="+", default=["TRA", "TRB"])
     ap.add_argument("--subs", type=int, default=1)
+    ap.add_argument("--alpha", type=float, default=1e-3, help="first-hit E-value significance cutoff")
     ap.add_argument("--top", type=int, default=20, help="epitopes per locus entering the distribution")
     ap.add_argument("--min-epi", type=int, default=30)
     ap.add_argument("--max-queries", type=int, default=300)
