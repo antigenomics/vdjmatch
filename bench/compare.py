@@ -226,9 +226,10 @@ def run_tcrvdb_paired(args):
     t = (t.select(alpha="cdr3_alpha_aa", beta="cdr3_beta_aa", epitope="epitope_aa")
           .filter(pl.col("alpha").str.contains(_bench.VALID) & pl.col("beta").str.contains(_bench.VALID))
           .unique(["alpha", "beta", "epitope"]))
-    in_ref = set(ref["epitope"].unique())
+    big_ref = set(ref.group_by("epitope").agg(pl.len().alias("n"))      # >= min_n paired complexes
+                     .filter(pl.col("n") >= args.min_epi)["epitope"].to_list())
     sizes = (t.group_by("epitope").agg(pl.len().alias("n"))
-               .filter((pl.col("n") >= args.min_epi) & pl.col("epitope").is_in(in_ref))
+               .filter((pl.col("n") >= args.min_epi) & pl.col("epitope").is_in(big_ref))
                .sort(["n", "epitope"], descending=[True, False]))
     held = sizes["epitope"].to_list()[:args.top]
     if not held:
@@ -303,8 +304,14 @@ def _release(key: str, species: str) -> pl.DataFrame:
     return _REL_CACHE[key]
 
 
+def _big_epis(df: pl.DataFrame, min_n: int) -> set[str]:
+    """Epitopes with >= min_n unique CDR3 in ``df`` (e.g. the reference, before a time cutoff)."""
+    return set(df.group_by("epitope").agg(pl.col("cdr3").n_unique().alias("n"))
+                 .filter(pl.col("n") >= min_n)["epitope"].to_list())
+
+
 def _top_held(df: pl.DataFrame, ref_epis, top: int, min_n: int) -> list[str]:
-    """Held epitopes: present in the reference, >= min_n unique test CDR3, largest first."""
+    """Held epitopes: reference-eligible (``ref_epis``), >= min_n unique test CDR3, largest first."""
     sizes = (df.group_by("epitope").agg(pl.col("cdr3").n_unique().alias("n"))
                .filter((pl.col("n") >= min_n) & pl.col("epitope").is_in(list(ref_epis)))
                .sort(["n", "epitope"], descending=[True, False]))
@@ -325,7 +332,8 @@ def dataset_cells(dataset: str, args):
 
     shortlist/vdjdb: within-release LOO on the 2026 benchmark (exact-self removed).
     temporal: 2025 release reference, test = 2026 clonotypes new vs 2025 (held out by time); exact
-              matches KEPT (cross-release match is a legitimate annotation, not leakage).
+              matches KEPT (cross-release match is a legitimate annotation, not leakage). Held epitopes
+              must have >= min_epi records in the 2025 reference (only annotate what predates the cutoff).
     tcrvdb: validated TCRvdb (padj<thresh) test annotated against the 2026 reference, per chain.
     """
     if dataset in ("shortlist", "vdjdb"):
@@ -345,14 +353,14 @@ def dataset_cells(dataset: str, args):
             test26 = _bench.long_list(v26.filter(pl.col("gene") == locus), cap=3000, min_n=args.min_epi)
             new = test26.join(ref.select("cdr3", "epitope").unique(),       # held out by time
                               on=["cdr3", "epitope"], how="anti")
-            held = _top_held(new, set(ref["epitope"].unique()), args.top, args.min_epi)
+            held = _top_held(new, _big_epis(ref, args.min_epi), args.top, args.min_epi)  # >=min_n in 2025
             yield locus, ref, new, held, False                 # keep exact matches (temporal)
     elif dataset == "tcrvdb":
         vdj, tcr = _release("2026", args.species), load_tcrvdb(args.tcrvdb_padj)
         for locus in args.locus:
             ref = _bench.valid_cdr3(vdj.filter(pl.col("gene") == locus))
             test = tcr.filter(pl.col("gene") == locus)
-            held = _top_held(test, set(ref["epitope"].unique()), args.top, args.min_epi)
+            held = _top_held(test, _big_epis(ref, args.min_epi), args.top, args.min_epi)  # >=min_n in ref
             yield locus, ref, test, held, True                 # TCRvdb overlaps vdjdb -> leakage control
     else:
         raise ValueError(f"unknown dataset {dataset!r}")
