@@ -181,6 +181,21 @@ the query repertoire** (the V–J/Pgen-normalisation tension, now quantified 10%
 the 0% must be re-confirmed against an **independently generated** OLGA control before trusting it.
 Experiments default to 5000 random cases (full ~250k is too slow).
 
+**DONE — paired α/β E-value (Task #2.4) + comparison datasets (temporal holdout, TCRvdb).**
+`vdjmatch.evalue.paired`: joint first-hit E-value, chain-factorized null `π0^{αβ} ≈ π0^α·π0^β`. A paired
+hit needs BOTH chains within budget (radius `R = max(cost_α, cost_β)`); `E = N·(n_ctrl_α(R)/Ma)·
+(n_ctrl_β(R)/Mb)`, `p = Poisson P(X ≥ n_pair(R)|E)`. `build_paired_ref` groups VDJdb by `complex_id`
+(2026 release: 85,922 paired complexes). New `bench/compare.py` datasets + `--impl {vote,evalue}` arm:
+- **temporal**: 2025 release (`2025-12-29`) reference, test = 2026 clonotypes new vs 2025 (held out by
+  time), exact matches KEPT (cross-release match is a legit annotation). Held epitopes must have
+  ≥`min_epi` records in the 2025 reference (only annotate what predates the cutoff). The honest
+  real-world generalization benchmark — and it is *hard*: TRA/TRB PR-AUC 0.61/0.64, retention 16%/10%
+  with the E-value arm (the subs=1 vote is near-useless here, retention ~1.7% → use the ≤5-edit
+  first-hit E-value for novel TCRs).
+- **tcrvdb / tcrvdb-paired**: validated TCRvdb pairs (padj<1e-5; 2 epitopes) annotated vs the 2026
+  reference. **Paired beats single chain**: f1 0.89 / retention 0.82 (paired) > 0.86 / 0.77 (TRB) >
+  0.75 / 0.63 (TRA), purity ~0.98 throughout — the joint α+β requirement lifts recall at high purity.
+
 ## Later (subsequent iterations)
 - **Hard vs easy (featured/featureless) epitopes.** Per-epitope PR-AUC varies enormously (convergent
   CMV NLV ≫ diffuse influenza GIL); this is biology, not noise. Build an *a-priori* "annotability"
