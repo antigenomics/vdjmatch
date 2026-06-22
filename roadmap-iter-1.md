@@ -164,6 +164,23 @@ exact self-hits. Re-run results (balanced PR-AUC unless noted):
 - Reproducibility: deterministic held-out-epitope selection (tiebreak by epitope name); seqtree bumped
   to **0.1.0** (`SubstitutionMatrix.penalty` API).
 
+### OPEN — OLGA spurious rate is (mostly?) a control-mismatch artifact, not coincidental overlap
+The OLGA "spurious-hit" rate estimates `1 - P(no hit)` = the probability a Pgen-drawn TCR coincides
+(within first-hit scope) with the epitope reference — a coincidental-collision quantity set by Pgen,
+not method noise (`bench/olga_overlap_limit.py`). On 20k OLGA draws: raw overlap `1-P(no hit)` is
+scope-dependent (0.01% @1 edit → 53% @5 edits); the Poisson model `P_overlap ≈ 1-exp(-Λ)`,
+Λ = Σ_r Pgen-mass of r's edit-ball, is exact at k≤2 and breaks at k≥4 (Λ=28.8 but 53% overlap) →
+reference neighbours are **clustered, not Poisson** (convergent-recombination signal). **Key test**
+(`bench/control_pgen_test.py`): the significant-call rate is **10.3% under the bundled `human_trb_aa`
+(real, thymically-selected) control but 0.0% (0/20000) under a Pgen-matched OLGA control** at matched
+size — so the headline ~10% is the **selection mismatch between a raw-Pgen query and a selected
+control**, not genuine overlap; the larger same-distribution control absorbs the query's target hits so
+the enrichment tail never crosses α. Implication: the control must be **generation/selection-matched to
+the query repertoire** (the V–J/Pgen-normalisation tension, now quantified 10%→0%).
+**Caveat to explore:** query and control are disjoint halves of one OLGA run (`sample5`, fixed seed) —
+the 0% must be re-confirmed against an **independently generated** OLGA control before trusting it.
+Experiments default to 5000 random cases (full ~250k is too slow).
+
 ## Later (subsequent iterations)
 - **Hard vs easy (featured/featureless) epitopes.** Per-epitope PR-AUC varies enormously (convergent
   CMV NLV ≫ diffuse influenza GIL); this is biology, not noise. Build an *a-priori* "annotability"
