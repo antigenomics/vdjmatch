@@ -48,8 +48,8 @@ def load_sample(name: str) -> pl.DataFrame:
     elif name == "sample2":                                        # YF LLW + BST-2 LLL (per-row labeled)
         d = (pl.read_csv(TESTDATA / "sample2_yf_bst2_5+reads.txt", separator="\t")
                .rename({"antigen.epitope": "true_epitope"}).select("cdr3", "true_epitope"))
-    elif name == "sample5":                                        # random OLGA: negatives
-        d = (pl.read_csv(TESTDATA / "sample5_olga_airr.txt", separator="\t")
+    elif name in ("sample4", "sample5"):                           # random OLGA negatives (4=TRB, 5=TRA)
+        d = (pl.read_csv(TESTDATA / f"{name}_olga_airr.txt", separator="\t")
                .select(cdr3="junction_aa").with_columns(true_epitope=pl.lit(None, pl.Utf8)))
     else:
         raise ValueError(name)
@@ -82,7 +82,7 @@ def run_samples(args, out: Path):
     ctrl = background("TRB")
     N, M, N_epi = len(tgt), len(ctrl), Counter(ref_epi)
     log(f"  target N={N} unique CDR3; control M={M}")
-    q1, q2, q5 = load_sample("sample1"), load_sample("sample2"), load_sample("sample5")
+    q1, q2, q5 = load_sample("sample1"), load_sample("sample2"), load_sample("sample4")  # TRB OLGA negatives
     if args.olga_n and q5.height > args.olga_n:
         q5 = q5.sample(args.olga_n, seed=0)
     queries = pl.concat([q1, q2, q5]).unique("cdr3")

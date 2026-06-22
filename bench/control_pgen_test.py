@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Is the OLGA spurious rate control-mismatch, or genuine coincidental overlap?
+"""Is the OLGA spurious rate control-mismatch, or genuine coincidental overlap? (chain-consistent)
 
-Hypothesis (from bench/olga_overlap_limit.py): the OLGA significant-call rate (~9.3%) >> alpha because
-the bundled control `human_trb_aa` is a *real, thymically-selected* repertoire, whereas the OLGA query
-draws are raw Pgen (no selection). The enrichment test then sees OLGA queries hit the (Pgen-biased,
-public-TCR-rich) epitope target more than the selected control predicts.
+CHAIN-CONSISTENT design: queries = sample4 (TRB OLGA), reference = VDJdb-beta (TRB), all controls TRB.
+(An earlier version used sample5 as queries — sample5 is ALPHA chain, so its 0% with a "matched" control
+was a same-CHAIN artifact, not a real result.) We compare the TRB-OLGA significant-call rate under three
+TRB controls at matched size: the real selected repertoire (`human_trb_aa`), the SAME OLGA run
+(sample4 disjoint half), and an INDEPENDENT freshly-generated OLGA set (different seed) — the latter
+resolves the fixed-seed caveat. If the independent control matches the real control (and the same-run
+control is the outlier), the spurious rate is genuine coincidental overlap.
 
-Direct test: split sample5 (OLGA) into disjoint query / control halves. The OLGA control is i.i.d.
-with the OLGA queries, so a perfectly matched null -> enrichment should vanish -> significant rate
--> alpha. We compare the significant-call rate under (A) the real bundled control vs (B) the OLGA
-control, at matched control size.
-
-    python bench/control_pgen_test.py --n-query 20000 --n-control 200000
+    python bench/control_pgen_test.py --n-query 5000 --n-control 50000
 """
 from __future__ import annotations
 
@@ -24,16 +22,16 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _bench
 from compare import load_sample
-from compare import TESTDATA
 from vdjmatch import db
 from vdjmatch.evalue import background, first_hit
 from seqtree import Index
 
 
-def load_olga(name: str) -> pl.DataFrame:
-    """An OLGA AIRR file -> valid unique CDR3 (junction_aa)."""
-    d = pl.read_csv(TESTDATA / f"{name}_olga_airr.txt", separator="\t").select(cdr3="junction_aa")
-    return _bench.valid_cdr3(d).unique("cdr3")
+def load_fresh_olga(path: str) -> pl.DataFrame:
+    """A raw olga-generate_sequences TSV (headerless: nt, cdr3_aa, V, J) -> valid unique CDR3."""
+    d = pl.read_csv(path, separator="\t", has_header=False,
+                    new_columns=["nt", "cdr3", "v", "j"]).select("cdr3")
+    return _bench.valid_cdr3(d).unique("cdr3").sample(fraction=1.0, shuffle=True, seed=0)
 
 
 def cost_lists(idx, queries, params, desc, prog=True):
@@ -52,43 +50,45 @@ def main():
     ap.add_argument("--n-control", type=int, default=50000, help="OLGA & real control size (matched); full ~250k is slow")
     ap.add_argument("--alpha", type=float, default=1e-3)
     ap.add_argument("--species", default="HomoSapiens")
+    ap.add_argument("--fresh-olga", default="bench/out/fresh_trb_olga.tsv",
+                    help="independent TRB OLGA set (olga-generate_sequences --humanTRB, different seed)")
     args = ap.parse_args()
 
-    olga = load_sample("sample5").sample(fraction=1.0, shuffle=True, seed=0)
+    # CHAIN-CONSISTENT: queries = sample4 (TRB OLGA); controls all TRB.
+    olga = load_sample("sample4").sample(fraction=1.0, shuffle=True, seed=0)
     nq, nc = args.n_query, args.n_control
     if olga.height < nq + nc:
         nc = olga.height - nq
-        print(f"sample5 only {olga.height} unique; using n_control={nc}")
+        print(f"sample4 only {olga.height} unique; using n_control={nc}")
     qlist = olga[:nq]["cdr3"].to_list()
-    olga_ctrl_cdr3 = olga[nq:nq + nc]["cdr3"].to_list()
-
-    indep_cdr3 = load_olga("sample4").sample(fraction=1.0, shuffle=True, seed=0)[:nc]["cdr3"].to_list()
+    samerun_cdr3 = olga[nq:nq + nc]["cdr3"].to_list()           # sample4 (same OLGA run as queries)
+    indep_cdr3 = load_fresh_olga(args.fresh_olga)[:nc]["cdr3"].to_list()  # fresh OLGA, independent seed
 
     vdj = db.load(_bench.source(), species=args.species).filter(pl.col("gene") == "TRB")
     ref = _bench.valid_cdr3(vdj).group_by("cdr3").agg(pl.col("epitope").first())
     ref_epi = ref["epitope"].to_list()
     tgt = Index.build(ref["cdr3"].to_list(), "aa")
     real_ctrl = background("TRB", size=nc)
-    olga_ctrl = Index.build(olga_ctrl_cdr3, "aa")               # sample5 (same OLGA run as queries)
-    indep_ctrl = Index.build(indep_cdr3, "aa")                  # sample4 (independent OLGA run)
-    N, M_real, M_olga, M_indep = len(tgt), len(real_ctrl), len(olga_ctrl), len(indep_ctrl)
-    print(f"target N={N}; controls M real={M_real} sample5={M_olga} sample4={M_indep}; queries={len(qlist)}")
+    samerun_ctrl = Index.build(samerun_cdr3, "aa")
+    indep_ctrl = Index.build(indep_cdr3, "aa")
+    N, M_real, M_same, M_indep = len(tgt), len(real_ctrl), len(samerun_ctrl), len(indep_ctrl)
+    print(f"target N={N}; controls M real={M_real} same-run={M_same} fresh={M_indep}; queries={len(qlist)} (TRB)")
 
     params = first_hit.scope()
     th_raw = cost_lists(tgt, qlist, params, "target")
     th = [[(c, ref_epi[r]) for c, r in t] for t in th_raw]
     cc_real = cost_lists(real_ctrl, qlist, params, "real-control")
-    cc_olga = cost_lists(olga_ctrl, qlist, params, "olga-control-sample5")
-    cc_indep = cost_lists(indep_ctrl, qlist, params, "olga-control-sample4")
+    cc_same = cost_lists(samerun_ctrl, qlist, params, "samerun-control")
+    cc_indep = cost_lists(indep_ctrl, qlist, params, "fresh-control")
 
     r_real = sig_rate(th, cc_real, N, M_real, args.alpha)
-    r_olga = sig_rate(th, cc_olga, N, M_olga, args.alpha)
+    r_same = sig_rate(th, cc_same, N, M_same, args.alpha)
     r_indep = sig_rate(th, cc_indep, N, M_indep, args.alpha)
-    print(f"\nOLGA (sample5) significant-call rate (p_enrichment < {args.alpha}):")
-    print(f"  real control (human_trb_aa, selected):      {r_real*100:6.3f}%")
-    print(f"  OLGA control, same run (sample5 half):      {r_olga*100:6.3f}%")
-    print(f"  OLGA control, INDEPENDENT run (sample4):     {r_indep*100:6.3f}%   <- fixed-seed caveat check")
-    print(f"  alpha (nominal):                            {args.alpha*100:6.3f}%")
+    print(f"\nTRB OLGA (sample4) significant-call rate (p_enrichment < {args.alpha}) — all controls TRB:")
+    print(f"  real control (human_trb_aa, selected):       {r_real*100:6.3f}%")
+    print(f"  OLGA control, same run (sample4 half):       {r_same*100:6.3f}%")
+    print(f"  OLGA control, INDEPENDENT run (fresh olga):  {r_indep*100:6.3f}%   <- fixed-seed caveat check")
+    print(f"  alpha (nominal):                             {args.alpha*100:6.3f}%")
 
 
 if __name__ == "__main__":

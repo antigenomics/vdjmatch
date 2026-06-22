@@ -171,17 +171,17 @@ not method noise (`bench/olga_overlap_limit.py`). On 20k OLGA draws: raw overlap
 scope-dependent (0.01% @1 edit → 53% @5 edits); the Poisson model `P_overlap ≈ 1-exp(-Λ)`,
 Λ = Σ_r Pgen-mass of r's edit-ball, is exact at k≤2 and breaks at k≥4 (Λ=28.8 but 53% overlap) →
 reference neighbours are **clustered, not Poisson** (convergent-recombination signal).
-**Control test (`bench/control_pgen_test.py`, 5k sample5 queries, M=50k each — CORRECTED).** The
-significant-call rate is **21.8% (real `human_trb_aa` control), 20.9% (independent OLGA control =
-sample4), but 0.0% (OLGA control = the SAME sample5 run, disjoint half)**. The earlier "10%→0% ⇒
-control-mismatch artifact" conclusion was itself an **artifact of using one OLGA run for both query and
-control**: a genuinely independent control — real repertoire *or* an independent OLGA run — gives ~21%.
-So the spurious rate is **real coincidental overlap**, not a selection mismatch. (NB: rate scales with
-control size M — ~10% at M=250k, ~21% at M=50k; compare like-for-like.)
-**Why the same-run 0%:** `sample5` and `sample4` are *not the same OLGA distribution* — sample5 is far
-more concentrated (240,779 unique / 300k = 80%) than sample4 (294,978 / 300k = 98%), 0 shared sequences;
-the same-run control matches the queries' concentration and absorbs their hits → 0%. **Open:** confirm
-why the two OLGA exports differ in diversity (generation params?). Experiments default to 5000 cases.
+**Control test (`bench/control_pgen_test.py`, chain-consistent — FINAL).** Critical: **`sample5` is
+ALPHA chain (300k × TRAV), `sample4` is BETA (300k × TRBV)** — earlier runs used sample5 (TRA) as
+queries against the TRB reference, so the "0% with a matched control" was a same-CHAIN artifact (TRA
+queries vs a TRA same-run control absorbed every hit). Re-run **chain-consistent** (sample4 TRB queries,
+TRB reference, all TRB controls, M=50k): **real 29.8%, same-run 30.3%, independent fresh-OLGA 28.8%** —
+all three agree. The spurious rate is **genuine coincidental overlap, robust to control choice** (real /
+same-run / independent); there is no control-mismatch escape hatch. (Rate scales with control size M;
+compare like-for-like.) The independent control is a freshly generated TRB set
+(`olga-generate_sequences --humanTRB`, different seed; `bench/out/fresh_trb_olga.tsv`), resolving the
+fixed-seed caveat. **Lesson:** all TRB benchmarks must use sample4 (TRB) for OLGA negatives, not sample5
+(TRA). Experiments default to 5000 cases.
 
 **DONE — paired α/β E-value (Task #2.4) + comparison datasets (temporal holdout, TCRvdb).**
 `vdjmatch.evalue.paired`: joint first-hit E-value, chain-factorized null `π0^{αβ} ≈ π0^α·π0^β`. A paired

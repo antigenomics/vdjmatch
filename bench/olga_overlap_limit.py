@@ -48,7 +48,7 @@ def main():
     ctrl = background("TRB")
     N, M = len(tgt), len(ctrl)
 
-    q5 = load_sample("sample5")
+    q5 = load_sample("sample4")                                # TRB OLGA (chain-consistent with TRB ref)
     if args.olga_n and q5.height > args.olga_n:
         q5 = q5.sample(args.olga_n, seed=0)
     qlist = q5["cdr3"].to_list()
