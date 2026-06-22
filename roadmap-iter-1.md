@@ -164,22 +164,24 @@ exact self-hits. Re-run results (balanced PR-AUC unless noted):
 - Reproducibility: deterministic held-out-epitope selection (tiebreak by epitope name); seqtree bumped
   to **0.1.0** (`SubstitutionMatrix.penalty` API).
 
-### OPEN — OLGA spurious rate is (mostly?) a control-mismatch artifact, not coincidental overlap
+### OLGA spurious rate is GENUINE coincidental overlap (a same-run control gives a false 0%)
 The OLGA "spurious-hit" rate estimates `1 - P(no hit)` = the probability a Pgen-drawn TCR coincides
 (within first-hit scope) with the epitope reference — a coincidental-collision quantity set by Pgen,
 not method noise (`bench/olga_overlap_limit.py`). On 20k OLGA draws: raw overlap `1-P(no hit)` is
 scope-dependent (0.01% @1 edit → 53% @5 edits); the Poisson model `P_overlap ≈ 1-exp(-Λ)`,
 Λ = Σ_r Pgen-mass of r's edit-ball, is exact at k≤2 and breaks at k≥4 (Λ=28.8 but 53% overlap) →
-reference neighbours are **clustered, not Poisson** (convergent-recombination signal). **Key test**
-(`bench/control_pgen_test.py`): the significant-call rate is **10.3% under the bundled `human_trb_aa`
-(real, thymically-selected) control but 0.0% (0/20000) under a Pgen-matched OLGA control** at matched
-size — so the headline ~10% is the **selection mismatch between a raw-Pgen query and a selected
-control**, not genuine overlap; the larger same-distribution control absorbs the query's target hits so
-the enrichment tail never crosses α. Implication: the control must be **generation/selection-matched to
-the query repertoire** (the V–J/Pgen-normalisation tension, now quantified 10%→0%).
-**Caveat to explore:** query and control are disjoint halves of one OLGA run (`sample5`, fixed seed) —
-the 0% must be re-confirmed against an **independently generated** OLGA control before trusting it.
-Experiments default to 5000 random cases (full ~250k is too slow).
+reference neighbours are **clustered, not Poisson** (convergent-recombination signal).
+**Control test (`bench/control_pgen_test.py`, 5k sample5 queries, M=50k each — CORRECTED).** The
+significant-call rate is **21.8% (real `human_trb_aa` control), 20.9% (independent OLGA control =
+sample4), but 0.0% (OLGA control = the SAME sample5 run, disjoint half)**. The earlier "10%→0% ⇒
+control-mismatch artifact" conclusion was itself an **artifact of using one OLGA run for both query and
+control**: a genuinely independent control — real repertoire *or* an independent OLGA run — gives ~21%.
+So the spurious rate is **real coincidental overlap**, not a selection mismatch. (NB: rate scales with
+control size M — ~10% at M=250k, ~21% at M=50k; compare like-for-like.)
+**Why the same-run 0%:** `sample5` and `sample4` are *not the same OLGA distribution* — sample5 is far
+more concentrated (240,779 unique / 300k = 80%) than sample4 (294,978 / 300k = 98%), 0 shared sequences;
+the same-run control matches the queries' concentration and absorbs their hits → 0%. **Open:** confirm
+why the two OLGA exports differ in diversity (generation params?). Experiments default to 5000 cases.
 
 **DONE — paired α/β E-value (Task #2.4) + comparison datasets (temporal holdout, TCRvdb).**
 `vdjmatch.evalue.paired`: joint first-hit E-value, chain-factorized null `π0^{αβ} ≈ π0^α·π0^β`. A paired

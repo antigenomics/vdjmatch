@@ -24,9 +24,16 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _bench
 from compare import load_sample
+from compare import TESTDATA
 from vdjmatch import db
 from vdjmatch.evalue import background, first_hit
 from seqtree import Index
+
+
+def load_olga(name: str) -> pl.DataFrame:
+    """An OLGA AIRR file -> valid unique CDR3 (junction_aa)."""
+    d = pl.read_csv(TESTDATA / f"{name}_olga_airr.txt", separator="\t").select(cdr3="junction_aa")
+    return _bench.valid_cdr3(d).unique("cdr3")
 
 
 def cost_lists(idx, queries, params, desc, prog=True):
@@ -55,28 +62,33 @@ def main():
     qlist = olga[:nq]["cdr3"].to_list()
     olga_ctrl_cdr3 = olga[nq:nq + nc]["cdr3"].to_list()
 
+    indep_cdr3 = load_olga("sample4").sample(fraction=1.0, shuffle=True, seed=0)[:nc]["cdr3"].to_list()
+
     vdj = db.load(_bench.source(), species=args.species).filter(pl.col("gene") == "TRB")
     ref = _bench.valid_cdr3(vdj).group_by("cdr3").agg(pl.col("epitope").first())
     ref_epi = ref["epitope"].to_list()
     tgt = Index.build(ref["cdr3"].to_list(), "aa")
     real_ctrl = background("TRB", size=nc)
-    olga_ctrl = Index.build(olga_ctrl_cdr3, "aa")
-    N, M_real, M_olga = len(tgt), len(real_ctrl), len(olga_ctrl)
-    print(f"target N={N}; real control M={M_real}; OLGA control M={M_olga}; queries={len(qlist)}")
+    olga_ctrl = Index.build(olga_ctrl_cdr3, "aa")               # sample5 (same OLGA run as queries)
+    indep_ctrl = Index.build(indep_cdr3, "aa")                  # sample4 (independent OLGA run)
+    N, M_real, M_olga, M_indep = len(tgt), len(real_ctrl), len(olga_ctrl), len(indep_ctrl)
+    print(f"target N={N}; controls M real={M_real} sample5={M_olga} sample4={M_indep}; queries={len(qlist)}")
 
     params = first_hit.scope()
     th_raw = cost_lists(tgt, qlist, params, "target")
     th = [[(c, ref_epi[r]) for c, r in t] for t in th_raw]
     cc_real = cost_lists(real_ctrl, qlist, params, "real-control")
-    cc_olga = cost_lists(olga_ctrl, qlist, params, "olga-control")
+    cc_olga = cost_lists(olga_ctrl, qlist, params, "olga-control-sample5")
+    cc_indep = cost_lists(indep_ctrl, qlist, params, "olga-control-sample4")
 
     r_real = sig_rate(th, cc_real, N, M_real, args.alpha)
     r_olga = sig_rate(th, cc_olga, N, M_olga, args.alpha)
-    print(f"\nOLGA significant-call rate (p_enrichment < {args.alpha}):")
-    print(f"  real control (human_trb_aa, selected): {r_real*100:6.3f}%")
-    print(f"  OLGA control (Pgen-matched, sample5):  {r_olga*100:6.3f}%")
-    print(f"  alpha (nominal):                       {args.alpha*100:6.3f}%")
-    print(f"\n  ratio real/olga = {r_real / r_olga:.1f}x" if r_olga else "  (olga rate 0)")
+    r_indep = sig_rate(th, cc_indep, N, M_indep, args.alpha)
+    print(f"\nOLGA (sample5) significant-call rate (p_enrichment < {args.alpha}):")
+    print(f"  real control (human_trb_aa, selected):      {r_real*100:6.3f}%")
+    print(f"  OLGA control, same run (sample5 half):      {r_olga*100:6.3f}%")
+    print(f"  OLGA control, INDEPENDENT run (sample4):     {r_indep*100:6.3f}%   <- fixed-seed caveat check")
+    print(f"  alpha (nominal):                            {args.alpha*100:6.3f}%")
 
 
 if __name__ == "__main__":
