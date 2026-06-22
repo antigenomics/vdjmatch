@@ -32,7 +32,7 @@ from seqtree import Index, SearchParams
 import _bench
 from metrics import pr_auc_balanced, roc_auc
 from vdjmatch import db
-from vdjmatch.evalue import background, first_hit
+from vdjmatch.evalue import background, first_hit, paired
 
 TESTDATA = Path(os.environ.get("VDJMATCH_TESTDATA",
                                "/Users/mikesh/vcs/manuscripts/2026-vdjmatch/test_data"))
@@ -215,6 +215,48 @@ def run_vdjmatch_evalue(ref_df: pl.DataFrame, test_df: pl.DataFrame, held: list[
     return scores, truth
 
 
+def run_tcrvdb_paired(args):
+    """Paired-chain E-value on validated TCRvdb pairs vs the VDJdb-2026 paired reference. Returns
+    metric rows (locus='paired'). score(pair, epitope) = -log10 joint p_enrichment (both chains)."""
+    vdj = _release("2026", args.species)
+    ref = paired.build_paired_ref(vdj)
+    ca, cb = background("TRA"), background("TRB")
+    Ma, Mb, N_epi = len(ca), len(cb), Counter(ref["epitope"].to_list())
+    t = pl.read_csv(TESTDATA / "sample6_TCRvdb.csv").filter(pl.col("padj") < args.tcrvdb_padj)
+    t = (t.select(alpha="cdr3_alpha_aa", beta="cdr3_beta_aa", epitope="epitope_aa")
+          .filter(pl.col("alpha").str.contains(_bench.VALID) & pl.col("beta").str.contains(_bench.VALID))
+          .unique(["alpha", "beta", "epitope"]))
+    in_ref = set(ref["epitope"].unique())
+    sizes = (t.group_by("epitope").agg(pl.len().alias("n"))
+               .filter((pl.col("n") >= args.min_epi) & pl.col("epitope").is_in(in_ref))
+               .sort(["n", "epitope"], descending=[True, False]))
+    held = sizes["epitope"].to_list()[:args.top]
+    if not held:
+        print("  tcrvdb-paired: no held epitopes (need padj/min-epi-passing epitopes present in the paired ref)")
+        return []
+    qpairs, qepi = [], []
+    for epi in held:
+        q = t.filter(pl.col("epitope") == epi).head(args.max_queries)
+        qpairs += list(zip(q["alpha"].to_list(), q["beta"].to_list()))
+        qepi += [epi] * q.height
+    hits, cca, ccb = paired.paired_scan(ref, ca, cb, qpairs, exclude_exact=True)   # one scan, indices reused
+    scores: dict[str, dict[str, float]] = {}
+    truth: dict[str, str] = {}
+    for (a, b), e, h, xa, xb in zip(qpairs, qepi, hits, cca, ccb):
+        qid = f"{e}|{a}_{b}"
+        truth[qid] = e
+        scores[qid] = {ee: -math.log10(max(paired.pvalue(h, xa, xb, N_epi.get(ee, 1), Ma, Mb,
+                                           epitope=ee)["p_enrichment"], 1e-300)) for ee in held}
+    rows, thr = [], -math.log10(args.alpha)
+    for epi in held:
+        f1, pur, ret = f1_purity_retention(scores, truth, epi, thr)
+        pra = pr_auc_epi(scores, truth, epi)
+        for metric, v in (("f1", f1), ("pr_auc", pra), ("retention", ret), ("purity", pur)):
+            rows.append(("vdjmatch", "tcrvdb-paired", "paired", epi, metric, v))
+    print(f"tcrvdb-paired: {len(held)} epitopes scored ({len(qpairs)} pairs)")
+    return rows
+
+
 def load_predictions(path: Path):
     """External method predictions -> scores/truth (truth must come from the dataset, not the file)."""
     scores = defaultdict(dict)
@@ -346,6 +388,9 @@ def main():
 
     rows = []
     for dataset in args.datasets:
+        if dataset == "tcrvdb-paired":
+            rows += run_tcrvdb_paired(args)
+            continue
         for locus, ref_df, test_df, held, exclude_exact in dataset_cells(dataset, args):
             if not held:
                 print(f"  {dataset}/{locus}: no held epitopes")
