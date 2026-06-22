@@ -107,6 +107,20 @@ Keep the small set that carries the argument; cut the rest (text update later, f
 - Cut/condense: tra_trb_gly, region_corr, retention, loo_prauc, vgene/vgene-sim/vgene-scan tables,
   shortlist table → fold into one or two summary panels.
 
+## Status (vdjmatch arm, framework)
+
+- **Done:** shortlist/VDJdb LOO per-epitope metrics + boxplot/beeswarm (`--datasets shortlist`);
+  **samples mode** (`--datasets samples`) — NLV / LLW / LLL ROC+PR (positives vs OLGA negatives) +
+  the **OLGA spurious-hit filtering** panel. vdjmatch flags only **0.003%** of 240k random OLGA β
+  queries (7 hits) at subs 1 — the noise-filtering headline.
+- **Next (no external deps):** the two big sorted tables (shortlist; full VDJdb ≥30 ≤3000) with
+  f1/precision/recall/retention/purity by species×chain×MHC×epitope; the paired TCRvdb ROC/PR
+  (sample6, `padj < 1e-5`).
+- **Next (external):** sandbox TCRMatch, tcrdist3 (1-NN+k-NN), GLIPH2 (osx binary → immGLIPH fallback),
+  ERGO-II (pretrained), DETECT (`.ods`, score col `Score`, `predictions_sampleN` ↔ `sampleN`); add the
+  easy-to-install extras; ROC/PR curves for **top-2 + vdjmatch** only. Decisions recorded in
+  `EXTERNAL_TOOLS.md`.
+
 ## Open questions
 
-See `EXTERNAL_TOOLS.md` for per-tool install/run questions.
+Answered in `EXTERNAL_TOOLS.md` (Q1–Q6 + method/reporting plan).

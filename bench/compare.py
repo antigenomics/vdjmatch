@@ -24,6 +24,106 @@ import _bench
 from metrics import pr_auc_balanced, roc_auc
 from vdjmatch import db
 
+TESTDATA = Path(os.environ.get("VDJMATCH_TESTDATA",
+                               "/Users/mikesh/vcs/manuscripts/2026-vdjmatch/test_data"))
+SAMPLE_EPI = {"NLVPMVATV": "NLV (CMV)", "LLWNGPMAV": "LLW (YF)", "LLLGIGILV": "LLL (BST-2)"}
+
+
+def load_sample(name: str) -> pl.DataFrame:
+    """External-validation query set -> df[cdr3, true_epitope] (TRB; OLGA negatives have null epitope)."""
+    if name == "sample1":                                          # CMV NLV (labeled-positive)
+        d = (pl.read_csv(TESTDATA / "sample1_cmv_5+reads.txt", separator="\t")
+               .filter(pl.col("gene") == "TRB").select("cdr3")
+               .with_columns(true_epitope=pl.lit("NLVPMVATV")))
+    elif name == "sample2":                                        # YF LLW + BST-2 LLL (per-row labeled)
+        d = (pl.read_csv(TESTDATA / "sample2_yf_bst2_5+reads.txt", separator="\t")
+               .rename({"antigen.epitope": "true_epitope"}).select("cdr3", "true_epitope"))
+    elif name == "sample5":                                        # random OLGA: negatives
+        d = (pl.read_csv(TESTDATA / "sample5_olga_airr.txt", separator="\t")
+               .select(cdr3="junction_aa").with_columns(true_epitope=pl.lit(None, pl.Utf8)))
+    else:
+        raise ValueError(name)
+    return _bench.valid_cdr3(d).unique("cdr3")
+
+
+def score_samples(ref_cdr3, ref_epi, queries, subs):
+    """Per query -> {epitope: leakage-removed same-epitope neighbour count}."""
+    index = Index.build(ref_cdr3, "aa")
+    params = SearchParams(max_subs=subs, max_total_edits=subs, engine="seqtm")
+    out = []
+    for qi, hl in zip(queries, index.search_batch(queries, params, 0)):
+        v = Counter()
+        for h in hl:
+            if ref_cdr3[h.ref_id] != qi:                           # leakage: never an exact self-copy
+                v[ref_epi[h.ref_id]] += 1
+        out.append(dict(v))
+    return out
+
+
+def _roc_pr(pairs):
+    """(label,score) -> ((fpr,tpr,auc),(recall,prec,ap)) point arrays for plotting."""
+    s = sorted(pairs, key=lambda x: -x[1])
+    P = sum(l for l, _ in s) or 1
+    N = len(s) - sum(l for l, _ in s) or 1
+    tp = fp = 0
+    fpr, tpr, rec, prec = [0.0], [0.0], [], []
+    for lab, _ in s:
+        tp += lab; fp += 1 - lab
+        fpr.append(fp / N); tpr.append(tp / P)
+        rec.append(tp / P); prec.append(tp / (tp + fp))
+    return (fpr, tpr, roc_auc(pairs)), (rec, prec, pr_auc_balanced(pairs))
+
+
+def run_samples(args, out: Path):
+    """NLV / LLW / LLL ROC+PR (positives vs OLGA negatives) and OLGA spurious-hit filtering, per method."""
+    vdj = db.load(_bench.source(), species=args.species).filter(pl.col("gene") == "TRB")
+    ref = _bench.valid_cdr3(vdj).group_by("cdr3").agg(pl.col("epitope").first())
+    ref_cdr3, ref_epi = ref["cdr3"].to_list(), ref["epitope"].to_list()
+    q1, q2, q5 = load_sample("sample1"), load_sample("sample2"), load_sample("sample5")
+    queries = pl.concat([q1, q2, q5]).unique("cdr3")
+    qlist = queries["cdr3"].to_list()
+    truth = dict(zip(queries["cdr3"], queries["true_epitope"]))
+    methods = {"vdjmatch": dict(zip(qlist, score_samples(ref_cdr3, ref_epi, qlist, args.subs)))}
+    # external methods: predictions/<m>/samples.tsv  (query_id=cdr3, epitope, score)
+    for m in args.methods:
+        if m == "vdjmatch":
+            continue
+        p = Path(args.pred_dir) / m / "samples.tsv"
+        if p.exists():
+            sc = defaultdict(dict)
+            d = pl.read_csv(p, separator="\t")
+            for c, e, s in zip(d["query_id"], d["epitope"], d["score"]):
+                sc[c][e] = float(s)
+            methods[m] = sc
+
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    epis = list(SAMPLE_EPI)
+    fig, axes = plt.subplots(2, len(epis), figsize=(4 * len(epis), 7), squeeze=False)
+    rows = []
+    for j, epi in enumerate(epis):
+        for m, sc in methods.items():
+            pairs = [(1 if truth[c] == epi else 0, sc.get(c, {}).get(epi, 0.0))
+                     for c in qlist if truth[c] == epi or truth[c] is None]   # positives vs OLGA
+            (fpr, tpr, auc), (rec, prec, ap) = _roc_pr(pairs)
+            axes[0][j].plot(fpr, tpr, label=f"{m} ({auc:.2f})")
+            axes[1][j].plot(rec, prec, label=f"{m} ({ap:.2f})")
+            rows.append((m, epi, "roc_auc", auc)); rows.append((m, epi, "pr_auc", ap))
+        axes[0][j].plot([0, 1], [0, 1], "k--", lw=0.5); axes[0][j].set_title(SAMPLE_EPI[epi])
+        axes[0][j].set_xlabel("FPR"); axes[0][j].set_ylabel("TPR" if j == 0 else ""); axes[0][j].legend(fontsize=7)
+        axes[1][j].set_xlabel("recall"); axes[1][j].set_ylabel("precision" if j == 0 else ""); axes[1][j].legend(fontsize=7)
+    fig.tight_layout(); fig.savefig(out / "samples_roc_pr.png", dpi=150)
+    print("wrote", out / "samples_roc_pr.png")
+
+    print("\nOLGA spurious-hit filtering (fraction of random OLGA queries called significant; lower=better):")
+    olga = [c for c in qlist if truth[c] is None]
+    for m, sc in methods.items():
+        frac = sum(1 for c in olga if max(sc.get(c, {}).values(), default=0) >= 1) / len(olga)
+        print(f"  {m:12} {frac*100:5.1f}%  (n={len(olga)})")
+        rows.append((m, "OLGA", "spurious_rate", frac))
+    pl.DataFrame(rows, schema=["method", "epitope", "metric", "value"], orient="row").write_csv(
+        out / "samples_metrics.tsv", separator="\t")
+
 
 # ---- per-epitope metrics over (query -> {epitope: score}, threshold) -----------------------------
 def f1_purity_retention(scores, truth, epi, thresh=1.0):
@@ -120,6 +220,12 @@ def main():
     ap.add_argument("--out", default="bench/out")
     args = ap.parse_args()
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
+
+    if "samples" in args.datasets:
+        run_samples(args, out)
+        args.datasets = [d for d in args.datasets if d != "samples"]
+        if not args.datasets:
+            return
 
     rows = []
     vdj_all = db.load(_bench.source(), species=args.species)
