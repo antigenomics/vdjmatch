@@ -50,48 +50,46 @@ def position_weights(length: int, v: str | None, j: str | None, chain: str,
     return w
 
 
-def load_significance(path=None) -> list[tuple[float, float]]:
-    """Empirical positional informativeness factor (relpos, weight): how much a substitution at a
-    relative CDR3 position changes specificity, from ``bench/scoring_analysis.py`` (weight = 1 −
-    P(neighbour shares epitope | substitution here), normalised to mean 1; centre > V/J borders)."""
+def load_significance(path=None) -> tuple[list[float], list[float]]:
+    """End-anchored positional informativeness profiles ``(p_same_V, p_same_J)`` indexed by offset
+    from the V- and J-anchors, from ``bench/scoring_analysis.py``. ``p_same[d]`` = P(neighbour shares
+    epitope | a single substitution at offset ``d`` from that anchor), Beta-Binomial-smoothed; offsets
+    ``>=`` the last index are pooled (the NDN core). High near the conserved anchors, low in the core."""
     src = path or (resources.files("vdjmatch.resources") / "trimming" / "position_significance.tsv")
-    out = []
+    v: dict[int, float] = {}
+    j: dict[int, float] = {}
     with open(src) as fh:
         next(fh)
         for line in fh:
-            relpos, _p, w = line.rstrip("\n").split("\t")
-            out.append((float(relpos), float(w)))
-    return out
+            side, off, _n, p = line.rstrip("\n").split("\t")
+            (v if side == "V" else j)[int(off)] = float(p)
+    pv = [v[d] for d in range(len(v))]
+    pj = [j[d] for d in range(len(j))]
+    return pv, pj
 
 
-def _interp(x: float, xs: list[float], ys: list[float]) -> float:
-    if x <= xs[0]:
-        return ys[0]
-    if x >= xs[-1]:
-        return ys[-1]
-    for k in range(1, len(xs)):
-        if x <= xs[k]:
-            t = (x - xs[k - 1]) / (xs[k] - xs[k - 1])
-            return ys[k - 1] + t * (ys[k] - ys[k - 1])
-    return ys[-1]
-
-
-_SIG: list[tuple[float, float]] | None = None
+_SIG: tuple[list[float], list[float]] | None = None
 
 
 def significance_weights(length: int, sig=None) -> list[float]:
-    """Per-position informativeness weight for a length-``length`` CDR3 (centre upweighted), by
-    interpolating the empirical profile over relative position. Gene-agnostic (cf. the gene-specific
-    germline-retention weights of :func:`position_weights`)."""
+    """Per-position informativeness weight for a length-``length`` CDR3, **anchored from both ends**:
+    a position is uninformative if it sits near *either* the germline V or J anchor (fixed absolute
+    offsets), informative in the NDN core. ``omega(p) = 1 - max(p_same_V[dV], p_same_J[dJ])`` with
+    ``dV=p``, ``dJ=L-1-p`` (capped at the profile length), normalised to mean 1. Gene-agnostic (cf. the
+    gene-specific germline-retention weights of :func:`position_weights`)."""
     global _SIG
     if length < 2:
         return [1.0] * length
-    prof = sig if sig is not None else _SIG
-    if prof is None:
-        prof = _SIG = load_significance()
-    xs = [r for r, _ in prof]
-    ws = [w for _, w in prof]
-    return [_interp(i / (length - 1), xs, ws) for i in range(length)]
+    pv, pj = sig if sig is not None else _SIG or load_significance()
+    if sig is None and _SIG is None:
+        _SIG = (pv, pj)
+    raw = []
+    for p in range(length):
+        dv = min(p, len(pv) - 1)
+        dj = min(length - 1 - p, len(pj) - 1)
+        raw.append(1.0 - max(pv[dv], pj[dj]))
+    mean = sum(raw) / len(raw) or 1.0
+    return [w / mean for w in raw]
 
 
 def significance_pssm(length: int, base: str = "blosum62", scale: int = 100):

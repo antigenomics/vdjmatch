@@ -57,7 +57,7 @@ def main():
     cand_params = SearchParams(max_subs=args.subs, max_total_edits=args.subs, engine="seqtm")
 
     sizes = (uc.group_by("epitope").agg(pl.col("cdr3").n_unique().alias("n"))
-               .filter(pl.col("n") >= args.min_epi).sort("n", descending=True))
+               .filter(pl.col("n") >= args.min_epi).sort(["n", "epitope"], descending=[True, False]))
     held = sizes["epitope"].to_list()[:args.top]
     print(f"species={args.species} chain={args.chain}; held-out epitopes={len(held)}; subs={args.subs}")
 

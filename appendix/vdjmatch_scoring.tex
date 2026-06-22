@@ -232,10 +232,10 @@ TRA/TRB --- point \texttt{\$VDJDB\_SAMPLE}/\texttt{\$VDJDB\_SPECIES} at another 
 
 \paragraph{Hamming distance 1 is the signal:noise optimum.} The fraction of CDR3 neighbours that share
 an epitope --- the precision of a similarity call --- falls steeply with edit distance: macro purity
-(per-epitope mean, robust to the $100\times$ epitope-size range; \S below) $0.44,\,0.23,\,0.14,\,0.10,
-\,0.07$ at distance $1\ldots5$, an enrichment of $44\times\!\to\!2.3\times$ over chance
+(per-epitope mean, robust to the $100\times$ epitope-size range; \S below) $0.49,\,0.24,\,0.15,\,0.10,
+\,0.07$ at distance $1\ldots5$, an enrichment of $56\times\!\to\!2.5\times$ over chance
 (Fig.~\ref{fig:purity}). A distance-1 neighbour is twice as likely to be a true co-specific as a
-distance-2 one and six times a distance-5 one. This reproduces the original VDJdb
+distance-2 one and seven times a distance-5 one. This reproduces the original VDJdb
 observation~\cite{Shugay2018} that single-mismatch neighbours are the sweet spot --- and on the dense
 2026 release it survives only once a few 10x mega-studies are capped and the random tail is treated as
 an admixed control (\S\ref{sec:agg}); the naive pooled rate reads a near-constant $\sim$$0.9$ because a
@@ -245,9 +245,9 @@ purity is already set by its radius.
 
 \paragraph{Central substitutions carry the specificity signal.} Conditioning on \emph{where} a single
 substitution falls (Fig.~\ref{fig:possig}), the probability that the two CDR3s still share an epitope
-dips to $\approx0.31$ in the NDN core but rises to $\approx0.90$ toward both the V and J borders: a
-central mismatch most often \emph{changes} specificity (it is contact-proximal and informative), while
-a border mismatch is usually germline noise (the conserved V/J stems). This is the empirical basis for
+dips to $\approx0.31$ in the NDN core but rises to $\approx0.75$ within a few residues of either the V
+or J anchor: a central mismatch most often \emph{changes} specificity (it is contact-proximal and
+informative), while a near-anchor mismatch is usually germline noise (the conserved V/J stems). This is the empirical basis for
 weighting the centre more --- the same direction as the germline-retention weight $1-w(p)$
 (\S\ref{sec:vdjam}) --- and, encoded directly as a positional weight on BLOSUM62 (the PSSM of
 \S\ref{sec:possig}), it is the one change that clearly improves retrieval over flat BLOSUM62 ($7/8$
@@ -268,7 +268,7 @@ are essentially tied at the top, plain Hamming (unit) is close behind, and the d
 --- flat or region-weighted --- trails them all. Strikingly, \textbf{VDJAMr}, a matrix built from the
 \emph{genetic code alone} (\texttt{loo\_vdjam.codon\_dissim}: $M(a,b)=\Pr[\text{a single random
 nucleotide substitution of a random codon of }a\text{ yields }b]$, with no chemistry or selection),
-\emph{matches} BLOSUM62 ($+0.013$ at distance~$\le2$, $+0.016$ at $\le4$; ahead in $4$--$5/8$ epitopes)
+\emph{matches} BLOSUM62 ($+0.017$ at distance~$\le2$, $+0.018$ at $\le4$; ahead in $5$--$6/8$ epitopes)
 and clearly beats the data-derived VDJAM. That a pure codon-mutational-accessibility null does as well
 as a chemically tuned matrix says the substitution structure of co-specific CDR3s is largely
 \emph{generative} (what the recombination/mutation process reaches cheaply), not chemical --- which is
@@ -278,18 +278,26 @@ distance~1 (\S\ref{sec:agg}).
 
 \paragraph{But position-weighting BLOSUM62 does (the significance PSSM).}\label{sec:possig}
 Experiment~2 says \emph{where} a substitution falls matters more than \emph{which} substitution it is.
-We encode that directly as a positional factor on top of BLOSUM62 rather than as a new alphabet matrix.
-From the position-significance curve (Fig.~\ref{fig:possig}) we take a per-relative-position weight
-$\omega(p)=\bigl(1-\Pr(\text{same}\mid\text{sub at }p)\bigr)$, normalised to mean~1 (centre
-$\approx1.9$, V/J borders $\approx0.2$--$0.4$), and interpolate it to any CDR3 length. \texttt{seqtree}
-consumes this natively: \texttt{regions.significance\_pssm()} builds a fixed-width
-\texttt{PositionalMatrix.from\_weights(BLOSUM62, $\lfloor100\,\omega(p)\rceil$)}, so the engine scores
-$\mathrm{pen}(p,a,b)=\omega(p)\cdot\mathrm{BLOSUM62}(a,b)$ --- a central mismatch costs $\sim2\times$
-its border-position cost. This is the only scoring change that clearly beats flat BLOSUM62:
-$0.572\!\to\!0.623$ at distance~$\le2$ (winning $7/8$ epitopes) and $0.589\!\to\!0.617$ at $\le4$
-($6/8$) (Table~\ref{tab:matrices}). The gain is uniformly signed because the matrix re-ranks within a
-ball whose purity is already set by the radius. The remaining lever, the \emph{V-gene} dimension, is
-taken up in~\S\ref{sec:vgene}.
+We encode that as a positional factor on top of BLOSUM62. Crucially the profile is \textbf{anchored from
+both ends}, not by relative position: the germline V/J stems sit at fixed \emph{absolute} offsets from
+the CDR3 termini regardless of length, so we learn two end-anchored profiles
+$\Pr(\text{same}\mid\text{sub at offset }d\text{ from the V anchor})$ and the J-anchor counterpart
+(Fig.~\ref{fig:possig}), Beta-Binomial-smoothed so sparse deep-core offsets shrink toward the global
+rate (\texttt{regions.load\_significance}; estimated by \texttt{bench/scoring\_analysis.py}). The
+per-position weight is $\omega(p)=1-\max\!\bigl(\Pr_V(d_V),\Pr_J(d_J)\bigr)$ with $d_V=p,\;d_J=L-1-p$,
+normalised to mean~1: a position is down-weighted if it lies near \emph{either} anchor, up-weighted in
+the NDN core. This is the data-learned twin of the germline-retention weight (both
+$1-\max(\text{V-side},\text{J-side})$). \texttt{seqtree} consumes it natively ---
+\texttt{regions.significance\_pssm()} builds \texttt{PositionalMatrix.from\_weights(BLOSUM62,
+$\lfloor100\,\omega(p)\rceil$)}, so $\mathrm{pen}(p,a,b)=\omega(p)\cdot\mathrm{BLOSUM62}(a,b)$. The
+multiplicative form is justified by the data: stratifying single substitutions by anchor offset
+$\times$ BLOSUM severity, substitution severity matters \emph{only in the core} ($\Pr(\text{same})$
+$0.50$ conservative vs $0.38$ radical) and is flat near the anchors --- BLOSUM discriminates exactly
+where $\omega$ is large. This is the only scoring change that clearly beats flat BLOSUM62, winning
+$7/8$ held-out epitopes at distance~$\le2$ and $6/8$ at $\le4$ (Table~\ref{tab:matrices}); the gain is
+uniformly signed because
+the matrix re-ranks within a ball whose purity is already set by the radius. The remaining lever, the
+\emph{V-gene} dimension, is taken up in~\S\ref{sec:vgene}.
 
 \paragraph{A purpose-built TCR matrix (tcrBLOSUM) does not transfer.} Postovskaya
 et~al.~\cite{Postovskaya2024} report that tcrBLOSUM --- a BLOSUM-style matrix counted from same-epitope,
@@ -297,11 +305,11 @@ equal-length CDR3 pairs --- improves epitope-specific TCR clustering over BLOSUM
 that gain suspect: the counts apply \emph{no} redundancy clustering (so convergent public clonotypes
 dominate the statistics), and the matrix is validated on the same same-epitope relation it is fit to.
 Run through our leave-one-out-by-epitope retrieval (their published tcrBLOSUM\textsubscript{b},
-\texttt{bench/tcrblosum\_refute.py}), it does \emph{not} beat BLOSUM62: $0.557$ vs $0.570$ at
-distance~$\le2$ (ahead in $3/8$ epitopes), $0.580$ vs $0.586$ at $\le4$ ($5/8$), while their bundled
-BLOSUM62 reproduces ours exactly (a loader sanity check). Reweighting \emph{either} matrix by the
-central-significance PSSM helps, and it helps BLOSUM62 the most (BLOSUM$+$possig $0.622$ vs
-tcrBLOSUM$+$possig $0.617$). The lesson is consistent: a re-counted amino-acid alphabet does not
+\texttt{bench/tcrblosum\_refute.py}), it does \emph{not} beat BLOSUM62: $0.555$ vs $0.567$ at
+distance~$\le2$ (ahead in $2/8$ epitopes) and essentially tied at $\le4$ ($0.589$ vs $0.591$), while
+their bundled BLOSUM62 reproduces ours exactly (a loader sanity check). Reweighting \emph{either} matrix
+by the central-significance PSSM helps, and it helps BLOSUM62 the most (BLOSUM$+$possig $0.603$ vs
+tcrBLOSUM$+$possig $0.598$). The lesson is consistent: a re-counted amino-acid alphabet does not
 transfer across epitopes; position does.
 
 \begin{table}[ht]\centering\small\setlength{\tabcolsep}{3.5pt}
@@ -309,8 +317,8 @@ transfer across epitopes; position does.
 \hline
 balanced PR-AUC & unit & BLOSUM62 & PAM250 & structural & VDJAM & VDJAMr & VDJAM-region & BLOSUM$+$possig\\
 \hline
-edit distance $\le2$ & 0.545 & 0.572 & 0.575 & 0.572 & 0.519 & 0.585 & 0.525 & \textbf{0.623}\\
-edit distance $\le4$ & 0.576 & 0.589 & 0.597 & 0.589 & 0.535 & 0.605 & 0.544 & \textbf{0.617}\\
+edit distance $\le2$ & 0.543 & 0.564 & 0.572 & 0.564 & 0.524 & 0.581 & 0.529 & \textbf{0.598}\\
+edit distance $\le4$ & 0.573 & 0.585 & 0.590 & 0.585 & 0.535 & 0.603 & 0.543 & \textbf{0.611}\\
 \hline
 \end{tabular}
 \caption{Substitution matrices by leave-one-out-by-epitope VDJdb-vs-VDJdb retrieval (human TRB,
@@ -374,23 +382,24 @@ $\approx0$ ($r\in[-0.06,+0.06]$ in the well-powered cells). Binning cross-V pair
 only a weak rise --- $6\%$ at low similarity to $12\%$ at the top bin, still far below the same-V $44\%$
 (Table~\ref{tab:vgene-sim}). So a loose, continuous ``fuzzy-V'' similarity does not recover the prior.
 
-\paragraph{But near-\emph{exact} germline identity does --- at CDR3-like tolerance.} Resolving the
-similarity to exact germline-region matches reverses that impression
-(\texttt{bench/vregion\_decompose.py}, human TRB MHC-I; Table~\ref{tab:vregion}). Cross-V
-co-specificity rises \emph{monotonically} as the germline CDR1$+$CDR2 edit distance shrinks --- $10.9\%$
-at $\ge6$ mismatches, $13.7\%$ at $3$--$5$, $20.6\%$ at $1$--$2$, and $60.0\%$ at $0$ (identical loops),
-approaching the same-V level ($65\%$). FR1 identity behaves likewise ($50\%$, $4.4\times$). So the V
-signal \emph{is} carried by the germline contacting loops, but with a tight, CDR3-like tolerance: it
-needs near-exact identity, which is why the continuous metric above (dominated by $1$--$2$-mismatch
-pairs) misses it. Caveat: the exact-match bins are small ($n=25$ at distance~$\le2$, $n=4$ at $\le1$);
-the claim rests on the monotone trend across the well-powered bins ($n=568,\,3679,\,34095$), with the
-identical-loop endpoint suggestive.
+\paragraph{Near-\emph{exact} germline identity partly recovers it --- at CDR3-like tolerance.} Resolving
+the similarity to exact germline-region matches changes the picture (\texttt{bench/vregion\_decompose.py},
+human TRB MHC-I; Table~\ref{tab:vregion}). Cross-V co-specificity rises \emph{monotonically} as the
+germline CDR1$+$CDR2 edit distance shrinks --- $10.5\%$ at $\ge6$ mismatches, $12.6\%$ at $3$--$5$,
+$17.9\%$ at $1$--$2$, and $32\%$ at $0$ (identical loops): a real $\sim$3$\times$ lift over the cross-V
+floor. FR1 identity behaves likewise ($27.6\%$, $2.6\times$). So the germline contacting loops \emph{do}
+carry part of the V signal, at a tight CDR3-like tolerance (near-exact identity; the continuous metric
+above, dominated by $1$--$2$-mismatch pairs, misses it) --- but even identical loops recover only about
+\emph{half} the same-V advantage ($32\%$ vs $64\%$); the rest is gene-identity-specific (the exact
+CDR3-germline anchor and integrated docking geometry). Caveat: the identical-loop bin is small ($n=25$
+at distance~$\le2$, $n=5$ at $\le1$, and bounced $32$--$60\%$ across held-out sets) --- the robust claim
+is the monotone gradient over the well-powered bins ($n=507,\,3735,\,36853$), not the exact endpoint.
 
 \paragraph{The recovery is whole-loop, not a sparse pseudosequence.} Do a few decisive positions carry
 it (the MHC-pseudosequence analogue)? Per-position residue-match lift over the cross-V baseline
 (\texttt{bench/vpseudo.py}, length-constant CDR1/CDR2) is mostly flat (lift $1.0$--$1.2$ at the $10.5\%$
-baseline), with a single exception --- CDR2 position~5 ($1.67\times$, $n=5392$). So the prior is
-recovered by \emph{whole-loop} near-identity, not by matching a handful of pseudosequence coordinates:
+baseline), with a single exception --- CDR2 position~5 ($1.56\times$, $n=4833$). So the partial recovery
+above is \emph{whole-loop} near-identity, not the matching of a handful of pseudosequence coordinates:
 a different V gene must reproduce essentially the entire CDR1$+$CDR2 to behave like the same V. A useful
 soft-V match must therefore demand near-exact loop identity, not loose similarity. The next step is the
 full IMGT-numbered treatment (FR positions and the FR3 DE-loop/``CDR2.5'', via the \texttt{arda}
@@ -401,13 +410,13 @@ IMGT/V-QUEST milestone) to test whether specific positions sharpen this.
 \hline
 V stratum & pairs & co-specific & flat & +possig & +region\\
 \hline
-same V  & 116\,919 & 44.1\% & 0.632 & 0.713 & 0.680\\
-cross V & 981\,672 &  6.3\% & 0.560 & 0.573 & 0.537\\
+same V  & 120\,738 & 45.2\% & 0.626 & 0.682 & 0.678\\
+cross V & 979\,199 &  6.2\% & 0.558 & 0.569 & 0.538\\
 \hline
 \end{tabular}
 \caption{V-gene-stratified leave-one-out retrieval (human TRB, edit distance $\le4$; co-specific $=$
 positive rate, the rest balanced PR-AUC). A V match is a $\sim$7$\times$ co-specificity prior; the
-significance PSSM helps the same-V stratum most ($+0.081$).}
+significance PSSM helps the same-V stratum most ($+0.056$).}
 \label{tab:vgene}
 \end{table}
 
@@ -416,16 +425,16 @@ significance PSSM helps the same-V stratum most ($+0.081$).}
 \hline
 germline CDR1$+$CDR2 similarity & cross-V pairs & co-specific\\
 \hline
-$[0.0,0.3)$ & 484\,238 &  6.0\%\\
-$[0.3,0.5)$ & 385\,956 &  6.3\%\\
-$[0.5,0.7)$ &  87\,913 &  7.0\%\\
-$[0.7,0.9)$ &  19\,533 &  9.7\%\\
-$[0.9,1.0)$ &   4\,032 & 12.3\%\\
+$[0.0,0.3)$ & 479\,181 &  5.8\%\\
+$[0.3,0.5)$ & 387\,839 &  6.2\%\\
+$[0.5,0.7)$ &  89\,533 &  7.4\%\\
+$[0.7,0.9)$ &  18\,320 & 10.2\%\\
+$[0.9,1.0)$ &   4\,326 & 11.6\%\\
 \hline
 \end{tabular}
 \caption{Continuous germline CDR1$+$CDR2 similarity gives only a weak rise in cross-V co-specificity
-($6\%\!\to\!12\%$), far below the same-V $44\%$ --- which is why $r\approx0$. The strong signal lives at
-near-\emph{exact} identity (Table~\ref{tab:vregion}), not along the continuous similarity axis.}
+($6\%\!\to\!12\%$), far below the same-V $45\%$ --- which is why $r\approx0$. The stronger signal lives
+at near-\emph{exact} identity (Table~\ref{tab:vregion}), not along the continuous similarity axis.}
 \label{tab:vgene-sim}
 \end{table}
 
@@ -442,14 +451,14 @@ near-\emph{exact} identity (Table~\ref{tab:vregion}), not along the continuous s
 \hline
 cell (species / chain / class) & same-V & cross-V & ratio & $r(\mathrm{vsim},\text{co-spec})$\\
 \hline
-human TRA MHC-I  & 57.9\% & 17.3\% & 3.3 & $0.060$\\
-human TRA MHC-II & 98.0\% & 24.8\% & 4.0 & $0.242$\\
-human TRB MHC-I  & 64.3\% &  8.0\% & 8.0 & $0.056$\\
-human TRB MHC-II & 97.5\% & 76.1\% & 1.3 & $0.046$\\
+human TRA MHC-I  & 60.0\% & 16.6\% & 3.6 & $0.050$\\
+human TRA MHC-II & 98.1\% & 14.8\% & 6.6 & $0.269$\\
+human TRB MHC-I  & 63.7\% &  8.7\% & 7.3 & $0.070$\\
+human TRB MHC-II & 97.5\% & 76.3\% & 1.3 & $0.054$\\
 mouse TRA MHC-I  & 75.1\% & 29.3\% & 2.6 & $0.021$\\
-mouse TRA MHC-II & 50.4\% & 48.0\% & 1.0 & $-0.010$\\
-mouse TRB MHC-I  & 76.7\% & 40.6\% & 1.9 & $-0.030$\\
-mouse TRB MHC-II & 83.7\% & 31.6\% & 2.7 & $-0.016$\\
+mouse TRA MHC-II & 47.0\% & 47.7\% & 1.0 & $-0.009$\\
+mouse TRB MHC-I  & 77.1\% & 40.8\% & 1.9 & $-0.080$\\
+mouse TRB MHC-II & 84.2\% & 32.6\% & 2.6 & $-0.017$\\
 \hline
 \end{tabular}
 \caption{Per-cell same-V vs cross-V co-specificity and the point-biserial correlation between
@@ -465,19 +474,19 @@ has $n=4$).}
 \hline
 cross-V stratum (human TRB MHC-I) & co-specific & $n$\\
 \hline
-\emph{cross-V baseline}        & 11.4\% & 38\,419\\
-CDR1$+$CDR2 edit distance $\ge6$ & 10.9\% & 34\,095\\
-\quad edit $3$--$5$            & 13.7\% &  3\,679\\
-\quad edit $1$--$2$            & 20.6\% &    568\\
-\quad edit $0$ (identical)     & \textbf{60.0\%} &  25\\
-FR1 identical                  & 50.3\% &   338\\
-\emph{same-V reference}        & 65.2\% & 12\,869\\
+\emph{cross-V baseline}        & 10.8\% & 41\,132\\
+CDR1$+$CDR2 edit distance $\ge6$ & 10.5\% & 36\,853\\
+\quad edit $3$--$5$            & 12.6\% &  3\,735\\
+\quad edit $1$--$2$            & 17.9\% &    507\\
+\quad edit $0$ (identical)     & \textbf{32.0\%} &  25\\
+FR1 identical                  & 27.6\% &   257\\
+\emph{same-V reference}        & 63.8\% & 14\,883\\
 \hline
 \end{tabular}
-\caption{Cross-V co-specificity rises monotonically as germline CDR1$+$CDR2 approach identity,
-reaching $\approx$the same-V level at exact identity (edit~$0$); FR1 identity behaves likewise. Near-
-\emph{exact} germline-loop identity --- not loose similarity --- recovers the V prior (edit~$0$/CDR1\&CDR2
-bins small, $n=25$).}
+\caption{Cross-V co-specificity rises monotonically as germline CDR1$+$CDR2 approach identity; at exact
+identity it reaches $\sim$$32\%$ --- a real $\sim$3$\times$ lift over the cross-V floor, but only about
+\emph{half} the same-V level ($64\%$). Germline-loop identity carries part of the V prior at a tight,
+near-exact tolerance; the rest is gene-identity-specific. (edit~$0$/CDR1\&CDR2 bin small, $n=25$.)}
 \label{tab:vregion}
 \end{table}
 
@@ -501,10 +510,10 @@ where cross-V false neighbours appear (\S\ref{sec:vgene}), confirming the V prio
 \hline
 chain & set & $n$ & top-1 (CDR3) & top-1 (V-restr.) & recall\\
 \hline
-TRA & shortlist ($\ge2$ ref) & 1993 & 43.7\% & 43.7\% & 62.3\%\\
-TRA & control ($1$ ref)      & 1993 & 32.2\% & 27.9\% & 48.4\%\\
-TRB & shortlist ($\ge2$ ref) & 2962 & 47.2\% & 46.9\% & 54.2\%\\
-TRB & control ($1$ ref)      & 2962 & 45.1\% & 41.5\% & 48.8\%\\
+TRA & shortlist ($\ge2$ ref) & 1993 & 43.9\% & 43.8\% & 62.3\%\\
+TRA & control ($1$ ref)      & 1993 & 33.0\% & 29.6\% & 47.5\%\\
+TRB & shortlist ($\ge2$ ref) & 2962 & 47.3\% & 47.1\% & 54.2\%\\
+TRB & control ($1$ ref)      & 2962 & 46.7\% & 43.7\% & 50.2\%\\
 \hline
 \end{tabular}
 \caption{Leave-one-out epitope-annotation accuracy on the reference-replicated shortlist vs a
@@ -550,9 +559,10 @@ moves the needle is \emph{position}: reweighting BLOSUM62 by the central-signifi
 flat BLOSUM62 ($7/8$ epitopes), confirming that for CDR3 \emph{where} a mismatch falls matters more than
 \emph{which} residue it is. The \emph{V-gene} dimension (\S\ref{sec:vgene}) is a strong near-binary
 prior ($\sim$7$\times$); it is \emph{not} captured by loose germline-loop similarity, but cross-V
-co-specificity does rise to $\approx$the same-V level at \emph{near-exact} CDR1$+$CDR2 identity --- a
-tight, CDR3-like tolerance, recovered whole-loop rather than via a sparse pseudosequence (exact-match
-bins small, $n\!\approx\!25$). The open work is to model V as a strong prior in a joint V$+$CDR3
+co-specificity does rise at \emph{near-exact} CDR1$+$CDR2 identity --- recovering about \emph{half} the
+same-V advantage ($\sim$$32\%$ vs $64\%$) at a tight, CDR3-like tolerance, whole-loop rather than via a
+sparse pseudosequence (exact-match bin small, $n\!\approx\!25$). The open work is to model V as a strong
+prior in a joint V$+$CDR3
 E-value, to demand near-exact (not loose) loop identity for any soft-V match, and to extend the
 position analysis to full IMGT numbering (FR positions and the FR3 DE-loop, via the \texttt{arda}
 IMGT/V-QUEST milestone); a per-chain treatment (TRA vs TRB) is also pending. Separately, the control's

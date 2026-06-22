@@ -83,57 +83,78 @@ plot 'purity.dat' using 1:2 with linespoints lw 2.5 pt 7 lc rgb '#2563eb' notitl
     return pur
 
 
-def position_significance(ll, chain="TRB", n_queries=2000, bins=8, seed=0, org="human"):
-    """P(neighbours share epitope | the single substitution falls at relative CDR3 position).
-    Centre (NDN/contact) vs V/J borders (germline-fixed). On the composition-controlled long list."""
+def _eb_shrink(binned):
+    """Beta-Binomial empirical-Bayes posterior-mean estimator for per-bin rates. Fits a global
+    Beta(a,b) prior by moments (mean + between-bin variance) and returns f(same,tot)=(same+a)/(tot+a+b),
+    so sparse offset bins are shrunk toward the global rate. Returns (global_mean, f)."""
+    pop = [(s, t) for s, t in binned if t > 0]
+    tot = sum(t for _, t in pop)
+    m = sum(s for s, _ in pop) / tot
+    var = sum(t * (s / t - m) ** 2 for s, t in pop) / tot
+    k = max(5.0, min(1000.0, m * (1 - m) / var - 1)) if var > 1e-9 else 200.0
+    a, b = m * k, (1 - m) * k
+    return m, (lambda s, t: (s + a) / (t + a + b))
+
+
+def position_significance(ll, chain="TRB", n_queries=4000, maxd=8, seed=0, org="human"):
+    """P(neighbours share epitope | a single substitution at offset d from the V/J anchors), end-
+    anchored (not relative position; the germline anchors sit at fixed absolute offsets) and
+    Beta-Binomial-smoothed. Bundles the two end profiles as the positional-significance PSSM factor and
+    reports the BLOSUM-severity x position interaction. On the composition-controlled long list."""
+    from Bio.Align import substitution_matrices
+    blo = substitution_matrices.load("BLOSUM62")
     ce = cdr3_epitopes(ll)
     cdrs = list(ce)
     idx = Index.build(cdrs, "aa")
     rng = __import__("random").Random(seed)
     q = rng.sample(cdrs, min(n_queries, len(cdrs)))
     res = idx.search_batch(q, SearchParams(max_subs=1, max_total_edits=1, engine="seqtm"), 0)
-    same = [0] * bins; tot = [0] * bins
+    sv = [[0, 0] for _ in range(maxd + 1)]   # [same,tot] by V-offset (>=maxd pooled = NDN core)
+    sj = [[0, 0] for _ in range(maxd + 1)]   # by J-offset
+    grid = {}                                # (offset-zone, BLOSUM-severity) -> [same,tot]
     for qi, hl in zip(q, res):
-        qe = ce[qi]
+        qe = ce[qi]; L = len(qi)
         for h in hl:
-            if h.n_subs != 1:
+            if h.n_subs != 1 or len(cdrs[h.ref_id]) != L or L < 2:
                 continue
             r = cdrs[h.ref_id]
-            if len(r) != len(qi):
+            diff = [p for p in range(L) if qi[p] != r[p]]
+            if len(diff) != 1:
                 continue
-            diff = [p for p in range(len(qi)) if qi[p] != r[p]]
-            if len(diff) != 1 or len(qi) < 2:
-                continue
-            b = min(bins - 1, int(diff[0] / (len(qi) - 1) * bins))
-            tot[b] += 1
-            if ce[r] & qe:
-                same[b] += 1
-    prob = [same[b] / tot[b] if tot[b] else 0.0 for b in range(bins)]
-    print(f"[{chain}] P(same epitope | sub at rel-pos bin):", [round(p, 3) for p in prob],
-          "| n:", [tot[b] for b in range(bins)])
-    # bundle the well-populated profile as a positional informativeness factor for scoring:
-    # weight(relpos) = 1 - P(same | sub here), normalised to mean 1 (centre > borders).
-    good = [(b, prob[b]) for b in range(bins) if tot[b] >= 20]
-    raw = [1.0 - p for _, p in good]
-    mean = sum(raw) / len(raw)
+            p = diff[0]; lab = 1 if ce[r] & qe else 0
+            dv, dj = min(p, maxd), min(L - 1 - p, maxd)
+            sv[dv][0] += lab; sv[dv][1] += 1
+            sj[dj][0] += lab; sj[dj][1] += 1
+            d = min(dv, dj)
+            zone = "anchor" if d <= 1 else "mid" if d <= 3 else "core"
+            s = blo[qi[p], r[p]]
+            sev = "conservative" if s >= 1 else "neutral" if s == 0 else "radical"
+            g = grid.setdefault((zone, sev), [0, 0]); g[0] += lab; g[1] += 1
+    _, fv = _eb_shrink(sv); _, fj = _eb_shrink(sj)
+    pv = [fv(*sv[d]) for d in range(maxd + 1)]
+    pj = [fj(*sj[d]) for d in range(maxd + 1)]
+    print(f"[{org} {chain}] P(same|V-offset 0..{maxd}):", [round(x, 2) for x in pv])
+    print(f"[{org} {chain}] P(same|J-offset 0..{maxd}):", [round(x, 2) for x in pj])
+    print("BLOSUM-severity x position  P(same) (n):")
+    for zone in ("anchor", "mid", "core"):
+        print(f"  {zone:7}", {sev: (round(grid[zone, sev][0] / grid[zone, sev][1], 2),
+                                     grid[zone, sev][1]) for sev in ("conservative", "neutral", "radical")
+                              if (zone, sev) in grid})
     res = Path("src/vdjmatch/resources/trimming/position_significance.tsv")
-    res.write_text("relpos\tp_same\tweight\n" + "".join(
-        f"{(b+0.5)/bins:.4f}\t{p:.4f}\t{(1.0-p)/mean:.4f}\n" for b, p in good))
-    # only plot well-populated bins (the conserved flanks rarely vary -> tiny, noisy counts)
-    rows = "\n".join(f"{(b+0.5)/bins:.3f} {prob[b]:.4f} {tot[b]}" for b in range(bins) if tot[b] >= 20)
-    (OUT / "possig.dat").write_text("relpos psame n\n" + rows + "\n")
+    res.write_text("side\toffset\tn\tp_same\n" + "".join(
+        f"V\t{d}\t{sv[d][1]}\t{pv[d]:.4f}\nJ\t{d}\t{sj[d][1]}\t{pj[d]:.4f}\n" for d in range(maxd + 1)))
+    (OUT / "possig.dat").write_text("offset psame_v psame_j\n"
+                                    + "\n".join(f"{d} {pv[d]:.4f} {pj[d]:.4f}" for d in range(maxd + 1)) + "\n")
     _gnuplot(f"""
 set terminal svg size 560,360 font 'Helvetica,12' background rgb 'white'
 set output 'position_significance.svg'
-set xlabel 'relative CDR3 position (0 = V/Cys anchor, 1 = J anchor)'
-set ylabel 'P(neighbour shares epitope | sub here)'
-set xrange [0:1]; set yrange [0:*]; set grid lc rgb '#e5e7eb'
-set title 'Single-substitution significance by CDR3 position ({org} {chain})'; unset key
-set label 'V border' at 0.06,graph 0.08 tc rgb '#9ca3af'; set label 'NDN core' at 0.42,graph 0.08 tc rgb '#9ca3af'
-set label 'J border' at 0.80,graph 0.08 tc rgb '#9ca3af'
-plot 'possig.dat' using 1:2 with linespoints lw 2.5 pt 7 lc rgb '#7c3aed' notitle
+set xlabel 'offset from anchor (residues)'; set ylabel 'P(neighbour shares epitope | sub here)'
+set xrange [-0.3:{maxd}]; set yrange [0:*]; set grid lc rgb '#e5e7eb'; set key bottom right
+set title 'Single-substitution significance vs anchor offset ({org} {chain})'
+plot 'possig.dat' using 1:2 with linespoints lw 2.5 pt 7 lc rgb '#7c3aed' title 'from V anchor', \\
+     '' using 1:3 with linespoints lw 2.5 pt 5 lc rgb '#059669' title 'from J anchor'
 """)
-    return prob
+    return pv, pj
 
 
 def tra_trb_gly(vdj, bins=10, org="human"):
@@ -169,8 +190,8 @@ def matrices_fig():
     """Summary bar chart (2026-06-11-ZENODO, composition-controlled long list, balanced PR-AUC, dist
     <=2): the data-derived VDJAM trails; the genetic-code null VDJAMr ties BLOSUM62; only BLOSUM62
     reweighted by the central-position factor (possig) clearly leads. Means from bench/loo_vdjam.py."""
-    data = [("VDJAM", 0.519), ("VDJAM-region", 0.525), ("unit", 0.545), ("structural", 0.572),
-            ("BLOSUM62", 0.572), ("PAM250", 0.575), ("VDJAMr", 0.585), ("BLOSUM+possig", 0.623)]
+    data = [("VDJAM", 0.524), ("VDJAM-region", 0.529), ("unit", 0.543), ("BLOSUM62", 0.564),
+            ("structural", 0.564), ("PAM250", 0.572), ("VDJAMr", 0.581), ("BLOSUM+possig", 0.598)]
     win = len(data) - 1  # the position-weighted bar, drawn in a contrasting colour
     rows = "\n".join(f"{i} {n} {v}" for i, (n, v) in enumerate(data))
     (OUT / "matrices.dat").write_text("i name prauc\n" + rows + "\n")
@@ -179,7 +200,7 @@ def matrices_fig():
 set terminal svg size 620,360 font 'Helvetica,12' background rgb 'white'
 set output 'matrices.svg'
 set style fill solid 0.85 border -1; set boxwidth 0.6
-set ylabel 'mean balanced PR-AUC (leave-one-out)'; set yrange [0.45:0.65]
+set ylabel 'mean balanced PR-AUC (leave-one-out)'; set yrange [0.5:0.62]
 set grid ytics lc rgb '#e5e7eb'; set xtics ({tics}) rotate by -25; unset key
 set title 'Only central-position weighting clearly beats BLOSUM62 (human TRB, dist <= 2)'
 plot 'matrices.dat' using 1:3 with boxes lc rgb '#94a3b8' notitle, \\

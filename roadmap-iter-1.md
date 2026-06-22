@@ -143,21 +143,26 @@ caps each to a random 3000, and drops **spike studies** (one study dumping a len
 one epitope — only PMID:40498839, the SLL len-14 spike; spectratype detector). Metrics are
 imbalance-robust (`bench/metrics.py`: ROC-AUC + balanced PR/F1, π0-renormalised); all tests exclude
 exact self-hits. Re-run results (balanced PR-AUC unless noted):
-- Hamming-1 optimum **holds** (macro purity 0.44→0.07, lift 44×→2.3×); central substitutions **sharper**
-  (P(same) 0.31 core vs 0.90 borders; PSSM now ~2× centre).
-- No amino-acid matrix beats BLOSUM62; **BLOSUM+possig wins 7/8** (0.572→0.623). tcrBLOSUM still ≤ BLOSUM
-  (0.557 vs 0.570).
+- Hamming-1 optimum **holds** (macro purity 0.49→0.07, lift 56×→2.5×); central substitutions **sharper**
+  (P(same) 0.31 core vs ~0.75 near-anchor; PSSM ~2× centre).
+- No amino-acid matrix beats BLOSUM62; **BLOSUM+possig wins 7/8** (0.564→0.598 @≤2, 6/8 @≤4). tcrBLOSUM
+  still ≤ BLOSUM (0.555 vs 0.567 @≤2; tied @≤4).
 - **NEW — VDJAMr**: a genetic-code-only matrix (`loo_vdjam.codon_dissim`, mutational accessibility, no
-  chemistry) **ties BLOSUM62** (0.585 vs 0.572) and beats data-derived VDJAM → CDR3 substitution
+  chemistry) **ties BLOSUM62** (0.581 vs 0.564) and beats data-derived VDJAM → CDR3 substitution
   structure is generative, not chemical.
-- **V-mechanism reversed vs the stale-data conclusion**: cross-V co-specificity **does** rise to ~the
-  same-V level at **near-exact** germline CDR1+CDR2 identity (edit-0 60% n=25; 1-2 20.6%; 3-5 13.7%;
-  6+ 10.9%; same-V 65%) — recovered *whole-loop* (per-position flat except CDR2 pos5 1.67×), at a tight
-  CDR3-like tolerance. Loose similarity still doesn't (r≈0). Supports the V-pseudosequence idea at
-  near-exact tolerance; exact-match bins small (n≈25). (`bench/vregion_decompose.py`, `bench/vpseudo.py`)
+- **PSSM v2** (`regions.significance_weights`): end-anchored (offset from V/J anchors, not relative),
+  Beta-Binomial-smoothed; BLOSUM severity matters only in the core (P(same) 0.50 conservative vs 0.38
+  radical), flat at anchors → validates the multiplicative ω·BLOSUM form.
+- **V-mechanism (tempered after a deterministic re-run + tiebreaker)**: loose CDR1/2 similarity doesn't
+  recover the prior (r≈0), but near-exact germline CDR1+CDR2 identity gives a real ~3× lift (edit-0 ~32%
+  vs cross-V floor ~11%) — yet only ~**half** the same-V level (32% vs 64%); the rest is
+  gene-identity-specific. Whole-loop, not a sparse pseudosequence (per-position flat except CDR2 pos5
+  1.56×). NB the edit-0 bin is n=25 and bounced 32–60% across held-out sets; the monotone gradient over
+  the well-powered bins is the robust part. (`bench/vregion_decompose.py`, `bench/vpseudo.py`)
 - Shortlist accuracy ~44–47% top-1, **modestly** above single-ref controls — the earlier 3× gap was a
   sparse-export artefact (dense release makes controls findable too).
-- seqtree bumped to **0.1.0** (`SubstitutionMatrix.penalty` API).
+- Reproducibility: deterministic held-out-epitope selection (tiebreak by epitope name); seqtree bumped
+  to **0.1.0** (`SubstitutionMatrix.penalty` API).
 
 ## Later (subsequent iterations)
 - **Hard vs easy (featured/featureless) epitopes.** Per-epitope PR-AUC varies enormously (convergent

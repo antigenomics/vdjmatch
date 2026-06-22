@@ -39,7 +39,7 @@ def scan_cell(uc: pl.DataFrame, chain: str, top: int, min_epi: int, max_q: int, 
     ref_v = refs["v"].to_list()
     ref_epi = refs["epitope"].to_list()
     sizes = (uc.group_by("epitope").agg(pl.col("cdr3").n_unique().alias("n"))
-               .filter(pl.col("n") >= min_epi).sort("n", descending=True))
+               .filter(pl.col("n") >= min_epi).sort(["n", "epitope"], descending=[True, False]))
     held = sizes["epitope"].to_list()[:top]
     if len(held) < 2:
         return None
