@@ -193,6 +193,28 @@ def run_vdjmatch(ref_df: pl.DataFrame, test_df: pl.DataFrame, held: list[str], s
     return scores, truth
 
 
+def run_vdjmatch_evalue(ref_df: pl.DataFrame, test_df: pl.DataFrame, held: list[str], control,
+                        max_q: int, exclude_exact: bool = True):
+    """First-hit E-value arm (adaptive <=5-edit scope): score(query, epitope) = -log10 p_enrichment at
+    the first E-hit, control-calibrated against ``control``. The right annotator for novel TCRs that the
+    subs=1 neighbour vote misses. Returns scores[qid]={epitope: -log10 p} over ``held`` and truth."""
+    refs = ref_df.group_by("cdr3").agg(pl.col("epitope").first())
+    ref_cdr3, ref_epi = refs["cdr3"].to_list(), refs["epitope"].to_list()
+    tgt = Index.build(ref_cdr3, "aa")
+    N, M, N_epi = len(tgt), len(control), Counter(ref_epi)
+    scores: dict[str, dict[str, float]] = {}
+    truth: dict[str, str] = {}
+    for epi in held:
+        qs = test_df.filter(pl.col("epitope") == epi).unique("cdr3").head(max_q)["cdr3"].to_list()
+        th, cc = first_hit.scan(tgt, ref_epi, control, qs, exclude_exact=exclude_exact)
+        for qi, t, c in zip(qs, th, cc):
+            qid = f"{epi}|{qi}"
+            truth[qid] = epi
+            scores[qid] = {e: -math.log10(max(first_hit.pvalue(t, c, N_epi.get(e, 1), M, epitope=e)
+                                              ["p_enrichment"], 1e-300)) for e in held}
+    return scores, truth
+
+
 def load_predictions(path: Path):
     """External method predictions -> scores/truth (truth must come from the dataset, not the file)."""
     scores = defaultdict(dict)
@@ -301,6 +323,8 @@ def main():
     ap.add_argument("--species", default="HomoSapiens")
     ap.add_argument("--locus", nargs="+", default=["TRA", "TRB"])
     ap.add_argument("--subs", type=int, default=1)
+    ap.add_argument("--impl", choices=["vote", "evalue"], default="vote",
+                    help="vdjmatch arm: subs-edit neighbour vote (default) or adaptive first-hit E-value")
     ap.add_argument("--alpha", type=float, default=1e-3, help="first-hit E-value significance cutoff")
     ap.add_argument("--olga-n", type=int, default=0, help="subsample OLGA negatives (0 = all ~240k)")
     ap.add_argument("--quiet", action="store_true", help="suppress progress bars / stage logging")
@@ -327,9 +351,15 @@ def main():
                 print(f"  {dataset}/{locus}: no held epitopes")
                 continue
             for method in args.methods:
+                thresh = 1.0
                 if method == "vdjmatch":
-                    scores, truth = run_vdjmatch(ref_df, test_df, held, args.subs, args.max_queries,
-                                                 exclude_exact)
+                    if args.impl == "evalue":
+                        scores, truth = run_vdjmatch_evalue(ref_df, test_df, held, background(locus),
+                                                            args.max_queries, exclude_exact)
+                        thresh = -math.log10(args.alpha)       # call = p_enrichment < alpha
+                    else:
+                        scores, truth = run_vdjmatch(ref_df, test_df, held, args.subs, args.max_queries,
+                                                     exclude_exact)
                 else:
                     p = Path(args.pred_dir) / method / f"{dataset}_{locus}.tsv"
                     if not p.exists():
@@ -338,7 +368,7 @@ def main():
                     scores = load_predictions(p)
                     truth = {q: e for q, e in ((q, q.split("|", 1)[0]) for q in scores)}
                 for epi in held:
-                    f1, pur, ret = f1_purity_retention(scores, truth, epi)
+                    f1, pur, ret = f1_purity_retention(scores, truth, epi, thresh)
                     pra = pr_auc_epi(scores, truth, epi)
                     for metric, v in (("f1", f1), ("pr_auc", pra), ("retention", ret), ("purity", pur)):
                         rows.append((method, dataset, locus, epi, metric, v))
