@@ -142,6 +142,28 @@ def test_significance_weights_centre_heavy_and_pssm_builds():
     assert any(h.n_subs == 0 for h in hits)    # exact self is found
 
 
+def test_api_annotator_list_and_frame_label_preserving():
+    import vdjmatch
+    ref = pl.DataFrame({
+        "gene": ["TRB", "TRB", "TRA"], "cdr3": ["CASSIRSSYEQYF", "CASSLRSSYEQYF", "CAVRDSNYQLIW"],
+        "v": ["TRBV19", "TRBV19", "TRAV1-2"], "j": ["TRBJ2-7", "TRBJ2-7", "TRAJ33"],
+        "epitope": ["NLVPMVATV", "NLVPMVATV", "GILGFVFTL"], "mhc_a": ["HLA-A*02"] * 3,
+        "mhc_class": ["MHCI"] * 3, "species": ["HomoSapiens"] * 3,
+        "antigen_species": ["CMV", "CMV", "InfluenzaA"], "vdjdb_score": [1] * 3, "complex_id": [0] * 3,
+    })
+    ann = vdjmatch.Annotator.from_frame(ref)
+    assert set(ann.loci) == {"TRA", "TRB"}
+    # list -> long hits frame (a 1-substitution neighbour is found)
+    h = ann.hits(["CASSIRPSYEQYF"])
+    assert h.height >= 1 and h["epitope"][0] == "NLVPMVATV"
+    # frame -> frame + annotation columns, all input columns/ids/labels preserved, per-row locus
+    df = pl.DataFrame({"my_id": [1, 2], "junction_aa": ["CASSIRPSYEQYF", "CAVRDSNYQLIW"],
+                       "locus": ["TRB", "TRA"]})
+    out = ann.annotate(df, cdr3="junction_aa", locus="locus")
+    assert {"my_id", "junction_aa", "locus", "vdjmatch_epitope"} <= set(out.columns)
+    assert out.height == 2 and out.sort("my_id")["vdjmatch_epitope"].to_list() == ["NLVPMVATV", "GILGFVFTL"]
+
+
 def test_replicated_shortlist_needs_two_references():
     # benchmark gold standard = clonotype-epitope pairs confirmed in >=2 distinct references
     # (against the latest VDJdb release; see bench/shortlist_accuracy.py)

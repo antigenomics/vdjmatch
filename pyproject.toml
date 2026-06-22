@@ -25,7 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=7.4", "hypothesis"]
-bench = ["psutil", "huggingface_hub"]  # huggingface_hub: pull the pinned VDJdb benchmark from HF
+bench = ["psutil", "huggingface_hub", "matplotlib", "seaborn"]  # huggingface_hub: HF benchmark; matplotlib/seaborn: comparison boxplots+beeswarm
 control = ["seqtree[control]", "huggingface_hub"]  # TRA/mouse controls beyond bundled human TRB
 ods = ["ezodf"]                   # read ImmuneWatch DETECT golden .ods in tests
 vdjam = ["biopython>=1.84"]       # bench/gen_vdjam.py: BLOSUM62 baseline (mirpy-lib added for V/J trimming model)

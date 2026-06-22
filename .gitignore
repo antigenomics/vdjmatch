@@ -23,3 +23,7 @@ docs/_build/
 
 # third-party comparison matrices (downloaded on demand, not redistributed)
 bench/matrices/
+
+# generated comparison-benchmark output
+bench/out/
+bench/predictions/
