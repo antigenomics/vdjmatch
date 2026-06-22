@@ -38,6 +38,8 @@ def main():
     ap.add_argument("--radius", type=int, default=90)
     ap.add_argument("--knn", type=int, default=5)
     ap.add_argument("--sig-radius", type=int, default=24, help="nearest-dist cutoff for 'significant'")
+    ap.add_argument("--keep-exact", action="store_true",
+                    help="keep exact-CDR3 self-hits (default: drop, mirroring vdjmatch exclude_exact)")
     ap.add_argument("--out-1nn", required=True)
     ap.add_argument("--out-knn", required=True)
     ap.add_argument("--organism", default="human")
@@ -72,6 +74,9 @@ def main():
         keep = vals != 0
         cols, dist = cols[keep], np.where(vals[keep] == -1, 0, vals[keep])
         qc = q_cdr3[i]
+        if not args.keep_exact and len(cols):                  # drop exact-CDR3 self-hits (leakage)
+            notself = ref_cdr3[cols] != qc
+            cols, dist = cols[notself], dist[notself]
         if len(cols) == 0:
             continue
         order = np.argsort(dist)

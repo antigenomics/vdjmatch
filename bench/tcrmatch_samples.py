@@ -39,7 +39,7 @@ def trim(s: str) -> str:
 
 
 def build_queries(olga_n: int) -> list[str]:
-    q1, q2, q5 = load_sample("sample1"), load_sample("sample2"), load_sample("sample5")
+    q1, q2, q5 = load_sample("sample1"), load_sample("sample2"), load_sample("sample4")  # TRB OLGA
     if olga_n and q5.height > olga_n:
         q5 = q5.sample(olga_n, seed=0)
     return pl.concat([q1, q2, q5]).unique("cdr3")["cdr3"].to_list()
