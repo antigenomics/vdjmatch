@@ -167,10 +167,13 @@ exact self-hits. Re-run results (balanced PR-AUC unless noted):
 ### OLGA spurious rate is GENUINE coincidental overlap (a same-run control gives a false 0%)
 The OLGA "spurious-hit" rate estimates `1 - P(no hit)` = the probability a Pgen-drawn TCR coincides
 (within first-hit scope) with the epitope reference — a coincidental-collision quantity set by Pgen,
-not method noise (`bench/olga_overlap_limit.py`). On 20k OLGA draws: raw overlap `1-P(no hit)` is
-scope-dependent (0.01% @1 edit → 53% @5 edits); the Poisson model `P_overlap ≈ 1-exp(-Λ)`,
-Λ = Σ_r Pgen-mass of r's edit-ball, is exact at k≤2 and breaks at k≥4 (Λ=28.8 but 53% overlap) →
-reference neighbours are **clustered, not Poisson** (convergent-recombination signal).
+not method noise (`bench/olga_overlap_limit.py`). On 5k **TRB** OLGA draws (sample4, chain-consistent):
+raw overlap `1-P(no hit)` is scope-dependent and **large** (15.3% @1 edit → 74% @3 → 94% @5 edits;
+Λ=0.52 @1 → 2546 @5); the Poisson model `P_overlap ≈ 1-exp(-Λ)`, Λ = Σ_r Pgen-mass of r's edit-ball, is
+already overdispersed at k=1 (0.153 vs 0.405) → reference neighbours are **heavily clustered, not
+Poisson** (convergent-recombination signal). (The old TRA-query numbers were ~100× smaller — a TRA query
+rarely coincides with a TRB reference; chain matters enormously.) vdjmatch significant rate 13.2%
+(TRB, M=250k).
 **Control test (`bench/control_pgen_test.py`, chain-consistent — FINAL).** Critical: **`sample5` is
 ALPHA chain (300k × TRAV), `sample4` is BETA (300k × TRBV)** — earlier runs used sample5 (TRA) as
 queries against the TRB reference, so the "0% with a matched control" was a same-CHAIN artifact (TRA
