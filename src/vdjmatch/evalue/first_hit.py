@@ -13,6 +13,8 @@ import polars as pl
 from seqtree import Index, SearchParams
 from seqtree.evalue import _poisson_sf
 
+from .._util import chunked, progress
+
 
 def scope(max_edits: int = 5, max_ins: int = 2, max_dels: int = 2, **kw) -> SearchParams:
     """First-hit search ball: up to ``max_edits`` total edits, at most ``max_ins`` ins and ``max_dels``
@@ -21,24 +23,29 @@ def scope(max_edits: int = 5, max_ins: int = 2, max_dels: int = 2, **kw) -> Sear
                         max_total_edits=max_edits, engine="seqtm", **kw)
 
 
-def _cost_lists(idx: Index, queries, params, threads, exclude_exact):
+def _cost_lists(idx: Index, queries, params, threads, exclude_exact, chunk, desc, prog):
     out = []
-    for hl in idx.search_batch(list(queries), params, threads):
-        cs = [(h.n_subs + h.n_ins + h.n_dels, h.ref_id) for h in hl]
-        if exclude_exact:
-            cs = [(c, r) for c, r in cs if c > 0]
-        out.append(sorted(cs, key=lambda x: x[0]))               # by total-edit cost, nearest first
+    qs = list(queries)
+    chunks = list(chunked(qs, chunk))
+    for ch in progress(chunks, total=len(chunks), desc=desc, enable=prog):
+        for hl in idx.search_batch(ch, params, threads):
+            cs = [(h.n_subs + h.n_ins + h.n_dels, h.ref_id) for h in hl]
+            if exclude_exact:
+                cs = [(c, r) for c, r in cs if c > 0]
+            out.append(sorted(cs, key=lambda x: x[0]))           # by total-edit cost, nearest first
     return out
 
 
 def scan(target: Index, target_epi: list[str], control: Index, queries, *,
-         params: SearchParams | None = None, threads: int = 0, exclude_exact: bool = False):
+         params: SearchParams | None = None, threads: int = 0, exclude_exact: bool = False,
+         chunk: int = 10000, progress: bool = False):
     """One wide search per side. Returns ``(target_hits, control_costs)`` where ``target_hits[q]`` is a
     cost-sorted list of ``(total_edits, epitope)`` and ``control_costs[q]`` a cost-sorted list of edits.
-    ``target_epi`` maps each target ``ref_id`` to its epitope."""
+    ``target_epi`` maps each target ``ref_id`` to its epitope. ``chunk`` bounds memory / drives the
+    progress bar (``progress=True``)."""
     params = params or scope()
-    th = _cost_lists(target, queries, params, threads, exclude_exact)
-    ch = _cost_lists(control, queries, params, threads, exclude_exact)
+    th = _cost_lists(target, queries, params, threads, exclude_exact, chunk, "search: target", progress)
+    ch = _cost_lists(control, queries, params, threads, exclude_exact, chunk, "search: control", progress)
     return ([[(c, target_epi[r]) for c, r in t] for t in th],
             [[c for c, _ in cc] for cc in ch])
 
@@ -60,13 +67,14 @@ def pvalue(target_hits, control_costs, N: int, M: int, epitope: str | None = Non
 
 def query_first_hit(target: Index, target_epi: list[str], control: Index, queries, *,
                     N: int | None = None, M: int | None = None, params: SearchParams | None = None,
-                    threads: int = 0, exclude_exact: bool = False) -> pl.DataFrame:
+                    threads: int = 0, exclude_exact: bool = False, chunk: int = 10000,
+                    progress: bool = False) -> pl.DataFrame:
     """Per-query first-hit E-value + predicted epitope (the nearest target hit). Columns:
     ``query_cdr3, first_radius, n_target, n_control, E, p_enrichment, top_epitope``."""
     N = N if N is not None else len(target)
     M = M if M is not None else len(control)
     th, cc = scan(target, target_epi, control, queries, params=params, threads=threads,
-                  exclude_exact=exclude_exact)
+                  exclude_exact=exclude_exact, chunk=chunk, progress=progress)
     rows = []
     for q, t, c in zip(queries, th, cc):
         r = pvalue(t, c, N, M)

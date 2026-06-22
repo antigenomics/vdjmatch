@@ -64,21 +64,29 @@ def _roc_pr(pairs):
 
 def run_samples(args, out: Path):
     """NLV / LLW / LLL ROC+PR (positives vs OLGA negatives) and OLGA spurious-hit filtering, per method."""
+    v = not args.quiet
+    log = (lambda *a: print(*a)) if v else (lambda *a: None)
+    log("loading VDJdb-beta reference + control...")
     vdj = db.load(_bench.source(), species=args.species).filter(pl.col("gene") == "TRB")
     ref = _bench.valid_cdr3(vdj).group_by("cdr3").agg(pl.col("epitope").first())
     ref_cdr3, ref_epi = ref["cdr3"].to_list(), ref["epitope"].to_list()
     tgt = Index.build(ref_cdr3, "aa")
     ctrl = background("TRB")
     N, M, N_epi = len(tgt), len(ctrl), Counter(ref_epi)
+    log(f"  target N={N} unique CDR3; control M={M}")
     q1, q2, q5 = load_sample("sample1"), load_sample("sample2"), load_sample("sample5")
+    if args.olga_n and q5.height > args.olga_n:
+        q5 = q5.sample(args.olga_n, seed=0)
     queries = pl.concat([q1, q2, q5]).unique("cdr3")
     qlist = queries["cdr3"].to_list()
     truth = dict(zip(queries["cdr3"], queries["true_epitope"]))
     epis = list(SAMPLE_EPI)
+    log(f"  queries: {q1.height} NLV + {q2.height} LLW/LLL + {q5.height} OLGA = {len(qlist)} unique")
 
     # vdjmatch: one wide first-hit scan; score(query, epitope) = -log10 p_enrichment at the first E-hit;
     # OLGA "significant" = overall first-hit p_enrichment < alpha (any epitope).
-    th, cc = first_hit.scan(tgt, ref_epi, ctrl, qlist, exclude_exact=True)
+    log(f"first-hit scan (scope 5 edits, <=2 ins, <=2 del) over {len(qlist)} queries...")
+    th, cc = first_hit.scan(tgt, ref_epi, ctrl, qlist, exclude_exact=True, progress=v)
     vdj_score, olga_sig = {}, {"vdjmatch": {}}
     for q, t, c in zip(qlist, th, cc):
         olga_sig["vdjmatch"][q] = first_hit.pvalue(t, c, N, M)["p_enrichment"] < args.alpha
@@ -216,6 +224,8 @@ def main():
     ap.add_argument("--locus", nargs="+", default=["TRA", "TRB"])
     ap.add_argument("--subs", type=int, default=1)
     ap.add_argument("--alpha", type=float, default=1e-3, help="first-hit E-value significance cutoff")
+    ap.add_argument("--olga-n", type=int, default=0, help="subsample OLGA negatives (0 = all ~240k)")
+    ap.add_argument("--quiet", action="store_true", help="suppress progress bars / stage logging")
     ap.add_argument("--top", type=int, default=20, help="epitopes per locus entering the distribution")
     ap.add_argument("--min-epi", type=int, default=30)
     ap.add_argument("--max-queries", type=int, default=300)
