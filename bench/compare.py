@@ -5,7 +5,15 @@ Headline mode (`--datasets shortlist|vdjdb`): leave-one-out-by-epitope over the 
 2026-06-11-ZENODO reference, computing per-locus (TRA/TRB) per-epitope F1 / PR-AUC / retention / purity,
 drawn as boxplot + beeswarm across methods. vdjmatch's arm scores each candidate epitope by its count
 of leakage-removed same-epitope neighbours (a query NEVER scores against an exact copy of its own CDR3).
-External methods plug in via predictions/<method>/<dataset>.tsv (see EXTERNAL_TOOLS.md).
+External methods plug in via predictions/<method>/<dataset>_<locus>.tsv (see EXTERNAL_TOOLS.md).
+
+Other datasets (`--datasets ...`):
+  temporal : temporal holdout — 2025 release (`--vdjdb2025-pin`) as reference, test = 2026 clonotypes
+             NEW vs 2025 (held out by time); exact matches KEPT (cross-release match is a legitimate
+             annotation, not leakage). The real-world 'annotate tomorrow's data' benchmark.
+  tcrvdb   : validated TCRvdb paired clonotypes (`--tcrvdb-padj`) as test, annotated per chain against
+             the 2026 reference (exact-match removed — TCRvdb overlaps vdjdb).
+  samples  : NLV/LLW/LLL ROC+PR vs OLGA negatives (see run_samples).
 
     python bench/compare.py --methods vdjmatch --datasets shortlist --locus TRB --top 20 --out bench/out
 """
@@ -156,18 +164,21 @@ def pr_auc_epi(scores, truth, epi):
     return pr_auc_balanced(pairs)
 
 
-# ---- vdjmatch arm: leakage-removed neighbour-vote --------------------------------------------------
-def run_vdjmatch(uc: pl.DataFrame, held: list[str], subs: int, max_q: int):
-    """Returns scores[query_id] = {epitope: same-epitope-neighbour count} and truth[query_id]=epitope,
-    over the held epitopes' clonotypes, scored against the whole cell with exact-CDR3 self-hits removed."""
-    refs = uc.group_by("cdr3").agg(pl.col("epitope").first())
+# ---- vdjmatch arm: neighbour-vote (ref index, test queries) -----------------------------------------
+def run_vdjmatch(ref_df: pl.DataFrame, test_df: pl.DataFrame, held: list[str], subs: int, max_q: int,
+                 exclude_exact: bool = True):
+    """Score each held-epitope test clonotype against the ``ref_df`` index by same-epitope neighbour
+    vote. Returns scores[query_id]={epitope: vote count} and truth[query_id]=epitope. ``exclude_exact``
+    drops exact-CDR3 self-hits (within-release leakage control); set False for a temporal holdout where
+    the reference predates the query, so an exact match is a legitimate cross-time annotation."""
+    refs = ref_df.group_by("cdr3").agg(pl.col("epitope").first())
     ref_cdr3, ref_epi = refs["cdr3"].to_list(), refs["epitope"].to_list()
     index = Index.build(ref_cdr3, "aa")
     params = SearchParams(max_subs=subs, max_total_edits=subs, engine="seqtm")
     scores: dict[str, dict[str, float]] = {}
     truth: dict[str, str] = {}
     for epi in held:
-        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").head(max_q)
+        q = test_df.filter(pl.col("epitope") == epi).unique("cdr3").head(max_q)
         qs = q["cdr3"].to_list()
         for qi, hl in zip(qs, index.search_batch(qs, params, 0)):
             qid = f"{epi}|{qi}"
@@ -175,7 +186,7 @@ def run_vdjmatch(uc: pl.DataFrame, held: list[str], subs: int, max_q: int):
             votes = Counter()
             for h in hl:
                 r = ref_cdr3[h.ref_id]
-                if r == qi:
+                if exclude_exact and r == qi:
                     continue                                   # leakage: never score an exact self-copy
                 votes[ref_epi[h.ref_id]] += 1
             scores[qid] = dict(votes)
@@ -216,6 +227,73 @@ def plot(results: pl.DataFrame, out: Path):
     print("wrote", out / "compare_boxplots.png")
 
 
+# ---- dataset cell builders (ref / test / held epitopes per locus) ----------------------------------
+_REL_CACHE: dict[str, pl.DataFrame] = {}
+
+
+def _release(key: str, species: str) -> pl.DataFrame:
+    """Cached VDJdb release loader. ``key`` = '2026' (HF-pinned benchmark) or a GitHub release tag."""
+    if key not in _REL_CACHE:
+        _REL_CACHE[key] = (db.load(_bench.source(), species=species) if key == "2026"
+                           else db.load(pin=key, asset="default", species=species))
+    return _REL_CACHE[key]
+
+
+def _top_held(df: pl.DataFrame, ref_epis, top: int, min_n: int) -> list[str]:
+    """Held epitopes: present in the reference, >= min_n unique test CDR3, largest first."""
+    sizes = (df.group_by("epitope").agg(pl.col("cdr3").n_unique().alias("n"))
+               .filter((pl.col("n") >= min_n) & pl.col("epitope").is_in(list(ref_epis)))
+               .sort(["n", "epitope"], descending=[True, False]))
+    return sizes["epitope"].to_list()[:top]
+
+
+def load_tcrvdb(padj: float) -> pl.DataFrame:
+    """TCRvdb validated paired clonotypes -> long df[gene, cdr3, epitope] (one row per chain)."""
+    src = TESTDATA / "sample6_TCRvdb.csv"
+    t = pl.read_csv(src).filter(pl.col("padj") < padj)
+    a = t.select(cdr3="cdr3_alpha_aa", epitope="epitope_aa").with_columns(gene=pl.lit("TRA"))
+    b = t.select(cdr3="cdr3_beta_aa", epitope="epitope_aa").with_columns(gene=pl.lit("TRB"))
+    return _bench.valid_cdr3(pl.concat([a, b])).unique(["gene", "cdr3", "epitope"])
+
+
+def dataset_cells(dataset: str, args):
+    """Yield (locus, ref_df, test_df, held, exclude_exact) for a dataset.
+
+    shortlist/vdjdb: within-release LOO on the 2026 benchmark (exact-self removed).
+    temporal: 2025 release reference, test = 2026 clonotypes new vs 2025 (held out by time); exact
+              matches KEPT (cross-release match is a legitimate annotation, not leakage).
+    tcrvdb: validated TCRvdb (padj<thresh) test annotated against the 2026 reference, per chain.
+    """
+    if dataset in ("shortlist", "vdjdb"):
+        vdj = _release("2026", args.species)
+        for locus in args.locus:
+            cell = vdj.filter(pl.col("gene") == locus)
+            if dataset == "shortlist":
+                keep = db.replicated(vdj, min_refs=2).filter(pl.col("gene") == locus)["epitope"].unique()
+                cell = cell.filter(pl.col("epitope").is_in(keep))
+            uc = _bench.long_list(cell, cap=3000, min_n=args.min_epi)
+            held = _top_held(uc, set(uc["epitope"].unique()), args.top, args.min_epi)
+            yield locus, uc, uc, held, True
+    elif dataset == "temporal":
+        v25, v26 = _release(args.vdjdb2025_pin, args.species), _release("2026", args.species)
+        for locus in args.locus:
+            ref = _bench.valid_cdr3(v25.filter(pl.col("gene") == locus))
+            test26 = _bench.long_list(v26.filter(pl.col("gene") == locus), cap=3000, min_n=args.min_epi)
+            new = test26.join(ref.select("cdr3", "epitope").unique(),       # held out by time
+                              on=["cdr3", "epitope"], how="anti")
+            held = _top_held(new, set(ref["epitope"].unique()), args.top, args.min_epi)
+            yield locus, ref, new, held, False                 # keep exact matches (temporal)
+    elif dataset == "tcrvdb":
+        vdj, tcr = _release("2026", args.species), load_tcrvdb(args.tcrvdb_padj)
+        for locus in args.locus:
+            ref = _bench.valid_cdr3(vdj.filter(pl.col("gene") == locus))
+            test = tcr.filter(pl.col("gene") == locus)
+            held = _top_held(test, set(ref["epitope"].unique()), args.top, args.min_epi)
+            yield locus, ref, test, held, True                 # TCRvdb overlaps vdjdb -> leakage control
+    else:
+        raise ValueError(f"unknown dataset {dataset!r}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--methods", nargs="+", default=["vdjmatch"])
@@ -229,6 +307,8 @@ def main():
     ap.add_argument("--top", type=int, default=20, help="epitopes per locus entering the distribution")
     ap.add_argument("--min-epi", type=int, default=30)
     ap.add_argument("--max-queries", type=int, default=300)
+    ap.add_argument("--vdjdb2025-pin", default="2025-12-29", help="VDJdb release tag for the temporal-holdout reference")
+    ap.add_argument("--tcrvdb-padj", type=float, default=1e-5, help="TCRvdb validated-clonotype padj cutoff")
     ap.add_argument("--pred-dir", default="bench/predictions")
     ap.add_argument("--out", default="bench/out")
     args = ap.parse_args()
@@ -241,23 +321,15 @@ def main():
             return
 
     rows = []
-    vdj_all = db.load(_bench.source(), species=args.species)
     for dataset in args.datasets:
-        for locus in args.locus:
-            cell = vdj_all.filter(pl.col("gene") == locus)
-            if dataset == "shortlist":
-                short = db.replicated(vdj_all, min_refs=2)
-                keep = short.filter(pl.col("gene") == locus)["epitope"].unique()
-                cell = cell.filter(pl.col("epitope").is_in(keep))
-            uc = _bench.long_list(cell, cap=3000, min_n=args.min_epi)
-            sizes = (uc.group_by("epitope").agg(pl.col("cdr3").n_unique().alias("n"))
-                       .filter(pl.col("n") >= args.min_epi).sort(["n", "epitope"], descending=[True, False]))
-            held = sizes["epitope"].to_list()[:args.top]
+        for locus, ref_df, test_df, held, exclude_exact in dataset_cells(dataset, args):
             if not held:
+                print(f"  {dataset}/{locus}: no held epitopes")
                 continue
             for method in args.methods:
                 if method == "vdjmatch":
-                    scores, truth = run_vdjmatch(uc, held, args.subs, args.max_queries)
+                    scores, truth = run_vdjmatch(ref_df, test_df, held, args.subs, args.max_queries,
+                                                 exclude_exact)
                 else:
                     p = Path(args.pred_dir) / method / f"{dataset}_{locus}.tsv"
                     if not p.exists():
