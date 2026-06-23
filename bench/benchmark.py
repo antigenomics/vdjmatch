@@ -284,10 +284,23 @@ def main():
     conf_rows = []
     olga = {locus: (q, qv) for locus, _, q, qv in cond_olga_fp(args.loci, args.olga_n)}  # noise queries
 
+    # Group B noise: OLGA matched against ALL of VDJdb2026 (any significant hit = FP), per locus.
+    noise_fp = {}
+    for locus in args.loci:
+        olq, olqv = olga.get(locus, ([], {}))
+        if not olq or "vdjmatch" not in args.methods:
+            continue
+        ft, fe, fv, fne, fnev, fnv = ref_index(release("vdjdb2026"), locus)
+        _, ov = vdjmatch_classify(ft, fe, fv, fne, fnev, fnv, background(locus), olq,
+                                  [olqv[q] for q in olq], [], args.alpha, True,
+                                  v_mode=args.v_mode, params=params)
+        noise_fp[(locus, "vdjmatch")] = sum(ov.values()) / len(olq)
+        print(f"noise/{locus}/vdjmatch: OLGA-FP-vs-all={noise_fp[(locus, 'vdjmatch')]*100:.2f}% "
+              f"(any hit in full VDJdb2026, n={len(olq)})")
+
     for task, estr, locus, pos_qv, neg_qv in detection_tasks(args.loci):
         ref = epi_ref(estr, locus)
         allq, qv = list(pos_qv) + list(neg_qv), {**pos_qv, **neg_qv}
-        olq, olqv = olga.get(locus, ([], {}))
         n_rows.append((task, locus, len(pos_qv), len(neg_qv)))
         tgt = None
         for method in args.methods:
@@ -297,27 +310,20 @@ def main():
                 scores, _ = vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v,
                                               background(locus), allq, [qv[q] for q in allq], [estr],
                                               args.alpha, True, v_mode=args.v_mode, params=params)
-                olfp = None
-                if olq:                                           # Group B noise: OLGA vs this epitope ref
-                    _, ov = vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v,
-                                              background(locus), olq, [olqv[q] for q in olq], [],
-                                              args.alpha, True, v_mode=args.v_mode, params=params)
-                    olfp = sum(ov.values()) / len(olq)
             else:
                 scores = read_predictions(Path(args.pred_dir) / method / f"{task}_{locus}.tsv", allq, [estr])
                 if scores is None:
                     print(f"  skip {method}/{task}/{locus}: no predictions")
                     continue
-                olfp = None
             m = classify_metrics(scores, list(pos_qv), list(neg_qv), estr)
             for k in ("roc_auc", "pr_auc", "fp", "f1"):
                 rows.append((task, locus, method, estr, k, m[k]))
+            nfp = noise_fp.get((locus, method))
             conf_rows.append((task, locus, method, m["tp"], m["fn"], m["fp_n"], m["tn"],
                               round(m["recall"], 3), round(m["precision"], 3),
-                              round(olfp, 4) if olfp is not None else None))
+                              round(nfp, 4) if nfp is not None else None))
             print(f"{task}/{locus}/{method}: ROC={m['roc_auc']:.3f} PR={m['pr_auc']:.3f} "
-                  f"TP={m['tp']} FN={m['fn']} FP={m['fp_n']} TN={m['tn']}"
-                  + (f" OLGA-FP={olfp*100:.2f}%" if olfp is not None else ""))
+                  f"TP={m['tp']} FN={m['fn']} FP={m['fp_n']} TN={m['tn']}")
 
     if n_rows:
         pl.DataFrame(n_rows, schema=["task", "locus", "n_pos", "n_neg"],
