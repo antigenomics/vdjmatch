@@ -127,6 +127,7 @@ def classify_metrics(scores, pos, neg, epi):
     return {"roc_auc": roc_auc(pairs), "pr_auc": pr_auc_balanced(pairs),
             "fp": fp / (fp + tn) if fp + tn else 0.0,
             "f1": 2 * prec * rec / (prec + rec) if prec + rec else 0.0,
+            "tp": tp, "fn": fn, "fp_n": fp, "tn": tn, "precision": prec, "recall": rec,
             "n_pos": len(pos), "n_neg": len(neg)}
 
 
@@ -210,6 +211,47 @@ def cond_loo(which, loci, top, min_epi, max_q):
         yield locus, v25, tasks, excl, qv
 
 
+# ---- Group A: epitope-specific detection (per dataset_descr.md) -----------------------------------
+A02 = r"A\*?0?2"                                                  # HLA-A*02 / A2 match
+
+
+def epi_ref(epitope_str, locus):
+    """VDJdb2026 records of ONE epitope, HLA-A*02 -> reference frame for ref_index (the match target)."""
+    v = release("vdjdb2026")
+    return v.filter((pl.col("epitope") == epitope_str) & pl.col("mhc_a").str.contains(A02))
+
+
+def detection_tasks(loci):
+    """Yield (task, epitope_str, locus, pos_qv, neg_qv) for Group-A detection: match each query against
+    the epitope's A*02 reference; positives should hit, the control negatives should not."""
+    E = {"NLV": "NLVPMVATV", "LLW": "LLWNGPMAV", "LLL": "LLLGIGILV", "YLQ": "YLQPRTFLL", "GLC": "GLCTLVAML"}
+    s1 = (pl.read_csv(TESTDATA / "sample1_cmv_5+reads.txt", separator="\t")
+          .filter(pl.col("gene") == "TRB").select("cdr3", label="type", v="v.segm"))
+    s1 = _bench.valid_cdr3(s1).unique("cdr3")
+    qv1 = lambda lab: {c: vgene(v) for c, l, v in zip(s1["cdr3"], s1["label"], s1["v"]) if l == lab}
+    yield ("NLV", E["NLV"], "TRB", qv1("cmv"), qv1("control"))           # NLV+ vs tet- control
+
+    s2 = (pl.read_csv(TESTDATA / "sample2_yf_bst2_5+reads.txt", separator="\t")
+          .rename({"antigen.epitope": "label"}).select("cdr3", "label", v="v.segm"))
+    s2 = _bench.valid_cdr3(s2).unique("cdr3")
+    qv2 = lambda lab: {c: vgene(v) for c, l, v in zip(s2["cdr3"], s2["label"], s2["v"]) if l == lab}
+    llw, lll = qv2(E["LLW"]), qv2(E["LLL"])
+    yield ("LLW", E["LLW"], "TRB", llw, lll)                             # LLW vs LLL (each other's control)
+    yield ("LLL", E["LLL"], "TRB", lll, llw)
+
+    t = pl.read_csv(TESTDATA / "sample6_TCRvdb.csv").with_columns(pos=pl.col("padj") < 1e-5)
+    chain = {"TRA": ("cdr3_alpha_aa", "TRAV"), "TRB": ("cdr3_beta_aa", "TRBV")}
+    for tk in ("YLQ", "GLC"):
+        for locus in [x for x in loci if x in chain]:
+            cc, vc = chain[locus]
+            d = (t.filter(pl.col("epitope_aa") == E[tk]).select(cdr3=cc, v=vc, pos="pos")
+                 .pipe(_bench.valid_cdr3).unique("cdr3"))
+            pos = {c: vgene(v) for c, v, p in zip(d["cdr3"], d["v"], d["pos"]) if p}
+            neg = {c: vgene(v) for c, v, p in zip(d["cdr3"], d["v"], d["pos"]) if not p}
+            if pos and neg:
+                yield (tk, E[tk], locus, pos, neg)                      # padj<1e-5 vs >=1e-5
+
+
 def summarize(rows):
     """rows: (condition, locus, method, epitope, metric, value) -> by-epitope df + mean+-sd summary."""
     by = pl.DataFrame(rows, schema=["condition", "locus", "method", "epitope", "metric", "value"],
@@ -227,14 +269,11 @@ def main():
     ap.add_argument("--conditions", nargs="+", default=["C1", "C2", "C3", "C6"])
     ap.add_argument("--methods", nargs="+", default=["vdjmatch"])
     ap.add_argument("--loci", nargs="+", default=["TRA", "TRB"])
-    ap.add_argument("--v-mode", default="none", choices=["none", "match_v"],
+    ap.add_argument("--v-mode", default="match_v", choices=["none", "match_v"],
                     help="vdjmatch V+CDR3 joint E-value (same-V-restricted null)")
-    ap.add_argument("--scope", default="5,2,2", help="first-hit scope max_edits,max_ins,max_dels")
+    ap.add_argument("--scope", default="1,0,0", help="first-hit scope max_edits,max_ins,max_dels")
     ap.add_argument("--alpha", type=float, default=1e-3)
-    ap.add_argument("--top", type=int, default=20)
-    ap.add_argument("--min-epi", type=int, default=30)
-    ap.add_argument("--max-queries", type=int, default=300)
-    ap.add_argument("--olga-n", type=int, default=2000, help="C6: OLGA negatives per locus")
+    ap.add_argument("--olga-n", type=int, default=1000, help="Group B: OLGA negatives per locus")
     ap.add_argument("--pred-dir", default="bench/predictions")
     ap.add_argument("--out", default="bench/out/benchmark")
     args = ap.parse_args()
@@ -242,75 +281,57 @@ def main():
     rows, fp_rows, n_rows = [], [], []
     params = first_hit.scope(*[int(x) for x in args.scope.split(",")])
 
-    def classify_cells(cond):
-        if cond in ("C1", "C2"):
-            return cond_sample_pair(cond, ["TRB"] if cond == "C1" else args.loci)
-        if cond == "C3":
-            return cond_tcrvdb(args.loci)
-        if cond in ("C4", "C5"):
-            return cond_loo(cond, args.loci, args.top, args.min_epi, args.max_queries)
-        return None
+    conf_rows = []
+    olga = {locus: (q, qv) for locus, _, q, qv in cond_olga_fp(args.loci, args.olga_n)}  # noise queries
 
-    for cond in args.conditions:
-        if cond == "C6":
-            for locus, ref_df, queries, qv in cond_olga_fp(args.loci, args.olga_n):
-                if "vdjmatch" in args.methods:
-                    tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v = ref_index(ref_df, locus)
-                    _, overall = vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v,
-                                                   background(locus), queries,
-                                                   [qv[q] for q in queries], [], args.alpha, True,
-                                                   v_mode=args.v_mode, params=params)
-                    fp = sum(overall.values()) / len(queries)
-                    fp_rows.append(("C6", locus, "vdjmatch", fp, len(queries)))
-                    print(f"C6/{locus}: FP={fp*100:.2f}% over {len(queries)} OLGA negatives")
-            continue
-        cells = classify_cells(cond)
-        if cells is None:
-            print(f"  ({cond} not yet implemented)")
-            continue
-        for locus, ref_df, tasks, excl, qv in cells:
-            if not tasks:
-                print(f"{cond}/{locus}: no tasks (skipped)")
-                continue
-            epitopes = sorted({e for e, _, _ in tasks})
-            allq = sorted({q for _, p, n in tasks for q in (*p, *n)})
-            n_rows.append((cond, locus, len(allq), len(tasks)))
-            tgt = None                                            # lazy: only build the index for vdjmatch
-            for method in args.methods:
-                if method == "vdjmatch":
-                    if tgt is None:
-                        tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v = ref_index(ref_df, locus)
-                    scores, _ = vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v,
-                                                  background(locus), allq, [qv[q] for q in allq],
-                                                  epitopes, args.alpha, excl, v_mode=args.v_mode, params=params)
-                else:
-                    scores = read_predictions(Path(args.pred_dir) / method / f"{cond}_{locus}.tsv",
-                                              allq, epitopes)
-                    if scores is None:
-                        print(f"  skip {method}/{cond}/{locus}: no predictions")
-                        continue
-                for epi, pos, neg in tasks:
-                    m = classify_metrics(scores, pos, neg, epi)
-                    for k in ("roc_auc", "pr_auc", "fp", "f1"):
-                        rows.append((cond, locus, method, epi, k, m[k]))
-                    if method == "vdjmatch":
-                        rows.append((cond, locus, method, epi, "n_pos", float(m["n_pos"])))
-                        rows.append((cond, locus, method, epi, "n_neg", float(m["n_neg"])))
-                print(f"{cond}/{locus}/{method}: {len(tasks)} epitope-task(s), {len(allq)} queries")
+    for task, estr, locus, pos_qv, neg_qv in detection_tasks(args.loci):
+        ref = epi_ref(estr, locus)
+        allq, qv = list(pos_qv) + list(neg_qv), {**pos_qv, **neg_qv}
+        olq, olqv = olga.get(locus, ([], {}))
+        n_rows.append((task, locus, len(pos_qv), len(neg_qv)))
+        tgt = None
+        for method in args.methods:
+            if method == "vdjmatch":
+                if tgt is None:
+                    tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v = ref_index(ref, locus)
+                scores, _ = vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v,
+                                              background(locus), allq, [qv[q] for q in allq], [estr],
+                                              args.alpha, True, v_mode=args.v_mode, params=params)
+                olfp = None
+                if olq:                                           # Group B noise: OLGA vs this epitope ref
+                    _, ov = vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v,
+                                              background(locus), olq, [olqv[q] for q in olq], [],
+                                              args.alpha, True, v_mode=args.v_mode, params=params)
+                    olfp = sum(ov.values()) / len(olq)
+            else:
+                scores = read_predictions(Path(args.pred_dir) / method / f"{task}_{locus}.tsv", allq, [estr])
+                if scores is None:
+                    print(f"  skip {method}/{task}/{locus}: no predictions")
+                    continue
+                olfp = None
+            m = classify_metrics(scores, list(pos_qv), list(neg_qv), estr)
+            for k in ("roc_auc", "pr_auc", "fp", "f1"):
+                rows.append((task, locus, method, estr, k, m[k]))
+            conf_rows.append((task, locus, method, m["tp"], m["fn"], m["fp_n"], m["tn"],
+                              round(m["recall"], 3), round(m["precision"], 3),
+                              round(olfp, 4) if olfp is not None else None))
+            print(f"{task}/{locus}/{method}: ROC={m['roc_auc']:.3f} PR={m['pr_auc']:.3f} "
+                  f"TP={m['tp']} FN={m['fn']} FP={m['fp_n']} TN={m['tn']}"
+                  + (f" OLGA-FP={olfp*100:.2f}%" if olfp is not None else ""))
 
     if n_rows:
-        pl.DataFrame(n_rows, schema=["condition", "locus", "n_queries", "n_epitopes"],
+        pl.DataFrame(n_rows, schema=["task", "locus", "n_pos", "n_neg"],
                      orient="row").write_csv(out / "dataset_n.tsv", separator="\t")
+    if conf_rows:
+        pl.DataFrame(conf_rows, schema=["task", "locus", "method", "tp", "fn", "fp", "tn",
+                                        "recall", "precision", "olga_fp"], orient="row").write_csv(
+            out / "confusion.tsv", separator="\t")
     if rows:
         by, summ = summarize(rows)
         by.write_csv(out / "by_epitope.tsv", separator="\t")
         summ.write_csv(out / "summary.tsv", separator="\t")
         with pl.Config(tbl_rows=100):
-            print("\n=== summary (mean +- sd across epitopes) ===\n", summ)
-    if fp_rows:
-        fpdf = pl.DataFrame(fp_rows, schema=["condition", "locus", "method", "fp_rate", "n"], orient="row")
-        fpdf.write_csv(out / "fp_rates.tsv", separator="\t")
-        print("\n=== C6 OLGA false-positive rates ===\n", fpdf)
+            print("\n=== detection summary (ROC/PR/F1/FP) ===\n", summ)
 
 
 if __name__ == "__main__":
