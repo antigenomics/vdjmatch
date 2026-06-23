@@ -14,56 +14,58 @@ Pair these per-epitope metrics with macro-averaging across epitopes.
 from __future__ import annotations
 
 
-def _sorted(pairs):
+def _curve(pairs):
+    """Cumulative (tp, fp) points after each tied-score GROUP (descending score), plus P, N. Grouping
+    equal scores gives them 0.5 credit (Mann-Whitney-consistent) — without it, tied positives that
+    happen to precede tied negatives in the input inflate every AUC."""
     s = sorted(pairs, key=lambda x: -x[1])
     P = sum(l for l, _ in s)
-    return s, P, len(s) - P
+    N = len(s) - P
+    pts = [(0, 0)]
+    tp = fp = i = 0
+    while i < len(s):
+        sc = s[i][1]
+        j = i
+        while j < len(s) and s[j][1] == sc:
+            tp += s[j][0]
+            fp += 1 - s[j][0]
+            j += 1
+        pts.append((tp, fp))
+        i = j
+    return pts, P, N
 
 
 def pr_auc(pairs) -> float:
     """Micro PR-AUC at the observed prevalence (average precision)."""
-    s, P, _ = _sorted(pairs)
+    pts, P, _ = _curve(pairs)
     if P == 0:
         return float("nan")
-    tp = fp = 0
-    pr = pp = area = 0.0
-    pp = 1.0
-    for lab, _ in s:
-        tp += lab
-        fp += 1 - lab
-        r, p = tp / P, tp / (tp + fp)
+    pr, pp, area = 0.0, 1.0, 0.0
+    for tp, fp in pts[1:]:
+        r, p = tp / P, tp / (tp + fp) if tp + fp else 1.0
         area += (r - pr) * (p + pp) / 2
         pr, pp = r, p
     return area
 
 
 def roc_auc(pairs) -> float:
-    """ROC-AUC (prevalence-invariant rank discriminator)."""
-    s, P, N = _sorted(pairs)
+    """ROC-AUC (prevalence-invariant rank discriminator), ties grouped -> 0.5 credit."""
+    pts, P, N = _curve(pairs)
     if P == 0 or N == 0:
         return float("nan")
-    tp = fp = 0
-    pfpr = ptpr = area = 0.0
-    for lab, _ in s:
-        tp += lab
-        fp += 1 - lab
-        tpr, fpr = tp / P, fp / N
-        area += (fpr - pfpr) * (tpr + ptpr) / 2
-        pfpr, ptpr = fpr, tpr
+    area = 0.0
+    for (tp0, fp0), (tp1, fp1) in zip(pts, pts[1:]):
+        area += (fp1 - fp0) / N * (tp1 + tp0) / (2 * P)
     return area
 
 
 def pr_auc_balanced(pairs, pi0: float = 0.5) -> float:
     """PR-AUC with precision re-normalized to reference prevalence ``pi0`` (balanced by default)."""
-    s, P, N = _sorted(pairs)
+    pts, P, N = _curve(pairs)
     if P == 0 or N == 0:
         return float("nan")
-    tp = fp = 0
-    pr = area = 0.0
-    pp = 1.0
-    for lab, _ in s:
-        tp += lab
-        fp += 1 - lab
+    pr, pp, area = 0.0, 1.0, 0.0
+    for tp, fp in pts[1:]:
         tpr, fpr = tp / P, fp / N
         denom = tpr * pi0 + fpr * (1 - pi0)
         p0 = (tpr * pi0) / denom if denom else 1.0
@@ -74,14 +76,11 @@ def pr_auc_balanced(pairs, pi0: float = 0.5) -> float:
 
 def f1_balanced(pairs, pi0: float = 0.5) -> float:
     """Best F1 along the ranked list with precision re-normalized to ``pi0`` (balanced by default)."""
-    s, P, N = _sorted(pairs)
+    pts, P, N = _curve(pairs)
     if P == 0 or N == 0:
         return float("nan")
-    tp = fp = 0
     best = 0.0
-    for lab, _ in s:
-        tp += lab
-        fp += 1 - lab
+    for tp, fp in pts[1:]:
         tpr, fpr = tp / P, fp / N
         denom = tpr * pi0 + fpr * (1 - pi0)
         p0 = (tpr * pi0) / denom if denom else 1.0
