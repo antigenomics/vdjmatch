@@ -87,3 +87,67 @@ all gold cases and vdjdb by species/chain/mhc/epitope we'll give a single large 
 - Answers to Q1–Q6 above (or "use defaults" and I'll pick the recommended option).
 - GLIPH2 binary + HLA reference, and the DETECT `.ods` mapping (Q3, Q5), if you have them.
 - The final method list (I'll wire each into `compare.py` via its predictions file).
+
+---
+
+# Clustering comparators — DONE (clusTCR, GIANA, iSMART, DeepTCR)
+
+These four are *unsupervised clustering* tools (not detection), benchmarked on the SAME shortlist
+clonotype sets and the SAME purity/retention metric as the in-house method, via
+`cluster_results.single_clonotypes` / `paired_clonotypes` / `score_labels` (manuscript module). Each
+producer is `bench/<tool>_cluster.py` (run with the vdjmatch **venv**), reads the shared sets through
+`bench/_cluster_common.py`, ships CDR3s to a `cmp-<tool>` conda env, parses cluster ids back into
+`labels` aligned 1:1 to the clonotype list (unclustered → unique negative id = singleton), scores, and
+writes `predictions/<tool>/clustering.tsv` (columns: `set, macro_purity, retention, n_clusters,
+n_clonotypes, note`). Sources cloned under `bench/external/<Tool>/` (gitignored). Idempotent.
+
+**V-gene format gotcha (GIANA + iSMART):** both build a V-gene similarity table keyed on IMGT allele
+names from their bundled `Imgt_Human_TRBV.fasta` (e.g. `TRBV7-9*01`); with V-gene ON, a name absent
+from that table makes `falign()` **return 0** and silently drops the cluster edge → artificially low
+retention. The shared set gives subgroup-level names (`B.vgene`, e.g. `TRBV7-9`), so the producers
+append `*01` (matches the fasta for 2785/2786 clonotypes). CDR3 order/labels are unchanged.
+
+## clusTCR  (Valkiers 2021)
+- **Install (NOT pip, NOT plain bioconda on arm64):** `pip install clustcr` fails ("No matching
+  distribution"); the bioconda/`svalkiers` conda package needs `markov_clustering` which isn't a conda
+  pkg, and faiss has no arm64 build on those channels. Working recipe: `conda create -n cmp-clustcr
+  python=3.8`; `conda install -c conda-forge faiss-cpu` (gets the arm64 faiss 1.8); then from the cloned
+  repo `pip install networkx scikit-learn==1.0.2 markov-clustering python-louvain parmap matplotlib
+  scipy==1.8 pandas` and `pip install --no-deps -e .` (no-deps so it doesn't try to re-pull faiss).
+- **API:** `Clustering().fit(pandas.Series(cdr3))` → `r.clusters_df` (cols `junction_aa, cluster`),
+  default two-step (faiss + MCL). Single CDR3 column → TRA/TRB direct; paired = concat(alpha,beta).
+- **Supports:** TRB, TRA, paired (concat). Fast (<2.2 s for 9214).
+
+## GIANA  (Zhang 2021)
+- **Install:** `conda create -n cmp-giana python=3.8`; `conda install -c conda-forge faiss-cpu numpy
+  scikit-learn pandas`; `pip install "biopython>=1.79"` (GIANA4.py uses the modern
+  `Bio.Align.substitution_matrices`).
+- **Entry point gotcha:** run `GIANA4.py` (module name `GIANA4`), NOT `GIANA4.1.py` — the `.1.` is not
+  an importable module name and `query.py` does `from GIANA4 import *` (circular import resolves only
+  for `GIANA4`). Must run with `cwd` = the repo dir (reads `Imgt_Human_TRBV.fasta` by relative path).
+- **I/O:** input TSV col0 CDR3, col1 V; output `<stem>--RotationEncodingBL62.txt`, lines
+  `CDR3<TAB>cluster_id<TAB>info` (cluster id = **column 1**); unclustered CDR3s absent.
+- **Default params:** isometric thr `-t 7`, SW exact on, V-gene on. **β-only** (human TRBV scoring) →
+  TRB only; TRA/paired N/A.
+
+## iSMART  (Zhang 2020)
+- **Install:** `conda create -n cmp-ismart python=3.8`; `conda install -c conda-forge numpy`;
+  `pip install "biopython==1.76"` — **required**: `iSMARTf3.py` imports the **removed**
+  `Bio.SubsMat.MatrixInfo` (gone in Biopython ≥1.80), so an old Biopython is mandatory.
+- **I/O:** input TSV col0 CDR3, col1 V; output `<stem>_clustered_v3.txt`, rows `<orig cols><TAB>Group`
+  (cluster id = **LAST column**); unclustered CDR3s absent. Run with `cwd` = repo dir.
+- **Default params:** `-t 7.5`, `-K 6`, V-gene on. **β-only** → TRB only; TRA/paired N/A.
+
+## DeepTCR  (Sidhom 2021)  — heaviest (TensorFlow VAE)
+- **Install:** `conda create -n cmp-deeptcr python=3.9 && pip install DeepTCR` (pulls
+  tensorflow-macos 2.12 + tensorflow-metal → GPU on M3, biopython 1.76, numpy 1.23). phenograph is NOT
+  a DeepTCR dep → `pip install phenograph` (DeepTCR's default `Cluster()` backend; pulls leidenalg).
+- **Path:** unsupervised `DeepTCR_U`. `Load_Data(beta_sequences, v_beta, [alpha_sequences, v_alpha])`
+  (arrays, no file) → `Train_VAE(graph_seed=0, split_seed=0)` (library-default early stop
+  `stop_criterion=0.01`) → `Cluster(clustering_method='phenograph')`; per-sequence labels in
+  `self.Cluster_Assignments` (load order; phenograph outliers `-1` → scored as singletons). Worker runs
+  in the env: `bench/_deeptcr_worker.py`.
+- **Note:** phenograph is a feature-space community partitioner (k=30), so it forces most points into
+  clusters (few natural singletons) — different operating point from the threshold-based tools; reported
+  as-is at defaults. **Supports:** TRB, TRA, paired (native α+β). Time-boxed (TIMEOUT=1500 s/set);
+  TRB VAE ~1–2 min on M3.
