@@ -3,7 +3,7 @@
 <p>
   <a href="https://pypi.org/project/vdjmatch/"><img alt="PyPI" src="https://img.shields.io/pypi/v/vdjmatch"></a>
   <a href="https://github.com/antigenomics/vdjmatch/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/antigenomics/vdjmatch/actions/workflows/tests.yml/badge.svg"></a>
-  <a href="https://docs.isalgo.dev/vdjmatch/"><img alt="docs" src="https://github.com/antigenomics/vdjmatch/actions/workflows/docs.yml/badge.svg"></a>
+  <a href="https://antigenomics.github.io/vdjmatch/"><img alt="docs" src="https://github.com/antigenomics/vdjmatch/actions/workflows/docs.yml/badge.svg"></a>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPLv3-green"></a>
 </p>
@@ -15,19 +15,20 @@ by fuzzy CDR3 search, reporting a **control-calibrated E-value** (BLAST-style si
 background repertoire) and enriched antigen-specificity labels. It is a Python rewrite of the legacy
 Java/Groovy vdjmatch, built on the [`seqtree`](https://github.com/antigenomics/seqtree) search core.
 
-> **Status:** 2.0 alpha, under active development on `dev`. The legacy Java tool is preserved on the
-> `legacy-java` branch (tags `1.1.4`–`1.3.1`).
+> **Status:** early alpha (PyPI `0.0.1`), under active development on `dev`. The "2.0" line is the
+> Python rewrite of the legacy Java/Groovy vdjmatch (1.x), which is preserved on the `legacy-java`
+> branch (tags `1.1.4`–`1.3.1`).
 
-## Features (target)
+## Features
 
 - Fetch the latest VDJdb release and annotate AIRR Rearrangement / Cell (paired α/β) samples.
 - Extremely fast, multithreaded search of million-scale repertoires (via `seqtree`).
-- Control-calibrated **E-values** (single-chain now; paired α/β and single-chain-paired estimates).
+- Control-calibrated **E-values** — single-chain and paired α/β (`vdjmatch.evalue`).
 - Custom substitution matrices, including segment-specific (V / NDN / J) scoring; the TCR-specific
   **VDJAM** matrix is bundled.
 - Rich per-hit output: ranked hits, CIGAR + alignment match/gap, alignment scores, E-values.
 - Epitope-level enrichment summaries; pairwise sample overlap.
-- `polars` throughout for I/O.
+- A small command-line interface (`vdjmatch update` / `vdjmatch match`) and a `polars`-native Python API.
 
 ## Install (development)
 
@@ -57,6 +58,25 @@ vdjmatch.annotate(["CASS..."])                         # module-level shortcut (
 edits, ≤2 ins, ≤2 del): the control's neighbour count grows with the radius, so a distance-1 hit is
 significant while a distance-5-only hit is not — noise is rejected without a fixed scope
 (`vdjmatch.evalue.first_hit`). Edit-distance and BLOSUM+possig-penalty "nearest" both supported.
+
+## Command line
+
+```fish
+vdjmatch update                          # fetch + cache the latest VDJdb release
+vdjmatch match sample.tsv                # annotate an AIRR rearrangement sample
+vdjmatch match -o run/out --match-v --threads 8 *.tsv
+```
+
+`match` writes three TSV files per sample (prefix set by `-o`):
+
+| file | contents |
+|------|----------|
+| `<prefix>.<sample>.hits.txt`    | every VDJdb match per clonotype — CDR3 alignment, CIGAR, edit counts, score |
+| `<prefix>.<sample>.calls.txt`   | one predicted epitope per clonotype with its control-calibrated E-value |
+| `<prefix>.<sample>.summary.txt` | epitope-level enrichment (unique clonotypes, reads) |
+
+Key options: `--scope s,i,d,t` (search budget, default `1,0,0,1`), `--matrix {vdjam,none}`,
+`--match-v` / `--match-j`, `--no-evalue`. Run `vdjmatch match -h` for the full list.
 
 ## Scoring: what works (and what doesn't)
 

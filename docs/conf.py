@@ -8,12 +8,15 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.intersphinx",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.githubpages",
     "nbsphinx",
 ]
 
-# autodoc (when API pages are added) imports vdjmatch with its heavy deps mocked.
-autodoc_mock_imports = ["seqtree", "polars"]
+# autodoc imports vdjmatch with its heavy / optional deps mocked.
+autodoc_mock_imports = ["seqtree", "polars", "huggingface_hub", "numpy", "scipy", "Bio", "ezodf", "psutil"]
 autodoc_typehints = "description"
+autodoc_member_order = "bysource"
 
 intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 

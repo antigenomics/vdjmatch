@@ -11,9 +11,10 @@ built on the `seqtree <https://github.com/antigenomics/seqtree>`_ search core.
 
 .. note::
 
-   ``vdjmatch`` 0.0.1 is an early release. The single-chain annotator (VDJdb fetch, AIRR I/O,
-   fuzzy search, E-values, epitope-enrichment summaries, CLI) is in place; paired α/β scoring, a
-   re-derived segment-aware substitution matrix (VDJAM), and tool comparisons are in progress.
+   ``vdjmatch`` 0.0.1 is an early release under active development. The single-chain **and paired
+   α/β** annotators — VDJdb fetch, AIRR I/O, fuzzy search, control-calibrated single- and
+   paired-chain E-values, epitope-enrichment summaries, and the CLI — are in place; the re-derived
+   segment-aware substitution matrix (VDJAM) and the full tool-comparison benchmark are still settling.
 
 Installation
 ------------
@@ -83,5 +84,8 @@ only about **half** of it (the rest is gene-identity-specific).
 
 .. toctree::
    :hidden:
+   :maxdepth: 2
 
    self
+   cli
+   api
