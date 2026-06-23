@@ -52,28 +52,68 @@ def release(which: str, species="HomoSapiens") -> pl.DataFrame:
     return _REL[which]
 
 
+def vgene(v) -> str:
+    """Normalise a V gene to its allele-stripped gene name for V-matching (e.g. TRBV20-1*01 -> TRBV20-1)."""
+    return (v or "").split("*")[0]
+
+
+def shortlist(df: pl.DataFrame, min_refs: int = 2) -> pl.DataFrame:
+    """Clonotype-pMHC pairs in >= min_refs distinct references (keeps ALL columns incl complex_id)."""
+    key = ["gene", "cdr3", "v", "j", "epitope"]
+    keep = (df.group_by(key).agg(pl.col("reference_id").n_unique().alias("nr"))
+            .filter(pl.col("nr") >= min_refs).select(key))
+    return df.join(keep, on=key, how="semi")
+
+
 def ref_index(df: pl.DataFrame, locus: str):
-    """VDJdb frame -> (Index, ref_epitopes, N_per_epitope) for a single locus."""
+    """VDJdb frame -> (Index, ref_epi, ref_v, n_epi, n_epi_v, n_v) for a single locus. One entry per
+    unique CDR3 (representative V/epitope); the V vector enables the V+CDR3 joint E-value."""
     r = (_bench.valid_cdr3(df.filter(pl.col("gene") == locus)).group_by("cdr3")
-         .agg(pl.col("epitope").first()))
+         .agg(pl.col("epitope").first(), pl.col("v").first()))
     epi = r["epitope"].to_list()
-    return Index.build(r["cdr3"].to_list(), "aa"), epi, Counter(epi)
+    v = [vgene(x) for x in r["v"].to_list()]
+    return (Index.build(r["cdr3"].to_list(), "aa"), epi, v,
+            Counter(epi), Counter(zip(v, epi)), Counter(v))
 
 
-# ---- vdjmatch classification (first-hit E-value) --------------------------------------------------
-def vdjmatch_classify(tgt, ref_epi, n_epi, ctrl, queries, epitopes, alpha, exclude_exact):
+# ---- vdjmatch classification (first-hit E-value; optional V+CDR3 joint null) ----------------------
+def vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v, ctrl, queries, query_v, epitopes,
+                      alpha, exclude_exact, v_mode="none", params=None):
     """queries -> per query {epitope: (-log10 p_enrichment, significant)} for the candidate epitopes,
-    plus an overall-significant flag (any-epitope first-hit p < alpha) for FP estimation."""
-    N, M = len(tgt), len(ctrl)
-    th, cc = first_hit.scan(tgt, ref_epi, ctrl, queries, exclude_exact=exclude_exact)
+    plus an overall-significant flag (any-epitope first-hit p < alpha) for FP estimation. ``v_mode``:
+    ``none`` = CDR3-only; ``match_v`` = V+CDR3 joint E-value (same-V-restricted Poisson tail)."""
+    M, Ntot = len(ctrl), len(ref_epi)
+    match_v = v_mode == "match_v"
+    t2 = lambda hits: [(c, e) for c, e, *_ in hits]            # drop the V tag for the V-agnostic pvalue
+    th, cc = first_hit.scan(tgt, ref_epi, ctrl, queries, target_v=ref_v, params=params,
+                            exclude_exact=exclude_exact)
     scores, overall = {}, {}
-    for q, t, c in zip(queries, th, cc):
-        overall[q] = first_hit.pvalue(t, c, N, M)["p_enrichment"] < alpha
+    for q, qv, t, c in zip(queries, query_v, th, cc):
+        # FP/significance always V-AGNOSTIC (the same-V null is tight for rare V -> over-calls); the
+        # V+CDR3 prior sharpens the per-epitope SCORE (ranking), not the significance threshold.
+        overall[q] = first_hit.pvalue(t2(t), c, Ntot, M)["p_enrichment"] < alpha
         scores[q] = {}
         for e in epitopes:
-            p = first_hit.pvalue(t, c, n_epi.get(e, 1), M, epitope=e)["p_enrichment"]
-            scores[q][e] = (-math.log10(max(p, 1e-300)), p < alpha)
+            N_e = n_epi_v.get((qv, e), 1) if match_v else n_epi.get(e, 1)
+            p_score = first_hit.pvalue_v(t, c, qv, N_e, M, epitope=e, match_v=match_v)["p_enrichment"]
+            p_sig = first_hit.pvalue(t2(t), c, n_epi.get(e, 1), M, epitope=e)["p_enrichment"]
+            scores[q][e] = (-math.log10(max(p_score, 1e-300)), p_sig < alpha)
     return scores, overall
+
+
+def read_predictions(path: Path, allq, epitopes):
+    """predictions/<method>/<cond>_<locus>.tsv (query_id, epitope, score[, significant]) -> scores dict
+    {query: {epitope: (score, significant)}} with 0/False defaults for unscored (query, epitope)."""
+    scores = {q: {e: (0.0, False) for e in epitopes} for q in allq}
+    if not path.exists():
+        return None
+    df = pl.read_csv(path, separator="\t")
+    has_sig = "significant" in df.columns
+    for r in df.iter_rows(named=True):
+        q, e = r["query_id"], r["epitope"]
+        if q in scores and e in epitopes:
+            scores[q][e] = (float(r["score"]), bool(r["significant"]) if has_sig else r["score"] > 0)
+    return scores
 
 
 def classify_metrics(scores, pos, neg, epi):
@@ -91,12 +131,12 @@ def classify_metrics(scores, pos, neg, epi):
 
 
 # ---- conditions: each yields (locus, ref_df, queries, [(epitope, pos_ids, neg_ids)], exclude_exact)-
-def cond_sample_pair(name, sample, epi_keys, loci):
+def cond_sample_pair(name, loci):
     """C1/C2: discriminate two query groups by matching against vdjdb2026."""
     for locus in loci:
         if name == "C1":                                          # sample2: LLW vs LLL by antigen.epitope
             d = (pl.read_csv(TESTDATA / "sample2_yf_bst2_5+reads.txt", separator="\t")
-                 .rename({"antigen.epitope": "label"}).select("cdr3", "label"))
+                 .rename({"antigen.epitope": "label"}).select("cdr3", "label", v="v.segm"))
             d = _bench.valid_cdr3(d).unique("cdr3")
             groups = {EPI["LLW"]: d.filter(pl.col("label") == EPI["LLW"])["cdr3"].to_list(),
                       EPI["LLL"]: d.filter(pl.col("label") == EPI["LLL"])["cdr3"].to_list()}
@@ -104,31 +144,36 @@ def cond_sample_pair(name, sample, epi_keys, loci):
                      (EPI["LLL"], groups[EPI["LLL"]], groups[EPI["LLW"]])]
         else:                                                     # C2 sample1: cmv(NLV+) vs control(NLV-)
             d = (pl.read_csv(TESTDATA / "sample1_cmv_5+reads.txt", separator="\t")
-                 .filter(pl.col("gene") == locus).select("cdr3", label="type"))
+                 .filter(pl.col("gene") == locus).select("cdr3", label="type", v="v.segm"))
             d = _bench.valid_cdr3(d).unique("cdr3")
             pos = d.filter(pl.col("label") == "cmv")["cdr3"].to_list()
             neg = d.filter(pl.col("label") == "control")["cdr3"].to_list()
             tasks = [(EPI["NLV"], pos, neg)]
-        yield locus, release("vdjdb2026"), tasks, True
+        qv = {c: vgene(v) for c, v in zip(d["cdr3"], d["v"])}
+        yield locus, release("vdjdb2026"), tasks, True, qv
 
 
-def cond_olga_fp(loci, n=10000):
+def cond_olga_fp(loci, n=1000):
     """C6: OLGA negatives (sample5=TRA, sample4=TRB) vs vdjdb2025 -> any significant hit is a FP."""
     files = {"TRA": "sample5", "TRB": "sample4"}
     for locus in loci:
-        q = load_sample(files[locus])
-        if q.height > n:
-            q = q.sample(n, seed=0)
-        yield locus, release("vdjdb2025"), q["cdr3"].to_list()
+        d = (pl.read_csv(TESTDATA / f"{files[locus]}_olga_airr.txt", separator="\t")
+             .select(cdr3="junction_aa", v="v_gene").pipe(_bench.valid_cdr3).unique("cdr3"))
+        if d.height > n:
+            d = d.sample(n, seed=0)
+        qv = {c: vgene(v) for c, v in zip(d["cdr3"], d["v"])}
+        yield locus, release("vdjdb2025"), d["cdr3"].to_list(), qv
 
 
 def cond_tcrvdb(loci):
     """C3: TCRvdb padj<1e-5 (pos) vs >=1e-5 (neg) per epitope, annotated vs vdjdb2026."""
     t = pl.read_csv(TESTDATA / "sample6_TCRvdb.csv").with_columns(pos=pl.col("padj") < 1e-5)
     chain_col = {"TRA": "cdr3_alpha_aa", "TRB": "cdr3_beta_aa"}
+    v_col = {"TRA": "TRAV", "TRB": "TRBV"}
     for locus in loci:
-        d = (t.select(cdr3=chain_col[locus], epitope="epitope_aa", pos="pos")
+        d = (t.select(cdr3=chain_col[locus], epitope="epitope_aa", pos="pos", v=v_col[locus])
              .pipe(_bench.valid_cdr3).unique("cdr3"))
+        qv = {c: vgene(v) for c, v in zip(d["cdr3"], d["v"])}
         tasks = []
         for e in (EPI["GLC"], EPI["YLQ"]):
             de = d.filter(pl.col("epitope") == e)
@@ -136,20 +181,24 @@ def cond_tcrvdb(loci):
             neg = de.filter(~pl.col("pos"))["cdr3"].to_list()
             if pos and neg:
                 tasks.append((e, pos, neg))
-        yield locus, release("vdjdb2026"), tasks, True
+        yield locus, release("vdjdb2026"), tasks, True, qv
 
 
 def cond_loo(which, loci, top, min_epi, max_q):
-    """C4 (within vdjdb2025) / C5 (new-in-2026 vs 2025 reference): per-epitope X(pos) vs other(neg)."""
-    v25 = release("vdjdb2025")
+    """C4 (within vdjdb2025) / C5 (new-in-2026 vs 2025 reference): per-epitope X(pos) vs other(neg).
+
+    Both releases are restricted to the SHORTLIST: clonotype-pMHC pairs seen in >=2 references
+    (``db.replicated``), per request — the public/learnable subset.
+    """
+    v25 = shortlist(release("vdjdb2025"))
     for locus in loci:
         ref_cell = _bench.valid_cdr3(v25.filter(pl.col("gene") == locus))
         if which == "C4":
             test_cell, excl = _bench.long_list(v25.filter(pl.col("gene") == locus), cap=max_q,
                                                min_n=min_epi), True
-        else:                                                     # C5: 2026 clonotypes new vs 2025
-            v26 = _bench.long_list(release("vdjdb2026").filter(pl.col("gene") == locus), cap=max_q,
-                                   min_n=min_epi)
+        else:                                                     # C5: 2026 shortlist clonotypes new vs 2025
+            v26 = _bench.long_list(shortlist(release("vdjdb2026"))
+                                   .filter(pl.col("gene") == locus), cap=max_q, min_n=min_epi)
             test_cell = v26.join(ref_cell.select("cdr3", "epitope").unique(),
                                  on=["cdr3", "epitope"], how="anti")
             excl = False
@@ -157,7 +206,8 @@ def cond_loo(which, loci, top, min_epi, max_q):
         per = {e: test_cell.filter(pl.col("epitope") == e).unique("cdr3")["cdr3"].to_list()[:max_q]
                for e in held}
         tasks = [(e, per[e], [q for e2 in held if e2 != e for q in per[e2]]) for e in held]
-        yield locus, v25, tasks, excl
+        qv = {c: vgene(v) for c, v in zip(test_cell["cdr3"], test_cell["v"])}
+        yield locus, v25, tasks, excl, qv
 
 
 def summarize(rows):
@@ -174,23 +224,27 @@ def summarize(rows):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--conditions", nargs="+", default=["C1", "C2", "C3", "C4", "C5", "C6"])
+    ap.add_argument("--conditions", nargs="+", default=["C1", "C2", "C3", "C6"])
     ap.add_argument("--methods", nargs="+", default=["vdjmatch"])
     ap.add_argument("--loci", nargs="+", default=["TRA", "TRB"])
+    ap.add_argument("--v-mode", default="none", choices=["none", "match_v"],
+                    help="vdjmatch V+CDR3 joint E-value (same-V-restricted null)")
+    ap.add_argument("--scope", default="5,2,2", help="first-hit scope max_edits,max_ins,max_dels")
     ap.add_argument("--alpha", type=float, default=1e-3)
     ap.add_argument("--top", type=int, default=20)
     ap.add_argument("--min-epi", type=int, default=30)
     ap.add_argument("--max-queries", type=int, default=300)
+    ap.add_argument("--olga-n", type=int, default=2000, help="C6: OLGA negatives per locus")
+    ap.add_argument("--pred-dir", default="bench/predictions")
     ap.add_argument("--out", default="bench/out/benchmark")
     args = ap.parse_args()
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
-    rows, fp_rows = [], []
+    rows, fp_rows, n_rows = [], [], []
+    params = first_hit.scope(*[int(x) for x in args.scope.split(",")])
 
     def classify_cells(cond):
-        if cond == "C1":
-            return cond_sample_pair("C1", None, None, ["TRB"])
-        if cond == "C2":
-            return cond_sample_pair("C2", None, None, args.loci)
+        if cond in ("C1", "C2"):
+            return cond_sample_pair(cond, ["TRB"] if cond == "C1" else args.loci)
         if cond == "C3":
             return cond_tcrvdb(args.loci)
         if cond in ("C4", "C5"):
@@ -199,11 +253,13 @@ def main():
 
     for cond in args.conditions:
         if cond == "C6":
-            for locus, ref_df, queries in cond_olga_fp(args.loci):
-                tgt, ref_epi, n_epi = ref_index(ref_df, locus)
+            for locus, ref_df, queries, qv in cond_olga_fp(args.loci, args.olga_n):
                 if "vdjmatch" in args.methods:
-                    _, overall = vdjmatch_classify(tgt, ref_epi, n_epi, background(locus), queries,
-                                                   [], args.alpha, True)
+                    tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v = ref_index(ref_df, locus)
+                    _, overall = vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v,
+                                                   background(locus), queries,
+                                                   [qv[q] for q in queries], [], args.alpha, True,
+                                                   v_mode=args.v_mode, params=params)
                     fp = sum(overall.values()) / len(queries)
                     fp_rows.append(("C6", locus, "vdjmatch", fp, len(queries)))
                     print(f"C6/{locus}: FP={fp*100:.2f}% over {len(queries)} OLGA negatives")
@@ -212,22 +268,39 @@ def main():
         if cells is None:
             print(f"  ({cond} not yet implemented)")
             continue
-        for locus, ref_df, tasks, excl in cells:
+        for locus, ref_df, tasks, excl, qv in cells:
             if not tasks:
                 print(f"{cond}/{locus}: no tasks (skipped)")
                 continue
-            tgt, ref_epi, n_epi = ref_index(ref_df, locus)
             epitopes = sorted({e for e, _, _ in tasks})
             allq = sorted({q for _, p, n in tasks for q in (*p, *n)})
-            if "vdjmatch" in args.methods:
-                scores, _ = vdjmatch_classify(tgt, ref_epi, n_epi, background(locus), allq,
-                                              epitopes, args.alpha, excl)
+            n_rows.append((cond, locus, len(allq), len(tasks)))
+            tgt = None                                            # lazy: only build the index for vdjmatch
+            for method in args.methods:
+                if method == "vdjmatch":
+                    if tgt is None:
+                        tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v = ref_index(ref_df, locus)
+                    scores, _ = vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v,
+                                                  background(locus), allq, [qv[q] for q in allq],
+                                                  epitopes, args.alpha, excl, v_mode=args.v_mode, params=params)
+                else:
+                    scores = read_predictions(Path(args.pred_dir) / method / f"{cond}_{locus}.tsv",
+                                              allq, epitopes)
+                    if scores is None:
+                        print(f"  skip {method}/{cond}/{locus}: no predictions")
+                        continue
                 for epi, pos, neg in tasks:
                     m = classify_metrics(scores, pos, neg, epi)
                     for k in ("roc_auc", "pr_auc", "fp", "f1"):
-                        rows.append((cond, locus, "vdjmatch", epi, k, m[k]))
-                print(f"{cond}/{locus}: {len(tasks)} epitope-task(s), {len(allq)} queries scored")
+                        rows.append((cond, locus, method, epi, k, m[k]))
+                    if method == "vdjmatch":
+                        rows.append((cond, locus, method, epi, "n_pos", float(m["n_pos"])))
+                        rows.append((cond, locus, method, epi, "n_neg", float(m["n_neg"])))
+                print(f"{cond}/{locus}/{method}: {len(tasks)} epitope-task(s), {len(allq)} queries")
 
+    if n_rows:
+        pl.DataFrame(n_rows, schema=["condition", "locus", "n_queries", "n_epitopes"],
+                     orient="row").write_csv(out / "dataset_n.tsv", separator="\t")
     if rows:
         by, summ = summarize(rows)
         by.write_csv(out / "by_epitope.tsv", separator="\t")

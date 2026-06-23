@@ -37,17 +37,21 @@ def _cost_lists(idx: Index, queries, params, threads, exclude_exact, chunk, desc
 
 
 def scan(target: Index, target_epi: list[str], control: Index, queries, *,
-         params: SearchParams | None = None, threads: int = 0, exclude_exact: bool = False,
-         chunk: int = 10000, progress: bool = False):
+         target_v: list[str] | None = None, params: SearchParams | None = None, threads: int = 0,
+         exclude_exact: bool = False, chunk: int = 10000, progress: bool = False):
     """One wide search per side. Returns ``(target_hits, control_costs)`` where ``target_hits[q]`` is a
-    cost-sorted list of ``(total_edits, epitope)`` and ``control_costs[q]`` a cost-sorted list of edits.
-    ``target_epi`` maps each target ``ref_id`` to its epitope. ``chunk`` bounds memory / drives the
-    progress bar (``progress=True``)."""
+    cost-sorted list of ``(total_edits, epitope)`` — or ``(total_edits, epitope, ref_v)`` when
+    ``target_v`` (ref_id -> V gene) is given, for the V+CDR3 joint E-value — and ``control_costs[q]`` a
+    cost-sorted list of edits. ``target_epi`` maps each target ``ref_id`` to its epitope. ``chunk`` bounds
+    memory / drives the progress bar (``progress=True``)."""
     params = params or scope()
     th = _cost_lists(target, queries, params, threads, exclude_exact, chunk, "search: target", progress)
     ch = _cost_lists(control, queries, params, threads, exclude_exact, chunk, "search: control", progress)
-    return ([[(c, target_epi[r]) for c, r in t] for t in th],
-            [[c for c, _ in cc] for cc in ch])
+    if target_v is not None:
+        target_hits = [[(c, target_epi[r], target_v[r]) for c, r in t] for t in th]
+    else:
+        target_hits = [[(c, target_epi[r]) for c, r in t] for t in th]
+    return (target_hits, [[c for c, _ in cc] for cc in ch])
 
 
 def pvalue(target_hits, control_costs, N: int, M: int, epitope: str | None = None) -> dict:
@@ -55,6 +59,27 @@ def pvalue(target_hits, control_costs, N: int, M: int, epitope: str | None = Non
     ``E = (N/M)·n_control(r*)``, ``p_enrichment = P(X ≥ n_target(r*) | E)``. ``N`` is the target size
     (use the epitope's size when ``epitope`` is set), ``M`` the control size."""
     th = target_hits if epitope is None else [(c, e) for c, e in target_hits if e == epitope]
+    if not th:
+        return {"radius": None, "n_target": 0, "n_control": 0, "E": 0.0, "p_enrichment": 1.0}
+    r = th[0][0]
+    n_t = sum(1 for c, _ in th if c <= r)
+    n_c = sum(1 for c in control_costs if c <= r)
+    E = (N / M) * n_c
+    p = _poisson_sf(n_t, E) if E > 0 else (0.0 if n_t > 0 else 1.0)
+    return {"radius": r, "n_target": n_t, "n_control": n_c, "E": E, "p_enrichment": p}
+
+
+def pvalue_v(target_hits, control_costs, query_v, N: int, M: int, epitope: str | None = None,
+             match_v: bool = True) -> dict:
+    """V+CDR3 joint first-hit E-value. ``target_hits`` are ``(cost, epitope, ref_v)`` (from ``scan`` with
+    ``target_v``). With ``match_v`` the first-hit radius and target counts are restricted to references
+    sharing the query's V gene (``query_v``); pass the same-V same-epitope target size as ``N`` — the
+    control mass term ``P_ref(v)`` cancels, leaving ``E = (N_V/M)·n_control(r*)`` against the full
+    CDR3-only control. With ``match_v=False`` this reduces to the V-agnostic :func:`pvalue`."""
+    if match_v:
+        th = [(c, e) for c, e, v in target_hits if v == query_v and (epitope is None or e == epitope)]
+    else:
+        th = [(c, e) for c, e, v in target_hits if epitope is None or e == epitope]
     if not th:
         return {"radius": None, "n_target": 0, "n_control": 0, "E": 0.0, "p_enrichment": 1.0}
     r = th[0][0]
