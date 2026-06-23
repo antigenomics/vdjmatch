@@ -19,6 +19,7 @@ in via predictions/<method>/<condition>_<locus>.tsv (query_id, epitope, score[, 
 from __future__ import annotations
 
 import argparse
+import bisect
 import math
 import statistics as st
 import sys
@@ -89,15 +90,23 @@ def vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v, ctrl, queries, q
                             exclude_exact=exclude_exact)
     scores, overall = {}, {}
     for q, qv, t, c in zip(queries, query_v, th, cc):
-        # FP/significance always V-AGNOSTIC (the same-V null is tight for rare V -> over-calls); the
-        # V+CDR3 prior sharpens the per-epitope SCORE (ranking), not the significance threshold.
-        overall[q] = first_hit.pvalue(t2(t), c, Ntot, M)["p_enrichment"] < alpha
+        cs_ctrl = sorted(c)
+        t1 = [h for h in t if h[0] <= 1]                       # significance at radius<=1 (specific, low FP)
+        # FP/significance always V-AGNOSTIC (the same-V null is tight for rare V -> over-calls).
+        overall[q] = first_hit.pvalue(t2(t1), c, Ntot, M)["p_enrichment"] < alpha
         scores[q] = {}
         for e in epitopes:
             N_e = n_epi_v.get((qv, e), 1) if match_v else n_epi.get(e, 1)
-            p_score = first_hit.pvalue_v(t, c, qv, N_e, M, epitope=e, match_v=match_v)["p_enrichment"]
-            p_sig = first_hit.pvalue(t2(t), c, n_epi.get(e, 1), M, epitope=e)["p_enrichment"]
-            scores[q][e] = (-math.log10(max(p_score, 1e-300)), p_sig < alpha)
+            # RANKING = control-calibrated continuous density (caldens): each same-(V-)epitope neighbour
+            # weighted by closeness exp(-c/2) / its expected local control density -> continuous (no
+            # score-0 pile), down-weights neighbours in dense control regions (handles huge references).
+            dens = 0.0
+            for hc, he, hv in t:
+                if he == e and (not match_v or hv == qv):
+                    nc = bisect.bisect_right(cs_ctrl, hc)
+                    dens += math.exp(-hc / 2.0) / max((N_e / M) * nc, 0.01)
+            p_sig = first_hit.pvalue(t2(t1), c, n_epi.get(e, 1), M, epitope=e)["p_enrichment"]
+            scores[q][e] = (dens, p_sig < alpha)
     return scores, overall
 
 
@@ -271,7 +280,7 @@ def main():
     ap.add_argument("--loci", nargs="+", default=["TRA", "TRB"])
     ap.add_argument("--v-mode", default="match_v", choices=["none", "match_v"],
                     help="vdjmatch V+CDR3 joint E-value (same-V-restricted null)")
-    ap.add_argument("--scope", default="1,0,0", help="first-hit scope max_edits,max_ins,max_dels")
+    ap.add_argument("--scope", default="5,2,2", help="first-hit scope max_edits,max_ins,max_dels")
     ap.add_argument("--alpha", type=float, default=1e-3)
     ap.add_argument("--olga-n", type=int, default=1000, help="Group B: OLGA negatives per locus")
     ap.add_argument("--pred-dir", default="bench/predictions")
