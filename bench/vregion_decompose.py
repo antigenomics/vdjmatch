@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 
 import polars as pl
 from seqtree import Index, SearchParams
@@ -70,7 +71,7 @@ def main():
     cross = [0, 0]
     by_reg = {r: [0, 0] for r in REG}                  # region identical across the two V genes
     combos = {"CDR1&CDR2": [0, 0], "anyCDR": [0, 0], "allFR": [0, 0]}
-    dist = {"0": [0, 0], "1-2": [0, 0], "3-5": [0, 0], "6+": [0, 0]}  # CDR1+CDR2 edit distance
+    dist = {"0": [0, 0], "1": [0, 0], "2": [0, 0], "3-5": [0, 0], "6+": [0, 0]}  # CDR1+CDR2 edit distance
     print(f"species={args.species} chain={args.chain} class={args.mhc_class} subs={args.subs} "
           f"epitopes={len(held)}")
     for epi in held:
@@ -105,7 +106,7 @@ def main():
                 if ident["fwr1"] and ident["fwr2"] and ident["fwr3"]:
                     combos["allFR"][0] += lab; combos["allFR"][1] += 1
                 d = lev(ra["cdr1"], rb["cdr1"]) + lev(ra["cdr2"], rb["cdr2"])
-                k = "0" if d == 0 else "1-2" if d <= 2 else "3-5" if d <= 5 else "6+"
+                k = "0" if d == 0 else "1" if d == 1 else "2" if d == 2 else "3-5" if d <= 5 else "6+"
                 dist[k][0] += lab; dist[k][1] += 1
 
     def pct(pt):
@@ -119,10 +120,23 @@ def main():
     for k, pt in combos.items():
         print(f"  {k+' identical':26}{pct(pt):>10.1f}{pt[1]:>9}{pct(pt)/cr:>14.2f}x")
     print(f"\ncross-V co-specificity by CDR1+CDR2 edit distance (0 = identical loops):")
-    for k in ("0", "1-2", "3-5", "6+"):
+    for k in ("0", "1", "2", "3-5", "6+"):
         print(f"  edit {k:5}{pct(dist[k]):>10.1f}%   (n={dist[k][1]})")
     print(f"\ndecisive? a region/combination is decisive only if its co-spec approaches same-V "
           f"({sp:.0f}%). cross-V floor is {cr:.0f}%.")
+
+    # Fig 2b strata: same-V and diff-V are the arrow endpoints; the five germline strata sit between.
+    FD = Path.home() / "vcs/manuscripts/2026-vdjmatch/figures/data"
+    if FD.is_dir():
+        strata = [("sameV", same), ("cdr1", by_reg["cdr1"]), ("cdr2", by_reg["cdr2"]),
+                  ("cdr12", combos["CDR1&CDR2"]), ("cdr12_1mm", dist["1"]), ("cdr12_2mm", dist["2"]),
+                  ("diffV", cross)]
+        with open(FD / "vstrata.dat", "w") as fh:
+            fh.write("# idx label cospec n\n")
+            for i, (lbl, pt) in enumerate(strata):
+                fr = pt[0] / pt[1] if pt[1] else float("nan")
+                fh.write(f"{i} {lbl} {fr:.4f} {pt[1]}\n")
+        print(f"wrote {FD / 'vstrata.dat'}")
 
 
 if __name__ == "__main__":

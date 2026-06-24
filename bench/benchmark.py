@@ -34,7 +34,9 @@ from compare import TESTDATA, _big_epis, _top_held, load_sample
 from metrics import pr_auc_balanced, roc_auc
 from vdjmatch import db
 from vdjmatch.evalue import background, first_hit
-from seqtree import Index
+from vdjmatch.match import regions
+from vdjmatch.match import vgene as _vg
+from seqtree import Index, SearchParams
 
 EPI = {"NLV": "NLVPMVATV", "LLW": "LLWNGPMAV", "LLL": "LLLGIGILV",
        "GLC": "GLCTLVAML", "YLQ": "YLQPRTFLL"}
@@ -78,16 +80,40 @@ def ref_index(df: pl.DataFrame, locus: str):
 
 
 # ---- vdjmatch classification (first-hit E-value; optional V+CDR3 joint null) ----------------------
+PSSM_SCALE, SOFTV_BETA = 400.0, 0.25  # ranking-distance temperature; cross-family V-loop down-weight
+
+
+def _pssm_targets(tgt, ref_epi, ref_v, queries, max_edits):
+    """Per-query target hits ``(pssm_cost, n_edits, epitope, ref_v)`` scored with a length-specific
+    central-CDR3 PSSM as position matrix — central substitutions (the specificity motif) cost more than
+    the germline ends. Fixed width (no indels: the PSSM is per-length). Exact matches dropped."""
+    by_len = defaultdict(list)
+    for q in queries:
+        by_len[len(q)].append(q)
+    out = {}
+    for L, qs in by_len.items():
+        sp = SearchParams(max_subs=max_edits, max_ins=0, max_dels=0, max_total_edits=max_edits,
+                          engine="seqtm")
+        try:
+            sp.pos_matrix = regions.significance_pssm(L)
+        except Exception:
+            pass
+        for q, hits in zip(qs, tgt.search_batch(qs, sp, 0)):
+            out[q] = [(h.score, h.n_subs + h.n_ins + h.n_dels, ref_epi[h.ref_id], ref_v[h.ref_id])
+                      for h in hits if (h.n_subs + h.n_ins + h.n_dels) > 0]
+    return out
+
 def vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v, ctrl, queries, query_v, epitopes,
                       alpha, exclude_exact, v_mode="none", params=None):
     """queries -> per query {epitope: (-log10 p_enrichment, significant)} for the candidate epitopes,
     plus an overall-significant flag (any-epitope first-hit p < alpha) for FP estimation. ``v_mode``:
     ``none`` = CDR3-only; ``match_v`` = V+CDR3 joint E-value (same-V-restricted Poisson tail)."""
     M, Ntot = len(ctrl), len(ref_epi)
-    match_v = v_mode == "match_v"
     t2 = lambda hits: [(c, e) for c, e, *_ in hits]            # drop the V tag for the V-agnostic pvalue
     th, cc = first_hit.scan(tgt, ref_epi, ctrl, queries, target_v=ref_v, params=params,
                             exclude_exact=exclude_exact)
+    max_edits = params.max_total_edits if params is not None else 5
+    pt = _pssm_targets(tgt, ref_epi, ref_v, queries, max_edits) if epitopes else {}
     scores, overall = {}, {}
     for q, qv, t, c in zip(queries, query_v, th, cc):
         cs_ctrl = sorted(c)
@@ -96,15 +122,20 @@ def vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v, ctrl, queries, q
         overall[q] = first_hit.pvalue(t2(t1), c, Ntot, M)["p_enrichment"] < alpha
         scores[q] = {}
         for e in epitopes:
-            N_e = n_epi_v.get((qv, e), 1) if match_v else n_epi.get(e, 1)
-            # RANKING = control-calibrated continuous density (caldens): each same-(V-)epitope neighbour
-            # weighted by closeness exp(-c/2) / its expected local control density -> continuous (no
-            # score-0 pile), down-weights neighbours in dense control regions (handles huge references).
+            N_e = n_epi.get(e, 1)
+            # RANKING = control-calibrated continuous density (caldens) over PSSM-scored neighbours, each
+            # weighted by germline V-loop similarity (soft-V: same family full, cross-family beta*vsim of
+            # the CDR1+CDR2 loops) and closeness exp(-pssm/scale), divided by the expected local control
+            # density. Continuous (no score-0 pile); down-weights neighbours in dense control regions.
             dens = 0.0
-            for hc, he, hv in t:
-                if he == e and (not match_v or hv == qv):
-                    nc = bisect.bisect_right(cs_ctrl, hc)
-                    dens += math.exp(-hc / 2.0) / max((N_e / M) * nc, 0.01)
+            for ps, ed, he, hv in pt[q]:
+                if he != e:
+                    continue
+                w = 1.0 if _vg.gene_family(qv) == _vg.gene_family(hv) else SOFTV_BETA * _vg.vsim(qv, hv)
+                if w <= 0:
+                    continue
+                nc = bisect.bisect_right(cs_ctrl, ed)
+                dens += w * math.exp(-ps / PSSM_SCALE) / max((N_e / M) * nc, 0.01)
             p_sig = first_hit.pvalue(t2(t1), c, n_epi.get(e, 1), M, epitope=e)["p_enrichment"]
             scores[q][e] = (dens, p_sig < alpha)
     return scores, overall

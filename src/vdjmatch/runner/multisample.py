@@ -12,7 +12,7 @@ from ..match.scoring import DEFAULT_SCALE
 def annotate_sample(index: "match.VdjdbIndex", sample_path: str, *, scope: str = "1,0,0,1",
                     matrix=None, species: str = "human", with_evalue: bool = True,
                     match_v: bool = False, match_j: bool = False, align: bool = True,
-                    threads: int = 0) -> dict[str, pl.DataFrame]:
+                    threads: int = 0, progress: bool = False) -> dict[str, pl.DataFrame]:
     """Annotate a single-chain rearrangement sample. Returns {hits, summary, calls} frames.
 
     Per gene (locus) present in both the sample and the index: fuzzy-search VDJdb, optionally
@@ -29,7 +29,7 @@ def annotate_sample(index: "match.VdjdbIndex", sample_path: str, *, scope: str =
         if gq.height == 0:
             continue
         h = index.annotate(gq, params, gene=gene, threads=threads,
-                           match_v=match_v, match_j=match_j, align=align)
+                           match_v=match_v, match_j=match_j, align=align, progress=progress)
         if h.height:
             hit_frames.append(h)
         if with_evalue:

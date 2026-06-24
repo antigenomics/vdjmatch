@@ -24,6 +24,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cli = ["tqdm"]                    # match --verbose progress bar (imported lazily; core never requires it)
 test = ["pytest>=7.4", "hypothesis"]
 bench = ["psutil", "huggingface_hub", "matplotlib", "seaborn"]  # huggingface_hub: HF benchmark; matplotlib/seaborn: comparison boxplots+beeswarm
 control = ["seqtree[control]", "huggingface_hub"]  # TRA/mouse controls beyond bundled human TRB

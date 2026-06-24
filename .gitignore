@@ -30,3 +30,4 @@ bench/external/
 # generated comparison-benchmark output
 bench/out/
 bench/predictions/
+tmp/

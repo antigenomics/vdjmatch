@@ -52,18 +52,32 @@ class VdjdbIndex:
 
     def annotate(self, queries: pl.DataFrame, params: SearchParams, *, gene: str,
                  threads: int = 0, match_v: bool = False, match_j: bool = False,
-                 align: bool = False, region_aware: bool = False) -> pl.DataFrame:
+                 align: bool = False, region_aware: bool = False,
+                 progress: bool = False, chunk: int = 2000) -> pl.DataFrame:
         """Annotate single-gene query clonotypes; returns a long per-hit frame.
 
         ``queries`` schema: ``cdr3, v, j, locus, count`` (one gene). Output: query_*, db_*
         (epitope/mhc/...), n_subs/n_ins/n_dels, score, and (if ``align``) cigar/match.
+
+        ``progress`` shows a tqdm bar over the query batch; ``search_batch`` has no callback, so the
+        queries are chunked (``chunk`` per step). When ``progress`` is False the whole batch is
+        searched in a single call (no behaviour change).
         """
         g = self._by_gene.get(gene)
         if g is None or queries.height == 0:
             return _empty_hits()
         idx, uc, db = g
         q = queries.with_row_index("qi")
-        res = idx.search_batch(q["cdr3"].to_list(), params, threads)
+        cdr3s = q["cdr3"].to_list()
+        if progress:
+            from .._util import chunked, progress as _progress
+            res = []
+            nchunks = -(-len(cdr3s) // chunk) if chunk > 0 else 1
+            for c in _progress(chunked(cdr3s, chunk), total=nchunks,
+                               desc=f"{gene} search", enable=True):
+                res.extend(idx.search_batch(c, params, threads))
+        else:
+            res = idx.search_batch(cdr3s, params, threads)
 
         flat = [(qi, h.ref_id, h.score, h.n_subs, h.n_ins, h.n_dels)
                 for qi, hl in enumerate(res) for h in hl]

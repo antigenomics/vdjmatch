@@ -89,6 +89,33 @@ def f1_balanced(pairs, pi0: float = 0.5) -> float:
     return best
 
 
+def bootstrap_ci(pairs, metric, B: int = 2000, seed: int = 0, alpha: float = 0.05):
+    """Stratified bootstrap CI for a ``(label,score) -> float`` metric. Resamples positives among
+    positives and negatives among negatives WITH replacement (P and N held fixed, so prevalence is
+    preserved), recomputes the metric B times, and returns ``(estimate, lo, hi)`` at the alpha/2 and
+    1-alpha/2 percentiles. Used to colour tables (winner / tie / worst) by CI overlap. NaN-safe."""
+    import random
+    est = metric(pairs)
+    pos = [p for p in pairs if p[0]]
+    neg = [p for p in pairs if not p[0]]
+    if not pos or not neg:
+        return est, float("nan"), float("nan")
+    rng = random.Random(seed)
+    np_, nn = len(pos), len(neg)
+    vals = []
+    for _ in range(B):
+        rs = [pos[rng.randrange(np_)] for _ in range(np_)] + [neg[rng.randrange(nn)] for _ in range(nn)]
+        v = metric(rs)
+        if v == v:                                               # drop NaN draws
+            vals.append(v)
+    if not vals:
+        return est, float("nan"), float("nan")
+    vals.sort()
+    lo = vals[max(0, int((alpha / 2) * len(vals)))]
+    hi = vals[min(len(vals) - 1, int((1 - alpha / 2) * len(vals)))]
+    return est, lo, hi
+
+
 def demo():
     # a ranker that puts most positives first scores well on all; balanced PR >= micro PR when rare
     import random
@@ -99,8 +126,10 @@ def demo():
     assert 0.5 < roc_auc(pairs) <= 1.0
     assert pr_auc_balanced(pairs) > pr_auc(pairs)                 # balancing lifts the rare-class PR
     assert 0.0 <= f1_balanced(pairs) <= 1.0
+    est, lo, hi = bootstrap_ci(pairs, roc_auc, B=500)
+    assert lo <= est <= hi and 0.0 <= lo <= hi <= 1.0            # CI brackets the estimate
     print(f"micro PR={pr_auc(pairs):.3f} balanced PR={pr_auc_balanced(pairs):.3f} "
-          f"ROC={roc_auc(pairs):.3f} balanced F1={f1_balanced(pairs):.3f}")
+          f"ROC={roc_auc(pairs):.3f} [{lo:.3f},{hi:.3f}] balanced F1={f1_balanced(pairs):.3f}")
 
 
 if __name__ == "__main__":

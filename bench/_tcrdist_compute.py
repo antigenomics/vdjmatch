@@ -8,6 +8,7 @@ nearest same-epitope dist) and k-NN (score = #epitope votes among the k nearest)
 dropped (logged). Driven by bench/tcrdist_samples.py — not run directly.
 """
 import argparse
+import os
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -15,6 +16,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 from tcrdist.repertoire import TCRrep
+
+CPUS = max(1, (os.cpu_count() or 2) - 1)                          # parallel parasail; leave one core
 
 
 def _rep(df, organism, valid_v, valid_j):
@@ -26,7 +29,7 @@ def _rep(df, organism, valid_v, valid_j):
     d = d.dropna(subset=["v_b_gene", "j_b_gene", "cdr3_b_aa"])
     d["count"] = 1
     tr = TCRrep(cell_df=d, organism=organism, chains=["beta"], compute_distances=False)
-    tr.cpus = 1
+    tr.cpus = CPUS
     return tr, n0 - len(d)
 
 
