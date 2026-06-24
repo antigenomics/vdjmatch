@@ -59,7 +59,8 @@ def main():
     vdj = (db.load(_bench.source(args.pmhc), species=args.species)
              .filter((pl.col("gene") == args.chain) & (pl.col("mhc_class") == args.mhc_class)))
     uc = _bench.long_list(vdj, cap=3000, min_n=args.min_epi)  # composition-controlled clonotypes
-    refs = uc.group_by("cdr3").agg(pl.col("v").first(), pl.col("epitope").first())
+    uc = uc.sort(["cdr3", "v", "epitope"])             # canonical order -> deterministic group_by/unique below
+    refs = uc.group_by("cdr3").agg(pl.col("v").first(), pl.col("epitope").first()).sort("cdr3")
     ref_cdr3, ref_v, ref_epi = refs["cdr3"].to_list(), refs["v"].to_list(), refs["epitope"].to_list()
     index = Index.build(ref_cdr3, "aa")
     params = SearchParams(max_subs=args.subs, max_total_edits=args.subs, engine="seqtm")
@@ -75,7 +76,9 @@ def main():
     print(f"species={args.species} chain={args.chain} class={args.mhc_class} subs={args.subs} "
           f"epitopes={len(held)}")
     for epi in held:
-        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").head(args.max_queries)
+        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").sort("cdr3")   # sort -> stable seeded sample
+        if q.height > args.max_queries:
+            q = q.sample(args.max_queries, seed=0)
         qs, qv = q["cdr3"].to_list(), q["v"].to_list()
         cand = index.search_batch(qs, params, 0)
         for i, hl in enumerate(cand):
@@ -131,12 +134,13 @@ def main():
         strata = [("sameV", same), ("cdr1", by_reg["cdr1"]), ("cdr2", by_reg["cdr2"]),
                   ("cdr12", combos["CDR1&CDR2"]), ("cdr12_1mm", dist["1"]), ("cdr12_2mm", dist["2"]),
                   ("diffV", cross)]
-        with open(FD / "vstrata.dat", "w") as fh:
+        out = FD / f"vstrata_{args.chain}.dat"
+        with open(out, "w") as fh:
             fh.write("# idx label cospec n\n")
             for i, (lbl, pt) in enumerate(strata):
                 fr = pt[0] / pt[1] if pt[1] else float("nan")
                 fh.write(f"{i} {lbl} {fr:.4f} {pt[1]}\n")
-        print(f"wrote {FD / 'vstrata.dat'}")
+        print(f"wrote {out}")
 
 
 if __name__ == "__main__":

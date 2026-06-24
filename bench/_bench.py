@@ -111,6 +111,8 @@ def long_list(df: pl.DataFrame, cap: int = 3000, min_n: int = 30, seed: int = 0,
         d = d.filter(~pl.col("reference_id").is_in(list(spike_studies(df))))
     u = d.select("cdr3", "v", "j", "epitope", "mhc_class").unique()
     keep = u.group_by("epitope").len().filter(pl.col("len") >= min_n)["epitope"]
-    u = u.filter(pl.col("epitope").is_in(keep))
+    # sort to a canonical order before the seeded shuffle: polars unique() does not preserve row order,
+    # so without this the cap-`cap` draw varies run-to-run even at a fixed seed.
+    u = u.filter(pl.col("epitope").is_in(keep)).sort(["epitope", "cdr3", "v", "j"])
     rank = pl.int_range(pl.len()).shuffle(seed=seed).over("epitope")
     return u.with_columns(rank.alias("_r")).filter(pl.col("_r") < cap).drop("_r")
