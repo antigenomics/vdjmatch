@@ -2,7 +2,7 @@
 
 Loads enriched per-query features (cdr3, v, j, length, and for sample6 the paired alpha chain) from the
 manuscript test_data AT RUNTIME (never copied into the repo) plus the epitope's A*02 VDJdb2026 reference
-(cdr3, v, j), and the baseline vdjmatch caldens score. For GLC/LLL feature discovery only — does NOT
+(cdr3, v, j), and the baseline vdjmatch NED score. For GLC/LLL feature discovery only — does NOT
 change any committed scoring. All TRB unless ``locus='TRA'`` (sample6 only).
 
     from _feat_probe import task_table, ref_table, baseline_scores
@@ -77,7 +77,7 @@ def ref_table(task: str, locus: str = "TRB") -> pl.DataFrame:
 
 
 def baseline_scores(task: str, locus: str = "TRB") -> dict:
-    """query cdr3 -> vdjmatch caldens hybrid score (the committed detection score), exact removed."""
+    """query cdr3 -> vdjmatch NED hybrid score (the committed detection score), exact removed."""
     d = task_table(task, locus)
     ref = B.epi_ref(E[task], locus)
     tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v = B.ref_index(ref, locus)

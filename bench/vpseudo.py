@@ -55,7 +55,7 @@ def main():
     base = [0, 0]
     match = [[0, 0] for _ in range(L1 + L2)]   # per position: [co-spec, total] when residue shared
     for epi in held:
-        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").head(args.max_queries)
+        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").sort("cdr3").head(args.max_queries)
         qs, qv = q["cdr3"].to_list(), q["v"].to_list()
         cand = index.search_batch(qs, params, 0)
         for i, hl in enumerate(cand):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GLOBAL candidate (ii) probe: swap the caldens PSSM base matrix to the seqtree ``structural``
+"""GLOBAL candidate (ii) probe: swap the NED PSSM base matrix to the seqtree ``structural``
 (Miyazawa-Jernigan interaction-strength) matrix for ALL epitopes, and measure the per-(epitope,chain)
 detection ROC and the joint-failure-positive count vs the committed BLOSUM62 base. No per-epitope
 tuning — the same global base swap is applied everywhere.
@@ -29,7 +29,7 @@ def _patched(length, base="structural", scale=100):       # global base swap
 
 
 def per_cell_roc(base_name):
-    """Return {(task,chain): (roc, pairs)} with caldens built on ``base_name`` PSSM base.
+    """Return {(task,chain): (roc, pairs)} with NED built on ``base_name`` PSSM base.
     Reloads _feat_probe each call so its B.* caches re-score with the patched/unpatched matrix."""
     # Force a fresh import so cached PSSMs / scores are recomputed under the active patch.
     for m in ("_feat_probe", "benchmark"):
@@ -56,15 +56,15 @@ def per_cell_roc(base_name):
 
 
 def main():
-    # 1) committed BLOSUM62 caldens (no patch)
+    # 1) committed BLOSUM62 NED (no patch)
     regions.significance_pssm = _orig_pssm
     blo = per_cell_roc("blosum62")
-    # 2) structural (MJ) caldens (patched)
+    # 2) structural (MJ) NED (patched)
     regions.significance_pssm = _patched
     struc = per_cell_roc("structural")
     regions.significance_pssm = _orig_pssm
 
-    print("=== GLOBAL candidate (ii): caldens PSSM base BLOSUM62 -> structural(MJ), per chain ===")
+    print("=== GLOBAL candidate (ii): NED PSSM base BLOSUM62 -> structural(MJ), per chain ===")
     rocs_b, rocs_s, worse = [], [], []
     for k in sorted(blo):
         rb = roc_auc(blo[k]); rs = roc_auc(struc[k])

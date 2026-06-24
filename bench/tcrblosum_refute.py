@@ -96,7 +96,7 @@ def main():
     acc = {a: [] for a in arms}
     print(f"species={args.species} chain={args.chain}; held-out epitopes={len(held)}; subs={args.subs}")
     for epi in held:
-        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").head(args.max_queries)
+        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").sort("cdr3").head(args.max_queries)
         qs, qv, qj = q["cdr3"].to_list(), q["v"].to_list(), q["j"].to_list()
         cand = [[h.ref_id for h in hl] for hl in index.search_batch(qs, cparams, 0)]
 

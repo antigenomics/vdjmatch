@@ -54,7 +54,7 @@ def scan_cell(uc: pl.DataFrame, chain: str, top: int, min_epi: int, max_q: int, 
     per_epi_same = []  # same-V co-specificity per held epitope (is the V effect universal?)
     nq = 0
     for epi in held:
-        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").head(max_q)
+        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").sort("cdr3").head(max_q)
         qs, qv = q["cdr3"].to_list(), q["v"].to_list()
         nq += len(qs)
         cand = index.search_batch(qs, params, 0)

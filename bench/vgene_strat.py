@@ -66,7 +66,7 @@ def main():
     vbin_pos = [0] * (len(VSIM_BINS) - 1)
     vbin_tot = [0] * (len(VSIM_BINS) - 1)
     for epi in held:
-        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").head(args.max_queries)
+        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").sort("cdr3").head(args.max_queries)
         qs, qv, qj = q["cdr3"].to_list(), q["v"].to_list(), q["j"].to_list()
         cand = index.search_batch(qs, cand_params, 0)
         for i, hl in enumerate(cand):

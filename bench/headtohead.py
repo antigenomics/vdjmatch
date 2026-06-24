@@ -3,7 +3,7 @@
 
 For each (epitope, chain) — NLV/LLW/LLL (TRB) and YLQ/GLC (TRA/TRB/paired) — rank the SAME query set
 by the vdjmatch score and by the tcrdist3 score (identical scoring rules as the manuscript:
-α-caldens for TRA, β-caldens for TRB, equal-weight rank-sum of α/β-caldens + germline prior for
+α-NED for TRA, β-NED for TRB, equal-weight rank-sum of α/β-NED + germline prior for
 paired; tcrdist3 = -nn_dist per chain, paired = -(d_a+d_b)). Both rankings are computed on the
 COMMON query set so percentile ranks are comparable. We then tabulate disagreement, joint failure,
 feature summaries, and test two GLOBAL (no per-epitope tuning) candidate changes for whether either
@@ -163,7 +163,7 @@ def analyse_cell(task, chain, lab, vdj, tcr, keys, feat):
         L = [feat[c]["length"] for c in cs]
         vg = Counter(feat[c]["v"] for c in cs).most_common(1)[0][0]
         germ = [feat[c]["germ"] for c in cs]
-        zero = sum(feat[c]["vdj_zero"] for c in cs) / len(cs)       # frac with vdjmatch caldens==0 (no fuzzy hit)
+        zero = sum(feat[c]["vdj_zero"] for c in cs) / len(cs)       # frac with vdjmatch NED==0 (no fuzzy hit)
         return (round(st.mean(L), 2), round(st.mean(germ), 3), vg, round(zero, 3), len(cs))
 
     dvL, dvG, dvV, dvZ, _ = fsum(dis_vdj)
@@ -188,14 +188,14 @@ def build():
         lab = {c: int(l) for c, l in zip(d["cdr3"], d["label"])}
         allq = list(lab)
         feat0 = {c: dict(length=int(L), v=v) for c, L, v in zip(d["cdr3"], d["length"], d["v"])}
-        base = baseline_scores(task, "TRB")              # beta caldens
+        base = baseline_scores(task, "TRB")              # beta NED
         lr = germline_lr(task, bgV, bgJ, bgL, nbg)
         for c in allq:
             feat0[c]["germ"] = lr[c]
             feat0[c]["vdj_zero"] = int(base.get(c, 0) == 0)
 
         if not paired:
-            # TRB-only: vdjmatch = beta caldens; tcrdist = -dist from prediction file
+            # TRB-only: vdjmatch = beta NED; tcrdist = -dist from prediction file
             tcr = tcrdist_trb_pred(task, allq)
             vdj = {c: base.get(c, 0) for c in allq}
             keys = [c for c in allq if tcr[c] is not None]
@@ -205,7 +205,7 @@ def build():
             ac = {c: a for c, a in zip(d["cdr3"], d["a_cdr3"])}
             av = {c: x for c, x in zip(d["cdr3"], d["a_v"])}
             aj = {c: x for c, x in zip(d["cdr3"], d["a_j"])}
-            ba = baseline_scores(task, "TRA")            # alpha caldens keyed by alpha cdr3
+            ba = baseline_scores(task, "TRA")            # alpha NED keyed by alpha cdr3
             lr_full = {c: lr[c] + p for c, p in alpha_prior(task, ac, av, aj, bgV, bgJ, nbg).items()}
             for c in allq:
                 feat0[c]["germ"] = lr_full[c]
@@ -223,13 +223,13 @@ def build():
 
 
 def global_candidate_tiebreak(cells):
-    """Candidate (i): break vdjmatch caldens score-TIES with a secondary continuous key = germline-prior
+    """Candidate (i): break vdjmatch NED score-TIES with a secondary continuous key = germline-prior
     rank. Re-rank vdjmatch where ties exist, recompute ROC + joint-failure-positive counts per cell.
     Returns per-cell (roc_base, roc_new, jf_pos_base, jf_pos_new)."""
     out = []
     for task, chain, lab, vdj, tcr, keys, feat in cells:
         germ = {c: feat[c]["germ"] for c in keys}
-        # composite key: primary caldens, secondary germline prior (tiny epsilon weight so it ONLY
+        # composite key: primary NED, secondary germline prior (tiny epsilon weight so it ONLY
         # breaks exact ties; never overrides the primary ordering)
         gr = pct_rank(germ, keys)
         eps = 1e-9
@@ -263,7 +263,7 @@ def main():
 
     # ---- GLOBAL candidate (i): germline-rank tie-break ----
     tb = global_candidate_tiebreak(cells)
-    print("\n=== GLOBAL candidate (i): caldens tie-break by germline-prior rank ===")
+    print("\n=== GLOBAL candidate (i): NED tie-break by germline-prior rank ===")
     jf_tot_b = jf_tot_n = 0
     worse = []
     for task, chain, rb, rn, j0, j1 in tb:

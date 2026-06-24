@@ -177,7 +177,7 @@ def main():
             ev += [x for x in hamming1_events(cds, args.min_epi) if 4 <= x[2] < x[3] - 6]  # NDN
         vdis = dissim_from_scores(estimate_matrix(ev, bg))
 
-        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").head(args.max_queries)
+        q = uc.filter(pl.col("epitope") == epi).unique("cdr3").sort("cdr3").head(args.max_queries)
         qs, qv, qj = q["cdr3"].to_list(), q["v"].to_list(), q["j"].to_list()
         cand = [[h.ref_id for h in hl] for hl in index.search_batch(qs, cand_params, 0)]
         sp = lambda dis, w: pr_auc_balanced(score_pairs(qs, qv, qj, cand, ref_cdr3, ref_epi, epi,  # noqa: E731

@@ -123,7 +123,7 @@ def vdjmatch_classify(tgt, ref_epi, ref_v, n_epi, n_epi_v, n_v, ctrl, queries, q
         scores[q] = {}
         for e in epitopes:
             N_e = n_epi.get(e, 1)
-            # RANKING = control-calibrated continuous density (caldens) over PSSM-scored neighbours, each
+            # RANKING = control-calibrated continuous density (NED) over PSSM-scored neighbours, each
             # weighted by germline V-loop similarity (soft-V: same family full, cross-family beta*vsim of
             # the CDR1+CDR2 loops) and closeness exp(-pssm/scale), divided by the expected local control
             # density. Continuous (no score-0 pile); down-weights neighbours in dense control regions.
