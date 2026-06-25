@@ -31,3 +31,7 @@ bench/external/
 bench/out/
 bench/predictions/
 tmp/
+
+# bench analysis data caches / restricted control sequences
+bench/_hardcase/
+bench/_mock/
