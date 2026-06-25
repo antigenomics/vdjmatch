@@ -231,14 +231,19 @@ def robust_eval(locus, alpha=1e-3):
             p = 1.0 - (1.0 - min(_emp_p(nedE[i], n0), _emp_p(vE[i], n1))) ** 2   # Sidak, 2 channels
             cp.append(-math.log10(max(p, 1e-12)))
         comb[e] = cp
+    # gate: continuous first-hit control-calibrated Poisson E-value (V-agnostic, not floored), at alpha
+    from vdjmatch.evalue import first_hit                            # noqa: E402
+    Ntot = sum(cache["n_epi"].values())
+    gated = []
+    for r in recs:
+        t1 = [(c, e) for c, e in r["first"] if c <= 1]
+        gated.append(first_hit.pvalue(t1, r["ctrl"], Ntot, cache["M"])["p_enrichment"] < alpha)
     assigns = []
-    thr = -math.log10(alpha)
     for i in range(len(recs)):
         best = max(present, key=lambda sh: comb[HE.EPI[sh]][i])
-        assigns.append(HE.EPI[best] if comb[HE.EPI[best]][i] >= thr else None)
-    print(f"\n=== {locus}: leakage-robust single-chain (NED + V, calibrated min-p) ===")
+        assigns.append(HE.EPI[best] if gated[i] else None)
+    print(f"\n=== {locus}: leakage-robust single-chain (NED+V rank, first-hit Poisson gate) ===")
     print(f"{'epi':5}{'n+':>5}{'TP':>5}{'FN':>5}{'FP':>4}{'prec':>7}{'rec':>7}{'ROC':>7}{'dBASE':>7}")
-    base = HE.evaluate(cache, baseline_scorer) if False else None
     BASE = {"NLV": 0.690, "LLW": 0.511, "LLL": 0.622, "ELA": 0.522, "YLQ": 0.954, "GLC": 0.860,
             "NLV_TRA": 0.674, "LLL_TRA": 0.710, "GLC_TRA": 0.876, "YLQ_TRA": 0.889}
     rocs = []
