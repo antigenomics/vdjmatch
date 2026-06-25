@@ -271,7 +271,7 @@ def robust_eval(locus, ref="full", alpha=1e-3):
     print(f"{'epi':5}{'n+':>5}{'TP':>5}{'FN':>5}{'FP':>4}{'prec':>7}{'rec':>7}{'ROC':>7}{'AUC0.1':>8}{'dBASE':>7}")
     BASE = {"NLV": 0.690, "LLW": 0.511, "LLL": 0.622, "ELA": 0.522, "YLQ": 0.954, "GLC": 0.860,
             "NLV_TRA": 0.674, "LLL_TRA": 0.710, "GLC_TRA": 0.876, "YLQ_TRA": 0.889}
-    rocs, a01s = [], []
+    rocs, a01s, rows = [], [], []
     for sh in present:
         e = HE.EPI[sh]
         y = [int(r["true"] == e) for r in recs]
@@ -285,10 +285,14 @@ def robust_eval(locus, ref="full", alpha=1e-3):
         prec = tp / (tp + fp) if tp + fp else float("nan")
         b = BASE.get(sh if locus == "TRB" else sh + "_TRA", float("nan"))
         rocs.append(roc)
+        rows.append(dict(locus=locus, ref=ref, epitope=sh, n_pos=npos, tp=tp, fn=fn, fp=fp,
+                         precision=round(prec, 4), recall=round(tp / npos if npos else 0, 4),
+                         roc=round(roc, 4), auc01=round(a01, 4)))
         print(f"{sh:5}{npos:>5}{tp:>5}{fn:>5}{fp:>4}{prec:>7.3f}{tp/npos if npos else 0:>7.3f}"
               f"{roc:>7.3f}{a01:>8.3f}{roc-b:>+7.3f}")
     print(f"  macro ROC {np.mean(rocs):.3f}  macro AUC0.1 {np.nanmean(a01s):.3f}  "
           f"(baseline ROC {np.mean([BASE.get(sh if locus=='TRB' else sh+'_TRA',0) for sh in present]):.3f})")
+    return rows
 
 
 if __name__ == "__main__":
