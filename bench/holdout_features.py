@@ -69,10 +69,10 @@ class VKmer:
     def __init__(self, ref_vc, bg_vc, k=3):
         self.k, self.Vsp = k, 20 ** k
         self.rc, self.bc = Counter(), Counter()
-        for v, s in ref_vc:
+        for s, v in ref_vc:                                        # ref_vc is (cdr3, vgene)
             for km in _kmers(s, k):
                 self.rc[(v, km)] += 1
-        for v, s in bg_vc:
+        for s, v in bg_vc:
             for km in _kmers(s, k):
                 self.bc[(v, km)] += 1
         self.nr, self.nb = sum(self.rc.values()) + 1.0, sum(self.bc.values()) + 1.0
