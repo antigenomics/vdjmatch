@@ -32,7 +32,7 @@ import holdout_eval as HE                                            # noqa: E40
 from benchmark import A02, PSSM_SCALE, SOFTV_BETA, release, shortlist, vgene   # noqa: E402
 from hardcase import AROM, CHG, KD, _apex, kmer_logodds, vj_logodds  # noqa: E402
 from holdout_controls import _airr                                   # noqa: E402
-from metrics import roc_auc                                          # noqa: E402
+from metrics import auc01, roc_auc                                   # noqa: E402
 from vdjmatch.match import vgene as _vg                              # noqa: E402
 
 # Miyazawa-Jernigan "strong" interacting residues (large hydrophobic/aromatic core); the strong/weak mode.
@@ -268,14 +268,16 @@ def robust_eval(locus, ref="full", alpha=1e-3):
         best = max(present, key=lambda sh: comb[HE.EPI[sh]][i])
         assigns.append(HE.EPI[best] if gated[i] else None)
     print(f"\n=== {locus} / {ref}: leakage-robust (NED+V+J+len rank, first-hit gate) ===")
-    print(f"{'epi':5}{'n+':>5}{'TP':>5}{'FN':>5}{'FP':>4}{'prec':>7}{'rec':>7}{'ROC':>7}{'dBASE':>7}")
+    print(f"{'epi':5}{'n+':>5}{'TP':>5}{'FN':>5}{'FP':>4}{'prec':>7}{'rec':>7}{'ROC':>7}{'AUC0.1':>8}{'dBASE':>7}")
     BASE = {"NLV": 0.690, "LLW": 0.511, "LLL": 0.622, "ELA": 0.522, "YLQ": 0.954, "GLC": 0.860,
             "NLV_TRA": 0.674, "LLL_TRA": 0.710, "GLC_TRA": 0.876, "YLQ_TRA": 0.889}
-    rocs = []
+    rocs, a01s = [], []
     for sh in present:
         e = HE.EPI[sh]
         y = [int(r["true"] == e) for r in recs]
         roc = roc_auc(list(zip(y, comb[e])))
+        a01 = auc01(list(zip(y, comb[e])))
+        a01s.append(a01)
         tp = sum(1 for i, r in enumerate(recs) if r["true"] == e and assigns[i] == e)
         fn = sum(1 for i, r in enumerate(recs) if r["true"] == e and assigns[i] != e)
         fp = sum(1 for i, r in enumerate(recs) if r["true"] != e and assigns[i] == e)
@@ -284,8 +286,9 @@ def robust_eval(locus, ref="full", alpha=1e-3):
         b = BASE.get(sh if locus == "TRB" else sh + "_TRA", float("nan"))
         rocs.append(roc)
         print(f"{sh:5}{npos:>5}{tp:>5}{fn:>5}{fp:>4}{prec:>7.3f}{tp/npos if npos else 0:>7.3f}"
-              f"{roc:>7.3f}{roc-b:>+7.3f}")
-    print(f"  mean ROC {np.mean(rocs):.3f}  (baseline {np.mean([BASE.get(sh if locus=='TRB' else sh+'_TRA',0) for sh in present]):.3f})")
+              f"{roc:>7.3f}{a01:>8.3f}{roc-b:>+7.3f}")
+    print(f"  macro ROC {np.mean(rocs):.3f}  macro AUC0.1 {np.nanmean(a01s):.3f}  "
+          f"(baseline ROC {np.mean([BASE.get(sh if locus=='TRB' else sh+'_TRA',0) for sh in present]):.3f})")
 
 
 if __name__ == "__main__":

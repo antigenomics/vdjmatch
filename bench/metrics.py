@@ -59,6 +59,16 @@ def roc_auc(pairs) -> float:
     return area
 
 
+def auc01(pairs, max_fpr: float = 0.1) -> float:
+    """IMMREP-style early-retrieval metric: McClish-standardised partial ROC-AUC over FPR<=max_fpr,
+    normalised to [0.5, 1] (sklearn ``roc_auc_score(max_fpr=...)``). Random/all-equal -> 0.5."""
+    from sklearn.metrics import roc_auc_score
+    y = [a for a, _ in pairs]
+    if len(set(y)) < 2:
+        return float("nan")
+    return float(roc_auc_score(y, [b for _, b in pairs], max_fpr=max_fpr))
+
+
 def pr_auc_balanced(pairs, pi0: float = 0.5) -> float:
     """PR-AUC with precision re-normalized to reference prevalence ``pi0`` (balanced by default)."""
     pts, P, N = _curve(pairs)

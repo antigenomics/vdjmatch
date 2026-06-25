@@ -29,6 +29,19 @@ def apex(c, ns=3, ne=4):
     return c[max(0, m - 2):m + 2]
 
 
+def cluster_labels(cdr3, v, epi, trim):
+    """vdjmatch cluster id per clonotype (-1 = singleton), apex-trimmed or not."""
+    cd = [apex(c) for c in cdr3] if trim else cdr3
+    n = len(cd)
+    edges = CR._operating_edges(n, CR._d1_edges(cd, v), CR._pssm2_pairs(cd, v), epi)
+    lab = [-1] * n
+    for cid, m in enumerate(CR._components(n, edges).values()):
+        if len(m) >= 2:
+            for i in m:
+                lab[i] = cid
+    return lab
+
+
 def cluster_pr(cdr3, v, epi, trim):
     cd = [apex(c) for c in cdr3] if trim else cdr3
     n = len(cd)
