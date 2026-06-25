@@ -63,20 +63,33 @@ def write_results(tool, locus, pool, scores):
 
 # ---------------------------------------------------------------- pMTnet (TRB only) -------------------
 def run_pmtnet(locus, pool):
+    """Per-epitope, resumable: pMTnet is run once per epitope (~3 min each) and the prediction cached as
+    pred_<epi>.csv, so a kill loses at most one epitope. Re-running skips finished epitopes."""
     assert locus == "TRB", "pMTnet is beta-only"
     work = PRED / "pmtnet"; work.mkdir(parents=True, exist_ok=True)
-    inp = work / "input.csv"
-    rows = [(c, EPI[sh], A2) for (c, _, _, _) in pool for sh in EPI]
-    pl.DataFrame(rows, schema=["CDR3", "Antigen", "HLA"], orient="row").write_csv(inp)
     repo = CODE / "pMTnet"
-    subprocess.run(["conda", "run", "-n", "cmp-pmtnet", "python", "pMTnet.py", "-input", str(inp),
-                    "-library", "library", "-output", str(work), "-output_log", str(work / "log.txt")],
-                   cwd=repo, check=True)
-    pred = pl.read_csv(work / "prediction.csv")
-    rank = {(c, a): r for c, a, r in zip(pred["CDR3"], pred["Antigen"], pred["Rank"])}
     scores = {}
     for sh, e in EPI.items():
-        scores[e] = [1.0 - rank.get((c, e), 1.0) for (c, _, _, _) in pool]   # lower Rank = binder
+        pred_f = work / f"pred_{sh}.csv"
+        if not pred_f.exists():
+            inp = work / f"input_{sh}.csv"
+            pl.DataFrame([(c, e, A2) for (c, _, _, _) in pool], schema=["CDR3", "Antigen", "HLA"],
+                         orient="row").write_csv(inp)
+            for attempt in range(8):                               # Rosetta-TF1 segfaults intermittently
+                (work / "prediction.csv").unlink(missing_ok=True)
+                subprocess.run(["conda", "run", "-n", "cmp-pmtnet", "python", "pMTnet.py", "-input", str(inp),
+                                "-library", "library", "-output", str(work), "-output_log", str(work / "log.txt")],
+                               cwd=repo, check=False)
+                if (work / "prediction.csv").exists():
+                    (work / "prediction.csv").rename(pred_f)
+                    print(f"[pmtnet] {sh} done (attempt {attempt + 1}) -> {pred_f.name}", file=sys.stderr)
+                    break
+                print(f"[pmtnet] {sh} segfaulted, retry {attempt + 1}/8", file=sys.stderr)
+            else:
+                raise RuntimeError(f"pmtnet {sh} failed after 8 attempts (Rosetta-TF1 segfault)")
+        pred = pl.read_csv(pred_f)
+        rank = {c: r for c, r in zip(pred["CDR3"], pred["Rank"])}
+        scores[e] = [1.0 - rank.get(c, 1.0) for (c, _, _, _) in pool]   # lower Rank = binder
     return scores
 
 
@@ -118,18 +131,24 @@ def run_tcrbert(locus, pool):
     import numpy as np
     from benchmark import A02, release                              # noqa: E402
     from holdout_controls import _airr
-    qX = _bert_embed([c for c, _, _, _ in pool], f"query_{locus}")
+    qcdr3 = [c for c, _, _, _ in pool]
+    qX = _bert_embed(qcdr3, f"query_{locus}")
     rdf = _bench.valid_cdr3(release("vdjdb2026").filter(pl.col("mhc_a").str.contains(A02) & (pl.col("gene") == locus)))
     bgX = _bert_embed(_airr("human", locus, 4000)["cdr3"].to_list(), f"bg_{locus}")
+    kbg = np.sort(qX @ bgX.T, axis=1)[:, -10:].mean(1)
     scores = {}
     for sh, e in EPI.items():
-        ref = rdf.filter(pl.col("epitope") == e).unique("cdr3")["cdr3"].to_list()
+        ref = rdf.filter(pl.col("epitope") == e).unique("cdr3")["cdr3"].to_list()[:4000]
         if len(ref) < 20:
             continue
-        rX = _bert_embed(ref[:4000], f"ref_{sh}_{locus}")
-        # density: mean top-10 cosine sim to E binders minus to background (naive; reference leakage caveat)
-        kpos = np.sort(qX @ rX.T, axis=1)[:, -10:].mean(1)
-        kbg = np.sort(qX @ bgX.T, axis=1)[:, -10:].mean(1)
+        rX = _bert_embed(ref, f"ref_{sh}_{locus}")
+        S = qX @ rX.T                                              # density: top-10 cosine sim to E binders
+        ridx = {c: j for j, c in enumerate(ref)}                  # EXCLUDE the exact self-match (vdjmatch's
+        for i, c in enumerate(qcdr3):                             # leave-one-out protocol) so the memorizable
+            j = ridx.get(c)                                       # epitopes (NLV/LLW/LLL/ELA) are fair
+            if j is not None:
+                S[i, j] = -1.0
+        kpos = np.sort(S, axis=1)[:, -10:].mean(1)
         scores[e] = (kpos - kbg).tolist()
     return scores
 
