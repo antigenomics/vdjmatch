@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import _bench                                                        # noqa: E402
 import holdout_eval as HE                                            # noqa: E402
-from benchmark import A02, PSSM_SCALE, SOFTV_BETA, release, vgene    # noqa: E402
+from benchmark import A02, PSSM_SCALE, SOFTV_BETA, release, shortlist, vgene   # noqa: E402
 from hardcase import AROM, CHG, KD, _apex, kmer_logodds, vj_logodds  # noqa: E402
 from holdout_controls import _airr                                   # noqa: E402
 from metrics import roc_auc                                          # noqa: E402
@@ -116,29 +116,42 @@ class Kmer:
         return float(np.mean(vals)) if vals else 0.0
 
 
-def build_models(locus, bg="airr"):
-    """Per-epitope reference feature models vs a background (full reference; LOO applied per query)."""
-    cache = HE.build(locus, "full")
+def _len_logodds(ref_len, bg_len):
+    from collections import Counter as _C
+    rr, bb = _C(ref_len), _C(bg_len)
+    nr, nb = sum(rr.values()) + len(rr), sum(bb.values()) + len(bb)
+    return {L: math.log(((rr[L] + 1) / nr) / ((bb[L] + 1) / nb)) for L in set(rr) | set(bb)}
+
+
+def build_models(locus, bg="airr", ref="full"):
+    """Per-epitope reference feature models (V/J/length/kmer/comp) vs a background; LOO per query."""
+    cache = HE.build(locus, ref)
     rdf = release("vdjdb2026").filter(pl.col("mhc_a").str.contains(A02))
+    if ref == "shortlist":
+        rdf = shortlist(rdf, min_refs=2)
     r = (_bench.valid_cdr3(rdf.filter(pl.col("gene") == locus)).group_by("cdr3")
-         .agg(pl.col("epitope").first(), pl.col("v").first()))
+         .agg(pl.col("epitope").first(), pl.col("v").first(), pl.col("j").first()))
     by = defaultdict(list)
-    for c, e, v in zip(r["cdr3"], r["epitope"], r["v"]):
-        by[e].append((c, vgene(v)))
+    for c, e, v, j in zip(r["cdr3"], r["epitope"], r["v"], r["j"]):
+        by[e].append((c, vgene(v), vgene(j)))
     bgd = _airr("human", locus, 60000)
     bg_vc = list(zip(bgd["cdr3"].to_list(), bgd["v"].to_list()))
+    bg_j, bg_len = bgd["j"].to_list(), [len(c) for c in bgd["cdr3"]]
     models = {}
     for sh, e in HE.EPI.items():
-        ref_vc = by.get(e, [])
-        if len(ref_vc) < 20:
+        ref_vcj = by.get(e, [])
+        if len(ref_vcj) < 20:
             continue
-        ref_cdr3 = [c for c, v in ref_vc]
+        ref_cdr3 = [c for c, v, j in ref_vcj]
+        ref_vc = [(c, v) for c, v, j in ref_vcj]
         ref_set = set(ref_cdr3)
-        contrast = bg_vc if bg == "airr" else [(c, v) for ee, lst in by.items() if ee != e for c, v in lst]
+        contrast = bg_vc if bg == "airr" else [(c, v) for ee, lst in by.items() if ee != e for c, v, j in lst]
         bcd = [c for c, v in contrast]
         models[e] = {
             "ref_set": ref_set,
-            "V": vj_logodds([v for c, v in ref_vc], [v for c, v in contrast]),
+            "V": vj_logodds([v for c, v, j in ref_vcj], [v for c, v in contrast]),
+            "J": vj_logodds([j for c, v, j in ref_vcj], bg_j),
+            "len": _len_logodds([len(c) for c in ref_cdr3], bg_len),
             "kmer": Kmer(ref_cdr3, k=3),
             "Vkmer": VKmer(ref_vc, contrast),
             "comp": _gauss_logodds(np.array([_comp(s) for s in ref_cdr3]),
@@ -204,32 +217,44 @@ def _emp_p(score, null_sorted):
     return (1 + ge) / (1 + len(null_sorted))
 
 
-def robust_eval(locus, alpha=1e-3):
-    """Leakage-robust single-chain scorer: NED + V-gene log-odds, combined by calibrated min-p (Sidak),
-    non-diluting. Per-epitope empirical null = the airr_control negatives. Reports per-E ROC + argmax."""
+def _jmap(locus):
+    """cdr3 -> J gene from the held-out TSVs (the query cache stores no J)."""
+    m = {}
+    for name in HE.DATASETS[locus]:
+        f = HE.HD / f"{name}.tsv"
+        if f.exists():
+            d = pl.read_csv(f, separator="\t", infer_schema_length=0)
+            for c, j in zip(d["cdr3"], d["j"]):
+                m.setdefault(c, vgene(j) if j else "")
+    return m
+
+
+def robust_eval(locus, ref="full", alpha=1e-3):
+    """Leakage-robust scorer: NED + V + J + length log-odds, combined by calibrated min-p (Sidak),
+    non-diluting; first-hit Poisson gate. Per-epitope null = the airr_control negatives. ROC + confusion."""
     import numpy as np
-    cache, models = build_models(locus, "airr")
+    cache, models = build_models(locus, "airr", ref)
     recs = cache["recs"]
+    jm = _jmap(locus)
     ned = [ned_sim(r) for r in recs]
     present = [sh for sh in HE.EPI if HE.EPI[sh] in models and any(r["true"] == HE.EPI[sh] for r in recs)]
-    # per-epitope channel scores + airr_control null
-    chan = {}
-    for sh in present:
-        e = HE.EPI[sh]
-        m = models[e]
-        nedE = np.array([ned[i].get(e, 0.0) for i in range(len(recs))])
-        vE = np.array([m["V"].get(r["v"], 0.0) for r in recs])
-        null = [i for i, r in enumerate(recs) if r["true"] is None]
-        chan[e] = (nedE, vE, sorted(nedE[null]), sorted(vE[null]))
-    # combined -log10 p per (query, epitope); argmax = most significant, gated at alpha
+    null = [i for i, r in enumerate(recs) if r["true"] is None]
     comb = {}
     for sh in present:
         e = HE.EPI[sh]
-        nedE, vE, n0, n1 = chan[e]
+        m = models[e]
+        cols = {
+            "NED": np.array([ned[i].get(e, 0.0) for i in range(len(recs))]),
+            "V": np.array([m["V"].get(r["v"], 0.0) for r in recs]),
+            "J": np.array([m["J"].get(jm.get(r["cdr3"], ""), 0.0) for r in recs]),
+            "len": np.array([m["len"].get(len(r["cdr3"]), 0.0) for r in recs]),
+        }
+        nulls = {c: sorted(cols[c][null]) for c in cols}
+        K = len(cols)
         cp = []
         for i in range(len(recs)):
-            p = 1.0 - (1.0 - min(_emp_p(nedE[i], n0), _emp_p(vE[i], n1))) ** 2   # Sidak, 2 channels
-            cp.append(-math.log10(max(p, 1e-12)))
+            pmin = min(_emp_p(cols[c][i], nulls[c]) for c in cols)
+            cp.append(-math.log10(max(1.0 - (1.0 - pmin) ** K, 1e-12)))    # Sidak over K channels
         comb[e] = cp
     # gate: continuous first-hit control-calibrated Poisson E-value (V-agnostic, not floored), at alpha
     from vdjmatch.evalue import first_hit                            # noqa: E402
@@ -242,7 +267,7 @@ def robust_eval(locus, alpha=1e-3):
     for i in range(len(recs)):
         best = max(present, key=lambda sh: comb[HE.EPI[sh]][i])
         assigns.append(HE.EPI[best] if gated[i] else None)
-    print(f"\n=== {locus}: leakage-robust single-chain (NED+V rank, first-hit Poisson gate) ===")
+    print(f"\n=== {locus} / {ref}: leakage-robust (NED+V+J+len rank, first-hit gate) ===")
     print(f"{'epi':5}{'n+':>5}{'TP':>5}{'FN':>5}{'FP':>4}{'prec':>7}{'rec':>7}{'ROC':>7}{'dBASE':>7}")
     BASE = {"NLV": 0.690, "LLW": 0.511, "LLL": 0.622, "ELA": 0.522, "YLQ": 0.954, "GLC": 0.860,
             "NLV_TRA": 0.674, "LLL_TRA": 0.710, "GLC_TRA": 0.876, "YLQ_TRA": 0.889}
@@ -265,6 +290,7 @@ def robust_eval(locus, alpha=1e-3):
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "robust":
-        robust_eval(sys.argv[2] if len(sys.argv) > 2 else "TRB")
+        robust_eval(sys.argv[2] if len(sys.argv) > 2 else "TRB",
+                    sys.argv[3] if len(sys.argv) > 3 else "full")
     else:
         main(sys.argv[1] if len(sys.argv) > 1 else "TRB", sys.argv[2] if len(sys.argv) > 2 else "airr")
