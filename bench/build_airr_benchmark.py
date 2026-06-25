@@ -142,7 +142,8 @@ def _vdjdb(shortlist: bool):
 
 # ------------------------------------------------------------------ dataset 5: TCRvdb ----------------
 def dataset_5():
-    t = pl.read_csv(TESTDATA / "sample6_TCRvdb.csv", infer_schema_length=0)
+    t = (pl.read_csv(TESTDATA / "sample6_TCRvdb.csv", infer_schema_length=0)
+         .filter(pl.col("epitope_aa").is_in(["YLQPRTFLL", "GLCTLVAML"])))   # YLQ + GLC only
     hla = pl.when(pl.col("hla_long").fill_null("") != "").then(pl.col("hla_long")).otherwise(pl.col("hla_short"))
     rows = t.with_columns(
         species=pl.lit("human"),
@@ -164,10 +165,24 @@ def write(name, df):
           f"neg={int((df['binder']==0).sum()):>7}  paired={(df.filter((pl.col('cdr3_alpha')!='') & (pl.col('cdr3_beta')!='')).height):>6}  -> {f.name}")
 
 
+def breakdown(name, df):
+    """per (epitope, chain-composition, binder) row counts; chain = TRA / TRB / paired."""
+    chain = (pl.when((pl.col("cdr3_alpha") != "") & (pl.col("cdr3_beta") != "")).then(pl.lit("paired"))
+             .when(pl.col("cdr3_alpha") != "").then(pl.lit("TRA")).otherwise(pl.lit("TRB")))
+    g = (df.with_columns(chain=chain).group_by(["epitope", "chain"])
+         .agg(pos=(pl.col("binder") == 1).sum(), neg=(pl.col("binder") == 0).sum())
+         .sort(["epitope", "chain"]))
+    print(f"\n  --- {name} breakdown (epitope x chain) ---")
+    for r in g.iter_rows(named=True):
+        print(f"    {r['epitope']:11} {r['chain']:7} pos={r['pos']:>6}  neg={r['neg']:>6}")
+
+
 if __name__ == "__main__":
     print("building ~/hf/airr_benchmark/vdjmatch/ :")
-    write("dataset_1", dataset_1())
-    write("dataset_2", dataset_2())
+    d1 = dataset_1(); write("dataset_1", d1)
+    d2 = dataset_2(); write("dataset_2", d2)
     write("dataset_3", _vdjdb(shortlist=False))
     write("dataset_4", _vdjdb(shortlist=True))
-    write("dataset_5", dataset_5())
+    d5 = dataset_5(); write("dataset_5", d5)
+    for nm, d in (("dataset_1", d1), ("dataset_2", d2), ("dataset_5", d5)):
+        breakdown(nm, d)
