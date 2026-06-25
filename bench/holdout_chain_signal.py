@@ -109,6 +109,11 @@ def main():
     print("\nStructural footprint (PDB; from tcr-pmhc-structures):")
     for sh in HE.EPI:
         print(f"  {sh}: {STRUCT.get(sh, '?')}")
+    import polars as pl
+    RES = Path.home() / "vcs/manuscripts/2026-vdjmatch/benchmarks/results"
+    pl.DataFrame([{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()} for r in rows]) \
+        .write_csv(RES / "chain_signal.tsv", separator="\t")
+    print(f"[wrote] chain_signal.tsv", file=sys.stderr)
 
 
 if __name__ == "__main__":
