@@ -10,6 +10,9 @@ import numpy as np
 import torch
 from transformers import AutoModel, AutoTokenizer
 
+torch.manual_seed(0)                                                 # reproducible embeddings
+np.random.seed(0)
+torch.use_deterministic_algorithms(True, warn_only=True)
 inp, outp = sys.argv[1], sys.argv[2]
 seqs = [ln.strip() for ln in open(inp) if ln.strip()]
 tok = AutoTokenizer.from_pretrained("wukevin/tcr-bert-mlm-only")
