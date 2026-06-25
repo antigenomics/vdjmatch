@@ -168,26 +168,23 @@ def write(name, df):
 
 
 def breakdown(name, df):
-    """per (epitope, chain-composition, binder) row counts; chain = TRA / TRB / paired."""
+    """flat rows: dataset, epitope, chain (TRA/TRB/paired), binder, n -- one row per combination."""
     chain = (pl.when((pl.col("cdr3_alpha") != "") & (pl.col("cdr3_beta") != "")).then(pl.lit("paired"))
              .when(pl.col("cdr3_alpha") != "").then(pl.lit("TRA")).otherwise(pl.lit("TRB")))
-    g = (df.with_columns(chain=chain).group_by(["epitope", "chain", "binder"]).len()
-         .rename({"len": "n"}).sort(["epitope", "chain", "binder"], descending=[False, False, True]))
-    print(f"\n  --- {name} breakdown (epitope, chain, binder, n) ---")
-    for r in g.iter_rows(named=True):
-        print(f"    {name}\t{r['epitope']:11}\t{r['chain']:7}\t{r['binder']}\t{r['n']}")
+    return (df.with_columns(chain=chain).group_by(["epitope", "chain", "binder"]).len()
+            .rename({"len": "n"}).with_columns(dataset=pl.lit(name))
+            .select("dataset", "epitope", "chain", "binder", "n")
+            .sort(["epitope", "chain", "binder"], descending=[False, False, True]))
 
 
 def vdjdb_info(name, df):
-    """vdjdb reference panels (d3/d4): per species -- records, distinct epitopes, distinct MHC, class split."""
-    g = (df.group_by("species").agg(records=pl.len(), epitopes=pl.col("epitope").n_unique(),
-                                    mhc_a=pl.col("mhc_a").n_unique(),
-                                    MHCI=(pl.col("mhc_class") == "MHCI").sum(),
-                                    MHCII=(pl.col("mhc_class") == "MHCII").sum()).sort("species"))
-    print(f"\n  --- {name} (species, records, epitopes, mhc_a, MHCI, MHCII) ---")
-    for r in g.iter_rows(named=True):
-        print(f"    {name}\t{r['species']:6}\t{r['records']:>7}\t{r['epitopes']:>5}\t{r['mhc_a']:>4}\t"
-              f"{r['MHCI']:>7}\t{r['MHCII']:>6}")
+    """flat rows: dataset, species, records, epitopes, mhc_a, MHCI, MHCII -- one row per (dataset, species)."""
+    return (df.group_by("species").agg(records=pl.len(), epitopes=pl.col("epitope").n_unique(),
+                                       mhc_a=pl.col("mhc_a").n_unique(),
+                                       MHCI=(pl.col("mhc_class") == "MHCI").sum(),
+                                       MHCII=(pl.col("mhc_class") == "MHCII").sum())
+            .with_columns(dataset=pl.lit(name))
+            .select("dataset", "species", "records", "epitopes", "mhc_a", "MHCI", "MHCII").sort("species"))
 
 
 if __name__ == "__main__":
@@ -197,7 +194,9 @@ if __name__ == "__main__":
     d3 = _vdjdb(shortlist=False); write("dataset_3", d3)
     d4 = _vdjdb(shortlist=True); write("dataset_4", d4)
     d5 = dataset_5(); write("dataset_5", d5)
-    for nm, d in (("dataset_1", d1), ("dataset_2", d2), ("dataset_5", d5)):
-        breakdown(nm, d)
-    for nm, d in (("dataset_3", d3), ("dataset_4", d4)):
-        vdjdb_info(nm, d)
+    bd = pl.concat([breakdown(nm, d) for nm, d in (("dataset_1", d1), ("dataset_2", d2), ("dataset_5", d5))])
+    bd.write_csv(OUT / "breakdown.tsv", separator="\t")
+    rs = pl.concat([vdjdb_info(nm, d) for nm, d in (("dataset_3", d3), ("dataset_4", d4))])
+    rs.write_csv(OUT / "reference_summary.tsv", separator="\t")
+    print("\n== breakdown.tsv =="); print(bd)
+    print("\n== reference_summary.tsv =="); print(rs)
