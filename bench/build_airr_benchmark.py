@@ -157,8 +157,10 @@ def write(name, df):
     import gzip
     import io
     f = OUT / f"{name}.tsv.gz"
-    buf = io.BytesIO()
-    df.write_csv(buf, separator="\t")
+    strc = ["cdr3_alpha", "v_alpha", "j_alpha", "cdr3_beta", "v_beta", "j_beta", "mhc_a", "mhc_b"]
+    dfw = df.with_columns([pl.when(pl.col(c) == "").then(None).otherwise(pl.col(c)).alias(c) for c in strc])
+    buf = io.BytesIO()                                              # empty -> null -> truly empty field (no "")
+    dfw.write_csv(buf, separator="\t")
     with gzip.open(f, "wb") as gz:
         gz.write(buf.getvalue())
     print(f"  {name:10} n={df.height:>7}  pos={int((df['binder']==1).sum()):>7}  "
@@ -169,20 +171,33 @@ def breakdown(name, df):
     """per (epitope, chain-composition, binder) row counts; chain = TRA / TRB / paired."""
     chain = (pl.when((pl.col("cdr3_alpha") != "") & (pl.col("cdr3_beta") != "")).then(pl.lit("paired"))
              .when(pl.col("cdr3_alpha") != "").then(pl.lit("TRA")).otherwise(pl.lit("TRB")))
-    g = (df.with_columns(chain=chain).group_by(["epitope", "chain"])
-         .agg(pos=(pl.col("binder") == 1).sum(), neg=(pl.col("binder") == 0).sum())
-         .sort(["epitope", "chain"]))
-    print(f"\n  --- {name} breakdown (epitope x chain) ---")
+    g = (df.with_columns(chain=chain).group_by(["epitope", "chain", "binder"]).len()
+         .rename({"len": "n"}).sort(["epitope", "chain", "binder"], descending=[False, False, True]))
+    print(f"\n  --- {name} breakdown (epitope, chain, binder, n) ---")
     for r in g.iter_rows(named=True):
-        print(f"    {r['epitope']:11} {r['chain']:7} pos={r['pos']:>6}  neg={r['neg']:>6}")
+        print(f"    {name}\t{r['epitope']:11}\t{r['chain']:7}\t{r['binder']}\t{r['n']}")
+
+
+def vdjdb_info(name, df):
+    """vdjdb reference panels (d3/d4): per species -- records, distinct epitopes, distinct MHC, class split."""
+    g = (df.group_by("species").agg(records=pl.len(), epitopes=pl.col("epitope").n_unique(),
+                                    mhc_a=pl.col("mhc_a").n_unique(),
+                                    MHCI=(pl.col("mhc_class") == "MHCI").sum(),
+                                    MHCII=(pl.col("mhc_class") == "MHCII").sum()).sort("species"))
+    print(f"\n  --- {name} (species, records, epitopes, mhc_a, MHCI, MHCII) ---")
+    for r in g.iter_rows(named=True):
+        print(f"    {name}\t{r['species']:6}\t{r['records']:>7}\t{r['epitopes']:>5}\t{r['mhc_a']:>4}\t"
+              f"{r['MHCI']:>7}\t{r['MHCII']:>6}")
 
 
 if __name__ == "__main__":
     print("building ~/hf/airr_benchmark/vdjmatch/ :")
     d1 = dataset_1(); write("dataset_1", d1)
     d2 = dataset_2(); write("dataset_2", d2)
-    write("dataset_3", _vdjdb(shortlist=False))
-    write("dataset_4", _vdjdb(shortlist=True))
+    d3 = _vdjdb(shortlist=False); write("dataset_3", d3)
+    d4 = _vdjdb(shortlist=True); write("dataset_4", d4)
     d5 = dataset_5(); write("dataset_5", d5)
     for nm, d in (("dataset_1", d1), ("dataset_2", d2), ("dataset_5", d5)):
         breakdown(nm, d)
+    for nm, d in (("dataset_3", d3), ("dataset_4", d4)):
+        vdjdb_info(nm, d)
