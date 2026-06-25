@@ -4,18 +4,29 @@ Schema (tab-separated, gzipped):
   idx  species  cdr3_alpha  v_alpha  j_alpha  cdr3_beta  v_beta  j_beta  epitope  mhc_class  mhc_a  mhc_b  binder
 
 dataset_1  NLV+/NLV- from Egorov et al. (evgeny chunk positives + sample1 tet-negative controls).
-dataset_2  ELA/LLW/LLL from Sewell et al. (binder=1) + per-epitope, per-chain Pgen-matched airr_control (binder=0).
-dataset_3  vdjdb2026 full, human+mouse, per (epitope,gene) >=30 clonotypes, spike study dropped, no cap (binder=1).
-dataset_4  as dataset_3 but the >=2-reference shortlist (binder=1).
+dataset_2  ELA/LLW/LLL from Sewell et al. (binder=1) + per-epitope, per-chain Pgen-matched negatives (binder=0).
+dataset_3  vdjdb2026 full, human+mouse: single-chain (per epitope,gene >=30) and paired (complex_id, per
+           epitope >=30) binders + Pgen-matched negatives. No cap; the length-14 spike study dropped.
+dataset_4  as dataset_3 but the >=2-reference shortlist.
+
+Negatives are REAL post-selection T-cell repertoire sequences (isalgo/airr_control, ~/hf/airr_control),
+NOT generated -- OLGA is used only to compute the generation probability Pgen for matching. Per (epitope,
+gene) the negatives match the positives' count and round(log2 Pgen) histogram; for paired records each chain
+is matched on its own log2 Pgen (so log2 Pgen(alpha)+log2 Pgen(beta) is matched jointly). All CDR3 are the
+20 standard amino acids, C...F/W, no * stops or _ frameshifts.
 dataset_5  TCRvdb (sample6): binder=1 for padj<1e-5 else 0  [RESTRICTED -> gitignored].
 
     .venv/bin/python bench/build_airr_benchmark.py
 """
 from __future__ import annotations
 
+import multiprocessing as mp
+import os
 import sys
+from collections import Counter, defaultdict
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -53,9 +64,14 @@ def _chain(cdr3c, vc, jc, suffix):
 
 
 def finalize(df: pl.DataFrame) -> pl.DataFrame:
-    """order columns, drop rows with neither chain, unique, add idx."""
+    """clear any chain whose CDR3 is not 20-aa C...F/W (no */_), drop empty rows, unique, add idx."""
     dc = [c for c in COLS if c != "idx"]
-    df = (df.select(dc).filter((pl.col("cdr3_alpha") != "") | (pl.col("cdr3_beta") != ""))
+    df = df.select(dc)
+    for suf in ("alpha", "beta"):
+        bad = (pl.col(f"cdr3_{suf}") != "") & ~pl.col(f"cdr3_{suf}").str.contains(_VALID)
+        df = df.with_columns([pl.when(bad).then(pl.lit("")).otherwise(pl.col(f"{p}_{suf}")).alias(f"{p}_{suf}")
+                              for p in ("cdr3", "v", "j")])
+    df = (df.filter((pl.col("cdr3_alpha") != "") | (pl.col("cdr3_beta") != ""))
           .unique(subset=dc, maintain_order=True))
     return df.with_row_index("idx").select(COLS)
 
@@ -123,21 +139,117 @@ def dataset_2():
     return finalize(pl.concat(frames, how="diagonal_relaxed"))
 
 
-# ------------------------------------------------------------------ dataset 3/4: vdjdb full/shortlist
+# ------------------------------------------------------------------ dataset 3/4: vdjdb + Pgen negatives
+def _strip_s(x):
+    return (x or "").split("*")[0].split("/")[0]
+
+
+def _bins(cdr3s, species, locus):
+    """parallel round(log2 Pgen) per CDR3 (OLGA model for species/locus) -> {cdr3: bin}. airr_control is
+    REAL repertoire data; OLGA only computes Pgen here."""
+    cdr3s = list(dict.fromkeys(cdr3s))
+    if not cdr3s:
+        return {}
+    with mp.Pool(max(1, (os.cpu_count() or 2) - 1), initializer=HC._winit,
+                 initargs=(HC._SUB[(species, locus)],)) as p:
+        b = p.map(HC._wbin, cdr3s, chunksize=300)
+    return {c: bb for c, bb in zip(cdr3s, b) if bb is not None}
+
+
+def _bybin(species, locus):
+    bb = defaultdict(list)
+    for b, c, v, j in HC.pgen_pool(species, locus).iter_rows():
+        bb[b].append((c, _strip_s(v), _strip_s(j)))
+    return bb, sorted(bb)
+
+
+def _draw(bb, avail, hist, rng):
+    out = []
+    for b, cnt in sorted(hist.items()):
+        src = b if bb.get(b) else (min(avail, key=lambda x: abs(x - b)) if avail else None)
+        if src is None:
+            continue
+        recs = bb[src]
+        out += [recs[int(i)] for i in rng.choice(len(recs), cnt, replace=len(recs) < cnt)]
+    return out
+
+
+def _neg_df(records, species, epi, m, suffix):
+    if not records:
+        return None
+    o = suffix == "alpha"
+    return pl.DataFrame(records, schema=["c", "v", "j"], orient="row").with_columns(
+        species=pl.lit(species),
+        cdr3_alpha=pl.col("c") if o else pl.lit(""), v_alpha=pl.col("v") if o else pl.lit(""),
+        j_alpha=pl.col("j") if o else pl.lit(""), cdr3_beta=pl.lit("") if o else pl.col("c"),
+        v_beta=pl.lit("") if o else pl.col("v"), j_beta=pl.lit("") if o else pl.col("j"),
+        epitope=pl.lit(epi), mhc_class=pl.lit(m["mhc_class"]), mhc_a=pl.lit(m["mhc_a"]),
+        mhc_b=pl.lit(m["mhc_b"]), binder=pl.lit(0, dtype=pl.Int8)).drop("c", "v", "j")
+
+
+def _negatives(sc, pair, seed=42):
+    """single-chain neg per (species,gene,epitope) matching log2-Pgen; paired neg per (species,epitope)
+    matching each chain's log2-Pgen (so log2Pgen_alpha+log2Pgen_beta is matched jointly)."""
+    frames = []
+    for species in sc["species"].unique().to_list():
+        for suf, locus in (("alpha", "TRA"), ("beta", "TRB")):
+            sub = sc.filter((pl.col("species") == species) & (pl.col(f"cdr3_{suf}") != ""))
+            if not sub.height:
+                continue
+            bm = _bins(sub[f"cdr3_{suf}"].to_list(), species, locus)
+            bb, avail = _bybin(species, locus)
+            rng = np.random.default_rng(seed)
+            for (epi,), g in sub.group_by("epitope"):
+                cd = g.select(f"cdr3_{suf}").unique()[f"cdr3_{suf}"].to_list()
+                frames.append(_neg_df(_draw(bb, avail, Counter(bm[c] for c in cd if c in bm), rng),
+                                      species, epi, g.row(0, named=True), suf))
+    for species in pair["species"].unique().to_list():
+        sub = pair.filter(pl.col("species") == species)
+        bmA = _bins(sub["cdr3_alpha"].to_list(), species, "TRA")
+        bmB = _bins(sub["cdr3_beta"].to_list(), species, "TRB")
+        bbA, avA = _bybin(species, "TRA"); bbB, avB = _bybin(species, "TRB")
+        rng = np.random.default_rng(seed)
+        for (epi,), g in sub.group_by("epitope"):
+            grp = Counter((bmA.get(r["cdr3_alpha"]), bmB.get(r["cdr3_beta"])) for r in g.iter_rows(named=True))
+            rows = []
+            for (ba, bbn), cnt in grp.items():
+                if ba is None or bbn is None:
+                    continue
+                for a, b in zip(_draw(bbA, avA, {ba: cnt}, rng), _draw(bbB, avB, {bbn: cnt}, rng)):
+                    rows.append((a[0], a[1], a[2], b[0], b[1], b[2]))
+            if rows:
+                m = g.row(0, named=True)
+                frames.append(pl.DataFrame(rows, orient="row", schema=["cdr3_alpha", "v_alpha", "j_alpha",
+                              "cdr3_beta", "v_beta", "j_beta"]).with_columns(
+                    species=pl.lit(species), epitope=pl.lit(epi), mhc_class=pl.lit(m["mhc_class"]),
+                    mhc_a=pl.lit(m["mhc_a"]), mhc_b=pl.lit(m["mhc_b"]), binder=pl.lit(0, dtype=pl.Int8)))
+    return pl.concat([f for f in frames if f is not None], how="diagonal_relaxed")
+
+
 def _vdjdb(shortlist: bool):
     d = db.load(_bench.source()).filter(pl.col("species").is_in(["HomoSapiens", "MusMusculus"]))
-    d = _bench.valid_cdr3(d)
-    d = d.filter(~pl.col("reference_id").is_in(list(_bench.spike_studies(d))))   # drop len-14 spike study
+    d = _bench.valid_cdr3(d).filter(~pl.col("reference_id").is_in(list(_bench.spike_studies(d))))
     if shortlist:
         d = _shortlist(d, min_refs=2)                              # clonotype-pMHC in >=2 references
-    rows = _per_gene(d, "gene", "cdr3", "v", "j").select(
-        species=_sp("species"), cdr3_alpha="cdr3_alpha", v_alpha="v_alpha", j_alpha="j_alpha",
-        cdr3_beta="cdr3_beta", v_beta="v_beta", j_beta="j_beta", epitope="epitope",
-        mhc_class="mhc_class", mhc_a="mhc_a", mhc_b=pl.col("mhc_b").fill_null("B2M"),
-        gene="gene", binder=pl.lit(1, dtype=pl.Int8)).unique(
-        subset=[c for c in COLS if c != "idx"], maintain_order=True)
-    keep = rows.group_by(["epitope", "gene"]).len().filter(pl.col("len") >= 30).select("epitope", "gene")
-    return finalize(rows.join(keep, on=["epitope", "gene"], how="semi").drop("gene"))
+    d = d.with_columns(species=_sp("species"), mhc_b=pl.col("mhc_b").fill_null("B2M"))
+    sc = (_per_gene(d, "gene", "cdr3", "v", "j")
+          .select("species", "cdr3_alpha", "v_alpha", "j_alpha", "cdr3_beta", "v_beta", "j_beta",
+                  "epitope", "mhc_class", "mhc_a", "mhc_b", "gene").unique())
+    sc = sc.join(sc.group_by(["epitope", "gene"]).len().filter(pl.col("len") >= 30).select("epitope", "gene"),
+                 on=["epitope", "gene"], how="semi").drop("gene")
+    pr = d.filter(pl.col("complex_id") != 0)
+    a = pr.filter(pl.col("gene") == "TRA").select("complex_id", "species", "epitope", "mhc_class",
+                                                  "mhc_a", "mhc_b", ca="cdr3", va="v", ja="j")
+    b = pr.filter(pl.col("gene") == "TRB").select("complex_id", cb="cdr3", vb="v", jb="j")
+    pair = a.join(b, on="complex_id").select(
+        "species", "epitope", "mhc_class", "mhc_a", "mhc_b",
+        cdr3_alpha="ca", v_alpha=_strip("va"), j_alpha=_strip("ja"),
+        cdr3_beta="cb", v_beta=_strip("vb"), j_beta=_strip("jb")).unique()
+    pair = pair.join(pair.group_by("epitope").len().filter(pl.col("len") >= 30).select("epitope"),
+                     on="epitope", how="semi")
+    pos = pl.concat([sc.with_columns(binder=pl.lit(1, pl.Int8)),
+                     pair.with_columns(binder=pl.lit(1, pl.Int8))], how="diagonal_relaxed")
+    return finalize(pl.concat([pos, _negatives(sc, pair)], how="diagonal_relaxed"))
 
 
 # ------------------------------------------------------------------ dataset 5: TCRvdb ----------------
