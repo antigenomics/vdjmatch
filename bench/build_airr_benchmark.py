@@ -280,13 +280,14 @@ def write(name, df):
 
 
 def breakdown(name, df):
-    """flat rows: dataset, epitope, chain (TRA/TRB/paired), binder, n -- one row per combination."""
+    """flat rows: dataset, species, chain (TRA/TRB/paired), epitope, mhc_class, mhc_a, mhc_b, binder, n."""
     chain = (pl.when((pl.col("cdr3_alpha") != "") & (pl.col("cdr3_beta") != "")).then(pl.lit("paired"))
              .when(pl.col("cdr3_alpha") != "").then(pl.lit("TRA")).otherwise(pl.lit("TRB")))
-    return (df.with_columns(chain=chain).group_by(["epitope", "chain", "binder"]).len()
-            .rename({"len": "n"}).with_columns(dataset=pl.lit(name))
-            .select("dataset", "epitope", "chain", "binder", "n")
-            .sort(["epitope", "chain", "binder"], descending=[False, False, True]))
+    g = ["species", "chain", "epitope", "mhc_class", "mhc_a", "mhc_b", "binder"]
+    return (df.with_columns(chain=chain).group_by(g).len().rename({"len": "n"})
+            .with_columns(dataset=pl.lit(name)).select("dataset", *g, "n")
+            .sort(["species", "chain", "epitope", "mhc_a", "mhc_b", "binder"],
+                  descending=[False, False, False, False, False, True]))
 
 
 def vdjdb_info(name, df):
@@ -308,7 +309,10 @@ if __name__ == "__main__":
     d5 = dataset_5(); write("dataset_5", d5)
     bd = pl.concat([breakdown(nm, d) for nm, d in (("dataset_1", d1), ("dataset_2", d2), ("dataset_5", d5))])
     bd.write_csv(OUT / "breakdown.tsv", separator="\t")
+    bdv = pl.concat([breakdown(nm, d) for nm, d in (("dataset_3", d3), ("dataset_4", d4))])
+    bdv.write_csv(OUT / "breakdown_vdjdb.tsv", separator="\t")
     rs = pl.concat([vdjdb_info(nm, d) for nm, d in (("dataset_3", d3), ("dataset_4", d4))])
     rs.write_csv(OUT / "reference_summary.tsv", separator="\t")
-    print("\n== breakdown.tsv =="); print(bd)
+    print(f"\n== breakdown.tsv ({bd.height} rows, d1/d2/d5) =="); print(bd)
+    print(f"\n== breakdown_vdjdb.tsv ({bdv.height} rows, d3/d4) ==")
     print("\n== reference_summary.tsv =="); print(rs)
