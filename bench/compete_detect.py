@@ -92,10 +92,12 @@ def run_tcrgp(locus, pool):
     for sh in TCRGP_SHIPPED:
         e = EPI[sh]
         out = work / f"{sh}.npy"
-        subprocess.run(["conda", "run", "-n", "cmp-tcrgp", "python",
-                        str(Path(__file__).resolve().parent / "_tcrgp_predict.py"), str(inp),
-                        str(repo / "models" / "paper" / f"model_vdj_{e}_cdr3b"), str(out)], check=True)
-        scores[e] = np.load(out).tolist()
+        if not out.exists():                                       # gpflow1 tf_should_use exits non-zero
+            subprocess.run(["conda", "run", "-n", "cmp-tcrgp", "python",   # even on success -> check=False
+                            str(Path(__file__).resolve().parent / "_tcrgp_predict.py"), str(inp),
+                            str(repo / "models" / "paper" / f"model_vdj_{e}_cdr3b"), str(out)], check=False)
+        a = np.load(out)
+        scores[e] = np.where(np.isnan(a), 0.0, a).tolist()         # length>23 CDR3s -> nan -> 0 (non-binder)
     return scores
 
 
