@@ -288,28 +288,51 @@ def write(name, df):
 _LAB = ["species", "epitope", "mhc_class", "mhc_a", "mhc_b", "binder"]
 
 
-def write_airr(name, df):
-    """single-chain -> airr/{name}_TRA|TRB.tsv.gz (junction_aa, v_call, j_call + labels); paired ->
-    airr/{name}_paired.tsv.gz, one AIRR row per chain linked by clone_id (= the paired row's idx)."""
-    out = OUT / "airr"
-    out.mkdir(exist_ok=True)
+def _airr_parts(df):
+    """-> (tra, trb, al, be): single-chain TRA/TRB rows and the alpha/beta rows of paired clones (the
+    latter carry clone_id = idx). All in AIRR junction_aa/v_call/j_call + labels schema."""
     a, b = pl.col("cdr3_alpha") != "", pl.col("cdr3_beta") != ""
     tra = (df.filter(a & ~b).select("cdr3_alpha", "v_alpha", "j_alpha", *_LAB)
            .rename({"cdr3_alpha": "junction_aa", "v_alpha": "v_call", "j_alpha": "j_call"}))
-    if tra.height:
-        _gz(tra, out / f"{name}_TRA.tsv.gz")
     trb = (df.filter(b & ~a).select("cdr3_beta", "v_beta", "j_beta", *_LAB)
            .rename({"cdr3_beta": "junction_aa", "v_beta": "v_call", "j_beta": "j_call"}))
+    pr = df.filter(a & b)
+    al = pr.select("idx", "cdr3_alpha", "v_alpha", "j_alpha", *_LAB).rename(
+        {"idx": "clone_id", "cdr3_alpha": "junction_aa", "v_alpha": "v_call", "j_alpha": "j_call"})
+    be = pr.select("idx", "cdr3_beta", "v_beta", "j_beta", *_LAB).rename(
+        {"idx": "clone_id", "cdr3_beta": "junction_aa", "v_beta": "v_call", "j_beta": "j_call"})
+    return tra, trb, al, be
+
+
+def write_airr(name, df):
+    """single-chain -> airr/{name}_TRA|TRB.tsv.gz; paired -> airr/{name}_paired.tsv.gz, one AIRR row per
+    chain (alpha then beta) linked by clone_id (= the paired row's idx)."""
+    out = OUT / "airr"
+    out.mkdir(exist_ok=True)
+    tra, trb, al, be = _airr_parts(df)
+    if tra.height:
+        _gz(tra, out / f"{name}_TRA.tsv.gz")
     if trb.height:
         _gz(trb, out / f"{name}_TRB.tsv.gz")
-    pr = df.filter(a & b)
-    if pr.height:
-        al = pr.select("idx", "cdr3_alpha", "v_alpha", "j_alpha", *_LAB).rename(
-            {"idx": "clone_id", "cdr3_alpha": "junction_aa", "v_alpha": "v_call", "j_alpha": "j_call"})
-        be = pr.select("idx", "cdr3_beta", "v_beta", "j_beta", *_LAB).rename(
-            {"idx": "clone_id", "cdr3_beta": "junction_aa", "v_beta": "v_call", "j_beta": "j_call"})
+    if al.height:
         _gz(pl.concat([al, be]).sort("clone_id"), out / f"{name}_paired.tsv.gz")
-    print(f"  airr/{name}: TRA={tra.height} TRB={trb.height} paired={pr.height}(x2 rows)")
+    print(f"  airr/{name}: TRA={tra.height} TRB={trb.height} paired={al.height}(x2 rows)")
+
+
+def write_airr2(name, df):
+    """as airr/ but paired clones are split by chain -> airr2/{name}_paired_TRA.tsv.gz and
+    {name}_paired_TRB.tsv.gz (rejoin on clone_id)."""
+    out = OUT / "airr2"
+    out.mkdir(exist_ok=True)
+    tra, trb, al, be = _airr_parts(df)
+    if tra.height:
+        _gz(tra, out / f"{name}_TRA.tsv.gz")
+    if trb.height:
+        _gz(trb, out / f"{name}_TRB.tsv.gz")
+    if al.height:
+        _gz(al, out / f"{name}_paired_TRA.tsv.gz")
+        _gz(be, out / f"{name}_paired_TRB.tsv.gz")
+    print(f"  airr2/{name}: TRA={tra.height} TRB={trb.height} paired_TRA={al.height} paired_TRB={be.height}")
 
 
 def breakdown(name, df):
@@ -340,9 +363,9 @@ if __name__ == "__main__":
     d3 = _vdjdb(shortlist=False); write("dataset_3", d3)
     d4 = _vdjdb(shortlist=True); write("dataset_4", d4)
     d5 = dataset_5(); write("dataset_5", d5)
-    print("airr/ reshape:")
+    print("airr/ + airr2/ reshape:")
     for nm, d in (("dataset_1", d1), ("dataset_2", d2), ("dataset_3", d3), ("dataset_4", d4), ("dataset_5", d5)):
-        write_airr(nm, d)
+        write_airr(nm, d); write_airr2(nm, d)
     bd = pl.concat([breakdown(nm, d) for nm, d in (("dataset_1", d1), ("dataset_2", d2), ("dataset_5", d5))])
     bd.write_csv(OUT / "breakdown.tsv", separator="\t")
     bdv = pl.concat([breakdown(nm, d) for nm, d in (("dataset_3", d3), ("dataset_4", d4))])
