@@ -265,18 +265,51 @@ def dataset_5():
     return finalize(rows.select([c for c in COLS if c != "idx"]))
 
 
-def write(name, df):
+def _gz(df, path):
+    """gzipped TSV; empty strings -> truly empty fields (no quotes)."""
     import gzip
     import io
-    f = OUT / f"{name}.tsv.gz"
-    strc = ["cdr3_alpha", "v_alpha", "j_alpha", "cdr3_beta", "v_beta", "j_beta", "mhc_a", "mhc_b"]
+    strc = [c for c in df.columns if df.schema[c] == pl.Utf8]
     dfw = df.with_columns([pl.when(pl.col(c) == "").then(None).otherwise(pl.col(c)).alias(c) for c in strc])
-    buf = io.BytesIO()                                              # empty -> null -> truly empty field (no "")
+    buf = io.BytesIO()
     dfw.write_csv(buf, separator="\t")
-    with gzip.open(f, "wb") as gz:
+    with gzip.open(path, "wb") as gz:
         gz.write(buf.getvalue())
+
+
+def write(name, df):
+    f = OUT / f"{name}.tsv.gz"
+    _gz(df, f)
     print(f"  {name:10} n={df.height:>7}  pos={int((df['binder']==1).sum()):>7}  "
           f"neg={int((df['binder']==0).sum()):>7}  paired={(df.filter((pl.col('cdr3_alpha')!='') & (pl.col('cdr3_beta')!='')).height):>6}  -> {f.name}")
+
+
+# AIRR-rearrangement reshape -> airr/. labels kept on every row so each file is benchmark-ready.
+_LAB = ["species", "epitope", "mhc_class", "mhc_a", "mhc_b", "binder"]
+
+
+def write_airr(name, df):
+    """single-chain -> airr/{name}_TRA|TRB.tsv.gz (junction_aa, v_call, j_call + labels); paired ->
+    airr/{name}_paired.tsv.gz, one AIRR row per chain linked by clone_id (= the paired row's idx)."""
+    out = OUT / "airr"
+    out.mkdir(exist_ok=True)
+    a, b = pl.col("cdr3_alpha") != "", pl.col("cdr3_beta") != ""
+    tra = (df.filter(a & ~b).select("cdr3_alpha", "v_alpha", "j_alpha", *_LAB)
+           .rename({"cdr3_alpha": "junction_aa", "v_alpha": "v_call", "j_alpha": "j_call"}))
+    if tra.height:
+        _gz(tra, out / f"{name}_TRA.tsv.gz")
+    trb = (df.filter(b & ~a).select("cdr3_beta", "v_beta", "j_beta", *_LAB)
+           .rename({"cdr3_beta": "junction_aa", "v_beta": "v_call", "j_beta": "j_call"}))
+    if trb.height:
+        _gz(trb, out / f"{name}_TRB.tsv.gz")
+    pr = df.filter(a & b)
+    if pr.height:
+        al = pr.select("idx", "cdr3_alpha", "v_alpha", "j_alpha", *_LAB).rename(
+            {"idx": "clone_id", "cdr3_alpha": "junction_aa", "v_alpha": "v_call", "j_alpha": "j_call"})
+        be = pr.select("idx", "cdr3_beta", "v_beta", "j_beta", *_LAB).rename(
+            {"idx": "clone_id", "cdr3_beta": "junction_aa", "v_beta": "v_call", "j_beta": "j_call"})
+        _gz(pl.concat([al, be]).sort("clone_id"), out / f"{name}_paired.tsv.gz")
+    print(f"  airr/{name}: TRA={tra.height} TRB={trb.height} paired={pr.height}(x2 rows)")
 
 
 def breakdown(name, df):
@@ -307,6 +340,9 @@ if __name__ == "__main__":
     d3 = _vdjdb(shortlist=False); write("dataset_3", d3)
     d4 = _vdjdb(shortlist=True); write("dataset_4", d4)
     d5 = dataset_5(); write("dataset_5", d5)
+    print("airr/ reshape:")
+    for nm, d in (("dataset_1", d1), ("dataset_2", d2), ("dataset_3", d3), ("dataset_4", d4), ("dataset_5", d5)):
+        write_airr(nm, d)
     bd = pl.concat([breakdown(nm, d) for nm, d in (("dataset_1", d1), ("dataset_2", d2), ("dataset_5", d5))])
     bd.write_csv(OUT / "breakdown.tsv", separator="\t")
     bdv = pl.concat([breakdown(nm, d) for nm, d in (("dataset_3", d3), ("dataset_4", d4))])
