@@ -30,12 +30,10 @@ from __future__ import annotations
 
 import argparse
 import collections
-import gzip
 import random
 import statistics as stt
 import sys
 import time
-from importlib import resources
 
 import polars as pl
 
@@ -102,6 +100,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pmhc", default=None)
     ap.add_argument("--species", default="HomoSapiens")
+    ap.add_argument("--control", default="human_trb_aa",
+                    help="seqtree control name; pair mouse_trb_aa with --species MusMusculus")
     ap.add_argument("--gene", default="TRB")
     ap.add_argument("--min-refs", type=int, default=2)
     ap.add_argument("--min-size", type=int, default=20)
@@ -117,8 +117,8 @@ def main() -> int:
     args = ap.parse_args()
 
     t_start = time.perf_counter()
-    with resources.files("seqtree").joinpath("data/control_human_trb_aa.txt.gz").open("rb") as fh:
-        pool = [ln.strip() for ln in gzip.open(fh, "rt") if ln.strip()]
+    ctrl_idx = seqtree.load_control(args.control)
+    pool = [ctrl_idx.ref_seq(i) for i in range(len(ctrl_idx))]
     M = len(pool)
 
     groups = shortlist(source(args.pmhc), args.species, args.gene,

@@ -29,13 +29,11 @@ from __future__ import annotations
 
 import argparse
 import collections
-import gzip
 import itertools
 import random
 import statistics as stt
 import sys
 import time
-from importlib import resources
 
 import polars as pl
 
@@ -194,6 +192,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pmhc", default=None)
     ap.add_argument("--species", default="HomoSapiens")
+    ap.add_argument("--control", default="human_trb_aa",
+                    help="seqtree control name; pair mouse_trb_aa with --species MusMusculus")
+    ap.add_argument("--control-file", default=None,
+                    help="gzipped one-sequence-per-line control, overriding --control")
     ap.add_argument("--gene", default="TRB")
     ap.add_argument("--min-refs", type=int, default=2)
     ap.add_argument("--min-size", type=int, default=20)
@@ -209,8 +211,13 @@ def main() -> int:
     args = ap.parse_args()
 
     t_start = time.perf_counter()
-    with resources.files("seqtree").joinpath("data/control_human_trb_aa.txt.gz").open("rb") as fh:
-        pool = [ln.strip() for ln in gzip.open(fh, "rt") if ln.strip()]
+    if args.control_file:
+        import gzip as _gz
+        with _gz.open(args.control_file, "rt") as fh:
+            pool = [ln.strip() for ln in fh if ln.strip()]
+    else:
+        ctrl_idx = seqtree.load_control(args.control)
+        pool = [ctrl_idx.ref_seq(i) for i in range(len(ctrl_idx))]
     M = len(pool)
 
     real = real_groups(source(args.pmhc), args.species, args.gene,
@@ -227,7 +234,10 @@ def main() -> int:
     scale = mat.scale()
     gap_open = args.gap_open if args.gap_open is not None else 2 * scale
     prior = central_prior(int(1.5 * scale))
-    pen = {(a, b): mat.penalty(a, b) for a in AA for b in AA}
+    # over the FULL alphabet: a control may legitimately carry X, *, B or Z, and a table
+    # built over the 20 standard residues raises KeyError the moment one shows up.
+    syms = seqtree.alphabet_symbols("aa")
+    pen = {(a, b): mat.penalty(a, b) for a in syms for b in syms}
 
     t0 = time.perf_counter()
     gbi = GapBlockIndex(pool, "aa", d_max=D_MAX)
