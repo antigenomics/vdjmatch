@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vdjmatch"
-version = "0.0.1"
+version = "0.1.0"
 description = "Fast, control-calibrated annotation of T-cell receptor antigen specificity"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "seqtree>=0.1.0",     # SubstitutionMatrix.penalty Python API (0.1.0)
+    "seqtree>=0.4.0",     # SubstitutionMatrix.penalty (0.1.0); `structural` (MJ) matrix (0.2.0)
     "polars>=1.0",
 ]
 
