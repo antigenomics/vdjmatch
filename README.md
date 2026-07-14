@@ -1,6 +1,17 @@
-# vdjmatch
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/vdjmatch_dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/vdjmatch_light.svg">
+    <!-- Absolute PNG fallback: PyPI strips <picture>/<source> and cannot render a relative or
+         raw-served SVG, so the logo must be an absolute-URL raster here. GitHub uses the SVG sources.
+         Use the light (dark-on-transparent) raster so it reads on PyPI's white page. -->
+    <img alt="vdjmatch" src="https://raw.githubusercontent.com/antigenomics/vdjmatch/master/assets/vdjmatch_light.png" width="340">
+  </picture>
+</p>
 
-<p>
+<h1 align="center">vdjmatch — control-calibrated TCR antigen-specificity annotation</h1>
+
+<p align="center">
   <a href="https://pypi.org/project/vdjmatch/"><img alt="PyPI" src="https://img.shields.io/pypi/v/vdjmatch"></a>
   <a href="https://github.com/antigenomics/vdjmatch/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/antigenomics/vdjmatch/actions/workflows/tests.yml/badge.svg"></a>
   <a href="https://antigenomics.github.io/vdjmatch/"><img alt="docs" src="https://github.com/antigenomics/vdjmatch/actions/workflows/docs.yml/badge.svg"></a>

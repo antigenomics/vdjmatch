@@ -30,4 +30,10 @@ bench/external/
 # generated comparison-benchmark output
 bench/out/
 bench/predictions/
+# hard-case study scratch: regenerable control-repertoire caches + raw-CDR3 mock inputs
+bench/_hardcase/
+bench/_mock/
 tmp/
+
+# obsidian memory sync (machine-local absolute paths)
+.claude/obsidian-sync.json
