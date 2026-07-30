@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "seqtree>=0.6.0",     # SubstitutionMatrix.penalty (0.1.0); `structural` (MJ) matrix (0.2.0); corrected MJ A-N contact energy (0.6.0)
+    "seqtree>=0.6.1",     # SubstitutionMatrix.penalty (0.1.0); `structural` (MJ) matrix (0.2.0); corrected MJ A-N contact energy (0.6.0)
     "polars>=1.0",
 ]
 

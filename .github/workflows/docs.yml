@@ -27,6 +27,8 @@ jobs:
         # autodoc imports vdjmatch with heavy deps (seqtree, polars) mocked in docs/conf.py,
         # so the native seqtree toolchain is not needed to build docs.
         run: pip install sphinx pydata-sphinx-theme nbsphinx ipython
+      - name: Install vdjmatch (no deps; autodoc needs it importable)
+        run: pip install --no-deps -e .
       - name: Build HTML (fail on warnings)
         run: sphinx-build -W --keep-going -b html docs docs/_build/html
       - uses: actions/upload-pages-artifact@v3

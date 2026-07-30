@@ -9,7 +9,7 @@
   results (e.g. BCR light-chain overlap queries against large reference sets).
 
 ### Changed
-- Requires `seqtree>=0.6.0` (was `>=0.4.0`), which corrects the MJ `structural` matrix's A-N
+- Requires `seqtree>=0.6.1` (was `>=0.4.0`), which corrects the MJ `structural` matrix's A-N
   contact energy (`0.00` → `0.15`); scores from `structural()` change for sequences containing
   A, W, or B.
 
