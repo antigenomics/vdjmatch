@@ -18,10 +18,14 @@ def overlap(a: list[str], b: list[str] | None = None, scope: str = "1,0,0,1",
     bb = a if within else b
     params = search_params(scope, engine="seqtm", matrix=matrix or "")
     res = pairwise_batch(a, bb, params, "aa", threads)
-    rows = [(i, a[i], h.ref_id, bb[h.ref_id], h.score, h.n_subs)
+    rows = [(i, h.ref_id, h.score, h.n_subs)
             for i, hl in enumerate(res) for h in hl if not (within and i == h.ref_id)]
-    return pl.DataFrame(rows, orient="row",
-                        schema=["a_idx", "a_cdr3", "b_idx", "b_cdr3", "score", "n_subs"])
+    hits = pl.DataFrame(rows, orient="row", schema=["a_idx", "b_idx", "score", "n_subs"])
+    a_lookup = pl.DataFrame({"a_idx": range(len(a)), "a_cdr3": a})
+    b_lookup = a_lookup.rename({"a_idx": "b_idx", "a_cdr3": "b_cdr3"}) if within \
+        else pl.DataFrame({"b_idx": range(len(bb)), "b_cdr3": bb})
+    return (hits.join(a_lookup, on="a_idx").join(b_lookup, on="b_idx")
+            .select("a_idx", "a_cdr3", "b_idx", "b_cdr3", "score", "n_subs"))
 
 
 def overlap_metrics(a: list[str], b: list[str], scope: str = "1,0,0,1",
