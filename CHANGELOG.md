@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.2] - 2026-07-30
+
+### Fixed
+- **`cluster.overlap()` raised `SchemaError` whenever a query had zero fuzzy matches** —
+  regression from 0.1.1's index-only hit rows: with no hits, `pl.DataFrame([], schema=[names])`
+  has no data to infer a dtype from and defaulted `a_idx`/`b_idx` to `Null`, which then failed to
+  join against the lookup frames' `Int64` idx columns. `hits` now declares an explicit
+  `{name: dtype}` schema so the empty and non-empty paths agree. Added a regression test
+  (`test_overlap_no_matches_returns_empty_not_schema_error`) — the prior release shipped without
+  one, since the existing `test_overlap_within_drops_self` fixture always has at least one hit.
+
 ## [0.1.1] - 2026-07-30
 
 ### Fixed

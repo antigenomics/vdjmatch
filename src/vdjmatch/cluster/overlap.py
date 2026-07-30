@@ -20,7 +20,11 @@ def overlap(a: list[str], b: list[str] | None = None, scope: str = "1,0,0,1",
     res = pairwise_batch(a, bb, params, "aa", threads)
     rows = [(i, h.ref_id, h.score, h.n_subs)
             for i, hl in enumerate(res) for h in hl if not (within and i == h.ref_id)]
-    hits = pl.DataFrame(rows, orient="row", schema=["a_idx", "b_idx", "score", "n_subs"])
+    # Explicit dtypes: with zero hits, `rows` is empty and there is no data to infer a dtype
+    # from, so a bare column-name schema silently produces Null-typed columns -- which then
+    # fail to join against a_lookup/b_lookup's Int64 idx columns (SchemaError).
+    hits = pl.DataFrame(rows, orient="row", schema={"a_idx": pl.Int64, "b_idx": pl.Int64,
+                                                    "score": pl.Int64, "n_subs": pl.Int64})
     a_lookup = pl.DataFrame({"a_idx": range(len(a)), "a_cdr3": a})
     b_lookup = a_lookup.rename({"a_idx": "b_idx", "a_cdr3": "b_cdr3"}) if within \
         else pl.DataFrame({"b_idx": range(len(bb)), "b_cdr3": bb})

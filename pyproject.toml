@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vdjmatch"
-version = "0.1.1"
+version = "0.1.2"
 description = "Fast, control-calibrated annotation of T-cell receptor antigen specificity"
 readme = "README.md"
 requires-python = ">=3.10"

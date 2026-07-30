@@ -90,6 +90,14 @@ def test_overlap_within_drops_self():
     assert ("CASSF", "CASSL") in got
 
 
+def test_overlap_no_matches_returns_empty_not_schema_error():
+    # regression: zero hits used to build a_idx/b_idx as Null-typed columns (no data to infer
+    # a dtype from), which then failed to join against the Int64-typed lookup frames.
+    pairs = cluster.overlap(["CASSLAPGF"], ["CQRSTVWKY"], scope="1,0,0,1")
+    assert pairs.height == 0
+    assert pairs.columns == ["a_idx", "a_cdr3", "b_idx", "b_cdr3", "score", "n_subs"]
+
+
 # --- paired alpha/beta E-value ---
 def test_paired_evalue():
     from seqtree import Index
