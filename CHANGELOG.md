@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- `SELECTION_BY_CHAIN` refined to **TRB 4.62 / TRA 1.07** (was 4.42 / 1.05) after adding
+  `airr_covid19_vacc` as a third cohort — TRB now rests on three independent cohorts (4.75, 4.92,
+  3.79) and TRA on two (1.05, 1.09), with residual RMS 0.054 and 0.067 decades over n=777 and
+  n=336. At matched depth the replication is 1.04x on both chains. The shift is inside the residual
+  spread, so 0.2.0's constants were not wrong, just fitted on less data.
+
 ## [0.2.0] - 2026-08-17
 
 ### Added

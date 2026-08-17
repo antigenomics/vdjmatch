@@ -21,9 +21,11 @@ ALICE_Q = 9.41
 #: Per-chain **depth** selection factor: a repertoire of ``N`` observed independent rearrangements
 #: behaves like ``Q * N`` draws from the generation distribution. Fitted through the saturating
 #: occupancy curve against how many distinct junctions real cohorts actually show inside an
-#: epitope's neighbourhood -- ``TRB`` on two independent cohorts (`airr_covid19` and `airr_hip`,
-#: different protocols, 8.5x apart in depth) which agree at 4.75 and 3.79, and ``TRA`` on
-#: `airr_covid19`. Residual RMS 0.051 (TRB, n=518) and 0.066 (TRA, n=168) decades.
+#: epitope's neighbourhood. ``TRB`` is fitted over three independent cohorts (`airr_covid19`,
+#: `airr_covid19_vacc`, `airr_hip` -- different protocols, 8.5x apart in depth) giving 4.75, 4.92
+#: and 3.79; ``TRA`` over two (`airr_covid19`, `airr_covid19_vacc`) giving 1.05 and 1.09. Residual
+#: RMS 0.054 (TRB, n=777) and 0.067 (TRA, n=336) decades, and at matched depth the replication is
+#: 1.04x on both chains.
 #:
 #: **The chains genuinely differ and a shared value fits neither.** Beta needs a factor of several;
 #: alpha needs essentially none, so the raw recombination model already predicts the observed alpha
@@ -32,7 +34,7 @@ ALICE_Q = 9.41
 #: This is **not** :data:`ALICE_Q`. That one scales a generation probability to a post-selection
 #: *frequency*; this one scales an observer's *depth* on the count axis. They are different
 #: quantities and must not be substituted for one another.
-SELECTION_BY_CHAIN = {"TRB": 4.42, "TRA": 1.05}
+SELECTION_BY_CHAIN = {"TRB": 4.62, "TRA": 1.07}
 
 #: Order-of-magnitude total T-cell count for one adult human. Used only to turn a frequency into a
 #: count; it is not a measured constant of this library and every reported count inherits its error.
