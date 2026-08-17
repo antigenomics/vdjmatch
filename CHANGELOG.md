@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- **`vdjmatch precursor` refuses a species/organism mismatch.** `--species MusMusculus` against the
+  default `--organism human` used to run to completion and emit a plausible number for every group:
+  a median **0.157x** of the right answer with an **11x spread across epitopes**, so the ranking was
+  corrupted too and nothing in the output said so. Now an error naming the correct invocation.
+- **`--organism mouse` selects `arda` automatically.** `olga` ships no mouse model, so the default
+  source could only ever fail; there is nothing else the user could have meant.
+
 ### Changed
 - `SELECTION_BY_CHAIN` refined to **TRB 4.62 / TRA 1.07** (was 4.42 / 1.05) after adding
   `airr_covid19_vacc` as a third cohort — TRB now rests on three independent cohorts (4.75, 4.92,

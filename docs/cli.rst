@@ -84,12 +84,22 @@ repertoire mass can see an epitope. Needs the optional extra::
    $ vdjmatch precursor --vdjdb --min-junctions 10 -r 2       # well-sampled epitopes, radius 2
    $ vdjmatch precursor tcrs.tsv --group-by epitope --locus TRA
    $ vdjmatch precursor --vdjdb --q 9.41 --n-eff 1e8          # calibrated F, plus P(>=k precursors)
+   $ vdjmatch precursor --vdjdb --species MusMusculus --organism mouse   # mouse (auto-picks arda)
 
 .. warning::
 
    Sequences must be **junctions** (Cys104…Phe/Trp118 inclusive), not IMGT CDR3s — VDJdb's column
    is named ``cdr3`` but holds junctions. An anchor-stripped CDR3 scores exactly ``0.0`` with no
    error, so it is dropped and counted in ``n_dropped`` rather than silently scored.
+
+.. note::
+
+   ``--species`` selects the **records**, ``--organism`` selects the **model**, and they have to
+   agree. Scoring mouse junctions against the human recombination model does not error and does not
+   produce zeros — it returns a plausible number for every group, a median 0.157× of the right
+   answer with an 11× spread across epitopes, so the ranking is wrong too. That mismatch is
+   therefore refused. Mouse models live only in ``--source arda``, which ``--organism mouse``
+   selects for you.
 
 .. list-table::
    :header-rows: 1

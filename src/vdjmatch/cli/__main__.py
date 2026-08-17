@@ -86,12 +86,36 @@ def _cmd_match(a: argparse.Namespace) -> int:
     return 0
 
 
+#: VDJdb species -> the recombination-model organism that scores it. Scoring one species' junctions
+#: against another's model does not error and does not produce zeros -- mouse VDJdb against the
+#: human model returns a finite `F` for every group, a median 0.157x of the right answer with an
+#: 11x spread across epitopes, so it corrupts the ranking and not just the scale. Silent and
+#: plausible is the worst failure mode available, hence the guard.
+_MODEL_ORGANISM = {"HomoSapiens": "human", "MusMusculus": "mouse", "MacacaMulatta": "monkey"}
+
+
 def _cmd_precursor(a: argparse.Namespace) -> int:
     import polars as pl
 
     from ..precursor import summarise
 
+    # `olga` ships human only; mouse lives under `arda`. Switch rather than fail, since there is no
+    # mouse model in the default set for the user to have meant.
+    if a.organism != "human" and a.source == "olga":
+        a.source = "arda"
+        print(f"note: --organism {a.organism} has no model in 'olga'; using --source arda",
+              file=sys.stderr)
+
     if a.vdjdb or not a.samples:
+        want = _MODEL_ORGANISM.get(a.species)
+        if want and want != a.organism:
+            raise SystemExit(
+                f"--species {a.species} needs --organism {want}, but --organism is "
+                f"{a.organism!r}. Scoring {a.species} junctions against the {a.organism} "
+                f"recombination model runs without error and returns a plausible number that is "
+                f"wrong by a factor which varies between epitopes, so it is refused rather than "
+                f"warned about.\n"
+                f"  run: vdjmatch precursor --vdjdb --species {a.species} --organism {want}")
         frame = db.load(a.table, asset="slim", species=a.species, pin=a.pin)
         if a.mhc_class:
             frame = frame.filter(pl.col("mhc_class") == a.mhc_class)

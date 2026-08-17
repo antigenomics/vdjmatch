@@ -296,3 +296,34 @@ def test_cli_precursor_writes_one_row_per_group(tmp_path, model):
     assert set(got["group"]) == {"e1", "e2"}
     assert (got["q"] == 9.41).all()
     assert (got["F"] > 0).all()
+
+
+def test_cli_precursor_refuses_species_organism_mismatch():
+    """Mouse VDJdb against the human model scores fine and is wrong; it has to be refused.
+
+    Every group returns a finite `F` -- a median 0.157x of the right answer with an 11x spread
+    across epitopes -- so the ranking is corrupted too, and nothing in the output says so.
+    """
+    from vdjmatch.cli.__main__ import main
+
+    with pytest.raises(SystemExit) as e:
+        main(["precursor", "--vdjdb", "--species", "MusMusculus", "-o", "/dev/null"])
+    assert "--organism mouse" in str(e.value)
+
+
+def test_cli_precursor_switches_source_for_non_human_organism():
+    """`olga` has no mouse model, so --organism mouse must move to `arda` rather than fail.
+
+    The switch is the first thing the command does, so a deliberately thin namespace is enough:
+    it runs far enough to flip `source`, then trips on the next attribute it wants. That is the
+    assertion -- we are testing the switch, not the rest of the command.
+    """
+    import argparse
+
+    from vdjmatch.cli.__main__ import _cmd_precursor
+
+    a = argparse.Namespace(organism="mouse", source="olga", species="MusMusculus",
+                           vdjdb=True, samples=[], table=None, pin=None, mhc_class=None)
+    with pytest.raises(AttributeError):
+        _cmd_precursor(a)
+    assert a.source == "arda"
