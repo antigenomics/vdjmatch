@@ -18,6 +18,22 @@ from .mass import ALPHA_PER_EDIT, shell_profile
 #: number; pass your own ``q`` when you have fitted one for your chain and cohort.
 ALICE_Q = 9.41
 
+#: Per-chain **depth** selection factor: a repertoire of ``N`` observed independent rearrangements
+#: behaves like ``Q * N`` draws from the generation distribution. Fitted through the saturating
+#: occupancy curve against how many distinct junctions real cohorts actually show inside an
+#: epitope's neighbourhood -- ``TRB`` on two independent cohorts (`airr_covid19` and `airr_hip`,
+#: different protocols, 8.5x apart in depth) which agree at 4.75 and 3.79, and ``TRA`` on
+#: `airr_covid19`. Residual RMS 0.051 (TRB, n=518) and 0.066 (TRA, n=168) decades.
+#:
+#: **The chains genuinely differ and a shared value fits neither.** Beta needs a factor of several;
+#: alpha needs essentially none, so the raw recombination model already predicts the observed alpha
+#: junction count. Beta selection is a developmental checkpoint the alpha chain does not have.
+#:
+#: This is **not** :data:`ALICE_Q`. That one scales a generation probability to a post-selection
+#: *frequency*; this one scales an observer's *depth* on the count axis. They are different
+#: quantities and must not be substituted for one another.
+SELECTION_BY_CHAIN = {"TRB": 4.42, "TRA": 1.05}
+
 #: Order-of-magnitude total T-cell count for one adult human. Used only to turn a frequency into a
 #: count; it is not a measured constant of this library and every reported count inherits its error.
 N_T_CELLS = 1e11
@@ -80,8 +96,8 @@ def precursor_frequency(model, junctions, r: int = 1, alpha: float = ALPHA_PER_E
 
 
 def occupancy(model, junctions, r: int = 1, alpha: float = ALPHA_PER_EDIT,
-              n_eff: float | None = None, sample: int = 3000, seed: int = 0,
-              threads: int = 0) -> dict:
+              n_eff: float | None = None, selection: float = 1.0, sample: int = 3000,
+              seed: int = 0, threads: int = 0) -> dict:
     """How many cognate clonotypes exist, how many are visible at depth ``n_eff``, and their mass.
 
     ::
@@ -112,8 +128,13 @@ def occupancy(model, junctions, r: int = 1, alpha: float = ALPHA_PER_EDIT,
     shapes therefore have different precursor *counts*, and it is the count that a response is built
     from.
 
-    Returns ``{"S", "F", "n_seen", "n_unseen", "seen_fraction", "n_eff", "alpha", "r", "shells"}``,
-    with the ``n_seen`` fields ``None`` when ``n_eff`` is not given.
+    ``selection`` multiplies the depth: a repertoire of ``n_eff`` observed rearrangements behaves
+    like ``selection * n_eff`` draws from the generation distribution. It defaults to ``1.0``, i.e.
+    uncalibrated. :data:`SELECTION_BY_CHAIN` carries the measured per-chain values, which differ
+    (TRB ~4.4, TRA ~1.05) and should not be pooled.
+
+    Returns ``{"S", "F", "n_seen", "n_unseen", "seen_fraction", "n_eff", "selection", "alpha", "r",
+    "shells"}``, with the ``n_seen`` fields ``None`` when ``n_eff`` is not given.
 
     **Counting distinct junctions is deliberate.** Nothing here consumes a record or donor
     multiplicity: how often a clonotype was *reported* is expansion and curation attention, not how
@@ -130,7 +151,7 @@ def occupancy(model, junctions, r: int = 1, alpha: float = ALPHA_PER_EDIT,
 
     seqs = list(dict.fromkeys(s for s in junctions if s))
     out = {"S": 0.0, "F": 0.0, "n_seen": None, "n_unseen": None, "seen_fraction": None,
-           "n_eff": n_eff, "alpha": alpha, "r": r, "shells": []}
+           "n_eff": n_eff, "selection": selection, "alpha": alpha, "r": r, "shells": []}
     if not seqs:
         return out
     if r < 0:
@@ -155,7 +176,8 @@ def occupancy(model, junctions, r: int = 1, alpha: float = ALPHA_PER_EDIT,
         S += w * n_k
         F += w * n_k * mean_pi
         if n_eff is not None and pi.size:
-            seen += w * n_k * float(np.mean(-np.expm1(-float(n_eff) * pi)))
+            depth = float(selection) * float(n_eff)
+            seen += w * n_k * float(np.mean(-np.expm1(-depth * pi)))
         out["shells"].append({"r": k, "n": int(n_k), "mean_pgen": mean_pi or None})
 
     out.update(S=S, F=F)

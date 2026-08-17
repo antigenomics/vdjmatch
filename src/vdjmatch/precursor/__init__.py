@@ -122,6 +122,7 @@ from .events import RecombinationEvent, event_ratio
 from .frequency import (
     ALICE_Q,
     N_T_CELLS,
+    SELECTION_BY_CHAIN,
     expected_cells,
     occupancy,
     p_at_least,
@@ -156,5 +157,5 @@ __all__ = [
     "cross_check",
     "precursor_frequency", "occupancy", "expected_cells", "p_at_least", "paired_frequency",
     "summarise", "summarise_group", "SCHEMA",
-    "ALPHA_PER_EDIT", "MOTIF_FREQ_THRESHOLD", "MAX_BALL_MEMBERS", "MAX_COMPONENT_MEMBERS", "ALICE_Q", "N_T_CELLS",
+    "ALPHA_PER_EDIT", "SELECTION_BY_CHAIN", "MOTIF_FREQ_THRESHOLD", "MAX_BALL_MEMBERS", "MAX_COMPONENT_MEMBERS", "ALICE_Q", "N_T_CELLS",
 ]
