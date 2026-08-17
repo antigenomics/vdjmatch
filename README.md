@@ -26,7 +26,7 @@ by fuzzy CDR3 search, reporting a **control-calibrated E-value** (BLAST-style si
 background repertoire) and enriched antigen-specificity labels. It is a Python rewrite of the legacy
 Java/Groovy vdjmatch, built on the [`seqtree`](https://github.com/antigenomics/seqtree) search core.
 
-> **Status:** early alpha (PyPI `0.0.1`), under active development on `dev`. The "2.0" line is the
+> **Status:** early alpha (PyPI `0.2.0`), under active development on `dev`. The "2.0" line is the
 > Python rewrite of the legacy Java/Groovy vdjmatch (1.x), which is preserved on the `legacy-java`
 > branch (tags `1.1.4`–`1.3.1`).
 
@@ -39,7 +39,11 @@ Java/Groovy vdjmatch, built on the [`seqtree`](https://github.com/antigenomics/s
   **VDJAM** matrix is bundled.
 - Rich per-hit output: ranked hits, CIGAR + alignment match/gap, alignment scores, E-values.
 - Epitope-level enrichment summaries; pairwise sample overlap.
-- A small command-line interface (`vdjmatch update` / `vdjmatch match`) and a `polars`-native Python API.
+- **T-cell precursor frequency** for an epitope (`vdjmatch precursor`, optional extra) — how much
+  repertoire mass can see it, how much of the cognate set no database has catalogued, and how many
+  precursor cells that implies.
+- A small command-line interface (`vdjmatch update` / `match` / `precursor`) and a `polars`-native
+  Python API.
 
 ## Install (development)
 

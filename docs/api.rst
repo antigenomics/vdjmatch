@@ -60,3 +60,16 @@ vdjmatch.cluster
    :members:
    :undoc-members:
    :show-inheritance:
+
+vdjmatch.precursor
+------------------
+
+.. note::
+
+   Needs the optional extra: ``pip install 'vdjmatch[precursor]'``. It pulls ``vdjtools`` for the
+   recombination model; importing ``vdjmatch`` itself never does.
+
+.. automodule:: vdjmatch.precursor
+   :members:
+   :undoc-members:
+   :show-inheritance:

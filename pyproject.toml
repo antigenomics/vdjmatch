@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vdjmatch"
-version = "0.1.2"
+version = "0.2.0"
 description = "Fast, control-calibrated annotation of T-cell receptor antigen specificity"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,12 +19,19 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "seqtree>=0.6.1",     # SubstitutionMatrix.penalty (0.1.0); `structural` (MJ) matrix (0.2.0); corrected MJ A-N contact energy (0.6.0)
+    "seqtree>=0.7.0",     # SubstitutionMatrix.penalty (0.1.0); `structural` (MJ) matrix (0.2.0); corrected MJ A-N contact energy (0.6.0); neighbourhood/neighbourhood_union/union_size (0.7.0)
     "polars>=1.0",
 ]
 
 [project.optional-dependencies]
 cli = ["tqdm"]                    # match --verbose progress bar (imported lazily; core never requires it)
+# `vdjmatch precursor` only. vdjtools carries the recombination model (Pgen DP, the closed
+# Hamming-1 ball, the degenerate/masked DP) and numpy/scipy are the coverage-correction fit.
+# vdjtools itself depends on vdjmatch; that cycle is metadata-only and resolves -- `pip install
+# 'vdjmatch[precursor]'` co-installs vdjmatch + vdjtools + seqtree. It stays resolvable only while
+# vdjtools pins vdjmatch with a floor (`>=`) and never an `==`. The import is lazy, so plain
+# `import vdjmatch` never touches vdjtools.
+precursor = ["vdjtools>=3.9", "numpy", "scipy"]
 test = ["pytest>=7.4", "hypothesis"]
 bench = ["psutil", "huggingface_hub", "matplotlib", "seaborn"]  # huggingface_hub: HF benchmark; matplotlib/seaborn: comparison boxplots+beeswarm
 control = ["seqtree[control]", "huggingface_hub"]  # TRA/mouse controls beyond bundled human TRB
@@ -38,6 +45,12 @@ vdjmatch = "vdjmatch.cli.__main__:main"
 Homepage = "https://github.com/antigenomics/vdjmatch"
 Repository = "https://github.com/antigenomics/vdjmatch"
 Documentation = "https://antigenomics.github.io/vdjmatch/"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: excluded from the default CI run (`pytest -m 'not slow'`)",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vdjmatch"]
