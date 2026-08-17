@@ -79,6 +79,92 @@ def precursor_frequency(model, junctions, r: int = 1, alpha: float = ALPHA_PER_E
     return out
 
 
+def occupancy(model, junctions, r: int = 1, alpha: float = ALPHA_PER_EDIT,
+              n_eff: float | None = None, sample: int = 3000, seed: int = 0,
+              threads: int = 0) -> dict:
+    """How many cognate clonotypes exist, how many are visible at depth ``n_eff``, and their mass.
+
+    ::
+
+        S           = sum_k alpha^k n_k                          effective cognate-set size
+        F           = sum_k alpha^k m_k                          fraction of the naive repertoire
+        n_seen(N)   = sum_k alpha^k n_k E_k[1 - exp(-N Pgen)]
+        n_unseen(N) = S - n_seen(N)
+
+    with ``n_k`` and ``m_k`` the size and `Pgen` mass of shell ``k`` of the neighbourhood, and
+    ``alpha`` the per-edit cognacy retention.
+
+    **Why this rather than the summed mass.** A specificity database samples cognate TCRs
+    size-biased by repertoire frequency, ``p_i = pi_i / F``. Under that sampling the arithmetic sum
+    over a catalogued set has expectation
+
+        E[ sum_{i in sample} pi_i ]  =  n * (sum_i pi_i^2) / F
+
+    — proportional to how many TCRs were catalogued, proportional to how concentrated the spectrum
+    is, and *inversely* proportional to the quantity it is meant to estimate. A set total is
+    therefore a measurement of database attention as much as of biology, and correlations built on
+    one vanish when the catalogued count is controlled for. The occupancy form has no such term: it
+    is a count of sequence-space members weighted by how likely each is to be generated.
+
+    ``n_seen`` **saturates** in ``n_eff``, which is the substantive difference. A cognate set
+    concentrated on a few high-`Pgen` junctions is exhausted at shallow depth; a broad one keeps
+    accumulating clonotypes as depth grows. Two epitopes with the same summed mass and different
+    shapes therefore have different precursor *counts*, and it is the count that a response is built
+    from.
+
+    Returns ``{"S", "F", "n_seen", "n_unseen", "seen_fraction", "n_eff", "alpha", "r", "shells"}``,
+    with the ``n_seen`` fields ``None`` when ``n_eff`` is not given.
+
+    **Counting distinct junctions is deliberate.** Nothing here consumes a record or donor
+    multiplicity: how often a clonotype was *reported* is expansion and curation attention, not how
+    many clonotypes exist.
+
+    The shell sizes are exact; the `Pgen` spectrum within a shell is estimated from a uniform
+    subsample of ``sample`` members, because a radius-1 shell around a few thousand junctions holds
+    millions of sequences and only its distribution enters. ``seed`` fixes that subsample.
+    """
+    import numpy as np
+    from seqtree.distance import neighbourhood_union, union_size
+
+    from .model import pgen
+
+    seqs = list(dict.fromkeys(s for s in junctions if s))
+    out = {"S": 0.0, "F": 0.0, "n_seen": None, "n_unseen": None, "seen_fraction": None,
+           "n_eff": n_eff, "alpha": alpha, "r": r, "shells": []}
+    if not seqs:
+        return out
+    if r < 0:
+        raise ValueError("r must be >= 0")
+
+    rng = np.random.default_rng(seed)
+    prev, S, F, seen = 0, 0.0, 0.0, 0.0
+    for k in range(r + 1):
+        n_k = union_size(seqs, r=k) - prev
+        prev += n_k
+        if n_k <= 0:
+            out["shells"].append({"r": k, "n": 0, "mean_pgen": None})
+            continue
+        members = seqs if k == 0 else neighbourhood_union(seqs, r=k, shell=True)
+        if len(members) > sample:
+            idx = rng.choice(len(members), size=sample, replace=False)
+            members = [members[i] for i in sorted(idx)]
+        pi = np.asarray(pgen(model, members, threads=threads), dtype=float)
+        pi = pi[pi > 0]
+        w = alpha ** k
+        mean_pi = float(pi.mean()) if pi.size else 0.0
+        S += w * n_k
+        F += w * n_k * mean_pi
+        if n_eff is not None and pi.size:
+            seen += w * n_k * float(np.mean(-np.expm1(-float(n_eff) * pi)))
+        out["shells"].append({"r": k, "n": int(n_k), "mean_pgen": mean_pi or None})
+
+    out.update(S=S, F=F)
+    if n_eff is not None:
+        out.update(n_seen=seen, n_unseen=max(0.0, S - seen),
+                   seen_fraction=(seen / S) if S > 0 else None)
+    return out
+
+
 def expected_cells(f: float, n_cells: float = N_T_CELLS, compartment: float = 1.0) -> float:
     """Expected number of epitope-specific cells: ``n_cells * compartment * f``.
 

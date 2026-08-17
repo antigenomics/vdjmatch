@@ -233,6 +233,35 @@ def test_precursor_frequency_omits_poisson_fields_without_n_eff(model):
     assert 0.0 <= out["p_ge_10"] <= out["p_ge_1"] <= 1.0
 
 
+def test_occupancy_saturates_in_depth_and_splits_seen_from_unseen(model):
+    from vdjmatch.precursor import occupancy
+
+    seqs = [A, B, C, FAR]
+    o = occupancy(model, seqs, r=1, n_eff=1e8)
+    assert o["S"] > len(seqs)                       # the ball is bigger than the observed set
+    assert 0 < o["n_seen"] < o["S"]
+    assert o["n_unseen"] == pytest.approx(o["S"] - o["n_seen"], rel=1e-9)
+    assert o["seen_fraction"] == pytest.approx(o["n_seen"] / o["S"], rel=1e-9)
+    # deeper sampling can only reveal more, and it saturates at S rather than growing past it
+    deep = occupancy(model, seqs, r=1, n_eff=1e14)
+    assert deep["n_seen"] > o["n_seen"]
+    assert deep["n_seen"] <= deep["S"] * (1 + 1e-9)
+    assert occupancy(model, seqs, r=1)["n_seen"] is None    # no depth given, no count claimed
+
+
+def test_occupancy_S_is_the_cognacy_weighted_ball_size(model):
+    from seqtree.distance import union_size
+
+    from vdjmatch.precursor import occupancy
+
+    seqs = [A, FAR]                                  # disjoint balls, so shells are unambiguous
+    o = occupancy(model, seqs, r=1, alpha=1.0)
+    assert o["S"] == pytest.approx(union_size(seqs, r=1), rel=1e-12)
+    # alpha down-weights the outer shell, so S falls between the observed count and the full ball
+    o_a = occupancy(model, seqs, r=1, alpha=0.1)
+    assert len(seqs) < o_a["S"] < o["S"]
+
+
 def test_union_counts_its_members_and_skips_the_count_when_asked(model):
     u = union_mass(model, [A, B], r=1)
     assert u["n_union"] == ball_mass(model, [A, B], r=1)["n_union"]

@@ -76,6 +76,8 @@ question                                      estimator
 "an estimate with no sampling bias at all"    ``motif_mass`` (needs a cluster PWM)
 "how much mass is still missing?"             ``cross_check`` -> ``missing_fraction``
 "how many cells, in this donor?"              ``precursor_frequency`` -> ``cells``
+"how many clonotypes, seen and unseen?"       ``occupancy`` -> ``S``, ``n_seen``,
+                                              ``n_unseen``
 ============================================  =======================================
 
 :func:`cross_check` is the scientifically load-bearing one. ``motif_mass`` and the observed-sample
@@ -121,6 +123,7 @@ from .frequency import (
     ALICE_Q,
     N_T_CELLS,
     expected_cells,
+    occupancy,
     p_at_least,
     paired_frequency,
     precursor_frequency,
@@ -151,7 +154,7 @@ __all__ = [
     "RecombinationEvent", "event_ratio",
     "ClusterMotif", "load_cluster_motifs", "motif_mass",
     "cross_check",
-    "precursor_frequency", "expected_cells", "p_at_least", "paired_frequency",
+    "precursor_frequency", "occupancy", "expected_cells", "p_at_least", "paired_frequency",
     "summarise", "summarise_group", "SCHEMA",
     "ALPHA_PER_EDIT", "MOTIF_FREQ_THRESHOLD", "MAX_BALL_MEMBERS", "MAX_COMPONENT_MEMBERS", "ALICE_Q", "N_T_CELLS",
 ]

@@ -9,7 +9,7 @@ import math
 
 import polars as pl
 
-from .frequency import N_T_CELLS, expected_cells, p_at_least
+from .frequency import N_T_CELLS, expected_cells, occupancy, p_at_least
 from .mass import ALPHA_PER_EDIT, shell_profile, union_mass
 from .model import _JUNCTION_END, _JUNCTION_START, load_model
 from .model import pgen as _pgen
@@ -28,6 +28,7 @@ SCHEMA: dict[str, object] = {
     "radius": pl.Int64,
     "cells": pl.Float64, "lambda": pl.Float64, "p_ge_1": pl.Float64, "p_ge_10": pl.Float64,
     "n_ball": pl.Int64, "n_unseen_ball": pl.Int64, "unseen_ball_mass": pl.Float64,
+    "S": pl.Float64, "n_seen": pl.Float64, "n_unseen": pl.Float64, "seen_fraction": pl.Float64,
     "n_unseen_ht": pl.Float64, "unseen_ht_mass": pl.Float64, "rarity_ratio": pl.Float64,
     "richness_reliable": pl.Boolean, "unseen_status": pl.String,
 }
@@ -115,6 +116,13 @@ def summarise_group(model, junctions, *, group: str = "", chain: str = "", r: in
     if n_eff is not None:
         row.update({"lambda": float(n_eff) * f, "p_ge_1": p_at_least(f, n_eff, 1),
                     "p_ge_10": p_at_least(f, n_eff, 10)})
+        # The occupancy model: how many distinct cognate clonotypes exist, and how many of them a
+        # repertoire of `n_eff` independent rearrangements actually shows. A count, not a mass, and
+        # it saturates -- which is why a concentrated cognate set yields fewer precursors than a
+        # broad one of the same summed Pgen.
+        occ = occupancy(model, seqs, r=r, alpha=alpha, n_eff=n_eff, threads=threads)
+        row.update(S=occ["S"], n_seen=occ["n_seen"], n_unseen=occ["n_unseen"],
+                   seen_fraction=occ["seen_fraction"])
 
     if mult is not None:
         u = unseen_junctions(model, seqs, mult, n_units=n_units, threads=threads)
