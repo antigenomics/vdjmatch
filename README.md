@@ -26,7 +26,7 @@ by fuzzy CDR3 search, reporting a **control-calibrated E-value** (BLAST-style si
 background repertoire) and enriched antigen-specificity labels. It is a Python rewrite of the legacy
 Java/Groovy vdjmatch, built on the [`seqtree`](https://github.com/antigenomics/seqtree) search core.
 
-> **Status:** early alpha (PyPI `0.0.1`), under active development on `dev`. The "2.0" line is the
+> **Status:** early alpha (PyPI `0.2.0`), under active development on `dev`. The "2.0" line is the
 > Python rewrite of the legacy Java/Groovy vdjmatch (1.x), which is preserved on the `legacy-java`
 > branch (tags `1.1.4`–`1.3.1`).
 
@@ -39,7 +39,38 @@ Java/Groovy vdjmatch, built on the [`seqtree`](https://github.com/antigenomics/s
   **VDJAM** matrix is bundled.
 - Rich per-hit output: ranked hits, CIGAR + alignment match/gap, alignment scores, E-values.
 - Epitope-level enrichment summaries; pairwise sample overlap.
-- A small command-line interface (`vdjmatch update` / `vdjmatch match`) and a `polars`-native Python API.
+- **T-cell precursor frequency** for an epitope (`vdjmatch precursor`, optional extra) — how much
+  repertoire mass can see it, how much of the cognate set no database has catalogued, and how many
+  precursor cells that implies.
+- A small command-line interface (`vdjmatch update` / `match` / `precursor`) and a `polars`-native
+  Python API.
+
+### Precursor frequency
+
+How much repertoire mass can see an epitope, and how many cognate clonotypes exist — seen and unseen.
+Needs the optional extra (`pip install 'vdjmatch[precursor]'`, which pulls `vdjtools` for the
+recombination model):
+
+```console
+$ vdjmatch precursor --vdjdb --mhc-class MHCI --min-junctions 10 \
+      --n-eff 1e8 --selection auto -o precursor.txt
+```
+
+```python
+from vdjmatch import precursor as P
+
+model = P.load_model("TRB")
+junctions = ["CASSIRSSYEQYF", "CASSLGQAYEQYF", ...]     # junctions, not IMGT CDR3s
+
+P.union_mass(model, junctions)      # exact union of the 1-mm balls, and the overlap a sum invents
+P.occupancy(model, junctions, n_eff=1e8, selection=P.SELECTION_BY_CHAIN["TRB"])
+# -> {"S": ..., "F": ..., "n_seen": ..., "n_unseen": ..., "seen_fraction": ...}
+```
+
+`S` is the effective cognate-set size, `F` the fraction of the naive repertoire, and `n_seen`
+saturates in depth — a cognate set concentrated on a few high-`Pgen` junctions is exhausted at
+shallow sequencing, a broad one keeps accumulating clonotypes. `SELECTION_BY_CHAIN` carries the
+measured per-chain depth factors (TRB 4.42, TRA 1.05); they differ and should not be pooled.
 
 ## Install (development)
 

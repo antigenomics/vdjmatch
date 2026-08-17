@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.2.0] - 2026-08-17
+
+### Added
+- **`vdjmatch.precursor`** — T-cell precursor frequency for an epitope, moved here from
+  `mhcmatch.precursor` (which now re-exports it) and given a CLI. Estimators: `event_ratio`
+  (model-free, events over events), `observed_mass`, `coverage_corrected_mass`, `union_mass`,
+  `shell_profile`, `motif_mass`, `unseen_junctions`, `cross_check`, `precursor_frequency`.
+  Needs the new optional extra: `pip install 'vdjmatch[precursor]'`.
+- **`union_mass` — the exact union of Hamming-`r` balls, without enumerating it.** The naive sum
+  counts every ball member `cov(x)` times, so
+  `m(union) = sum_a m(B_r(a)) - sum_{x: cov(x)>=2} (cov(x)-1) Pgen(x)`, exactly. No
+  inclusion–exclusion, hence no truncation error — truncating I–E at pairs and triples is unsafe,
+  a four-junction component has a non-empty four-way term. Only centres inside one connected
+  component of the `2r` graph can contribute, and only their multiply-covered members need a `Pgen`
+  call, so singleton components (41.8% of VDJdb human TRB junctions) cost nothing. Measured against
+  the enumeration oracle at rel ~1e-15; 13–186x faster at `r=2`, and 20 s for NLVPMVATV's 13,338
+  TRB junctions where enumeration needs 3.3M `Pgen` calls.
+- **`closed_ball_mass` — closed-form ball mass at any radius**, by an alternating sum over
+  wildcarded motifs against vdjtools' masked transfer-matrix DP:
+  `m(B_r(a)) = sum_k (-1)^(r-k) C(L-k-1, r-k) sum_{|S|=k} m(W_S)`. 106 DP passes against 33,117
+  enumerated sequences at `L=14, r=2`.
+- **`unseen_junctions`** — the richness counterpart of the coverage correction: how many cognate
+  junctions were never catalogued and how rare they are. Reported two ways, because they answer
+  differently: the **ball census** (`n_unseen_ball`, finite and exact given the ball) and the
+  **Horvitz–Thompson** extrapolation (`n_unseen_ht`, which diverges in the tail — `richness_reliable`
+  flags when the rarest observed junction was captured too seldom for the count to mean anything).
+  The *mass* converges either way; the *count* does not.
+- `precursor_frequency` / `expected_cells` / `p_at_least` / `paired_frequency` — from a set of
+  `Pgen` values to a frequency, an expected precursor count at `n_cells`, and `P(>=k precursors)`.
+  `F(e)` answers "is there a precursor"; `p_ge_k` is what a detectable response actually needs.
+- **`occupancy` — seen and unseen clonotype counts.** `S = sum_k alpha^k n_k`,
+  `n_seen(N) = sum_k alpha^k n_k E_k[1 - exp(-N Pgen)]`, `n_unseen = S - n_seen`. Replaces the summed
+  mass for anything count-shaped: under the size bias a set total has expectation
+  `n * (sum pi^2) / F`, i.e. proportional to how many TCRs were catalogued, proportional to
+  concentration, and *inversely* proportional to what it estimates. The occupancy form has no such
+  term and **saturates** in depth. Validated out-of-sample with zero free parameters against how many
+  distinct junctions real cohorts show — `airr_covid19` TRA observed/predicted median 1.015
+  (IQR 0.93–1.10, n=168), TRB 2.043 (n=259), `airr_hip` TRB 1.510 (n=259).
+- **`SELECTION_BY_CHAIN`** — measured per-chain depth factors, TRB 4.42 and TRA 1.05, fitted through
+  the saturating curve. The two TRB cohorts agree at 4.75 and 3.79 despite differing in protocol and
+  8.5x in depth. The chains do not share a value and a joint fit suits neither. Distinct from
+  `ALICE_Q`, which scales a probability to a frequency rather than an observer's depth.
+- `vdjmatch precursor` CLI, `--vdjdb` to run natively on the whole database, `--selection auto` for
+  the measured constants.
+- Registered the `slow` pytest marker that CI's `-m "not slow"` had been filtering on unregistered.
+
+### Changed
+- `shell_profile` obtains shells by **differencing unions** rather than enumerating them, so it has
+  no memory ceiling: the `r=2` profile that cost ~9.9M materialised strings for 300 junctions is now
+  `r+1` closed-form calls. It no longer takes `max_members`; that guard moved to `union_mass`, where
+  it applies per connected component. Shell `n` is `None` when the union is too large to census —
+  the masses never are.
+- `seqtree>=0.7.0` (was `>=0.6.1`) for `neighbourhood` / `neighbourhood_union` / `union_size`.
+- `__version__` now reads the installed distribution metadata instead of a hand-maintained literal,
+  which had drifted (`0.1.0` in code against `0.1.2` in `pyproject.toml`).
+
 ## [0.1.2] - 2026-07-30
 
 ### Fixed

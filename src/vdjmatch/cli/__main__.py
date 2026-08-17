@@ -1,13 +1,17 @@
 """vdjmatch command-line interface.
 
 Subcommands:
-  update   fetch/cache the latest VDJdb release
-  match    annotate query sample(s) against VDJdb (E-values + ranked hits + epitope summary)
+  update     fetch/cache the latest VDJdb release
+  match      annotate query sample(s) against VDJdb (E-values + ranked hits + epitope summary)
+  precursor  T-cell precursor frequency and unseen-junction diversity for a set of TCRs
 
 ``match`` writes three TSV files per sample, prefixed with ``--output-prefix`` and the sample name:
   <prefix>.<sample>.hits.txt      per-hit CDR3 alignment (CIGAR, edits, score) for every VDJdb match
   <prefix>.<sample>.calls.txt     one predicted epitope per clonotype with its control-calibrated E-value
   <prefix>.<sample>.summary.txt   epitope-level enrichment (unique clonotypes, reads)
+
+``precursor`` writes one TSV, one row per group, and needs the optional extra:
+  pip install 'vdjmatch[precursor]'
 """
 from __future__ import annotations
 
@@ -82,12 +86,74 @@ def _cmd_match(a: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_precursor(a: argparse.Namespace) -> int:
+    import polars as pl
+
+    from ..precursor import summarise
+
+    if a.vdjdb or not a.samples:
+        frame = db.load(a.table, asset="slim", species=a.species, pin=a.pin)
+        if a.mhc_class:
+            frame = frame.filter(pl.col("mhc_class") == a.mhc_class)
+        if not frame.height:
+            raise SystemExit(f"VDJdb returned 0 records for species={a.species!r} "
+                             f"mhc_class={a.mhc_class!r} -- note species is 'HomoSapiens', "
+                             "not 'human'")
+        junction_col, group_col = "cdr3", a.group_by or "epitope"
+        chain_col = a.chain_col or "gene"
+        capture_col = None if a.no_unseen else (a.capture_col or "reference_id")
+        label = f"VDJdb ({frame.height:,} records)"
+    else:
+        sep = "," if a.samples[0].endswith(".csv") else "\t"
+        frame = pl.concat([pl.read_csv(s, separator=sep, infer_schema_length=0)
+                           for s in a.samples], how="vertical_relaxed")
+        junction_col, group_col = a.junction_col, a.group_by
+        chain_col, capture_col = a.chain_col, (None if a.no_unseen else a.capture_col)
+        label = f"{len(a.samples)} file(s) ({frame.height:,} rows)"
+    print(f"scoring {label}", file=sys.stderr)
+
+    t0 = time.perf_counter()
+    out = summarise(frame, junction_col=junction_col, group_col=group_col, chain_col=chain_col,
+                    capture_col=capture_col, locus=a.locus, source=a.source, organism=a.organism,
+                    r=a.radius, alpha=a.alpha, q=a.q, n_cells=a.n_cells,
+                    compartment=a.compartment, n_eff=a.n_eff,
+                    selection=("auto" if a.selection == "auto" else float(a.selection)),
+                    min_junctions=a.min_junctions,
+                    threads=a.threads, progress=a.verbose)
+    Path(a.output).parent.mkdir(parents=True, exist_ok=True)
+    out.write_csv(a.output, separator="\t")
+    print(f"{out.height} group(s) -> {a.output} in {time.perf_counter() - t0:.1f}s "
+          f"(peak RSS {_peak_rss_gb():.2f} GB)", file=sys.stderr)
+    if a.q == 1.0:
+        print("note: q=1 -> F is an uncalibrated model mass; only its ranking is meaningful. "
+              "Pass --q to apply a selection constant.", file=sys.stderr)
+    return 0
+
+
 _EXAMPLES = """\
 examples:
   vdjmatch update                                  # cache the latest VDJdb (slim)
   vdjmatch match sample.tsv                         # annotate one AIRR sample, default reference
   vdjmatch match -o run/out --match-v *.tsv         # match V gene too, write under run/
   vdjmatch match --scope 2,1,1,2 --threads 8 s.tsv  # wider search budget, 8 threads
+  vdjmatch precursor --vdjdb -o pre.txt             # precursor frequency per VDJdb epitope
+  vdjmatch precursor tcrs.tsv --group-by epitope    # ... or for your own grouped TCR table
+"""
+
+
+_PRECURSOR_EPILOG = """\
+examples:
+  vdjmatch precursor --vdjdb -o pre.txt                    # every VDJdb epitope, both chains
+  vdjmatch precursor --vdjdb --min-junctions 10 -r 2       # well-sampled epitopes, radius 2
+  vdjmatch precursor tcrs.tsv --group-by epitope --locus TRA
+  vdjmatch precursor --vdjdb --q 9.41 --n-eff 1e8          # calibrated F, plus P(>=k precursors)
+  vdjmatch precursor --vdjdb --n-eff 1e8 --selection auto   # seen/unseen clonotypes, measured Q
+
+notes:
+  Sequences must be JUNCTIONS (Cys104..Phe/Trp118 inclusive), not IMGT CDR3s -- VDJdb's column is
+  named `cdr3` but holds junctions. Anchor-stripped input is dropped and counted in `n_dropped`.
+  `--q` is the selection constant carrying a generation probability to a repertoire frequency;
+  left at 1 the reported F is a raw model mass whose ranking, not scale, is meaningful.
 """
 
 
@@ -135,6 +201,55 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--threads", type=int, default=argparse.SUPPRESS,
                    help="worker threads (0 = all available cores)")
     m.set_defaults(func=_cmd_match)
+
+    pc = sub.add_parser("precursor", help="precursor frequency + unseen diversity for a TCR set",
+                        formatter_class=argparse.RawDescriptionHelpFormatter,
+                        epilog=_PRECURSOR_EPILOG)
+    pc.add_argument("samples", nargs="*", help="TCR table(s) (TSV/CSV); omit with --vdjdb")
+    pc.add_argument("--vdjdb", action="store_true", help="score VDJdb itself instead of a file")
+    pc.add_argument("--table", default=None, help="custom VDJdb table path (default: fetch latest)")
+    pc.add_argument("--pin", default=None, help="pin a specific VDJdb release tag")
+    pc.add_argument("--species", default="HomoSapiens", help="VDJdb species (default: HomoSapiens)")
+    pc.add_argument("--mhc-class", dest="mhc_class", default=None, choices=["MHCI", "MHCII"],
+                    help="restrict VDJdb to one MHC class")
+    pc.add_argument("-o", "--output", default="vdjmatch_precursor.txt", help="output TSV path")
+    # --- input columns ---
+    pc.add_argument("--junction-col", dest="junction_col", default="cdr3",
+                    help="junction column (Cys104..Phe/Trp118 inclusive; default: cdr3)")
+    pc.add_argument("--group-by", dest="group_by", default=None,
+                    help="column to group by, one row of output per group (e.g. epitope)")
+    pc.add_argument("--chain-col", dest="chain_col", default=None,
+                    help="locus column; each chain is scored with its own model")
+    pc.add_argument("--capture-col", dest="capture_col", default=None,
+                    help="capture-unit column for the unseen-species fields (e.g. reference_id)")
+    pc.add_argument("--no-unseen", dest="no_unseen", action="store_true",
+                    help="skip the Horvitz-Thompson unseen-species estimate")
+    # --- model + estimator ---
+    pc.add_argument("--locus", default="TRB", help="model locus when --chain-col is absent")
+    pc.add_argument("--source", default="olga", help="recombination model set (default: olga)")
+    pc.add_argument("--organism", default="human", help="model organism (mouse: --source arda)")
+    pc.add_argument("-r", "--radius", type=int, default=1,
+                    help="neighbourhood radius in substitutions (default: 1, part of the estimator)")
+    pc.add_argument("--alpha", type=float, default=0.1,
+                    help="cognacy retention per edit (default: 0.1, Mayer & Callan 2023)")
+    pc.add_argument("--q", type=float, default=1.0,
+                    help="selection constant; 1 = uncalibrated raw mass (ALICE's TRB value: 9.41)")
+    pc.add_argument("--min-junctions", dest="min_junctions", type=int, default=1,
+                    help="skip groups with fewer distinct junctions")
+    # --- absolute numbers ---
+    pc.add_argument("--n-cells", dest="n_cells", type=float, default=1e11,
+                    help="total T cells, for the expected precursor count (default: 1e11)")
+    pc.add_argument("--compartment", type=float, default=1.0,
+                    help="fraction of the pool the restriction addresses (e.g. 0.3 for CD8)")
+    pc.add_argument("--n-eff", dest="n_eff", type=float, default=None,
+                    help="independent rearrangements, for P(>=k precursors) and the seen/unseen "
+                         "clonotype counts")
+    pc.add_argument("--selection", default="1.0",
+                    help="depth selection factor for the occupancy counts: a float, or 'auto' for "
+                         "the measured per-chain values (TRB 4.42, TRA 1.05)")
+    pc.add_argument("--threads", type=int, default=0, help="worker threads (0 = all cores)")
+    pc.add_argument("-v", "--verbose", action="store_true", help="per-group progress bar")
+    pc.set_defaults(func=_cmd_precursor)
 
     a = p.parse_args(argv)
     return a.func(a)

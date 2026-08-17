@@ -27,5 +27,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[test,bench]"
+      - name: Import must not need the precursor extra
+        run: python -c "import vdjmatch; print(vdjmatch.__version__)"
+      - name: Install the precursor extra (vdjtools carries the recombination model)
+        run: pip install -e ".[precursor]"
       - name: Run unit tests
         run: pytest -m "not slow" -ra
