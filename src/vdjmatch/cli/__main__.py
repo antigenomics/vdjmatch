@@ -116,7 +116,9 @@ def _cmd_precursor(a: argparse.Namespace) -> int:
     out = summarise(frame, junction_col=junction_col, group_col=group_col, chain_col=chain_col,
                     capture_col=capture_col, locus=a.locus, source=a.source, organism=a.organism,
                     r=a.radius, alpha=a.alpha, q=a.q, n_cells=a.n_cells,
-                    compartment=a.compartment, n_eff=a.n_eff, min_junctions=a.min_junctions,
+                    compartment=a.compartment, n_eff=a.n_eff,
+                    selection=("auto" if a.selection == "auto" else float(a.selection)),
+                    min_junctions=a.min_junctions,
                     threads=a.threads, progress=a.verbose)
     Path(a.output).parent.mkdir(parents=True, exist_ok=True)
     out.write_csv(a.output, separator="\t")
@@ -145,6 +147,7 @@ examples:
   vdjmatch precursor --vdjdb --min-junctions 10 -r 2       # well-sampled epitopes, radius 2
   vdjmatch precursor tcrs.tsv --group-by epitope --locus TRA
   vdjmatch precursor --vdjdb --q 9.41 --n-eff 1e8          # calibrated F, plus P(>=k precursors)
+  vdjmatch precursor --vdjdb --n-eff 1e8 --selection auto   # seen/unseen clonotypes, measured Q
 
 notes:
   Sequences must be JUNCTIONS (Cys104..Phe/Trp118 inclusive), not IMGT CDR3s -- VDJdb's column is
@@ -239,7 +242,11 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--compartment", type=float, default=1.0,
                     help="fraction of the pool the restriction addresses (e.g. 0.3 for CD8)")
     pc.add_argument("--n-eff", dest="n_eff", type=float, default=None,
-                    help="independent rearrangements, for P(>=k precursors)")
+                    help="independent rearrangements, for P(>=k precursors) and the seen/unseen "
+                         "clonotype counts")
+    pc.add_argument("--selection", default="1.0",
+                    help="depth selection factor for the occupancy counts: a float, or 'auto' for "
+                         "the measured per-chain values (TRB 4.42, TRA 1.05)")
     pc.add_argument("--threads", type=int, default=0, help="worker threads (0 = all cores)")
     pc.add_argument("-v", "--verbose", action="store_true", help="per-group progress bar")
     pc.set_defaults(func=_cmd_precursor)

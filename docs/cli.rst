@@ -114,7 +114,10 @@ repertoire mass can see an epitope. Needs the optional extra::
    * - ``--n-cells`` / ``--compartment``
      - pool size and the fraction the restriction addresses, for the expected precursor count
    * - ``--n-eff``
-     - independent rearrangements, for ``P(>=k precursors)``
+     - independent rearrangements; switches on ``P(>=k precursors)`` and the seen/unseen counts
+   * - ``--selection``
+     - depth factor for the occupancy counts: a float, or ``auto`` for the measured per-chain
+       values (TRB 4.42, TRA 1.05). These differ and are not pooled
    * - ``--min-junctions``
      - skip groups with fewer distinct junctions
 
@@ -130,8 +133,12 @@ One tab-separated table, one row per group. Key columns:
 - ``retained``, ``F``, ``cells`` — the shell-weighted estimate, the calibrated frequency and the
   expected precursor count at ``--n-cells``.
 - ``lambda``, ``p_ge_1``, ``p_ge_10`` — Poisson precursor probabilities (needs ``--n-eff``).
-- ``n_ball``, ``n_unseen_ball``, ``unseen_ball_mass`` — the finite census: candidate cognate
-  junctions in the neighbourhood that no database has catalogued, and the mass they carry.
+- ``S``, ``n_seen``, ``n_unseen``, ``seen_fraction`` — the occupancy model (needs ``--n-eff``):
+  the effective cognate-set size, how many of its clonotypes a repertoire of that depth shows, and
+  how many it does not. ``n_seen`` **saturates**, so a cognate set concentrated on a few high-``Pgen``
+  junctions is exhausted at shallow depth while a broad one keeps accumulating.
+- ``n_ball``, ``n_unseen_ball``, ``unseen_ball_mass`` — the raw neighbourhood census, unweighted by
+  cognacy and independent of depth.
 - ``n_unseen_ht``, ``unseen_ht_mass``, ``rarity_ratio``, ``richness_reliable`` — the
   Horvitz–Thompson extrapolation. Read the **mass**; the count diverges in the tail and
   ``richness_reliable`` says when that is happening.

@@ -9,7 +9,8 @@ import math
 
 import polars as pl
 
-from .frequency import N_T_CELLS, expected_cells, occupancy, p_at_least
+from .frequency import (N_T_CELLS, SELECTION_BY_CHAIN, expected_cells, occupancy,
+                        p_at_least)
 from .mass import ALPHA_PER_EDIT, shell_profile, union_mass
 from .model import _JUNCTION_END, _JUNCTION_START, load_model
 from .model import pgen as _pgen
@@ -79,7 +80,8 @@ def _spread(ps: list[float]) -> dict:
 def summarise_group(model, junctions, *, group: str = "", chain: str = "", r: int = 1,
                     alpha: float = ALPHA_PER_EDIT, q: float = 1.0, n_cells: float = N_T_CELLS,
                     compartment: float = 1.0, n_eff: float | None = None,
-                    multiplicity=None, n_units: int | None = None, threads: int = 0) -> dict:
+                    selection: float | str = 1.0, multiplicity=None,
+                    n_units: int | None = None, threads: int = 0) -> dict:
     """Every estimator for one set of junctions, as a flat row keyed by :data:`SCHEMA`.
 
     ``junctions`` are **junctions** (Cys104..Phe/Trp118 inclusive), not IMGT CDR3s; the ones that
@@ -120,7 +122,9 @@ def summarise_group(model, junctions, *, group: str = "", chain: str = "", r: in
         # repertoire of `n_eff` independent rearrangements actually shows. A count, not a mass, and
         # it saturates -- which is why a concentrated cognate set yields fewer precursors than a
         # broad one of the same summed Pgen.
-        occ = occupancy(model, seqs, r=r, alpha=alpha, n_eff=n_eff, threads=threads)
+        sel = (SELECTION_BY_CHAIN.get(chain, 1.0) if selection == "auto" else float(selection))
+        occ = occupancy(model, seqs, r=r, alpha=alpha, n_eff=n_eff, selection=sel,
+                        threads=threads)
         row.update(S=occ["S"], n_seen=occ["n_seen"], n_unseen=occ["n_unseen"],
                    seen_fraction=occ["seen_fraction"])
 
@@ -139,8 +143,8 @@ def summarise(frame: pl.DataFrame, *, junction_col: str = "cdr3", group_col: str
               locus: str = "TRB", source: str = "olga", organism: str = "human",
               r: int = 1, alpha: float = ALPHA_PER_EDIT, q: float = 1.0,
               n_cells: float = N_T_CELLS, compartment: float = 1.0,
-              n_eff: float | None = None, min_junctions: int = 1,
-              threads: int = 0, progress: bool = False) -> pl.DataFrame:
+              n_eff: float | None = None, selection: float | str = 1.0,
+              min_junctions: int = 1, threads: int = 0, progress: bool = False) -> pl.DataFrame:
     """Run :func:`summarise_group` over every group in ``frame``.
 
     ``group_col`` names the grouping column (``epitope`` on a normalised VDJdb table); without it
@@ -172,6 +176,6 @@ def summarise(frame: pl.DataFrame, *, junction_col: str = "cdr3", group_col: str
             models[chain] = load_model(chain, source=source, organism=organism)
         rows.append(summarise_group(
             models[chain], seqs, group=name, chain=chain, r=r, alpha=alpha, q=q,
-            n_cells=n_cells, compartment=compartment, n_eff=n_eff,
+            n_cells=n_cells, compartment=compartment, n_eff=n_eff, selection=selection,
             multiplicity=mult, n_units=n_units, threads=threads))
     return pl.DataFrame(rows, schema=SCHEMA)

@@ -30,7 +30,20 @@
 - `precursor_frequency` / `expected_cells` / `p_at_least` / `paired_frequency` — from a set of
   `Pgen` values to a frequency, an expected precursor count at `n_cells`, and `P(>=k precursors)`.
   `F(e)` answers "is there a precursor"; `p_ge_k` is what a detectable response actually needs.
-- `vdjmatch precursor` CLI, `--vdjdb` to run natively on the whole database.
+- **`occupancy` — seen and unseen clonotype counts.** `S = sum_k alpha^k n_k`,
+  `n_seen(N) = sum_k alpha^k n_k E_k[1 - exp(-N Pgen)]`, `n_unseen = S - n_seen`. Replaces the summed
+  mass for anything count-shaped: under the size bias a set total has expectation
+  `n * (sum pi^2) / F`, i.e. proportional to how many TCRs were catalogued, proportional to
+  concentration, and *inversely* proportional to what it estimates. The occupancy form has no such
+  term and **saturates** in depth. Validated out-of-sample with zero free parameters against how many
+  distinct junctions real cohorts show — `airr_covid19` TRA observed/predicted median 1.015
+  (IQR 0.93–1.10, n=168), TRB 2.043 (n=259), `airr_hip` TRB 1.510 (n=259).
+- **`SELECTION_BY_CHAIN`** — measured per-chain depth factors, TRB 4.42 and TRA 1.05, fitted through
+  the saturating curve. The two TRB cohorts agree at 4.75 and 3.79 despite differing in protocol and
+  8.5x in depth. The chains do not share a value and a joint fit suits neither. Distinct from
+  `ALICE_Q`, which scales a probability to a frequency rather than an observer's depth.
+- `vdjmatch precursor` CLI, `--vdjdb` to run natively on the whole database, `--selection auto` for
+  the measured constants.
 - Registered the `slow` pytest marker that CI's `-m "not slow"` had been filtering on unregistered.
 
 ### Changed
