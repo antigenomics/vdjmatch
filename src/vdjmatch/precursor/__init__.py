@@ -41,12 +41,13 @@ the recombination model, in increasing order of commitment.
     Richness and mass are not interchangeable — because the unseen members are systematically the
     low-`Pgen` ones, the missing *count* can be enormous while the missing *mass* stays small.
 
-``ball_mass``
+``union_mass``
     Mass of the **union** of Hamming-`r` balls around the observed junctions. Cognate TCRs are
     near-duplicates by construction, so their balls overlap and the *sum* of per-sequence ball
-    masses double-counts; the union is the correct object. The returned ``overlap`` quantifies that
-    double-counting directly, which is worth reporting rather than hiding — it is a measurement of
-    how tight the specificity group is.
+    masses double-counts; the union is the correct object. Exact, and without enumerating the union.
+    The returned ``overlap`` quantifies that double-counting directly, which is worth reporting
+    rather than hiding — it is a measurement of how tight the specificity group is.
+    (``ball_mass`` is the same quantity by enumeration, kept as its oracle.)
 
 ``shell_profile``
     ``ball_mass`` resolved by exact edit distance, so the empirically measured cognacy-retention
@@ -70,7 +71,7 @@ question                                      estimator
 "how much did the sampling miss?"             ``coverage_corrected_mass`` (needs >= 2
                                               capture units and some recaptures)
 "how many TCRs were never catalogued?"        ``unseen_junctions``
-"how tight is this specificity group?"        ``ball_mass`` -> the ``overlap`` field
+"how tight is this specificity group?"        ``union_mass`` -> the ``overlap`` field
 "best point estimate from observed TCRs"      ``shell_profile`` -> ``retained``
 "an estimate with no sampling bias at all"    ``motif_mass`` (needs a cluster PWM)
 "how much mass is still missing?"             ``cross_check`` -> ``missing_fraction``
@@ -127,6 +128,7 @@ from .frequency import (
 from .mass import (
     ALPHA_PER_EDIT,
     MAX_BALL_MEMBERS,
+    MAX_COMPONENT_MEMBERS,
     MOTIF_FREQ_THRESHOLD,
     ClusterMotif,
     ball_mass,
@@ -151,5 +153,5 @@ __all__ = [
     "cross_check",
     "precursor_frequency", "expected_cells", "p_at_least", "paired_frequency",
     "summarise", "summarise_group", "SCHEMA",
-    "ALPHA_PER_EDIT", "MOTIF_FREQ_THRESHOLD", "MAX_BALL_MEMBERS", "ALICE_Q", "N_T_CELLS",
+    "ALPHA_PER_EDIT", "MOTIF_FREQ_THRESHOLD", "MAX_BALL_MEMBERS", "MAX_COMPONENT_MEMBERS", "ALICE_Q", "N_T_CELLS",
 ]

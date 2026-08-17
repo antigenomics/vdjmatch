@@ -37,9 +37,16 @@ MOTIF_FREQ_THRESHOLD = 0.008
 #: Ceiling on the number of enumerated neighbourhood members, for :func:`ball_mass`. The
 #: enumeration is materialised as Python strings: 300 measured junctions at ``r=2`` produce ~9.9M
 #: sequences and cost ~1.8 GB, i.e. ~190 bytes each. The default keeps a single call under ~0.4 GB.
-#: :func:`union_mass` enumerates only *within a connected component*, and only the multiply-covered
-#: members, so it does not come near this.
 MAX_BALL_MEMBERS = 2_000_000
+
+#: Ceiling for :func:`union_mass`, which is a different quantity from :data:`MAX_BALL_MEMBERS` and
+#: deliberately ten times larger. That function never materialises the whole set's union -- it walks
+#: **one connected component at a time**, and a set whose junctions are all mutually distant costs
+#: nothing at all. So the number to bound is the largest single component, and at ~190 bytes per
+#: string this is ~4 GB in the worst case rather than per call. Measured: the tightest VDJdb
+#: component seen so far is 82 junctions with a radius-2 union of 2.2M sequences, which the old
+#: shared 2M ceiling refused.
+MAX_COMPONENT_MEMBERS = 20_000_000
 
 
 def observed_mass(model, junctions, v=None, j=None, threads: int = 0) -> float:
@@ -140,7 +147,7 @@ def _components(seqs: list[str], radius: int, threads: int = 0) -> list[list[int
 
 
 def union_mass(model, junctions, r: int = 1, threads: int = 0,
-               max_members: int = MAX_BALL_MEMBERS, count_members: bool = True) -> dict:
+               max_members: int = MAX_COMPONENT_MEMBERS, count_members: bool = True) -> dict:
     """Mass of the **union** of Hamming-``r`` balls — exact, and without enumerating the union.
 
     Returns ``{"union", "naive_sum", "overlap", "n_seqs", "n_union", "n_multiply_covered",
@@ -207,8 +214,10 @@ def union_mass(model, junctions, r: int = 1, threads: int = 0,
         if size > max_members:
             raise MemoryError(
                 f"one connected component of {len(comp)} junctions has a radius-{r} union of "
-                f"{size:,} sequences, above max_members={max_members:,}. Split this group or "
-                f"lower r; components are independent, so their union masses add exactly.")
+                f"{size:,} sequences (~{size * 190 / 1e9:.1f} GB as Python strings), above "
+                f"max_members={max_members:,}. Raise max_members if you have the memory, split "
+                f"this group, or lower r; components are independent, so their union masses add "
+                f"exactly and splitting by component loses nothing.")
         counts: Counter[str] = Counter()
         for s in members:
             counts.update(neighbourhood(s, r=r))
