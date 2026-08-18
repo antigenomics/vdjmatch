@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+- **`load_compendium()` and `load_estimates()`** — the naive precursor frequencies other
+  laboratories measured, and what this library predicts for the same epitopes. 147 published
+  records from 14 studies tracing to **31 originating laboratories**, harmonized to cells per
+  million of the *naive* compartment, human and mouse, CD4 and CD8. Both bootstrap from
+  `isalgo/airr_benchmark` (`vdjmatch/precursor_freq/`) and cache beside the VDJdb releases, so an
+  installed user can reproduce the validation without checking out the analysis repository. They
+  stay two tables on purpose: one is what a laboratory counted, the other a mass under a generative
+  model, and merging them would conflate a measurement with a prediction of it.
+- **`docs/notebooks/precursor_compendium.py`** — a marimo notebook walking the comparison:
+  prediction against measurement per epitope, the `Pgen` spectrum inside one cognate set, the ball
+  census of uncatalogued neighbours, and the step from a mass to a number of cells. Install with
+  `pip install 'vdjmatch[precursor,notebook]'`.
+- **`docs/compendium.rst`** — why unseen *mass* converges where unseen *count* does not, what the
+  ball overlap measures, and why a set total is the wrong functional.
+
 ### Fixed
 - **`--selection auto` help quoted the superseded per-chain factors.** It named TRB 4.42 / TRA 1.05
   while `SELECTION_BY_CHAIN` has shipped **4.62 / 1.07** since 0.3.0, so the one place a user reads

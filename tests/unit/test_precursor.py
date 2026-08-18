@@ -332,3 +332,96 @@ def test_cli_precursor_switches_source_for_non_human_organism():
     with pytest.raises(Exception):
         _cmd_precursor(a)
     assert a.source == "arda"
+
+
+# --- the published-measurement loaders -------------------------------------------------------
+#
+# These read a TSV; the network path is `hf_hub_download`, which the `source=` argument bypasses.
+# Everything worth testing is the filtering, so the fixtures are written to tmp_path and no test
+# here touches HuggingFace.
+
+_COMP_HEADER = ("study\tpmid\tdoi\tsource_type\tspecies\tsubset\tmhc_class\tmhc_allele\t"
+                "epitope_name\tepitope_seq\tseq_provenance\tcohort\tnaive\tassay\tdesign\tstat\t"
+                "n_donors\tdonor_id\tfreq_per_1e6_naive\tfreq_per_1e6_published\tdenominator\t"
+                "cells_per_animal\tas_published\textraction\tnotes\tlab")
+
+
+def _comp_row(study, seq, freq, *, source_type="primary", design="measured", naive="1",
+              species="human", lab=None, notes=""):
+    f = {"study": study, "source_type": source_type, "species": species, "epitope_seq": seq,
+         "naive": naive, "design": design, "freq_per_1e6_naive": freq, "notes": notes,
+         "lab": lab or study}
+    cols = _COMP_HEADER.split("\t")
+    return "\t".join(str(f.get(c, "")) for c in cols)
+
+
+def _write_comp(tmp_path, rows):
+    p = tmp_path / "comp.tsv"
+    p.write_text(_COMP_HEADER + "\n" + "\n".join(rows) + "\n")
+    return p
+
+
+def test_load_compendium_measured_only_drops_set_and_memory(tmp_path):
+    """`design=set` is a frequency the experimenter imposed, `naive=0` is a memory arm.
+
+    Neither is a measurement of the endogenous naive repertoire, which is what `F(e)` estimates, so
+    the default must not silently validate against them.
+    """
+    from vdjmatch.precursor import load_compendium
+
+    p = _write_comp(tmp_path, [
+        _comp_row("Real 2020", "SIINFEKL", 8.0),
+        _comp_row("Titrated 2021", "SIINFEKL", 500.0, design="set"),
+        _comp_row("Memory 2022", "SIINFEKL", 900.0, naive="0"),
+    ])
+    kept = load_compendium(p)
+    assert kept["study"].to_list() == ["Real 2020"]
+    assert load_compendium(p, measured_only=False).height == 3
+
+
+def test_load_compendium_dedup_drops_only_the_restated_primary(tmp_path):
+    """A review row restating a primary we already hold is one measurement, not two.
+
+    The review row for a lab we do *not* hold as a primary is independent and must survive.
+    """
+    from vdjmatch.precursor import load_compendium
+
+    p = _write_comp(tmp_path, [
+        _comp_row("Obar 2008", "SIINFEKL", 6.5, species="mouse"),
+        _comp_row("Jenkins 2012", "SIINFEKL", 8.0, species="mouse", source_type="review",
+                  lab="Obar 2008", notes="Table 1; primary: Obar 2008"),
+        _comp_row("Jenkins 2012", "SIINFEKL", 10.0, species="mouse", source_type="review",
+                  lab="Flesch 2010", notes="Table 1; primary: Flesch 2010"),
+    ])
+    assert load_compendium(p).height == 3
+    kept = load_compendium(p, dedup_retabulations=True)
+    assert sorted(kept["lab"].to_list()) == ["Flesch 2010", "Obar 2008"]
+
+
+def test_load_compendium_species_filter(tmp_path):
+    from vdjmatch.precursor import load_compendium
+
+    p = _write_comp(tmp_path, [_comp_row("A", "SIINFEKL", 8.0, species="mouse"),
+                               _comp_row("B", "GILGFVFTL", 134.0, species="human")])
+    assert load_compendium(p, species="human")["study"].to_list() == ["B"]
+
+
+def test_load_estimates_pins_numeric_columns_blank_in_every_row(tmp_path):
+    """A column blank for a whole arm must still arrive numeric.
+
+    `event_ratio` exists only where a pooled control repertoire does, so it is empty for every human
+    row. Left to inference it becomes a string and arithmetic fails at the call site rather than
+    here.
+    """
+    import polars as pl
+
+    from vdjmatch.precursor import load_estimates
+
+    p = tmp_path / "est.tsv"
+    p.write_text("species\tsource\tchain\tepitope_seq\tn_junctions\tunion\tevent_ratio\n"
+                 "human\tarda\tTRB\tGILGFVFTL\t6627\t0.000882\t\n"
+                 "human\tarda\tTRB\tNLVPMVATV\t13338\t0.00157\t\n")
+    est = load_estimates(p)
+    assert est["event_ratio"].dtype == pl.Float64
+    assert est["union"].dtype == pl.Float64
+    assert (est["union"] * 1e6).to_list() == pytest.approx([882.0, 1570.0], rel=1e-6)
