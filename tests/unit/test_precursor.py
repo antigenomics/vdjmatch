@@ -315,15 +315,20 @@ def test_cli_precursor_switches_source_for_non_human_organism():
     """`olga` has no mouse model, so --organism mouse must move to `arda` rather than fail.
 
     The switch is the first thing the command does, so a deliberately thin namespace is enough:
-    it runs far enough to flip `source`, then trips on the next attribute it wants. That is the
-    assertion -- we are testing the switch, not the rest of the command.
+    it runs far enough to flip `source`, then trips on the first thing it actually needs. That is
+    the assertion -- we are testing the switch, not the rest of the command.
+
+    It reads a *sample file* rather than VDJdb so the test stays hermetic: the `--vdjdb` path
+    downloads the database, which made this fail with a `URLError` on a machine with no network
+    instead of exercising the switch.
     """
     import argparse
 
     from vdjmatch.cli.__main__ import _cmd_precursor
 
     a = argparse.Namespace(organism="mouse", source="olga", species="MusMusculus",
-                           vdjdb=True, samples=[], table=None, pin=None, mhc_class=None)
-    with pytest.raises(AttributeError):
+                           vdjdb=False, samples=["does-not-exist.tsv"], table=None, pin=None,
+                           mhc_class=None)
+    with pytest.raises(Exception):
         _cmd_precursor(a)
     assert a.source == "arda"

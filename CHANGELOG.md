@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **`--selection auto` help quoted the superseded per-chain factors.** It named TRB 4.42 / TRA 1.05
+  while `SELECTION_BY_CHAIN` has shipped **4.62 / 1.07** since 0.3.0, so the one place a user reads
+  the constants off disagreed with the one place the code uses them.
+- **`ALICE_Q`'s docstring quoted a retired comparison.** It put the model-free event ratio at a
+  median 14.8x; against `union_mass` at radius 1 — the comparable quantity — that is **8.8x and
+  9.9x** on two beta cohorts and **4.5x** on alpha, so beta is the same order as ALICE's 9.41 and
+  alpha is not.
+- **`test_cli_precursor_switches_source_for_non_human_organism` needed the network.** It exercised
+  the source switch through `--vdjdb`, which downloads the database, so on a machine with no
+  network it failed with `URLError` before reaching the switch it was testing. It now reads a
+  sample path instead and is hermetic.
+
 ## [0.3.1] - 2026-08-18
 
 ### Fixed
