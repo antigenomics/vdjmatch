@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install pandoc (nbsphinx renders docs/notebooks/*.ipynb through it)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq pandoc
       - name: Install docs toolchain
         # autodoc imports vdjmatch with heavy deps (seqtree, polars) mocked in docs/conf.py,
         # so the native seqtree toolchain is not needed to build docs.
