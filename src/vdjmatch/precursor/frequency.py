@@ -133,7 +133,7 @@ def occupancy(model, junctions, r: int = 1, alpha: float = ALPHA_PER_EDIT,
     ``selection`` multiplies the depth: a repertoire of ``n_eff`` observed rearrangements behaves
     like ``selection * n_eff`` draws from the generation distribution. It defaults to ``1.0``, i.e.
     uncalibrated. :data:`SELECTION_BY_CHAIN` carries the measured per-chain values, which differ
-    (TRB ~4.4, TRA ~1.05) and should not be pooled.
+    (TRB 4.62, TRA 1.07) and should not be pooled.
 
     Returns ``{"S", "F", "n_seen", "n_unseen", "seen_fraction", "n_eff", "selection", "alpha", "r",
     "shells"}``, with the ``n_seen`` fields ``None`` when ``n_eff`` is not given.

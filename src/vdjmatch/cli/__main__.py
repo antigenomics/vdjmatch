@@ -151,6 +151,19 @@ def _cmd_precursor(a: argparse.Namespace) -> int:
     if a.q == 1.0:
         print("note: q=1 -> F is an uncalibrated model mass; only its ranking is meaningful. "
               "Pass --q to apply a selection constant.", file=sys.stderr)
+
+    # A junction that passes the anchor check and still scores exactly 0 leaves the mass without a
+    # signal, so say so. This is a property of the model set: `olga` faithfully reproduces OLGA's
+    # deletion-bin grid, on which an allele shorter than the grid carries probability on trims it
+    # cannot reach, and 5.7% of human TRA junctions in VDJdb score exactly zero as a result. The
+    # refit sets do not inherit it (`learned` 0.5%, `arda` 0.0%).
+    if "n_zero_pgen" in out.columns and "n_junctions" in out.columns:
+        z, n = int(out["n_zero_pgen"].sum()), int(out["n_junctions"].sum())
+        if z and n and z / n >= 0.01:
+            print(f"note: {z:,}/{n:,} junctions ({100 * z / n:.1f}%) score Pgen exactly 0 under "
+                  f"--source {a.source} and contribute nothing to any mass. This is OLGA's "
+                  f"deletion-grid quirk, not your input; --source arda (or learned) does not "
+                  f"inherit it. Per-group counts are in the n_zero_pgen column.", file=sys.stderr)
     return 0
 
 

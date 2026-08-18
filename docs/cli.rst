@@ -94,6 +94,29 @@ repertoire mass can see an epitope. Needs the optional extra::
 
 .. note::
 
+   **Which model set.** ``--source`` picks between three bundled sets, and the choice matters more
+   for a mass over a *set* than for scoring one sequence, because a junction whose ``Pgen`` is
+   exactly zero contributes nothing and raises nothing.
+
+   ``olga`` (default)
+      A bit-faithful import of OLGA's published models — ``Pgen`` matches OLGA's own to machine
+      precision. Human, seven loci. Faithful includes faithful to OLGA's deletion-bin grid, on which
+      an allele shorter than the grid carries probability on trims it cannot reach; **5.7% of human
+      TRA junctions in VDJdb score exactly zero** as a result, and for some epitopes it reaches 13–15%.
+   ``learned``
+      Refit from real 5'RACE reads on arda germline, so it does not inherit that grid. Human, seven
+      loci. 0.5% on TRA.
+   ``arda``
+      The same refit on the arda IMGT allele namespace, and the only set with a non-human organism:
+      human for seven loci plus mouse TRA/TRB. 0.0% on both human loci and both mouse loci.
+
+   Use ``olga`` when exact agreement with the reference implementation is the point. Prefer
+   ``learned`` or ``arda`` for precursor work, and use ``arda`` on both species when comparing them
+   so the model family is held fixed. The ``n_zero_pgen`` output column reports the loss per group,
+   and the CLI warns when it exceeds 1% overall.
+
+.. note::
+
    ``--species`` selects the **records**, ``--organism`` selects the **model**, and they have to
    agree. Scoring mouse junctions against the human recombination model does not error and does not
    produce zeros — it returns a plausible number for every group, a median 0.157× of the right
@@ -127,7 +150,7 @@ repertoire mass can see an epitope. Needs the optional extra::
      - independent rearrangements; switches on ``P(>=k precursors)`` and the seen/unseen counts
    * - ``--selection``
      - depth factor for the occupancy counts: a float, or ``auto`` for the measured per-chain
-       values (TRB 4.42, TRA 1.05). These differ and are not pooled
+       values (TRB 4.62, TRA 1.07). These differ and are not pooled
    * - ``--min-junctions``
      - skip groups with fewer distinct junctions
 
@@ -136,6 +159,10 @@ Output
 
 One tab-separated table, one row per group. Key columns:
 
+- ``n_dropped``, ``n_zero_pgen`` — junctions rejected by the anchor check, and junctions that
+  passed it and still scored ``Pgen`` exactly zero. The second is a property of the model set, not
+  of your input (see the note above); both contribute nothing to any mass, so a large count means
+  the totals in that row are short.
 - ``pgen_log10_span``, ``top1_share``, ``top10_share`` — how far the cognate set's generation
   probabilities spread, and how concentrated the sum is. A mean is the wrong summary here.
 - ``naive_sum``, ``union``, ``overlap`` — the per-sequence ball masses added up, the exact union,

@@ -1,6 +1,13 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2026-08-18
+
+### Added
+- **`n_zero_pgen`** in the `precursor` output — junctions that pass the anchor check and still score
+  `Pgen` **exactly zero**. Such a junction contributes nothing to any mass and raises nothing, so
+  until now a cognate set could be quietly short. It is not rare: under the default `olga` model
+  **5.7% of human TRA junctions in VDJdb** score zero, reaching **13.4%** for `YVLDHLIVV` and
+  **15.5%** for `GLCTLVAML`. The CLI warns when the overall rate exceeds 1%.
 
 ### Fixed
 - **`vdjmatch precursor` refuses a species/organism mismatch.** `--species MusMusculus` against the
@@ -9,13 +16,20 @@
   corrupted too and nothing in the output said so. Now an error naming the correct invocation.
 - **`--organism mouse` selects `arda` automatically.** `olga` ships no mouse model, so the default
   source could only ever fail; there is nothing else the user could have meant.
+- **`load_model`'s warning about `source="learned"` was stale and wrong.** It claimed 68 of 89 TRB V
+  alleles have `P(V) = 0`; the current bundled set has **zero** such alleles, and `learned` loses
+  fewer junctions than the default `olga` on both human loci. The docstring now describes what the
+  three sets actually are — `olga` a bit-faithful import of OLGA's published models (defects
+  included, hence the deletion-grid zeros), `learned` and `arda` refits from real 5'RACE reads, and
+  `arda` the only set carrying mouse — and says which to prefer for a mass over a set.
 
 ### Changed
 - `SELECTION_BY_CHAIN` refined to **TRB 4.62 / TRA 1.07** (was 4.42 / 1.05) after adding
   `airr_covid19_vacc` as a third cohort — TRB now rests on three independent cohorts (4.75, 4.92,
   3.79) and TRA on two (1.05, 1.09), with residual RMS 0.054 and 0.067 decades over n=777 and
   n=336. At matched depth the replication is 1.04x on both chains. The shift is inside the residual
-  spread, so 0.2.0's constants were not wrong, just fitted on less data.
+  spread, so 0.2.0's constants were not wrong, just fitted on less data. Stale copies of the old
+  values in `README.md` and `docs/cli.rst` corrected.
 
 ## [0.2.0] - 2026-08-17
 

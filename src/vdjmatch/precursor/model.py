@@ -24,10 +24,32 @@ def _native():
 def load_model(locus: str = "TRB", source: str = "olga", organism: str = "human"):
     """Bundled recombination model.
 
-    ``source="olga"`` is the default for null work. Do **not** use ``"learned"``: those models were
-    EM-fit on ~2k clonotypes without a gene-usage pseudocount, so 68 of 89 bundled TRB V alleles
-    have `P(V) = 0` and any junction using them scores 0. Mouse is available only under
-    ``source="arda"``, and only for TRA/TRB.
+    vdjtools ships three sets, and they differ in ways that matter for a mass over a *set* of
+    junctions, where a junction scoring exactly zero is silently dropped from the total:
+
+    ``"olga"``
+        A bit-faithful import of OLGA's published models — native `Pgen` matches OLGA's own to
+        machine precision. Human, seven loci. Faithful includes faithful to OLGA's defects: its
+        per-locus deletion grid puts mass on trims an allele is too short to reach, and the DP
+        never visits those, so `Pgen` through the affected alleles is an underestimate or exactly
+        zero. On VDJdb this costs **5.7% of human TRA junctions** (3,000 of 52,363) and 41 of
+        111,331 on TRB.
+    ``"learned"``
+        Refit from real 5'RACE reads on arda germline, so it does not inherit that grid. Human,
+        seven loci. Loses 270 TRA junctions (0.5%) and 2 on TRB.
+    ``"arda"``
+        The same refit on the arda IMGT allele namespace, and the **only** set carrying a non-human
+        organism: human for seven loci plus mouse TRA/TRB. Loses 19 TRA junctions and 2 on TRB;
+        neither mouse locus loses any.
+
+    ``"olga"`` remains the default because exact agreement with the reference implementation is the
+    right property for a published null. **For a mass over a set — which is what everything in this
+    package computes — prefer ``"learned"`` or ``"arda"``**, and for anything comparing human with
+    mouse use ``"arda"`` on both so the model family is held fixed.
+
+    Sparse gene usage is not a proxy for this: mouse ``arda`` TRA has `P(V) = 0` for 60% of its V
+    genes and loses *no* junctions, because marginalising over V and J routes around genes the fit
+    never saw, while ``olga`` TRA has one zero-usage V gene and loses 5.7%.
     """
     from vdjtools.model import load_bundled
     return load_bundled(locus, source=source, organism=organism)

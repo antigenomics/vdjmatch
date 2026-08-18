@@ -21,6 +21,7 @@ from .unseen import unseen_junctions
 SCHEMA: dict[str, object] = {
     "group": pl.String, "chain": pl.String,
     "n_records": pl.Int64, "n_junctions": pl.Int64, "n_dropped": pl.Int64,
+    "n_zero_pgen": pl.Int64,
     "pgen_median": pl.Float64, "pgen_q25": pl.Float64, "pgen_q75": pl.Float64,
     "pgen_log10_span": pl.Float64, "top1_share": pl.Float64, "top10_share": pl.Float64,
     "observed_mass": pl.Float64, "naive_sum": pl.Float64, "union": pl.Float64,
@@ -99,6 +100,13 @@ def summarise_group(model, junctions, *, group: str = "", chain: str = "", r: in
         return row
 
     ps = _pgen(model, seqs, threads=threads)
+    # A junction that passes the anchor check and still scores exactly 0 contributes nothing to any
+    # mass and raises nothing. That is a property of the *model*, not of the input: the bundled
+    # `olga` set faithfully reproduces OLGA's deletion-bin grid, on which an allele shorter than the
+    # grid carries probability on trims it cannot reach, so Pgen through it can be exactly zero --
+    # 5.7% of human TRA junctions in VDJdb. Counting them here is the difference between a mass that
+    # is quietly short and one that says so. `n_dropped` is the QC count; this is its model twin.
+    row["n_zero_pgen"] = int(sum(1 for x in ps if not x > 0))
     row.update(_spread(ps))
     prof = shell_profile(model, seqs, r=r, alpha=alpha, threads=threads)
     top = union_mass(model, seqs, r=r, threads=threads)

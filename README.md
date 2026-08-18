@@ -70,7 +70,7 @@ P.occupancy(model, junctions, n_eff=1e8, selection=P.SELECTION_BY_CHAIN["TRB"])
 `S` is the effective cognate-set size, `F` the fraction of the naive repertoire, and `n_seen`
 saturates in depth — a cognate set concentrated on a few high-`Pgen` junctions is exhausted at
 shallow sequencing, a broad one keeps accumulating clonotypes. `SELECTION_BY_CHAIN` carries the
-measured per-chain depth factors (TRB 4.42, TRA 1.05); they differ and should not be pooled.
+measured per-chain depth factors (TRB 4.62, TRA 1.07); they differ and should not be pooled.
 
 ## Install (development)
 
