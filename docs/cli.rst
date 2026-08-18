@@ -41,7 +41,8 @@ hits, control-calibrated E-values and an epitope-enrichment summary.
    * - ``--vdjdb``
      - custom VDJdb table path (default: fetch latest)
    * - ``--asset``
-     - VDJdb table to match against (default ``full``)
+     - VDJdb table to match against (default ``full``, the complex-per-row export: 286,013
+       records including 93,260 paired; ``slim`` is the deduplicated chain-per-row table)
    * - ``--pin``
      - pin a specific VDJdb release tag
    * - ``--species``

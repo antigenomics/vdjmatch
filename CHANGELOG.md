@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.1] - 2026-08-18
+
+### Fixed
+- **`vdjmatch match` crashed on its own default flags.** `--asset full` fetches `vdjdb_full.txt`,
+  which is one row per **complex** — the chains sit side by side in `cdr3.alpha`/`cdr3.beta` and
+  there is no `gene` column — while `slim`/`default` are one row per chain. `schema.normalize()`
+  assumed a single layout and filled the four missing columns with nulls "so downstream code can
+  rely on the schema", so the whole table arrived with **every `cdr3`, `v`, `j` and `gene` null**:
+  176,130 human records and 14,852 mouse ones, all unusable. The matcher then died inside seqtree
+  with `TypeError: build(): incompatible function arguments ... Invoked with: [None]`, which names
+  neither the asset nor the schema. The paired layout is now unpivoted back to one row per chain on
+  load, so `--asset full` yields 286,013 usable records (29,670 alpha-only + 69,823 beta-only +
+  93,260 paired, counted independently of the loader) and `complex_id` is synthesized VDJdb's own
+  way — shared and non-zero across the two chains of a complex, `0` for a single-chain record — so
+  `paired_only=True` works against `full` for the first time.
+
 ## [0.3.0] - 2026-08-18
 
 ### Added

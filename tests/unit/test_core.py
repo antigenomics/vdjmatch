@@ -221,3 +221,29 @@ def test_region_aware_engine_path():
                         gene="TRB", align=True, region_aware=True)
     assert "region_score" in hits.columns
     assert all(s >= 0 for s in hits["region_score"])
+
+
+def test_normalize_unpivots_the_paired_full_export():
+    """vdjdb_full.txt is one row per complex, so the chains sit in cdr3.alpha/cdr3.beta and there
+    is no `gene` column. Normalizing it used to fill cdr3/v/j/gene with nulls, which crashed the
+    matcher on `--asset full` (its own default) with an opaque seqtree TypeError."""
+    from vdjmatch.db import schema
+    raw = pl.DataFrame({
+        "cdr3.alpha": ["CAVRD", "", "CAGHT"], "v.alpha": ["TRAV1", "", "TRAV2"],
+        "j.alpha": ["TRAJ1", "", "TRAJ2"],
+        "cdr3.beta": ["CASSL", "CASSQ", ""], "v.beta": ["TRBV1", "TRBV2", ""],
+        "j.beta": ["TRBJ1", "TRBJ2", ""], "d.beta": ["", "", ""],
+        "species": ["HomoSapiens"] * 3, "mhc.a": ["HLA-A*02:01"] * 3, "mhc.b": ["B2M"] * 3,
+        "mhc.class": ["MHCI"] * 3, "antigen.epitope": ["GILGFVFTL"] * 3,
+        "antigen.gene": ["MP"] * 3, "antigen.species": ["InfluenzaA"] * 3,
+        "reference.id": ["PMID:1"] * 3, "vdjdb.score": ["1"] * 3,
+    })
+    out = schema.normalize(raw)
+    assert out["cdr3"].null_count() == 0                       # was 3/3 null
+    assert sorted(out["cdr3"].to_list()) == ["CAGHT", "CASSL", "CASSQ", "CAVRD"]
+    assert out.filter(pl.col("gene") == "TRA").height == 2     # the empty alpha is dropped, not kept
+    assert out.filter(pl.col("gene") == "TRB").height == 2
+    # only the genuinely paired record shares a non-zero complex id; the two single-chain rows are 0
+    paired = out.filter(pl.col("complex_id") != 0)
+    assert paired.height == 2 and paired["complex_id"].n_unique() == 1
+    assert sorted(paired["gene"].to_list()) == ["TRA", "TRB"]
