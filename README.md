@@ -72,6 +72,25 @@ saturates in depth — a cognate set concentrated on a few high-`Pgen` junctions
 shallow sequencing, a broad one keeps accumulating clonotypes. `SELECTION_BY_CHAIN` carries the
 measured per-chain depth factors (TRB 4.62, TRA 1.07); they differ and should not be pooled.
 
+Two things worth knowing before trusting a number:
+
+- **`--source` picks the recombination model, and it matters for a mass over a set.** The default
+  `olga` is a bit-faithful import of OLGA's published models — faithful to OLGA's deletion-bin grid
+  too, under which **5.7% of human TRA junctions in VDJdb score `Pgen` exactly zero** (up to 15% for
+  some epitopes) and vanish from the total without an error. `learned` and `arda` are refits that do
+  not inherit it; `arda` is the only set carrying mouse. The `n_zero_pgen` output column reports the
+  loss per group and the CLI warns above 1%.
+- **`--species` selects records, `--organism` selects the model, and they must agree.** A mismatch
+  used to run and return a plausible number that was wrong by an epitope-dependent factor; since
+  0.3.0 it is refused.
+
+The method, its benchmarks and the paper live outside this repository:
+[repseq/2026-precursor-freq](https://github.com/repseq/2026-precursor-freq) (benchmarks, result
+tables, the 16-study literature compendium) and
+[repseq/2026-precursor-freq-ms](https://github.com/repseq/2026-precursor-freq-ms) (the manuscript).
+This repository holds only the software, its CLI, tests, docs and the worked example
+(`docs/notebooks/precursor.ipynb`).
+
 ## Install (development)
 
 ```fish

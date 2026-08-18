@@ -94,6 +94,15 @@ repertoire mass can see an epitope. Needs the optional extra::
 
 .. note::
 
+   **Where the method is described.** This page documents the tool. The estimator, its benchmarks
+   and the paper live in separate repositories:
+   `repseq/2026-precursor-freq <https://github.com/repseq/2026-precursor-freq>`_ (benchmarks, result
+   tables, the 16-study literature compendium of measured naive precursor frequencies) and
+   `repseq/2026-precursor-freq-ms <https://github.com/repseq/2026-precursor-freq-ms>`_ (the
+   manuscript).
+
+.. note::
+
    **Which model set.** ``--source`` picks between three bundled sets, and the choice matters more
    for a mass over a *set* than for scoring one sequence, because a junction whose ``Pgen`` is
    exactly zero contributes nothing and raises nothing.
