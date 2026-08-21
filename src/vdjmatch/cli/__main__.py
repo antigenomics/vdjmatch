@@ -283,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
                          "clonotype counts")
     pc.add_argument("--selection", default="1.0",
                     help="depth selection factor for the occupancy counts: a float, or 'auto' for "
-                         "the measured per-chain values (TRB 4.42, TRA 1.05)")
+                         "the measured per-chain values (TRB 4.62, TRA 1.07)")
     pc.add_argument("--threads", type=int, default=0, help="worker threads (0 = all cores)")
     pc.add_argument("-v", "--verbose", action="store_true", help="per-group progress bar")
     pc.set_defaults(func=_cmd_precursor)

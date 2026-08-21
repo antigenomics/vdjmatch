@@ -89,4 +89,5 @@ only about **half** of it (the rest is gene-identity-specific).
    self
    cli
    api
+   compendium
    notebooks/precursor

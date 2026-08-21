@@ -84,12 +84,55 @@ Two things worth knowing before trusting a number:
   used to run and return a plausible number that was wrong by an epitope-dependent factor; since
   0.3.0 it is refused.
 
+#### Checking it against what laboratories measured
+
+`F(e)` estimates a **naive repertoire mass**, and that quantity has been measured directly — by
+tetramer and dextramer enrichment of unexposed donors, cord blood and naive mice. Both sides of that
+comparison ship, and are deliberately kept apart:
+
+```python
+from vdjmatch.precursor import load_compendium, load_estimates
+
+comp = load_compendium()                                  # experimental: 147 published measurements,
+                                                          # 14 studies, 31 originating laboratories
+est = load_estimates(species="human", chain="TRB", model="arda")   # derived: what the model predicts
+est.select("epitope_seq", (est["union"] * 1e6).alias("predicted"), "measured_per_1e6")
+```
+
+Both fetch from `isalgo/airr_benchmark` (`vdjmatch/precursor_freq/`) and cache next to the VDJdb
+releases. Merging them into one column would conflate a measurement with a prediction of it.
+
+Beyond a point estimate, the same two inputs — the `Pgen` spectrum and the catalogued junction count
+— answer more than one question, and the answers are not interchangeable:
+
+```python
+u = P.union_mass(model, junctions, r=1, count_members=True)
+u["n_union"] - u["n_seqs"]                     # uncatalogued neighbours: a census, finite and exact
+P.observed_mass(model, junctions) / u["union"] # share of the neighbourhood's mass already catalogued
+u["overlap"]                                   # what naive per-sequence summing would double-count
+```
+
+**Unseen mass converges; unseen count does not.** The Horvitz–Thompson weight `p/π → 1/N` as
+`p → 0`, which is what makes `coverage_corrected_mass` work without guessing the shape of the tail.
+But `1/π` diverges, so a richness extrapolation on real TCR data returns 10¹¹–10¹⁴ unseen junctions
+— not a number. `unseen_junctions` marks `richness_reliable` false when the rarest observed junction
+was captured too seldom, and the ball census above is the finite alternative.
+
+An interactive [marimo](https://marimo.io) notebook walks the whole comparison — the scatter against
+measurement, the `Pgen` spectrum inside one cognate set, the ball census, and the step from a mass to
+a number of cells:
+
+```console
+$ pip install 'vdjmatch[precursor,notebook]'
+$ marimo edit docs/notebooks/precursor_compendium.py
+```
+
 The method, its benchmarks and the paper live outside this repository:
 [repseq/2026-precursor-freq](https://github.com/repseq/2026-precursor-freq) (benchmarks, result
-tables, the 16-study literature compendium) and
+tables, the literature compendium) and
 [repseq/2026-precursor-freq-ms](https://github.com/repseq/2026-precursor-freq-ms) (the manuscript).
-This repository holds only the software, its CLI, tests, docs and the worked example
-(`docs/notebooks/precursor.ipynb`).
+This repository holds only the software, its CLI, tests, docs and the worked examples
+(`docs/notebooks/`).
 
 ## Install (development)
 
