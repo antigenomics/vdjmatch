@@ -175,6 +175,43 @@ def test_event_ratio_radius_1_is_a_superset_of_exact_matching():
     assert event_ratio([A], events, r=1)["matched"] == 1
 
 
+def test_event_ratio_prevalence_counts_donors_not_events():
+    """Prevalence is the readout an enrichment study reports, and it is not the pooled ratio.
+
+    d1 contributes two matching events and d2 one, so the pooled `f_hat` weights d1 twice while
+    prevalence counts each donor once -- 3 of 4 events match, but 2 of 3 donors do.
+    """
+    nt_a, nt_b = "TGT" * len(A), "TGC" * len(A)
+    events = [RecombinationEvent("d1", "TRBV1", "TRBJ1", nt_a, A),
+              RecombinationEvent("d1", "TRBV2", "TRBJ1", nt_b, A),   # same donor, second event
+              RecombinationEvent("d2", "TRBV1", "TRBJ1", nt_a, A),
+              RecombinationEvent("d3", "TRBV1", "TRBJ1", "ACG" * len(FAR), FAR)]
+    out = event_ratio([A], events, r=0)
+    assert out["denominator"] == 4
+    assert out["matched"] == 3
+    assert out["n_donors"] == 3
+    assert out["n_donors_hit"] == 2
+    assert out["prevalence"] == pytest.approx(2 / 3)
+    assert out["f_hat"] == pytest.approx(3 / 4)
+
+
+def test_event_ratio_per_donor_uses_each_donor_own_denominator():
+    """A donor's `f_hat` divides by that donor's events, not by the pooled total.
+
+    d1 is sequenced twice as deep as d2 and matches once in each: pooling would call them equal,
+    per-donor calls d2 twice the rate. That difference is the whole point of the spread.
+    """
+    nt_a, nt_b = "TGT" * len(A), "TGC" * len(A)
+    events = [RecombinationEvent("d1", "TRBV1", "TRBJ1", nt_a, A),
+              RecombinationEvent("d1", "TRBV2", "TRBJ1", "ACG" * len(FAR), FAR),
+              RecombinationEvent("d2", "TRBV1", "TRBJ1", nt_b, A)]
+    out = event_ratio([A], events, r=0, per_donor=True)
+    assert out["donors"]["d1"] == {"matched": 1, "events": 2, "f_hat": pytest.approx(0.5)}
+    assert out["donors"]["d2"] == {"matched": 1, "events": 1, "f_hat": pytest.approx(1.0)}
+    assert out["f_hat"] == pytest.approx(2 / 3)          # pooled: a ratio of sums, not a mean
+    assert "donors" not in event_ratio([A], events, r=0)["epitopes"][""]
+
+
 def test_event_ratio_shares_one_denominator_across_epitopes():
     nt = "TGT" * len(A)
     events = [RecombinationEvent("d1", "TRBV1", "TRBJ1", nt, A)]

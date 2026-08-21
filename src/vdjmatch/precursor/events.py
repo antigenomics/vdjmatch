@@ -5,6 +5,7 @@ everything in :mod:`vdjmatch.precursor.mass` is measured against.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 from .mass import MAX_BALL_MEMBERS
@@ -59,7 +60,7 @@ class RecombinationEvent:
 
 
 def event_ratio(cognate, events, r: int = 1, denominator: int | None = None,
-                max_members: int = MAX_BALL_MEMBERS) -> dict:
+                max_members: int = MAX_BALL_MEMBERS, per_donor: bool = False) -> dict:
     """`F(e)` counted directly off repertoire data — events over events, no `Pgen` at all.
 
     ::
@@ -99,8 +100,24 @@ def event_ratio(cognate, events, r: int = 1, denominator: int | None = None,
     substitutions. ``denominator`` overrides the counted total, for callers that pre-filtered the
     event stream; it must have been counted with the same key.
 
-    Returns ``{"denominator", "matched", "f_hat", "epitopes": {e: {"matched", "f_hat"}},
-    "n_cognate", "r"}``.
+    Returns ``{"denominator", "matched", "f_hat", "epitopes": {e: {"matched", "f_hat",
+    "n_donors_hit", "prevalence"}}, "n_cognate", "n_donors", "r"}``.
+
+    **Per-donor, and why it is not the same number.** The donor is already part of the event key, so
+    the pooled ``f_hat`` above can be resolved per donor at no extra pass. Two quantities come out
+    of that and they answer different questions. ``prevalence`` is the fraction of donors carrying
+    at least one matching event -- the readout a tetramer-enrichment study reports as "n of N donors
+    responded", and the one the saturating link ``prevalence = 1 - exp(-c F(e))`` predicts.
+    ``per_donor=True`` additionally returns each donor's own ``f_hat`` under ``"donors"``, which is
+    what a *spread* across donors has to be computed from: the pooled ratio is a ratio of sums and
+    says nothing about how much donors differ. Deep donors dominate the pooled figure and are one
+    point each in the spread, so the two disagree by construction and both are reported rather than
+    one being derived from the other.
+
+    ``denominator`` overriding the count does **not** propagate to the per-donor denominators: those
+    are always counted off the stream that was actually passed, because there is no way to split an
+    externally supplied total across donors. A caller that pre-filters and overrides should read the
+    per-donor numbers as conditional on that filter.
 
     **`r = 1` is part of the estimator, not a tuning knob.** At `r = 0` the repertoire is far too
     sparse for this ratio to be estimable: a cognate set of a few hundred exact junctions matches
@@ -148,13 +165,29 @@ def event_ratio(cognate, events, r: int = 1, denominator: int | None = None,
             hits[name].add(k)
 
     n = int(denominator) if denominator is not None else len(seen)
-    per = {name: {"matched": len(v), "f_hat": (len(v) / n) if n else 0.0}
-           for name, v in hits.items()}
-    out = {"denominator": n, "epitopes": per, "r": r,
+    donor_events = Counter(k[0] for k in seen)
+    n_donors = len(donor_events)
+    per = {}
+    for name, v in hits.items():
+        matched_by_donor = Counter(k[0] for k in v)
+        entry = {"matched": len(v), "f_hat": (len(v) / n) if n else 0.0,
+                 "n_donors_hit": len(matched_by_donor),
+                 "prevalence": (len(matched_by_donor) / n_donors) if n_donors else 0.0}
+        if per_donor:
+            entry["donors"] = {
+                d: {"matched": matched_by_donor.get(d, 0), "events": tot,
+                    "f_hat": (matched_by_donor.get(d, 0) / tot) if tot else 0.0}
+                for d, tot in donor_events.items()}
+        per[name] = entry
+    out = {"denominator": n, "epitopes": per, "r": r, "n_donors": n_donors,
            "n_cognate": sum(len(v) for v in groups.values())}
     if single:
         out["matched"] = per[""]["matched"]
         out["f_hat"] = per[""]["f_hat"]
+        out["n_donors_hit"] = per[""]["n_donors_hit"]
+        out["prevalence"] = per[""]["prevalence"]
+        if per_donor:
+            out["donors"] = per[""]["donors"]
     else:
         out["matched"] = len(set().union(*hits.values())) if hits else 0
         out["f_hat"] = (out["matched"] / n) if n else 0.0
