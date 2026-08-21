@@ -33,7 +33,7 @@ cli = ["tqdm"]                    # match --verbose progress bar (imported lazil
 # `import vdjmatch` never touches vdjtools.
 precursor = ["vdjtools>=3.9", "numpy", "scipy"]
 test = ["pytest>=7.4", "hypothesis"]
-bench = ["psutil", "huggingface_hub", "matplotlib", "seaborn"]  # huggingface_hub: HF benchmark; matplotlib/seaborn: comparison boxplots+beeswarm
+bench = ["psutil", "huggingface_hub", "matplotlib", "seaborn", "scikit-learn", "rapidfuzz"]  # HF benchmark; matplotlib/seaborn: boxplots; scikit-learn/rapidfuzz: AUC0.1 + clustering internal metrics
 control = ["seqtree[control]", "huggingface_hub"]  # TRA/mouse controls beyond bundled human TRB
 ods = ["ezodf"]                   # read ImmuneWatch DETECT golden .ods in tests
 # `marimo edit docs/notebooks/precursor_compendium.py` -- the interactive walkthrough of
