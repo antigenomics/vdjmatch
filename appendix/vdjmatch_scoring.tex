@@ -589,13 +589,13 @@ epitopes.
 
 A further direction is to predict, \emph{a priori}, which epitopes are intrinsically easy versus hard
 to annotate --- the wide spread of per-epitope PR-AUC in our experiments (e.g.\ the convergent,
-``featured'' CMV NLV vs the diffuse, ``featureless'' influenza GIL) is not noise but biology. A pMHC
+``featured'' influenza GIL vs the diffuse, ``featureless'' CMV NLV) is not noise but biology. A pMHC
 with prominent TCR-facing features selects a focused, motif-rich repertoire that clusters cleanly,
 whereas a featureless one is recognised by structurally diverse TCRs in varied docking modes and yields
 no tight motif~\cite{Turner2005,Yang2017,Song2017,Peng2014}; clustering-based specificity inference
 succeeds or fails accordingly~\cite{Hudson2024}. A model that scores epitope ``annotability'' from
 repertoire convergence (and, where available, pMHC structural features) would let us report calibrated
-confidence per epitope and triage GIL-like hard cases --- a planned addition to the benchmark. These
+confidence per epitope and triage NLV-like hard cases --- a planned addition to the benchmark. These
 extensions, and the full comparison against existing tools, are ongoing work.
 
 \bibliographystyle{plain}
