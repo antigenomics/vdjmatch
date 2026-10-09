@@ -165,6 +165,7 @@ def _paired(annotator, q, k, control, exclude_exact, kwargs):
     raw = annotator._index.reference
     if "record_id" not in raw.columns:
         raw = raw.with_row_index("record_id").with_columns(pl.col("record_id").cast(pl.String))
+    raw = raw.join(observations.select("complex_id"), on="complex_id", how="semi")
     for chain, prefix in (("TRA", "alpha_"), ("TRB", "beta_")):
         metadata = raw.filter(pl.col("gene") == chain).unique(subset=["complex_id", "cdr3", "v", "j"]).select(
             "complex_id", *(pl.col(c).alias(prefix+c) for c in raw.columns if c != "complex_id"))

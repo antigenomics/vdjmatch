@@ -151,6 +151,18 @@ def test_unsupported_locus_does_not_require_a_control():
     assert h.height == c.height == g.height == 0
 
 
+def test_paired_metadata_ignores_unlinked_reference_rows():
+    ref = pl.DataFrame({"complex_id": ["R1", "R1", "0", "0", None],
+        "gene": ["TRA", "TRB", "TRA", "TRA", "TRB"],
+        "cdr3": ["CAVF", "CASSF", "CAYF", "CWWF", "CASAF"],
+        "epitope": ["E"] * 5})
+    q = pl.DataFrame({"cdr3a": ["CAVF"], "cdr3b": ["CASSF"]})
+    h, c, g = ranked.ranked_evidence(Annotator(VdjdbIndex.build(ref)), q, k=1, paired=True)
+    assert h["complex_id"].to_list() == ["R1"]
+    assert c["n_records"].to_list() == [1]
+    assert g["n_reference"].to_list() == [1]
+
+
 @pytest.mark.skipif(not hasattr(ranked.gapblock, "topk_batch"), reason="requires native gap-block top-K extension")
 def test_actual_native_wrappers():
     from seqtree import Index
