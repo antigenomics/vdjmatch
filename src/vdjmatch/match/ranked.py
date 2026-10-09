@@ -29,13 +29,13 @@ def _refs(control):
     return refs
 
 
-def _global(qid, k, n, scores, calibrated, result=None):
+def _global(qid, k, n, scores, calibrated, result=None, *, calibration="order-statistic"):
     complete = len(scores) == k
     return {
         "query_id": qid, "requested_k": k, "n_retained": len(scores),
         "n_reference": n, "threshold": max(scores) if complete else None,
         "estimator": ESTIMATOR,
-        "calibration": "order-statistic" if calibrated else "uncalibrated",
+        "calibration": calibration if calibrated else "uncalibrated",
         "p_global": 1.0 if not complete else None,
         "p_upper": None, "E_raw": None, "E": None,
         "finite_control_delta": None,
@@ -85,8 +85,10 @@ def ranked_evidence(annotator, q, *, k=10, threads=1, matrix=None,
         rows, cdf = [], []
         for query, row, nc in zip(queries.iter_rows(named=True), result, counts):
             scores = [h.score for h in row]
-            stat = order_statistic(k, len(refs), nc[-1], len(ctrl)) if ctrl is not None and len(row) == k else None
-            statistics.append(_global(query["query_id"], k, len(refs), scores, ctrl is not None, stat))
+            stat = (order_statistic(k, len(refs), nc[-1], len(ctrl)) if len(row) == k
+                    else {"control_size": len(ctrl)}) if ctrl is not None else None
+            statistics.append(_global(query["query_id"], k, len(refs), scores, ctrl is not None,
+                                      stat, calibration="finite-sample-rank-v1"))
             for hit, count in zip(row, nc):
                 rows.append({"query_id": query["query_id"], "query_cdr3": query["cdr3"],
                              "query_v": query["v"], "query_j": query["j"], "query_locus": locus,
@@ -116,6 +118,7 @@ def _empty_candidates(dtype):
 def _statistics(rows, dtype):
     schema = {"query_id": dtype, "requested_k": pl.UInt32, "n_retained": pl.UInt32,
               "n_reference": pl.UInt64, "threshold": pl.Int32, "estimator": pl.String,
+              "n_control": pl.UInt64, "control_size": pl.UInt64,
               "calibration": pl.String, **{c: pl.Float64 for c in ("p_global", "p_upper", "E_raw", "E", "finite_control_delta")}}
     return pl.DataFrame(rows, schema=schema, strict=False)
 

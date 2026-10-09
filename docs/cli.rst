@@ -374,17 +374,24 @@ output are null because gap-block penalties are not Levenshtein distances.
 
 ``.global_statistics.txt`` reports the predeclared K, original distinct-reference
 exposure N, number retained, Kth score threshold, empirical expected count
-``E_raw``, its finite-control upper bound ``E``, and ``p_global``. All control
+``E_raw`` and ``p_global``. Singles additionally report control size M and count C
+as ``control_size`` and ``n_control``. The single-chain calibration identifier is
+``finite-sample-rank-v1``; its ``E``, ``p_upper`` and ``finite_control_delta`` are null.
+Paired output retains its finite-control upper bound ``E``. All control
 ties at or below the threshold count; K remains the declared value. Fewer than
 K finite eligible neighbours yield a null threshold and ``p_global=1``.
 Without controls, finite-threshold tests remain null. These are global reference
 statistics. Candidate label scores, margins and support are descriptive;
 their epitope E-value/P-value columns remain null.
 
-The global test assumes independent target/control samples with IID target
-scores and IID control sequences from the declared query-conditioned background.
+The single-chain test uses ``HypergeomSF(K-1, N+M, N, K+C)`` under pooled target/control
+label exchangeability; independent IID samples from the same query-conditioned
+background suffice. Exact exclusion maps identical junctions to infinity in both
+samples, preserving original N and M. It does not drop rows from either exposure.
 Paired scoring uses the worst-chain penalty, so the threshold defines a
-Cartesian intersection; paired controls additionally assume independent chains.
+Cartesian intersection; paired controls assume independent chains and retain the
+separate confidence-bound/binomial method. Cartesian pairs share chains and must
+not be treated as independent controls in the single-chain rank test.
 Deduplicated biological data do not establish these assumptions. Exact-pair
 exclusion removes only the joint exact/exact corner and preserves original N.
 Selecting K, a radius or a locus after inspecting results is outside the test.

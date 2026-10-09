@@ -69,6 +69,19 @@ def test_fewer_k_and_exact_exclusion():
     h, _, g = ranked.ranked_evidence(a, ["CASSF"], k=3, exclude_exact=True, control=Control(["CASSF", "CWWWF"]))
     assert h["db_cdr3"].to_list() == ["CASAF"]
     assert g["threshold"][0] is None and g["p_global"][0] == 1
+    assert g["calibration"][0] == "finite-sample-rank-v1"
+    assert g["control_size"][0] == 2 and g["n_control"][0] is None
+
+
+def test_exact_rank_retains_original_exposures_and_excludes_both_samples():
+    a = Annotator(VdjdbIndex.build(reference()))
+    _, _, g = ranked.ranked_evidence(a, ["CASSF"], k=1, exclude_exact=True,
+                                    control=Control(["CASSF", "CWWWF"]))
+    row = g.row(0, named=True)
+    assert row["n_reference"] == row["control_size"] == 2
+    assert row["n_control"] == 0 and row["threshold"] == 1
+    assert row["p_global"] == pytest.approx(.5)
+    assert row["E"] is row["p_upper"] is row["finite_control_delta"] is None
 
 
 def test_paired_observations_and_original_exposure():

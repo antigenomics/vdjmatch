@@ -106,6 +106,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
     p = _resolve_params(a)
     search_mode = getattr(a, "search_mode", "fixed")
     top_k = getattr(a, "top_k", 10)
+    paired = getattr(a, "paired", False)
     if search_mode != "fixed":
         if p.scope != "1,0,0,1":
             raise ValueError("--scope applies to fixed mode; ball/ranked modes define their own search")
@@ -229,9 +230,11 @@ def _cmd_match(a: argparse.Namespace) -> int:
                 "gap_extend": 1,
                 "ranking_temperature": 400.0 if matrix else 1.0,
                 "paired_selection": "max_chain_penalty",
-                "calibration": "global_order_statistic_cp_plus_binomial" if p.evalue else "uncalibrated",
-                "delta": 1e-6 if p.evalue else None,
-                "assumptions": "fixed K and score; IID target and control scores; target/control independence; paired independent background chains",
+                "calibration": ("global_order_statistic_cp_plus_binomial" if paired
+                                else "finite-sample-rank-v1") if p.evalue else "uncalibrated",
+                "delta": 1e-6 if p.evalue and paired else None,
+                "assumptions": ("fixed K and score; IID target pairs and independent marginal controls; independent background chains"
+                                if paired else "fixed external query, K and score; pooled target/control label exchangeability; identical exact exclusion; original target/control exposures"),
                 "epitope_calibration": "none",
             } if search_mode == "ranked" else None,
             "ball_model": {
