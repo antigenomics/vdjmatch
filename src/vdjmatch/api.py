@@ -182,6 +182,7 @@ class Annotator:
         score_scale=400.0,
         soft_v=True,
         exclude_exact=False,
+        radii=None,
     ):
         if match_v and q.height and q["v"].null_count():
             raise ValueError("match_v requires a V call on every retained query")
@@ -241,18 +242,21 @@ class Annotator:
                     schema={"query_id": q.schema["query_id"], "edits": pl.UInt32},
                     orient="row",
                 )
-            cs.append(
-                reduce_candidates(
-                    h,
-                    self._index.records_for(gene),
-                    ctrl_hits,
+            for radius in radii if radii is not None else [None]:
+                distance = pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") + pl.col("n_dels")
+                selected = h if radius is None else h.filter(distance <= radius)
+                selected_controls = ctrl_hits
+                if radius is not None and ctrl_hits is not None:
+                    selected_controls = ctrl_hits.filter(pl.col("edits") <= radius)
+                c = reduce_candidates(
+                    selected, self._index.records_for(gene), selected_controls,
                     control_size=len(ctrl) if ctrl is not None else None,
-                    score_scale=score_scale,
-                    soft_v=soft_v,
-                    match_v=match_v,
-                    match_j=match_j,
+                    score_scale=score_scale, soft_v=soft_v,
+                    match_v=match_v, match_j=match_j,
                 )
-            )
+                if radius is not None:
+                    c = c.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius"))
+                cs.append(c)
             hs.append(h)
         return (
             pl.concat(hs, how="diagonal_relaxed")
@@ -262,6 +266,57 @@ class Annotator:
             if cs
             else pl.DataFrame(schema=candidate_schema(q.schema["query_id"])),
         )
+
+    def graded_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
+                          threads=1, control=None, calibrate=False, species=None,
+                          matrix=None, sequence_convention=None, exclude_exact=False,
+                          return_hits=False):
+        """Five fixed edit balls with radius-constrained weighted rankings.
+
+        Unit-cost balls share one minimum-edit search. Weighted search may choose
+        a cheaper alignment with more edits, so each weighted radius is searched
+        in one complete query batch. No best-radius P-value is selected.
+        """
+        _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
+        gap = DEFAULT_SCALE if matrix is not None else 1
+        if matrix is None:
+            sp = search_params("5,2,2,5", gap_open=gap, gap_extend=gap)
+            h, c = self._evidence(q, sp, threads=threads, control=control,
+                                  calibrate=calibrate, species=species,
+                                  score_scale=1.0, exclude_exact=exclude_exact,
+                                  radii=range(1, 6))
+            h = h.with_columns((pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") +
+                                pl.col("n_dels")).alias("minimum_radius"))
+        else:
+            hs, cs = [], []
+            for radius in range(1, 6):
+                sp = search_params(f"{radius},{min(radius,2)},{min(radius,2)},{radius}",
+                                   matrix=matrix, gap_open=gap, gap_extend=gap)
+                rh, rc = self._evidence(q, sp, threads=threads, control=control,
+                                       calibrate=calibrate, species=species,
+                                       score_scale=400.0, exclude_exact=exclude_exact)
+                hs.append(rh.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius")))
+                cs.append(rc.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius")))
+            h, c = pl.concat(hs, how="diagonal_relaxed"), pl.concat(cs, how="diagonal_relaxed")
+        if "radius" not in c.columns:
+            c = c.with_columns(pl.lit(None, dtype=pl.UInt16).alias("radius"))
+        return (h, c) if return_hits else c
+
+    def ranked_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
+                          k=10, threads=1, matrix=None, control=None,
+                          sequence_convention=None, exclude_exact=False, paired=False):
+        """Global gap-block top-K evidence and a separate global enrichment test.
+
+        K is predeclared; candidate label scores are not calibrated probabilities.
+        Paired input uses cdr3a/cdr3b and genuine reference pairs.
+        """
+        from .match.ranked import ranked_evidence
+        if paired:
+            q = data
+        else:
+            _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
+        return ranked_evidence(self, q, k=k, threads=threads, matrix=matrix,
+                               control=control, exclude_exact=exclude_exact, paired=paired)
 
     def hits(
         self,

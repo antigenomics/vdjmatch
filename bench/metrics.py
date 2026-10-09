@@ -36,7 +36,7 @@ def _curve(pairs):
 
 
 def pr_auc(pairs) -> float:
-    """Micro PR-AUC at the observed prevalence (average precision)."""
+    """Historical trapezoidal PR area at observed prevalence; not average precision."""
     pts, P, _ = _curve(pairs)
     if P == 0:
         return float("nan")
@@ -45,6 +45,30 @@ def pr_auc(pairs) -> float:
         r, p = tp / P, tp / (tp + fp) if tp + fp else 1.0
         area += (r - pr) * (p + pp) / 2
         pr, pp = r, p
+    return area
+
+
+def average_precision(pairs, pi0=None):
+    """Stepwise PR area, grouping score ties; optional reference prevalence.
+
+    ``pi0=0.5`` reports balanced AP. None uses observed class prevalence.
+    All-equal scores yield that prevalence, unlike historical trapezoidal PR.
+    """
+    if pi0 is not None and not 0 < pi0 < 1:
+        raise ValueError("reference prevalence must lie strictly between zero and one")
+    points, positives, negatives = _curve(pairs)
+    if not positives or (pi0 is not None and not negatives):
+        return float("nan")
+    area, previous_recall = 0.0, 0.0
+    for tp, fp in points[1:]:
+        recall = tp / positives
+        if pi0 is None:
+            precision = tp / (tp + fp)
+        else:
+            denominator = recall * pi0 + (fp / negatives) * (1 - pi0)
+            precision = recall * pi0 / denominator if denominator else 1.0
+        area += (recall - previous_recall) * precision
+        previous_recall = recall
     return area
 
 
