@@ -79,6 +79,8 @@ def candidates(
     soft_v=True,
     match_v=False,
     match_j=False,
+    control_counts=None,
+    distance_column="edits",
 ):
     """Reduce independent observations to candidate evidence for each stable query_id.
 
@@ -87,6 +89,10 @@ def candidates(
     ``control_size=None`` requests explicitly uncalibrated ranking. Soft V uses existing
     germline-loop similarity (weight 0.25 across families); unknown/missing calls are neutral.
     """
+    if distance_column not in {"edits", "score"}:
+        raise ValueError("distance_column must be edits or score")
+    if controls is not None and control_counts is not None:
+        raise ValueError("supply control hits or cumulative control counts, not both")
     if not math.isfinite(score_scale) or score_scale <= 0:
         raise ValueError("score_scale must be positive")
     if control_size is not None and control_size <= 0:
@@ -116,16 +122,23 @@ def candidates(
     )
     # Search-key evidence is independent of observation multiplicity.
     u = h.sort("score").unique(subset=[*groups, *CLONE], maintain_order=True)
-    if controls is not None and controls.height:
+    if control_counts is not None:
+        u = u.join(
+            control_counts.select("query_id", distance_column, "_nc"),
+            on=["query_id", distance_column], how="left", validate="m:1",
+        )
+        if u["_nc"].null_count() or u.filter(pl.col("_nc") < 0).height:
+            raise ValueError("cumulative control counts must cover every target score and be nonnegative")
+    elif controls is not None and controls.height:
         hist = (
-            controls.group_by("query_id", "edits")
+            controls.group_by("query_id", distance_column)
             .len()
-            .sort(["query_id", "edits"])
+            .sort(["query_id", distance_column])
             .with_columns(pl.col("len").cum_sum().over("query_id").alias("_nc"))
             .drop("len")
         )
-        u = u.sort(["query_id", "edits"]).join_asof(
-            hist, on="edits", by="query_id", strategy="backward", check_sortedness=False
+        u = u.sort(["query_id", distance_column]).join_asof(
+            hist, on=distance_column, by="query_id", strategy="backward", check_sortedness=False
         )
     else:
         u = u.with_columns(pl.lit(0, dtype=pl.UInt32).alias("_nc"))
@@ -161,13 +174,18 @@ def candidates(
         pl.col("edits").min().alias("nearest_edits"),
         pl.col("edits").cast(pl.UInt64).sum().alias("distance_sum"),
         pl.col("score").min().alias("nearest_score"),
-        (pl.col("edits") == 0).sum().cast(pl.UInt32).alias("n_exact"),
+        (pl.col("query_cdr3") == pl.col("db_cdr3")).sum().cast(pl.UInt32).alias("n_exact"),
         pl.col("_w").sum().alias("ned_score"),
         *[
             pl.col(c).first()
             for c in ["query_cdr3", "query_v", "query_j", "query_locus"]
         ],
     )
+    if distance_column == "score":
+        out = out.with_columns(
+            pl.lit(None, dtype=pl.UInt32).alias("nearest_edits"),
+            pl.lit(None, dtype=pl.UInt64).alias("distance_sum"),
+        )
     # Competitors may share a clone with this candidate. Subtract only exclusive clones.
     assignments = u.group_by(["query_id", *CLONE]).len().rename({"len": "_labels"})
     total = assignments.group_by("query_id").len().rename({"len": "_total"})

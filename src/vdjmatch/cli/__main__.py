@@ -104,6 +104,12 @@ def _cmd_match(a: argparse.Namespace) -> int:
     db, match = __getattr__("db"), __getattr__("match")
     annotate_sample = __getattr__("annotate_sample")
     p = _resolve_params(a)
+    search_mode = getattr(a, "search_mode", "fixed")
+    top_k = getattr(a, "top_k", 10)
+    if search_mode != "fixed":
+        if p.scope != "1,0,0,1":
+            raise ValueError("--scope applies to fixed mode; ball/ranked modes define their own search")
+        p.align = False
     raw_paths = {}
     supplied_controls = getattr(a, "control", None) or []
     if (supplied_controls or getattr(a, "fresh_control", False)) and not p.evalue:
@@ -195,6 +201,8 @@ def _cmd_match(a: argparse.Namespace) -> int:
             link=getattr(a, "link", None),
             control=controls,
             exclude_exact=getattr(a, "exclude_exact", False),
+            search_mode=search_mode,
+            top_k=top_k,
         )
         for kind, frame in res.items():
             _flat_table(frame).write_csv(
@@ -211,6 +219,28 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "reference_filters": reference_filters,
             "control_species": control_species,
             "controls": control_provenance,
+            "search_mode": search_mode,
+            "top_k": top_k if search_mode == "ranked" else None,
+            "radii": list(range(1, 6)) if search_mode == "ball" else None,
+            "ranked_model": {
+                "method": "full_reference_fixed_k_gapblock",
+                "gap_positions": [3, 4, -4, -3],
+                "gap_open": 2 * matrix.scale() if matrix else 2,
+                "gap_extend": 1,
+                "ranking_temperature": 400.0 if matrix else 1.0,
+                "paired_selection": "max_chain_penalty",
+                "calibration": "global_order_statistic_cp_plus_binomial" if p.evalue else "uncalibrated",
+                "delta": 1e-6 if p.evalue else None,
+                "assumptions": "fixed K and score; IID target and control scores; target/control independence; paired independent background chains",
+                "epitope_calibration": "none",
+            } if search_mode == "ranked" else None,
+            "ball_model": {
+                "max_radius": 5,
+                "max_insertions": 2,
+                "max_deletions": 2,
+                "weighted_search_batches_per_locus": 5 if matrix else 1,
+                "adaptive_radius_selection": False,
+            } if search_mode == "ball" else None,
             "exclude_exact": getattr(a, "exclude_exact", False),
             "input_format": getattr(a, "input_format", "auto"),
             "sequence_convention": getattr(a, "sequence_convention", None)
@@ -222,7 +252,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
                 "assumptions": "fixed predicate; IID marginal categories and target pairs; independent background chains; target/control independence",
                 "deduplicated_controls_establish_iid": False,
                 "unconditional_calibration_claim": False,
-            } if getattr(a, "paired", False) and getattr(a, "exclude_exact", False) and p.evalue else None,
+            } if getattr(a, "paired", False) and getattr(a, "exclude_exact", False) and p.evalue and search_mode == "fixed" else None,
             "link": getattr(a, "link", None),
             "resources": {
                 "native_threads": p.threads,
@@ -466,6 +496,10 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument(
         "--paired", action="store_true", help="read linked TRA/TRB cell rows"
     )
+    m.add_argument("--search-mode", choices=["fixed", "ball", "ranked"], default="fixed",
+                   help="fixed scope, five graded edit balls, or global gap-block top-K")
+    m.add_argument("--top-k", type=int, choices=[5, 10], default=10,
+                   help="predeclared neighbour count for ranked mode (default: 10)")
     m.add_argument("--link", default=None, help="cell linkage column for --paired")
     m.add_argument(
         "--pin", default=None, help="pin a specific VDJdb release tag (default: latest)"

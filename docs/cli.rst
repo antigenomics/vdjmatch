@@ -336,3 +336,57 @@ existing end-anchored positional model and integer weights
 ``max(1, round(100 * significance_weight))``. These weighted scores have different
 units from unweighted matrix scores. The manifest records parameters, model/input
 hashes, counts, software versions and separate build/search/rescoring times.
+
+Graded and ranked annotation
+----------------------------
+
+``--search-mode ball`` reports five fixed edit balls (radii 1–5). Unit-cost
+balls share one radius-5 native batch per locus and control. Weighted scoring
+uses one complete query batch per radius: its best alignment can use more edits
+than the minimum-edit alignment, so a broad weighted hit cannot simply be
+filtered into smaller balls. Each ball permits at most two
+insertions/deletions and caps total edits at its radius. Matrix penalties rank
+accepted neighbours. The calls table has one row per retained query and radius;
+it does not select the radius with the smallest P-value. Ball output can be large.
+For paired receptors use ranked mode.
+
+.. code-block:: bash
+
+   vdjmatch match queries.tsv --vdjdb reference.zip --search-mode ball \
+     --threads 4 --output-prefix results/balls
+   vdjmatch match queries.tsv --vdjdb reference.zip --search-mode ranked \
+     --top-k 10 --threads 4 --output-prefix results/ranked
+   vdjmatch match cells.tsv --vdjdb reference.zip --paired --search-mode ranked \
+     --top-k 5 --threads 4 --output-prefix results/paired
+
+Ranked mode scores the complete eligible reference with a native gap-block
+alignment. It retains at most K distinct junctions, or genuine junction pairs,
+then expands their independent observations. A single block accounts for the
+length difference; equal-length junctions are gapless. Allowed block starts are
+3, 4, −4 and −3 (zero based; negative starts relative to the longer sequence).
+Block opening costs twice the selected matrix scale, extension costs one;
+``--matrix none`` uses unit substitution penalties and opening cost two.
+This is a restricted gap-block model, not arbitrary affine alignment.
+No radius shortlist is used, and no dense query-by-reference score matrix is
+allocated. Retained ties are resolved by stable sorted reference sequence keys.
+Ranked/graded modes do not emit the fixed-mode CIGAR. Edit counts in ranked
+output are null because gap-block penalties are not Levenshtein distances.
+
+``.global_statistics.txt`` reports the predeclared K, original distinct-reference
+exposure N, number retained, Kth score threshold, empirical expected count
+``E_raw``, its finite-control upper bound ``E``, and ``p_global``. All control
+ties at or below the threshold count; K remains the declared value. Fewer than
+K finite eligible neighbours yield a null threshold and ``p_global=1``.
+Without controls, finite-threshold tests remain null. These are global reference
+statistics. Candidate label scores, margins and support are descriptive;
+their epitope E-value/P-value columns remain null.
+
+The global test assumes independent target/control samples with IID target
+scores and IID control sequences from the declared query-conditioned background.
+Paired scoring uses the worst-chain penalty, so the threshold defines a
+Cartesian intersection; paired controls additionally assume independent chains.
+Deduplicated biological data do not establish these assumptions. Exact-pair
+exclusion removes only the joint exact/exact corner and preserves original N.
+Selecting K, a radius or a locus after inspecting results is outside the test.
+Sequence-only controls cannot calibrate V/J predicates: graded/ranked modes
+reject ``--match-v`` and ``--match-j``.

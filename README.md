@@ -34,7 +34,7 @@ The Python implementation follows the legacy Java/Groovy package, preserved on t
 
 - Latest/pinned GitHub releases and offline legacy, rich or AIRR reference inputs.
 - Source-aware junction ingestion, stable row identities and explicit ingestion counts.
-- One native sequence-search batch per locus, with retained reference observations.
+- Native batched searches by locus, with retained reference observations.
 - All peptide–MHC candidates, NED-v1 ranking and competing-label support.
 - Optional finite-background calibration with a stated counting unit and search predicate.
 - Paired-reference evidence requiring both chains in the same reference complex.
@@ -183,6 +183,8 @@ vdjmatch update --asset default --cache reference-inputs
 vdjmatch match --input-format airr --threads 1 -o results/run sample.tsv
 vdjmatch match --vdjdb reference.zip --no-evalue -o results/offline sample.tsv
 vdjmatch match --vdjdb reference.zip --paired --link cell_id -o results/cells cells.tsv
+vdjmatch match --vdjdb reference.zip --search-mode ball -o results/balls sample.tsv
+vdjmatch match --vdjdb reference.zip --search-mode ranked --top-k 10 -o results/ranked sample.tsv
 ```
 
 CLI matching requests calibration by default; `--no-evalue` selects uncalibrated
@@ -194,6 +196,12 @@ table. `--scope s,i,d,t` sets substitution/insertion/deletion/total budgets. Har
 `--match-v` or `--match-j` requests require `--no-evalue` with sequence-only backgrounds.
 Native search defaults to one thread. See `vdjmatch match -h` and the
 [CLI reference](https://antigenomics.github.io/vdjmatch/cli.html).
+
+Ranked mode scans the complete eligible reference with a native restricted gap-block scorer,
+retaining at most K unique junctions or genuine paired keys before expanding observations.
+Its global fixed-K enrichment test is separate from descriptive epitope ranks. Ball mode
+reports radii1–5 separately. Neither selects the best K/radius after seeing the results.
+These new modes require seqtree1.0.2; see the CLI reference for scoring and null assumptions.
 
 ## Scoring: what works (and what doesn't)
 
