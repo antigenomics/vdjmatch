@@ -175,6 +175,43 @@ def test_event_ratio_radius_1_is_a_superset_of_exact_matching():
     assert event_ratio([A], events, r=1)["matched"] == 1
 
 
+def test_event_ratio_prevalence_counts_donors_not_events():
+    """Prevalence is the readout an enrichment study reports, and it is not the pooled ratio.
+
+    d1 contributes two matching events and d2 one, so the pooled `f_hat` weights d1 twice while
+    prevalence counts each donor once -- 3 of 4 events match, but 2 of 3 donors do.
+    """
+    nt_a, nt_b = "TGT" * len(A), "TGC" * len(A)
+    events = [RecombinationEvent("d1", "TRBV1", "TRBJ1", nt_a, A),
+              RecombinationEvent("d1", "TRBV2", "TRBJ1", nt_b, A),   # same donor, second event
+              RecombinationEvent("d2", "TRBV1", "TRBJ1", nt_a, A),
+              RecombinationEvent("d3", "TRBV1", "TRBJ1", "ACG" * len(FAR), FAR)]
+    out = event_ratio([A], events, r=0)
+    assert out["denominator"] == 4
+    assert out["matched"] == 3
+    assert out["n_donors"] == 3
+    assert out["n_donors_hit"] == 2
+    assert out["prevalence"] == pytest.approx(2 / 3)
+    assert out["f_hat"] == pytest.approx(3 / 4)
+
+
+def test_event_ratio_per_donor_uses_each_donor_own_denominator():
+    """A donor's `f_hat` divides by that donor's events, not by the pooled total.
+
+    d1 is sequenced twice as deep as d2 and matches once in each: pooling would call them equal,
+    per-donor calls d2 twice the rate. That difference is the whole point of the spread.
+    """
+    nt_a, nt_b = "TGT" * len(A), "TGC" * len(A)
+    events = [RecombinationEvent("d1", "TRBV1", "TRBJ1", nt_a, A),
+              RecombinationEvent("d1", "TRBV2", "TRBJ1", "ACG" * len(FAR), FAR),
+              RecombinationEvent("d2", "TRBV1", "TRBJ1", nt_b, A)]
+    out = event_ratio([A], events, r=0, per_donor=True)
+    assert out["donors"]["d1"] == {"matched": 1, "events": 2, "f_hat": pytest.approx(0.5)}
+    assert out["donors"]["d2"] == {"matched": 1, "events": 1, "f_hat": pytest.approx(1.0)}
+    assert out["f_hat"] == pytest.approx(2 / 3)          # pooled: a ratio of sums, not a mean
+    assert "donors" not in event_ratio([A], events, r=0)["epitopes"][""]
+
+
 def test_event_ratio_shares_one_denominator_across_epitopes():
     nt = "TGT" * len(A)
     events = [RecombinationEvent("d1", "TRBV1", "TRBJ1", nt, A)]
@@ -315,15 +352,113 @@ def test_cli_precursor_switches_source_for_non_human_organism():
     """`olga` has no mouse model, so --organism mouse must move to `arda` rather than fail.
 
     The switch is the first thing the command does, so a deliberately thin namespace is enough:
-    it runs far enough to flip `source`, then trips on the next attribute it wants. That is the
-    assertion -- we are testing the switch, not the rest of the command.
+    it runs far enough to flip `source`, then trips on the first thing it actually needs. That is
+    the assertion -- we are testing the switch, not the rest of the command.
+
+    It reads a *sample file* rather than VDJdb so the test stays hermetic: the `--vdjdb` path
+    downloads the database, which made this fail with a `URLError` on a machine with no network
+    instead of exercising the switch.
     """
     import argparse
 
     from vdjmatch.cli.__main__ import _cmd_precursor
 
     a = argparse.Namespace(organism="mouse", source="olga", species="MusMusculus",
-                           vdjdb=True, samples=[], table=None, pin=None, mhc_class=None)
-    with pytest.raises(AttributeError):
+                           vdjdb=False, samples=["does-not-exist.tsv"], table=None, pin=None,
+                           mhc_class=None)
+    with pytest.raises(Exception):
         _cmd_precursor(a)
     assert a.source == "arda"
+
+
+# --- the published-measurement loaders -------------------------------------------------------
+#
+# These read a TSV; the network path is `hf_hub_download`, which the `source=` argument bypasses.
+# Everything worth testing is the filtering, so the fixtures are written to tmp_path and no test
+# here touches HuggingFace.
+
+_COMP_HEADER = ("study\tpmid\tdoi\tsource_type\tspecies\tsubset\tmhc_class\tmhc_allele\t"
+                "epitope_name\tepitope_seq\tseq_provenance\tcohort\tnaive\tassay\tdesign\tstat\t"
+                "n_donors\tdonor_id\tfreq_per_1e6_naive\tfreq_per_1e6_published\tdenominator\t"
+                "cells_per_animal\tas_published\textraction\tnotes\tlab")
+
+
+def _comp_row(study, seq, freq, *, source_type="primary", design="measured", naive="1",
+              species="human", lab=None, notes=""):
+    f = {"study": study, "source_type": source_type, "species": species, "epitope_seq": seq,
+         "naive": naive, "design": design, "freq_per_1e6_naive": freq, "notes": notes,
+         "lab": lab or study}
+    cols = _COMP_HEADER.split("\t")
+    return "\t".join(str(f.get(c, "")) for c in cols)
+
+
+def _write_comp(tmp_path, rows):
+    p = tmp_path / "comp.tsv"
+    p.write_text(_COMP_HEADER + "\n" + "\n".join(rows) + "\n")
+    return p
+
+
+def test_load_compendium_measured_only_drops_set_and_memory(tmp_path):
+    """`design=set` is a frequency the experimenter imposed, `naive=0` is a memory arm.
+
+    Neither is a measurement of the endogenous naive repertoire, which is what `F(e)` estimates, so
+    the default must not silently validate against them.
+    """
+    from vdjmatch.precursor import load_compendium
+
+    p = _write_comp(tmp_path, [
+        _comp_row("Real 2020", "SIINFEKL", 8.0),
+        _comp_row("Titrated 2021", "SIINFEKL", 500.0, design="set"),
+        _comp_row("Memory 2022", "SIINFEKL", 900.0, naive="0"),
+    ])
+    kept = load_compendium(p)
+    assert kept["study"].to_list() == ["Real 2020"]
+    assert load_compendium(p, measured_only=False).height == 3
+
+
+def test_load_compendium_dedup_drops_only_the_restated_primary(tmp_path):
+    """A review row restating a primary we already hold is one measurement, not two.
+
+    The review row for a lab we do *not* hold as a primary is independent and must survive.
+    """
+    from vdjmatch.precursor import load_compendium
+
+    p = _write_comp(tmp_path, [
+        _comp_row("Obar 2008", "SIINFEKL", 6.5, species="mouse"),
+        _comp_row("Jenkins 2012", "SIINFEKL", 8.0, species="mouse", source_type="review",
+                  lab="Obar 2008", notes="Table 1; primary: Obar 2008"),
+        _comp_row("Jenkins 2012", "SIINFEKL", 10.0, species="mouse", source_type="review",
+                  lab="Flesch 2010", notes="Table 1; primary: Flesch 2010"),
+    ])
+    assert load_compendium(p).height == 3
+    kept = load_compendium(p, dedup_retabulations=True)
+    assert sorted(kept["lab"].to_list()) == ["Flesch 2010", "Obar 2008"]
+
+
+def test_load_compendium_species_filter(tmp_path):
+    from vdjmatch.precursor import load_compendium
+
+    p = _write_comp(tmp_path, [_comp_row("A", "SIINFEKL", 8.0, species="mouse"),
+                               _comp_row("B", "GILGFVFTL", 134.0, species="human")])
+    assert load_compendium(p, species="human")["study"].to_list() == ["B"]
+
+
+def test_load_estimates_pins_numeric_columns_blank_in_every_row(tmp_path):
+    """A column blank for a whole arm must still arrive numeric.
+
+    `event_ratio` exists only where a pooled control repertoire does, so it is empty for every human
+    row. Left to inference it becomes a string and arithmetic fails at the call site rather than
+    here.
+    """
+    import polars as pl
+
+    from vdjmatch.precursor import load_estimates
+
+    p = tmp_path / "est.tsv"
+    p.write_text("species\tsource\tchain\tepitope_seq\tn_junctions\tunion\tevent_ratio\n"
+                 "human\tarda\tTRB\tGILGFVFTL\t6627\t0.000882\t\n"
+                 "human\tarda\tTRB\tNLVPMVATV\t13338\t0.00157\t\n")
+    est = load_estimates(p)
+    assert est["event_ratio"].dtype == pl.Float64
+    assert est["union"].dtype == pl.Float64
+    assert (est["union"] * 1e6).to_list() == pytest.approx([882.0, 1570.0], rel=1e-6)

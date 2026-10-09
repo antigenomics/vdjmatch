@@ -118,6 +118,7 @@ itself never touches vdjtools; the import happens on first use inside this subpa
 """
 from __future__ import annotations
 
+from .compendium import load_compendium, load_estimates
 from .events import RecombinationEvent, event_ratio
 from .frequency import (
     ALICE_Q,
@@ -155,6 +156,7 @@ __all__ = [
     "RecombinationEvent", "event_ratio",
     "ClusterMotif", "load_cluster_motifs", "motif_mass",
     "cross_check",
+    "load_compendium", "load_estimates",
     "precursor_frequency", "occupancy", "expected_cells", "p_at_least", "paired_frequency",
     "summarise", "summarise_group", "SCHEMA",
     "ALPHA_PER_EDIT", "SELECTION_BY_CHAIN", "MOTIF_FREQ_THRESHOLD", "MAX_BALL_MEMBERS", "MAX_COMPONENT_MEMBERS", "ALICE_Q", "N_T_CELLS",

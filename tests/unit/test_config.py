@@ -12,7 +12,7 @@ from vdjmatch.cli import __main__ as cli
 def test_params_defaults():
     p = Params.defaults()
     assert p.scope == "1,0,0,1" and p.matrix == "vdjam" and p.min_score == 0
-    assert p.evalue is True and p.align is True and p.species == "HomoSapiens" and p.threads == 0
+    assert p.evalue is True and p.align is True and p.species == "HomoSapiens" and p.threads == 1
 
 
 def test_params_json_roundtrip(tmp_path):
@@ -71,6 +71,8 @@ def test_resolve_params_store_const_flags():
 # --- <prefix>.params.json is written by a run ---
 def test_cmd_match_writes_params_json(tmp_path, monkeypatch):
     # stub the heavy/network bits so the test is fast, deterministic, and offline
+    monkeypatch.setattr(cli.db, "fetch_latest", lambda **k: tmp_path / "s.tsv")
+    monkeypatch.setattr(cli.db, "provenance", lambda path: {"source":"test"})
     monkeypatch.setattr(cli.db, "load", lambda *a, **k: pl.DataFrame({"gene": ["TRB"]}))
 
     class _Idx:

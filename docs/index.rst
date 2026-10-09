@@ -1,73 +1,33 @@
 vdjmatch
 ========
 
-Fast, control-calibrated annotation of **T-cell receptor antigen specificity**.
+Annotate selected T-cell receptors and repertoires with VDJdb peptide–MHC evidence.
+The package preserves receptor identity, reports competing candidate labels and
+supports explicit background calibration through a Python API and command line.
+Native sequence search uses ``seqtree``; repertoire ingestion reuses ``vdjtools``.
 
-``vdjmatch`` annotates clonotypes in large AIRR repertoires against
-`VDJdb <https://github.com/antigenomics/vdjdb-db>`_ by fuzzy CDR3 search, reporting a
-**control-calibrated E-value** (BLAST-style significance against a background repertoire) and
-enriched antigen-specificity labels. It is a Python rewrite of the legacy Java/Groovy vdjmatch,
-built on the `seqtree <https://github.com/antigenomics/seqtree>`_ search core.
+Start with :doc:`tutorial`, follow :doc:`how-to` for release and repertoire workflows,
+and read :doc:`explanation` to interpret ranking and calibration. Options and public
+interfaces are documented in :doc:`cli` and :doc:`api`.
 
-.. note::
+.. toctree::
+   :maxdepth: 2
 
-   ``vdjmatch`` 0.2.0 is an early release under active development. The single-chain **and paired
-   α/β** annotators — VDJdb fetch, AIRR I/O, fuzzy search, control-calibrated single- and
-   paired-chain E-values, epitope-enrichment summaries, and the CLI — are in place; the re-derived
-   segment-aware substitution matrix (VDJAM) and the full tool-comparison benchmark are still settling.
+   tutorial
+   how-to
+   explanation
+   releases
+   cli
+   api
+   compendium
+   notebooks/precursor
 
-Installation
-------------
+Research context
+----------------
 
-.. code-block:: bash
-
-   pip install vdjmatch
-
-``seqtree`` (the search engine) is installed as a dependency. For development:
-
-.. code-block:: bash
-
-   python -m venv .venv && source .venv/bin/activate
-   pip install -e ".[test,bench]"
-
-Quickstart
-----------
-
-Fetch the latest VDJdb release and annotate an AIRR rearrangement sample:
-
-.. code-block:: bash
-
-   vdjmatch update                                   # cache the latest VDJdb release
-   vdjmatch match --species HomoSapiens --scope 1,0,0,1 -o out sample_airr.tsv
-
-This writes three tab-separated tables per sample:
-
-- ``out.<sample>.hits.txt`` — every query→VDJdb hit with CDR3 alignment, CIGAR, edit counts and score.
-- ``out.<sample>.calls.txt`` — one predicted epitope per query clonotype with its E-value.
-- ``out.<sample>.summary.txt`` — epitope-level enrichment (unique clonotypes, reads) by MHC class
-  and antigen species.
-
-Key ideas
----------
-
-**Control-calibrated E-value.** Immune repertoires are biologically redundant (convergent
-recombination, public clones), so a naive i.i.d. null massively over-calls. ``vdjmatch`` counts a
-query's VDJdb neighbours within a fixed search scope and compares to the count expected from a
-matched **background control** repertoire; the Poisson-tail ``p_enrichment`` is significant only
-when a clonotype has *more* VDJdb neighbours than the generative process predicts — the hallmark of
-antigen-driven selection. The theory is derived in the ``seqtree`` appendix.
-
-**First-hit (adaptive) scope.** Rather than fix the ball, ``vdjmatch`` widens to each query's *nearest*
-VDJdb hit (up to 5 edits, ≤2 ins, ≤2 del) and evaluates the E-value at that radius: the background count
-grows with the radius, so a distance-1 hit is significant while a distance-5-only hit is not — random
-repertoires are filtered without a hand-tuned scope (``vdjmatch.evalue.first_hit``).
-
-**Scope / budget.** ``--scope s,i,d,t`` sets the maximum substitutions, insertions, deletions and
-total edits of the CDR3 search ball.
-
-**VDJAM.** A TCR-specific amino-acid substitution matrix (bundled), with optional region-aware
-weighting that emphasises the antigen-contacting NDN core over the germline-fixed V/J flanks
-(germline-retention profiles derived from the OLGA model via ``mirpy``).
+The following recorded scoring studies describe their stated historical reference
+and evaluation design. They do not identify every production score as the same
+estimator or make a query-level statistic a specificity posterior.
 
 **What scoring actually buys.** An empirical study on VDJdb (the scoring appendix; 2026-06-11-ZENODO
 release, composition-controlled) finds that **Hamming distance 1 is the signal:noise optimum** (macro
@@ -81,12 +41,3 @@ matrix lever, and the overall first-order statistic is the control-calibrated E-
 **V gene is a strong near-binary prior** (same-V neighbours share an epitope up to ~7× more than
 cross-V); loose CDR1/CDR2 similarity does not recover it, and near-exact germline-loop identity recovers
 only about **half** of it (the rest is gene-identity-specific).
-
-.. toctree::
-   :hidden:
-   :maxdepth: 2
-
-   self
-   cli
-   api
-   notebooks/precursor

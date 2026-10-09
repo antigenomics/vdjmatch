@@ -1,48 +1,109 @@
-"""Annotate one or more query samples against a VDJdb index (built once, reused)."""
-from __future__ import annotations
+"""Shared CLI/API candidate reduction, one sample and one native batch per locus."""
 
-import sys
+from __future__ import annotations
 
 import polars as pl
 
-from .. import aggregate, evalue, io, match
+from .. import aggregate, io, match
+from ..api import Annotator, _append_calls, _prepare
+from ..aggregate.candidates import PMHC
 from ..match.scoring import DEFAULT_SCALE
 
 
-def annotate_sample(index: "match.VdjdbIndex", sample_path: str, *, scope: str = "1,0,0,1",
-                    matrix=None, species: str = "human", with_evalue: bool = True,
-                    match_v: bool = False, match_j: bool = False, align: bool = True,
-                    threads: int = 0, progress: bool = False) -> dict[str, pl.DataFrame]:
-    """Annotate a single-chain rearrangement sample. Returns {hits, summary, calls} frames.
+def annotate_sample(
+    index,
+    sample_path,
+    *,
+    scope="1,0,0,1",
+    matrix=None,
+    species="human",
+    with_evalue=True,
+    match_v=False,
+    match_j=False,
+    align=True,
+    threads=1,
+    progress=False,
+    source="auto",
+    sequence_convention=None,
+    control=None,
+    paired=False,
+    link=None,
+):
+    """Return hit/candidate/call/count tables plus explicit ingestion diagnostics.
 
-    Per gene (locus) present in both the sample and the index: fuzzy-search VDJdb, optionally
-    compute per-query control-calibrated E-values, and aggregate. Genes without a control just
-    skip the E-value (a warning is printed).
+    Requested calibration errors propagate. Summary counts are descriptive match counts;
+    sample-level statistical inference is outside this operation.
     """
-    queries = io.read_rearrangement(sample_path)
+    ann = Annotator(index)
     gap = DEFAULT_SCALE if matrix is not None else 1
-    params = match.search_params(scope, engine="seqtm", matrix=matrix or "",
-                                 gap_open=gap, gap_extend=gap)
-    hit_frames, eval_frames = [], []
-    for gene in index.genes:
-        gq = queries.filter(pl.col("locus") == gene)
-        if gq.height == 0:
-            continue
-        h = index.annotate(gq, params, gene=gene, threads=threads,
-                           match_v=match_v, match_j=match_j, align=align, progress=progress)
-        if h.height:
-            hit_frames.append(h)
-        if with_evalue:
-            try:
-                ctrl = evalue.background(gene, species)
-                ev = evalue.query_evalues(index.index_for(gene), ctrl,
-                                          gq["cdr3"].to_list(), params, threads=threads)
-                eval_frames.append(ev)
-            except Exception as e:  # control unavailable (e.g. offline HF) -> skip gracefully
-                print(f"  [warn] no E-value for {gene}: {e}", file=sys.stderr)
-
-    hits = pl.concat(hit_frames) if hit_frames else index.annotate(queries.head(0),
-                                                                    params, gene=index.genes[0])
-    evals = pl.concat(eval_frames) if eval_frames else None
-    return {"hits": hits, "summary": aggregate.epitope_summary(hits),
-            "calls": aggregate.best_call(hits, evals)}
+    params = match.search_params(
+        scope, engine="seqtm", matrix=matrix or "", gap_open=gap, gap_extend=gap
+    )
+    if paired:
+        if match_v or match_j:
+            raise ValueError(
+                "paired matching does not support match_v/match_j; "
+                "use single-chain matching or disable these flags"
+            )
+        queries, report = io.read_cell(
+            sample_path,
+            link=link,
+            source=source,
+            sequence_convention=sequence_convention,
+            return_report=True,
+        )
+        # Joint calibration is handled explicitly by the paired API.
+        hits, c = ann.paired_candidates(
+            queries,
+            cdr3a="cdr3a",
+            cdr3b="cdr3b",
+            scope=params,
+            threads=threads,
+            control=control,
+            calibrate=with_evalue,
+            species=species,
+            align=align,
+            score_scale=400.0 if matrix is not None else 1.0,
+            return_hits=True,
+            progress=progress,
+        )
+        _, qa = _prepare(queries, "cdr3a", locus="TRA")
+        _, qb = _prepare(queries, "cdr3b", locus="TRB")
+        q = qa.join(qb.select("query_id"), on="query_id")
+        calls = _append_calls(queries, q, c, index.genes, "vdjmatch_", paired=True)
+        return {
+            "hits": hits,
+            "candidates": c,
+            "calls": calls,
+            "summary": c.group_by(PMHC).agg(
+                pl.col("query_id").n_unique().alias("n_query_pairs")
+            ),
+            "ingestion": pl.DataFrame([report]),
+        }
+    queries, report = io.read_rearrangement(
+        sample_path,
+        source=source,
+        sequence_convention=sequence_convention,
+        return_report=True,
+    )
+    hits, c = ann._evidence(
+        queries,
+        params,
+        threads=threads,
+        match_v=match_v,
+        match_j=match_j,
+        align=align,
+        progress=progress,
+        calibrate=with_evalue,
+        species=species,
+        control=control,
+        score_scale=400.0 if matrix is not None else 1.0,
+    )
+    calls = _append_calls(queries, queries, c, index.genes, "vdjmatch_")
+    return {
+        "hits": hits,
+        "candidates": c,
+        "calls": calls,
+        "summary": aggregate.epitope_summary(hits),
+        "ingestion": pl.DataFrame([report]),
+    }

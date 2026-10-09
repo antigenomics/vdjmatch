@@ -14,8 +14,10 @@ from .mass import ALPHA_PER_EDIT, shell_profile
 #: constant by which post-selection frequency exceeds the raw generation probability. Calibrated on
 #: **TRB only**, against OLGA's scale, and shipped here as a named citable default rather than a
 #: measured property of this library. The matched comparison against the model-free event ratio
-#: puts the same factor at a median 14.8x, so the two are the same order and are not the same
-#: number; pass your own ``q`` when you have fitted one for your chain and cohort.
+#: puts the same factor at 8.8x and 9.9x on two beta cohorts and 4.5x on alpha -- taken against
+#: ``union_mass`` at radius 1, which is the comparable quantity -- so beta is the same order as
+#: ALICE's value and alpha is not; pass your own ``q`` when you have fitted one for your chain and
+#: cohort.
 ALICE_Q = 9.41
 
 #: Per-chain **depth** selection factor: a repertoire of ``N`` observed independent rearrangements
