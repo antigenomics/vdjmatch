@@ -19,19 +19,15 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "seqtree>=0.7.0",     # SubstitutionMatrix.penalty (0.1.0); `structural` (MJ) matrix (0.2.0); corrected MJ A-N contact energy (0.6.0); neighbourhood/neighbourhood_union/union_size (0.7.0)
-    "polars>=1.0",
+    "seqtree>=1.0.1",
+    "vdjtools>=5.0.0",    # format ingestion and native Pgen (lazy imports avoid overlap cycle)
+    "polars>=1.41.2,<2",
 ]
 
 [project.optional-dependencies]
 cli = ["tqdm"]                    # match --verbose progress bar (imported lazily; core never requires it)
-# `vdjmatch precursor` only. vdjtools carries the recombination model (Pgen DP, the closed
-# Hamming-1 ball, the degenerate/masked DP) and numpy/scipy are the coverage-correction fit.
-# vdjtools itself depends on vdjmatch; that cycle is metadata-only and resolves -- `pip install
-# 'vdjmatch[precursor]'` co-installs vdjmatch + vdjtools + seqtree. It stays resolvable only while
-# vdjtools pins vdjmatch with a floor (`>=`) and never an `==`. The import is lazy, so plain
-# `import vdjmatch` never touches vdjtools.
-precursor = ["vdjtools>=3.9", "numpy", "scipy"]
+# Optional numerical analysis dependencies for the precursor command.
+precursor = ["numpy", "scipy"]
 test = ["pytest>=7.4", "hypothesis"]
 bench = ["psutil", "huggingface_hub", "matplotlib", "seaborn", "scikit-learn", "rapidfuzz"]  # HF benchmark; matplotlib/seaborn: boxplots; scikit-learn/rapidfuzz: AUC0.1 + clustering internal metrics
 control = ["seqtree[control]", "huggingface_hub"]  # TRA/mouse controls beyond bundled human TRB
@@ -59,3 +55,7 @@ markers = [
 packages = ["src/vdjmatch"]
 # resources/ (vdjam.txt, score_coef.txt, segm_score.txt) live inside the package dir and are
 # shipped automatically by hatchling — no force-include needed.
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "docs/*.rst", "docs/conf.py", "docs/notebooks", "pyproject.toml", "README.md", "LICENSE*", "setup.sh"]
+exclude = ["**/*_local.md", "AGENTS.md", "**/__pycache__", "**/.ipynb_checkpoints"]

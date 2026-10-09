@@ -1,6 +1,9 @@
 API reference
 =============
 
+See :doc:`tutorial` for a runnable example, :doc:`how-to` for source conventions
+and offline inputs, and :doc:`explanation` for score definitions.
+
 The public API is re-exported from the top-level :mod:`vdjmatch` package —
 :class:`vdjmatch.api.Annotator` and the module-level :func:`vdjmatch.annotate` shortcut. The
 submodules below expose the building blocks (VDJdb access, the search index, E-values, I/O).
@@ -66,10 +69,26 @@ vdjmatch.precursor
 
 .. note::
 
-   Needs the optional extra: ``pip install 'vdjmatch[precursor]'``. It pulls ``vdjtools`` for the
-   recombination model; importing ``vdjmatch`` itself never does.
+   Precursor estimation is a separate API. Its optional dependencies are available
+   with ``pip install 'vdjmatch[precursor]'``; annotation does not run precursor estimation.
 
 .. automodule:: vdjmatch.precursor
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Candidate evidence
+------------------
+
+.. automodule:: vdjmatch.aggregate.candidates
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Query normalization
+-------------------
+
+.. automodule:: vdjmatch.io.columns
    :members:
    :undoc-members:
    :show-inheritance:
