@@ -4,6 +4,7 @@ Legacy vdjmatch scope syntax ``s,i,d,t`` = max substitutions, insertions, deleti
 edits. ``s,id,t`` (3 fields) treats the middle as a symmetric indel budget. ``t`` defaults to
 the sum when omitted.
 """
+
 from __future__ import annotations
 
 from seqtree import SearchParams
@@ -12,6 +13,8 @@ from seqtree import SearchParams
 def parse_scope(spec: str) -> tuple[int, int, int, int]:
     """Parse ``"s,i,d,t"`` / ``"s,id,t"`` / ``"s"`` → (subs, ins, dels, total)."""
     parts = [int(x) for x in str(spec).split(",")]
+    if len(parts) not in {1, 2, 3, 4} or any(p < 0 for p in parts):
+        raise ValueError("scope needs 1 to 4 nonnegative integers")
     if len(parts) == 1:
         s = parts[0]
         return s, 0, 0, s
@@ -25,9 +28,17 @@ def parse_scope(spec: str) -> tuple[int, int, int, int]:
     return s, i, d, t
 
 
-def search_params(scope: str = "1,0,0,1", *, engine: str = "seqtm", matrix="",
-                  pos_matrix=None, max_penalty: int = 0, mode: str = "all",
-                  gap_open: int = 1, gap_extend: int = 1) -> SearchParams:
+def search_params(
+    scope: str = "1,0,0,1",
+    *,
+    engine: str = "seqtm",
+    matrix="",
+    pos_matrix=None,
+    max_penalty: int = 0,
+    mode: str = "all",
+    gap_open: int = 1,
+    gap_extend: int = 1,
+) -> SearchParams:
     """Build a seqtree ``SearchParams`` from a scope spec and scoring options.
 
     ``pos_matrix`` is a settable attribute (not a constructor arg) in seqtree; result-count
@@ -36,9 +47,18 @@ def search_params(scope: str = "1,0,0,1", *, engine: str = "seqtm", matrix="",
     substitution penalty) so gaps aren't absurdly cheap relative to substitutions.
     """
     s, i, d, t = parse_scope(scope)
-    p = SearchParams(max_subs=s, max_ins=i, max_dels=d, max_total_edits=t, engine=engine,
-                     matrix=matrix, max_penalty=max_penalty, mode=mode,
-                     gap_open=gap_open, gap_extend=gap_extend)
+    p = SearchParams(
+        max_subs=s,
+        max_ins=i,
+        max_dels=d,
+        max_total_edits=t,
+        engine=engine,
+        matrix=matrix,
+        max_penalty=max_penalty,
+        mode=mode,
+        gap_open=gap_open,
+        gap_extend=gap_extend,
+    )
     if pos_matrix is not None:
         p.pos_matrix = pos_matrix
     return p

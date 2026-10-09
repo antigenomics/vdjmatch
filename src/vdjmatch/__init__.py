@@ -15,6 +15,11 @@ try:                                          # single source of truth: the inst
 except PackageNotFoundError:                  # pragma: no cover - source tree without an install
     __version__ = "0+unknown"
 
-from .api import Annotator, annotate  # noqa: E402  high-level annotation API
+def __getattr__(name):
+    # CLI sets numerical budgets before importing the tabular/search runtime.
+    if name in {"Annotator", "annotate"}:
+        from .api import Annotator, annotate
+        return {"Annotator": Annotator, "annotate": annotate}[name]
+    raise AttributeError(name)
 
 __all__ = ["Annotator", "annotate", "__version__"]

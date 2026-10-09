@@ -9,7 +9,7 @@
   </picture>
 </p>
 
-<h1 align="center">vdjmatch — control-calibrated TCR antigen-specificity annotation</h1>
+<h1 align="center">vdjmatch — TCR peptide–MHC annotation</h1>
 
 <p align="center">
   <a href="https://pypi.org/project/vdjmatch/"><img alt="PyPI" src="https://img.shields.io/pypi/v/vdjmatch"></a>
@@ -19,37 +19,32 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPLv3-green"></a>
 </p>
 
-Fast, control-calibrated annotation of **T-cell receptor antigen specificity**.
+`vdjmatch` annotates selected T-cell receptors and repertoires against
+[VDJdb](https://github.com/antigenomics/vdjdb-db), preserving query identities and
+reporting peptide–MHC candidates, competing evidence and optional background calibration.
+Native sequence search uses [`seqtree`](https://github.com/antigenomics/seqtree);
+repertoire ingestion reuses published `vdjtools` readers.
 
-`vdjmatch` annotates clonotypes in large AIRR repertoires against [VDJdb](https://github.com/antigenomics/vdjdb-db)
-by fuzzy CDR3 search, reporting a **control-calibrated E-value** (BLAST-style significance against a
-background repertoire) and enriched antigen-specificity labels. It is a Python rewrite of the legacy
-Java/Groovy vdjmatch, built on the [`seqtree`](https://github.com/antigenomics/seqtree) search core.
-
-> **Status:** early alpha (PyPI `0.2.0`), under active development on `dev`. The "2.0" line is the
-> Python rewrite of the legacy Java/Groovy vdjmatch (1.x), which is preserved on the `legacy-java`
-> branch (tags `1.1.4`–`1.3.1`).
+The Python implementation follows the legacy Java/Groovy package, preserved on the
+`legacy-java` branch. See the [tutorial](https://antigenomics.github.io/vdjmatch/tutorial.html),
+[workflow guide](https://antigenomics.github.io/vdjmatch/how-to.html) and
+[score explanation](https://antigenomics.github.io/vdjmatch/explanation.html).
 
 ## Features
 
-- Fetch the latest VDJdb release and annotate AIRR Rearrangement / Cell (paired α/β) samples.
-- Extremely fast, multithreaded search of million-scale repertoires (via `seqtree`).
-- Control-calibrated **E-values** — single-chain and paired α/β (`vdjmatch.evalue`).
-- Custom substitution matrices, including segment-specific (V / NDN / J) scoring; the TCR-specific
-  **VDJAM** matrix is bundled.
-- Rich per-hit output: ranked hits, CIGAR + alignment match/gap, alignment scores, E-values.
-- Epitope-level enrichment summaries; pairwise sample overlap.
-- **T-cell precursor frequency** for an epitope (`vdjmatch precursor`, optional extra) — how much
-  repertoire mass can see it, how much of the cognate set no database has catalogued, and how many
-  precursor cells that implies.
-- A small command-line interface (`vdjmatch update` / `match` / `precursor`) and a `polars`-native
-  Python API.
+- Latest/pinned GitHub releases and offline legacy, rich or AIRR reference inputs.
+- Source-aware junction ingestion, stable row identities and explicit ingestion counts.
+- One native sequence-search batch per locus, with retained reference observations.
+- All peptide–MHC candidates, NED-v1 ranking and competing-label support.
+- Optional finite-background calibration with a stated counting unit and search predicate.
+- Paired-reference evidence requiring both chains in the same reference complex.
+- CLI hit/candidate/call/summary/ingestion tables and a reproducibility manifest.
+- Separate precursor-frequency APIs and their established worked examples.
 
 ### Precursor frequency
 
 How much repertoire mass can see an epitope, and how many cognate clonotypes exist — seen and unseen.
-Needs the optional extra (`pip install 'vdjmatch[precursor]'`, which pulls `vdjtools` for the
-recombination model):
+Use the documented precursor setup (`pip install 'vdjmatch[precursor]'`) for these examples:
 
 ```console
 $ vdjmatch precursor --vdjdb --mhc-class MHCI --min-junctions 10 \
@@ -134,53 +129,71 @@ tables, the literature compendium) and
 This repository holds only the software, its CLI, tests, docs and the worked examples
 (`docs/notebooks/`).
 
-## Install (development)
+## Install
 
-```fish
-python -m venv .venv
-source .venv/bin/activate.fish
-pip install -e .[test,bench]
+```console
+python -m pip install vdjmatch
 ```
 
-`seqtree` (the search engine) is installed from PyPI as a dependency.
+For development, use an isolated environment:
+
+```console
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[test,bench]"
+```
 
 ## Python API
 
-One ergonomic entry point — `list[CDR3] → hits` up to `polars df → df + annotation columns` (ids/labels
-preserved), single- or paired-chain, against any VDJdb version or a custom reference:
-
 ```python
-import vdjmatch
-ann = vdjmatch.Annotator.latest()                      # or .version("2026-06-11-ZENODO") / .from_path(...) / .from_frame(df)
-ann.hits(["CASSIRSSYEQYF", "CASSLAPGATNEKLFF"])        # → long per-hit polars frame
-ann.annotate(df, cdr3="junction_aa", locus="locus")    # → df + vdjmatch_{epitope,mhc_class,score,n_hits}
-ann.annotate_paired(cell_df, cdr3a="cdr3_alpha_aa", cdr3b="cdr3_beta_aa")
-vdjmatch.annotate(["CASS..."])                         # module-level shortcut (cached default reference)
+import polars as pl
+from vdjmatch import Annotator
+
+ann = Annotator.latest()  # GitHub latest; .version(tag) pins a release
+# ann = Annotator.from_path("reference.zip")  # existing local input, offline
+queries = pl.DataFrame({
+    "sequence_id": ["query-a", "query-b"],
+    "junction_aa": ["CASSIRSSYEQYF", "CWWWWF"],
+    "locus": ["TRB", "TRB"],
+})
+calls = ann.annotate(queries, threads=1)  # every input row remains
+candidates = ann.candidates(queries, threads=1)  # all peptide–MHC alternatives
+calibrated = ann.annotate(queries, calibrate=True, species="human", threads=1)
 ```
 
-**First-hit (adaptive) E-value.** Significance is evaluated at each query's *nearest* VDJdb hit (up to 5
-edits, ≤2 ins, ≤2 del): the control's neighbour count grows with the radius, so a distance-1 hit is
-significant while a distance-5-only hit is not — noise is rejected without a fixed scope
-(`vdjmatch.evalue.first_hit`). Edit-distance and BLOSUM+possig-penalty "nearest" both supported.
+AIRR `junction_aa` contains the conserved anchors; AIRR `cdr3_aa` excludes them.
+True AIRR input without a junction is rejected. Legacy VDJdb `cdr3` can already
+contain the junction. Custom ingestion requires an explicit junction convention;
+the software never fabricates anchors.
+
+The API uses uncalibrated ranking unless `calibrate=True` or an explicit control
+index is supplied. NED ranks candidates; `E` is an expected background match count,
+and `p_enrichment` tests the stated reference set. None is a posterior probability
+of the winning specificity. Exact ranking ties abstain as `ambiguous`.
+
+`ann.annotate_paired(cell_df, cdr3a="cdr3a", cdr3b="cdr3b")` requires both chains
+to match the same reference complex and peptide–MHC label. Paired background
+calibration states an independent-chain null explicitly. Agreement between
+separate alpha and beta top labels alone does not establish paired-reference evidence.
 
 ## Command line
 
-```fish
-vdjmatch update                          # fetch + cache the latest VDJdb release
-vdjmatch match sample.tsv                # annotate an AIRR rearrangement sample
-vdjmatch match -o run/out --match-v --threads 8 *.tsv
+```console
+vdjmatch update --asset default --cache reference-inputs
+vdjmatch match --input-format airr --threads 1 -o results/run sample.tsv
+vdjmatch match --vdjdb reference.zip --no-evalue -o results/offline sample.tsv
+vdjmatch match --vdjdb reference.zip --paired --link cell_id -o results/cells cells.tsv
 ```
 
-`match` writes three TSV files per sample (prefix set by `-o`):
+CLI matching requests calibration by default; `--no-evalue` selects uncalibrated
+ranking. The command emits hits, candidates, row-preserving calls, descriptive
+summaries and ingestion diagnostics as TSV, plus a JSON manifest.
 
-| file | contents |
-|------|----------|
-| `<prefix>.<sample>.hits.txt`    | every VDJdb match per clonotype — CDR3 alignment, CIGAR, edit counts, score |
-| `<prefix>.<sample>.calls.txt`   | one predicted epitope per clonotype with its control-calibrated E-value |
-| `<prefix>.<sample>.summary.txt` | epitope-level enrichment (unique clonotypes, reads) |
-
-Key options: `--scope s,i,d,t` (search budget, default `1,0,0,1`), `--matrix {vdjam,none}`,
-`--match-v` / `--match-j`, `--no-evalue`. Run `vdjmatch match -h` for the full list.
+Use `--input-format custom --sequence-convention junction` for an ambiguous custom
+table. `--scope s,i,d,t` sets substitution/insertion/deletion/total budgets. Hard
+`--match-v` or `--match-j` requests require `--no-evalue` with sequence-only backgrounds.
+Native search defaults to one thread. See `vdjmatch match -h` and the
+[CLI reference](https://antigenomics.github.io/vdjmatch/cli.html).
 
 ## Scoring: what works (and what doesn't)
 

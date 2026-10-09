@@ -1,75 +1,117 @@
 Command-line interface
 ======================
 
-Installing ``vdjmatch`` provides a single console script with two subcommands.
+The console script provides ``update``, ``match`` and ``precursor``. Use
+``vdjmatch match -h`` for the installed version's complete options.
 
 vdjmatch update
 ---------------
 
-Fetch and cache a VDJdb release (re-used by ``match`` and the Python API).
+Fetch and retain a latest or pinned VDJdb release input for CLI and API use.
 
 .. code-block:: bash
 
-   vdjmatch update [--asset {slim,full,default}] [--pin TAG] [--force]
+   vdjmatch update --asset default --cache reference-inputs
+   vdjmatch update --pin YOUR_RELEASE_TAG --asset legacy --cache reference-inputs
 
-==============  =============================================================
-Option          Meaning
-==============  =============================================================
-``--asset``     which VDJdb table to fetch (default ``slim``)
-``--pin``       pin a specific release tag (default: latest)
-``--force``     re-download even if already cached
-==============  =============================================================
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Option
+     - Meaning
+   * - ``--asset``
+     - ``default``, ``primary``, ``legacy``, ``slim``, ``full`` or ``airr``;
+       select a role or legacy projection supplied by the release.
+   * - ``--cache``
+     - Directory retaining downloaded immutable reference inputs.
+   * - ``--pin``
+     - Specific release tag; omit to resolve latest.
+   * - ``--force``
+     - Fetch the requested release again.
 
 vdjmatch match
 --------------
-
-Annotate one or more AIRR rearrangement samples against VDJdb, reporting ranked
-hits, control-calibrated E-values and an epitope-enrichment summary.
 
 .. code-block:: bash
 
    vdjmatch match [options] SAMPLE [SAMPLE ...]
 
+The command preserves query identities and reports all peptide–MHC candidates.
+It requests background calibration by default; ``--no-evalue`` selects uncalibrated
+ranking. Reference and background loading errors propagate.
+
 .. list-table::
    :header-rows: 1
-   :widths: 28 72
+   :widths: 30 70
 
    * - Option
      - Meaning
    * - ``-o, --output-prefix``
-     - output path prefix (default ``vdjmatch_out``)
+     - Output path prefix.
    * - ``--vdjdb``
-     - custom VDJdb table path (default: fetch latest)
+     - Local reference ZIP, extracted directory or supported table; omit to fetch latest.
    * - ``--asset``
-     - VDJdb table to match against (default ``full``, the complex-per-row export: 286,013
-       records including 93,260 paired; ``slim`` is the deduplicated chain-per-row table)
+     - Reference role/projection: ``default``, ``primary``, ``legacy``, ``slim``,
+       ``full`` or ``airr``.
+   * - ``--cache``
+     - Location for immutable downloaded reference inputs.
    * - ``--pin``
-     - pin a specific VDJdb release tag
+     - Specific release tag.
    * - ``--species``
-     - species filter (default ``HomoSapiens``)
+     - Reference species filter; default ``HomoSapiens``.
    * - ``--scope``
-     - search budget ``subs,ins,dels,total`` (default ``1,0,0,1``)
+     - Maximum substitutions, insertions, deletions and total edits;
+       default ``1,0,0,1``.
    * - ``--matrix``
-     - ``vdjam`` (TCR-specific, bundled) or ``none`` (unit cost)
+     - Bundled ``vdjam`` scoring or ``none`` for unit costs.
    * - ``--min-score``
-     - minimum VDJdb confidence score (default ``0``)
+     - Minimum database confidence score, separate from search/ranking scores.
+   * - ``--input-format``
+     - Source convention selector ``auto``, ``airr``, ``legacy`` or ``custom``.
+   * - ``--sequence-convention``
+     - ``junction`` declares anchor-inclusive sequences in ambiguous custom tables;
+       it cannot convert a bare AIRR CDR3 into a junction.
+   * - ``--paired``
+     - Read linked TRA/TRB rows and require same-reference-complex paired evidence.
+   * - ``--link``
+     - Source linkage column for paired rows, such as ``cell_id``.
    * - ``--match-v`` / ``--match-j``
-     - require the V / J gene to match as well as the CDR3
+     - Require matching V/J calls; sequence-only control calibration cannot support
+       these predicates, so combine with ``--no-evalue``. Paired matching rejects
+       both flags until chain-specific V/J predicates are supported.
    * - ``--no-evalue``
-     - skip the control-calibrated E-value
+     - Use explicitly uncalibrated ranking without requesting a background.
    * - ``--no-align``
-     - skip the per-hit CIGAR / alignment output
+     - Omit per-hit alignment and CIGAR computation for single-chain and paired output.
    * - ``--threads``
-     - worker threads (``0`` = all cores)
+     - Native sequence-search threads; default ``1``. ``0`` requests native automatic
+       selection. This does not reconfigure an already initialized Polars thread pool.
 
 Output
 ~~~~~~
 
-``match`` writes three tab-separated tables per sample, prefixed with ``-o``:
+For each sample, ``match`` writes TSV tables for detailed hits, all candidates,
+per-query calls, descriptive summaries and ingestion diagnostics, plus a JSON
+manifest. The manifest identifies reference inputs, software, filters, source
+convention and resource settings. Sample identities determine output names;
+colliding names are rejected rather than overwriting another sample.
 
-- ``<prefix>.<sample>.hits.txt`` — every query→VDJdb hit with CDR3 alignment, CIGAR, edit counts and score.
-- ``<prefix>.<sample>.calls.txt`` — one predicted epitope per query clonotype with its E-value.
-- ``<prefix>.<sample>.summary.txt`` — epitope-level enrichment (unique clonotypes, reads) by MHC class.
+The hit table retains independent reference observations and their metadata.
+Paired hits are detailed same-complex alpha/beta observation matches, with chain
+metadata and optional alignment fields prefixed ``alpha_`` and ``beta_``. Paired
+candidates are reduced separately from those observations using distinct junction
+pairs; the hits table is not a copy of the candidate table. Both come from the same
+reference searches.
+Candidates retain competing peptide–MHC restrictions, ranking scores and any
+requested background evidence. Calls retain invalid and unmatched rows with
+explicit statuses. Ingestion diagnostics state input, missing, invalid, retained
+and dropped row counts. Summary counts describe matches; they are not sample-level
+statistical enrichment tests.
+
+See :doc:`explanation` for counting units and :doc:`how-to` for paired/custom input
+examples. ``score``, ``vdjdb_score``, NED, ``E`` and ``p_enrichment`` represent
+separate quantities; none is a posterior specificity probability.
 
 ``vdjmatch precursor``
 ----------------------
@@ -189,3 +231,43 @@ One tab-separated table, one row per group. Key columns:
 - ``n_unseen_ht``, ``unseen_ht_mass``, ``rarity_ratio``, ``richness_reliable`` — the
   Horvitz–Thompson extrapolation. Read the **mass**; the count diverges in the tail and
   ``richness_reliable`` says when that is happening.
+
+Reference selectors
+-------------------
+
+Repeat ``--epitope``, ``--mhc-a``, ``--mhc-b``, ``--reference-id``,
+``--exclude-reference-ids`` or ``--evidence-type`` to filter the reference.
+Values within a selector are alternatives; selectors combine conjunctively.
+Study exclusions are explicit and recorded in the manifest.
+
+For AIRR reference exports without species metadata, use ``--species any``.
+Calibration then requires ``--control-species human`` or ``mouse``; alternatively
+select ``--no-evalue`` for uncalibrated ranking.
+
+``--verbose`` reports coarse native search stages and per-sample timing/resource
+information. It keeps one native query batch per locus; it does not split the batch
+to render a progress bar.
+
+Global first-hit calibration
+----------------------------
+
+``first-hit`` exposes the existing adaptive first-hit calculation against the
+whole selected reference. It reports enrichment relative to a raw control;
+this is distinct from peptide–MHC specificity confidence.
+
+.. code-block:: bash
+
+   vdjmatch first-hit sample.tsv --vdjdb vdjdb.txt --locus TRB \
+     --scope 5,2,2,5 --min-refs 2 --exclude-exact --threads 4 \
+     --output-prefix results/first_hit
+
+The command writes ``.evidence.tsv`` with one row per original query, including
+invalid and no-hit rows, and ``.manifest.json`` with input hashes, software
+versions, selection counts and resources. Target/control counts use unique
+junctions; query identity and abundance remain separate. ``--min-refs`` selects
+reference clonotype/epitope combinations supported by distinct studies.
+
+Human TRB uses the raw control bundled with seqtree. Other species/loci require
+``--control`` with a matching raw junction repertoire. Every invocation builds
+fresh target and control indexes and sends one native query batch to each.
+AIRR inputs require ``junction_aa``. Default threads are one.

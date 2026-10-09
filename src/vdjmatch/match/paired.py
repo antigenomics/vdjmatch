@@ -1,44 +1,29 @@
-"""Paired α/β annotation with a joint control-calibrated E-value (ROADMAP §2.4).
+"""Paired annotation under the existing independent-chain control model.
 
-A query pair (cdr3a, cdr3b) *matches* a VDJdb **complex** when its α is within the search ball of
-the complex's α CDR3 *and* its β is within the ball of the complex's β CDR3. Under chain
-independence the joint null factorizes, ``π0^{αβ} ≈ π0^α · π0^β``, so among the ``N`` paired VDJdb
-complexes the expected number of chance joint matches is ``E = N · π0^α · π0^β`` and the joint
-enrichment is the Poisson tail ``P(Poisson(E) ≥ n_joint)``. We also report the Fisher-combined
-per-chain enrichment. The joint null is far tinier than either chain's, so true pairs get dramatically
-smaller E-values than single-chain matching.
+Calibration counts distinct (alpha junction, beta junction) keys. Independent
+reference observations remain available separately in ``reference`` and do not
+inflate the null target size or matched-pair counts.
 """
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import polars as pl
 from seqtree import Index, SearchParams
+from seqtree.evalue import evalue_result
 
-try:
-    from seqtree.evalue import _poisson_sf
-except ImportError:  # pragma: no cover - fallback if the private helper moves
-    def _poisson_sf(k: int, lam: float) -> float:
-        if k <= 0:
-            return 1.0
-        term, cum = math.exp(-lam), math.exp(-lam)
-        for i in range(1, k):
-            term *= lam / i
-            cum += term
-        return max(0.0, 1.0 - cum)
+from ..evalue.paired import _joint_result, build_paired_ref
 
 
 def _fisher(p_a: float, p_b: float) -> float:
-    """Fisher's method combining two independent p-values (chi-square, 4 dof)."""
-    stat = -2.0 * (math.log(max(p_a, 1e-300)) + math.log(max(p_b, 1e-300)))
-    # survival of chi-square with 4 dof = (1 + x/2) e^{-x/2}
-    x = stat / 2.0
+    """Existing Fisher combination of two independent chain enrichment p-values."""
+    x = -(math.log(max(p_a, 1e-300)) + math.log(max(p_b, 1e-300)))
     return min(1.0, (1.0 + x) * math.exp(-x))
 
 
 class PairedVdjdbIndex:
-    """Per-chain seqtree indices over the paired VDJdb complexes, with α/β CDR3 → complex maps."""
+    """Per-chain indices linked to unique paired junctions and their source observations."""
 
     def __init__(self, a_idx, b_idx, a_to_cplx, b_to_cplx, cplx_epitope, n_pairs):
         self._a_idx, self._b_idx = a_idx, b_idx
@@ -48,65 +33,61 @@ class PairedVdjdbIndex:
 
     @classmethod
     def build(cls, vdjdb: pl.DataFrame, species: str | None = None) -> "PairedVdjdbIndex":
-        """Build from a full VDJdb frame (needs ``complex_id`` pairing; TRA/TRB rows)."""
+        """Validate paired cardinality; retain observations and index unique paired keys."""
         if species is not None:
+            if "species" not in vdjdb.columns or vdjdb.height and vdjdb["species"].null_count() == vdjdb.height:
+                raise ValueError("reference has no species metadata; use species=None explicitly")
             vdjdb = vdjdb.filter(pl.col("species") == species)
-        paired = vdjdb.filter(pl.col("complex_id") != 0)
-        a = paired.filter(pl.col("gene") == "TRA").select("complex_id", "cdr3", "epitope")
-        b = paired.filter(pl.col("gene") == "TRB").select("complex_id", "cdr3", "epitope")
-        complexes = a.join(b, on="complex_id", suffix="_b")  # one row per complex with both chains
-        a_uc = complexes.select("cdr3").unique(maintain_order=True)["cdr3"].to_list()
-        b_uc = complexes.select(pl.col("cdr3_b")).unique(maintain_order=True)["cdr3_b"].to_list()
-        a_to_cplx, b_to_cplx, cplx_epitope = defaultdict(set), defaultdict(set), {}
-        for cid, ca, cb, epi in zip(complexes["complex_id"], complexes["cdr3"],
-                                    complexes["cdr3_b"], complexes["epitope"]):
-            a_to_cplx[ca].add(cid)
-            b_to_cplx[cb].add(cid)
-            cplx_epitope[cid] = epi
-        return cls(Index.build(a_uc, "aa"), Index.build(b_uc, "aa"),
-                   dict(a_to_cplx), dict(b_to_cplx), cplx_epitope, complexes.height)
+        observations = build_paired_ref(vdjdb)
+        keys = observations.select("alpha", "beta").unique().sort("alpha", "beta").with_row_index("pair_id")
+        complexes = observations.join(keys, on=["alpha", "beta"], validate="m:1")
+        a_uc, b_uc = sorted(keys["alpha"].unique()), sorted(keys["beta"].unique())
+        a_to_cplx, b_to_cplx, labels = defaultdict(set), defaultdict(set), defaultdict(set)
+        for pid, ca, cb, epi in complexes.select("pair_id", "alpha", "beta", "epitope").iter_rows():
+            a_to_cplx[ca].add(pid)
+            b_to_cplx[cb].add(pid)
+            labels[pid].add(epi)
+        out = cls(Index.build(a_uc, "aa"), Index.build(b_uc, "aa"),
+                  dict(a_to_cplx), dict(b_to_cplx), dict(labels), keys.height)
+        out.reference = vdjdb
+        out.paired_observations = observations
+        out.n_observations = observations.height
+        return out
 
     def _matched_complexes(self, idx: Index, refs: list[str], cdr3_to_cplx: dict,
                            queries: list[str], params: SearchParams, threads: int) -> list[set]:
-        """For each query CDR3, the set of VDJdb complex ids whose chain it matches."""
+        """For each query, the unique paired keys with an accepted chain match."""
         res = idx.search_batch(queries, params, threads)
-        out = []
-        for hl in res:
-            cplx = set()
-            for h in hl:
-                cplx |= cdr3_to_cplx.get(refs[h.ref_id], set())
-            out.append(cplx)
-        return out
+        return [set().union(*(cdr3_to_cplx[refs[h.ref_id]] for h in hl)) for hl in res]
 
     def annotate_pairs(self, pairs: pl.DataFrame, control_a: Index, control_b: Index,
                        params: SearchParams, threads: int = 0) -> pl.DataFrame:
-        """Joint E-value per query pair. ``pairs`` needs ``cdr3a, cdr3b`` (+ optional ``epitope``
-        ground truth). Returns per-pair n_joint, E, p_joint (Poisson), p_fisher, and the predicted
-        epitope (modal among joint matches)."""
+        """Fixed-ball pair/chain counts and calibrated E/p values; ties sort by epitope."""
+        Ma, Mb, N = len(control_a), len(control_b), self.n_pairs
+        if not Ma or not Mb:
+            raise ValueError("paired calibration requires nonempty alpha and beta controls")
+        if not {"cdr3a", "cdr3b"}.issubset(pairs.columns):
+            raise ValueError("query pairs require cdr3a and cdr3b")
         a_refs = [self._a_idx.ref_seq(i) for i in range(len(self._a_idx))]
         b_refs = [self._b_idx.ref_seq(i) for i in range(len(self._b_idx))]
         qa, qb = pairs["cdr3a"].to_list(), pairs["cdr3b"].to_list()
         ca = self._matched_complexes(self._a_idx, a_refs, self._a_to_cplx, qa, params, threads)
         cb = self._matched_complexes(self._b_idx, b_refs, self._b_to_cplx, qb, params, threads)
-
-        Ma, Mb, N = max(1, len(control_a)), max(1, len(control_b)), self.n_pairs
-        nca = [sum(1 for h in hl if h.score >= 0) for hl in control_a.search_batch(qa, params, threads)]
-        ncb = [sum(1 for h in hl if h.score >= 0) for hl in control_b.search_batch(qb, params, threads)]
-
+        nca = [len(hl) for hl in control_a.search_batch(qa, params, threads)]
+        ncb = [len(hl) for hl in control_b.search_batch(qb, params, threads)]
         rows = []
         for i in range(pairs.height):
             joint = ca[i] & cb[i]
-            n_joint = len(joint)
-            pi_a, pi_b = nca[i] / Ma, ncb[i] / Mb
-            E = N * pi_a * pi_b
-            p_joint = _poisson_sf(n_joint, E if E > 0 else 3.0 / N)
-            p_a = _poisson_sf(len(ca[i]), max(N * pi_a, 3.0 / N))
-            p_b = _poisson_sf(len(cb[i]), max(N * pi_b, 3.0 / N))
-            epis = [self._cplx_epitope[c] for c in joint]
-            top = max(set(epis), key=epis.count) if epis else None
-            rows.append((qa[i], qb[i], n_joint, len(ca[i]), len(cb[i]), E, p_joint,
-                         _fisher(p_a, p_b), top))
+            result = _joint_result(len(joint), nca[i], ncb[i], N, Ma, Mb)
+            p_a = evalue_result(len(ca[i]), nca[i], N, Ma)["p_enrichment"]
+            p_b = evalue_result(len(cb[i]), ncb[i], N, Mb)["p_enrichment"]
+            votes = Counter(epi for pid in joint for epi in self._cplx_epitope[pid])
+            top = min(votes, key=lambda e: (-votes[e], e)) if votes else None
+            rows.append((qa[i], qb[i], len(joint), len(ca[i]), len(cb[i]), result["E"],
+                         result["p_enrichment"], _fisher(p_a, p_b), top,
+                         result["rule_of_three_alpha"], result["rule_of_three_beta"]))
         return pl.DataFrame(rows, orient="row", schema=[
-            ("cdr3a", pl.Utf8), ("cdr3b", pl.Utf8), ("n_joint", pl.Int64),
+            ("cdr3a", pl.String), ("cdr3b", pl.String), ("n_joint", pl.Int64),
             ("n_alpha", pl.Int64), ("n_beta", pl.Int64), ("E", pl.Float64),
-            ("p_joint", pl.Float64), ("p_fisher", pl.Float64), ("epitope", pl.Utf8)])
+            ("p_joint", pl.Float64), ("p_fisher", pl.Float64), ("epitope", pl.String),
+            ("rule_of_three_alpha", pl.Boolean), ("rule_of_three_beta", pl.Boolean)])
