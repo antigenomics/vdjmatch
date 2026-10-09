@@ -181,6 +181,7 @@ class Annotator:
         species=None,
         score_scale=400.0,
         soft_v=True,
+        exclude_exact=False,
     ):
         if match_v and q.height and q["v"].null_count():
             raise ValueError("match_v requires a V call on every retained query")
@@ -217,6 +218,7 @@ class Annotator:
                 match_j=match_j,
                 align=align,
                 progress=progress,
+                exclude_exact=exclude_exact,
             )
             ctrl = control.get(gene) if isinstance(control, dict) else control
             if calibrate and ctrl is None:
@@ -230,8 +232,9 @@ class Annotator:
                 results = ctrl.search_batch(gq["cdr3"].to_list(), sp, threads)
                 rows = [
                     (qid, h.n_subs + h.n_ins + h.n_dels)
-                    for qid, hl in zip(gq["query_id"], results)
+                    for qid, junction, hl in zip(gq["query_id"], gq["cdr3"], results)
                     for h in hl
+                    if not exclude_exact or ctrl.ref_seq(h.ref_id) != junction
                 ]
                 ctrl_hits = pl.DataFrame(
                     rows,
@@ -268,6 +271,7 @@ class Annotator:
         scope=DEFAULT_SCOPE,
         match_v=False,
         match_j=False,
+        exclude_exact=False,
         threads=1,
         **kw,
     ):
@@ -290,6 +294,7 @@ class Annotator:
             threads=threads,
             match_v=match_v,
             match_j=match_j,
+            exclude_exact=exclude_exact,
             **kw,
         )
 
@@ -311,12 +316,14 @@ class Annotator:
         score_scale=400.0,
         soft_v=True,
         sequence_convention=None,
+        exclude_exact=False,
     ):
         """All per-pMHC candidates, competing evidence and optional fixed-ball calibration.
 
         With no control/calibrate request, ranking is explicitly uncalibrated. Supply a seqtree
         Index or locus→Index mapping, or calibrate=True for the versioned standard background.
         NED-v1 uses +1 control counts, temperature 400 and existing soft-V weight 0.25.
+        ``exclude_exact`` punctures zero-edit hits in both target and control searches.
         """
         _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
         sp = (
@@ -340,6 +347,7 @@ class Annotator:
             species=species,
             score_scale=score_scale,
             soft_v=soft_v,
+            exclude_exact=exclude_exact,
         )[1]
 
     def annotate(
@@ -361,6 +369,7 @@ class Annotator:
         score_scale=400.0,
         soft_v=True,
         sequence_convention=None,
+        exclude_exact=False,
     ):
         """Append best candidate evidence/status, preserving every input row and its order.
 
@@ -389,6 +398,7 @@ class Annotator:
             species=species,
             score_scale=score_scale,
             soft_v=soft_v,
+            exclude_exact=exclude_exact,
         )[1]
         return _append_calls(data, q, c, self.loci, prefix)
 
@@ -407,6 +417,7 @@ class Annotator:
         score_scale=400.0,
         return_hits=False,
         progress=False,
+        exclude_exact=False,
     ):
         """Genuine same-complex evidence; optional fixed-ball chain-independent calibration.
 
@@ -416,12 +427,17 @@ class Annotator:
         confidence and does not model repertoire co-occurrence (deferred research).
         ``return_hits=True`` returns ``(joint_hits, candidates)`` from the same searches;
         chain metadata in the detailed hits uses ``alpha_`` and ``beta_`` prefixes.
+        ``exclude_exact=True`` removes only the exact/exact pair. Its fixed-ball
+        calibration uses simultaneous category bounds and a binomial tail with
+        failure budget 1e-6, conditional on IID category/target sampling and
+        independent background chains. Controls must index unique junctions;
+        duplicate exact memberships fail. Deduplicated controls do not establish IID.
         """
         import math
 
         from seqtree.evalue import evalue_result
 
-        from .evalue.paired import build_paired_ref
+        from .evalue.paired import build_paired_ref, _joint_punctured_results
 
         if not math.isfinite(score_scale) or score_scale <= 0:
             raise ValueError("score_scale must be finite and positive")
@@ -464,7 +480,7 @@ class Annotator:
         keys = ["query_id", "complex_id", *PMHC]
 
         def projection(h, prefix):
-            columns = h.columns if return_hits else ["score", "db_cdr3"]
+            columns = h.columns if return_hits else ["score", "db_cdr3"] + (["query_cdr3"] if exclude_exact else [])
             return (
                 h.with_columns(pl.col("complex_id").cast(pl.String))
                 .filter(
@@ -480,6 +496,11 @@ class Annotator:
         detail = projection(ha, "alpha_").join(
             projection(hb, "beta_"), on=keys, nulls_equal=True
         )
+        if exclude_exact:
+            detail = detail.filter(
+                (pl.col("alpha_db_cdr3") != pl.col("alpha_query_cdr3"))
+                | (pl.col("beta_db_cdr3") != pl.col("beta_query_cdr3"))
+            )
         if return_hits:
             detail = detail.sort(
                 ["query_id", "complex_id", "alpha_record_id", "beta_record_id"]
@@ -509,6 +530,14 @@ class Annotator:
             "calibration": pl.String,
             "estimator": pl.String,
         }
+        if exclude_exact:
+            out_schema.update({
+                "n_exact_control_alpha": pl.UInt32, "n_exact_control_beta": pl.UInt32,
+                "n_control_joint": pl.UInt64, "control_size_alpha": pl.UInt64,
+                "control_size_beta": pl.UInt64, "E_raw": pl.Float64,
+                "p_poisson_raw": pl.Float64, "p_upper": pl.Float64,
+                "finite_control_delta": pl.Float64,
+            })
         if not joint.height:
             empty = pl.DataFrame(schema=out_schema)
             return (detail, empty) if return_hits else empty
@@ -544,22 +573,44 @@ class Annotator:
         )
         out = out.join(cov, on=PMHC, nulls_equal=True)
         counts = []
+        exact_counts = []
         sizes = []
         for locus, q in [("TRA", qa), ("TRB", qb)]:
             ctrl = paired_controls[locus]
             if ctrl is not None:
                 hits = ctrl.search_batch(q["cdr3"].to_list(), sp, threads)
                 counts.append(dict(zip(q["query_id"], map(len, hits))))
+                exact_counts.append(dict(zip(q["query_id"], [
+                    sum(ctrl.ref_seq(h.ref_id) == junction for h in group)
+                    for junction, group in zip(q["cdr3"], hits)
+                ])) if exclude_exact else {})
                 sizes.append(len(ctrl))
             else:
                 counts.append({})
+                exact_counts.append({})
                 sizes.append(None)
         nca = [counts[0].get(qid, 0) for qid in out["query_id"]]
         ncb = [counts[1].get(qid, 0) for qid in out["query_id"]]
         out = out.with_columns(
             pl.Series("n_control_alpha", nca), pl.Series("n_control_beta", ncb)
         )
-        if all(n is not None for n in sizes):
+        if exclude_exact:
+            out = out.with_columns(
+                pl.Series("n_exact_control_alpha", [exact_counts[0].get(qid, 0) for qid in out["query_id"]]),
+                pl.Series("n_exact_control_beta", [exact_counts[1].get(qid, 0) for qid in out["query_id"]]),
+                pl.lit(sizes[0], dtype=pl.UInt64).alias("control_size_alpha"),
+                pl.lit(sizes[1], dtype=pl.UInt64).alias("control_size_beta"),
+            )
+        if exclude_exact and all(n is not None for n in sizes):
+            stats = _joint_punctured_results(
+                out["n_hits"].to_list(), nca, ncb, out["n_reference"].to_list(),
+                sizes[0], sizes[1], out["n_exact_control_alpha"].to_list(),
+                out["n_exact_control_beta"].to_list(),
+            )
+            out = out.with_columns(*[pl.Series(k, v) for k, v in stats.items()],
+                                   pl.lit(False).alias("rule_of_three"))
+            calibration = "paired_independent_joint_punctured_binomial_bound"
+        elif all(n is not None for n in sizes):
             stats = [
                 evalue_result(
                     nt,
@@ -586,6 +637,11 @@ class Annotator:
                 pl.lit(False).alias("rule_of_three"),
             )
             calibration = "uncalibrated"
+            if exclude_exact:
+                out = out.with_columns(*[
+                    pl.lit(None, dtype=out_schema[k]).alias(k)
+                    for k in ("n_control_joint", "E_raw", "p_poisson_raw", "p_upper", "finite_control_delta")
+                ])
         out = out.sort(
             ["query_id", "ned_score", *PMHC],
             descending=[False, True, False, False, False, False],
@@ -628,6 +684,7 @@ class Annotator:
         species=None,
         align=False,
         score_scale=400.0,
+        exclude_exact=False,
     ):
         """Append same-reference-complex evidence with explicit chain-independent calibration."""
         _, qa = _prepare(data, cdr3a, locus="TRA")
@@ -643,6 +700,7 @@ class Annotator:
             species=species,
             align=align,
             score_scale=score_scale,
+            exclude_exact=exclude_exact,
         )
         q = qa.join(qb.select("query_id"), on="query_id")
         return _append_calls(data, q, c, self.loci, prefix, paired=True)
