@@ -11,7 +11,7 @@ from .aggregate.candidates import (
     PMHC,
 )
 from .io.columns import normalize_query
-from .match.engine import VdjdbIndex, _empty_hits
+from .match.engine import VdjdbIndex, _empty_hits, _search_unique_junctions
 from .match.scope import search_params
 from .match.scoring import load_vdjam, DEFAULT_SCALE
 
@@ -230,7 +230,7 @@ class Annotator:
             if ctrl is not None:
                 if len(ctrl) == 0:
                     raise ValueError("control index is empty")
-                results = ctrl.search_batch(gq["cdr3"].to_list(), sp, threads)
+                results = _search_unique_junctions(ctrl, gq["cdr3"].to_list(), sp, threads)
                 rows = [
                     (qid, h.n_subs + h.n_ins + h.n_dels)
                     for qid, junction, hl in zip(gq["query_id"], gq["cdr3"], results)
@@ -633,7 +633,7 @@ class Annotator:
         for locus, q in [("TRA", qa), ("TRB", qb)]:
             ctrl = paired_controls[locus]
             if ctrl is not None:
-                hits = ctrl.search_batch(q["cdr3"].to_list(), sp, threads)
+                hits = _search_unique_junctions(ctrl, q["cdr3"].to_list(), sp, threads)
                 counts.append(dict(zip(q["query_id"], map(len, hits))))
                 exact_counts.append(dict(zip(q["query_id"], [
                     sum(ctrl.ref_seq(h.ref_id) == junction for h in group)

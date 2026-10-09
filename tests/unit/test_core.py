@@ -247,3 +247,28 @@ def test_normalize_unpivots_the_paired_full_export():
     paired = out.filter(pl.col("complex_id") != 0)
     assert paired.height == 2 and paired["complex_id"].n_unique() == 1
     assert sorted(paired["gene"].to_list()) == ["TRA", "TRB"]
+
+
+def test_duplicate_junctions_share_search_but_keep_query_evidence():
+    from vdjmatch.match.engine import _search_unique_junctions
+
+    class Probe:
+        def search_batch(self, queries, params, threads):
+            assert queries == ["CASSF", "CAVF"]
+            assert threads == 4
+            return [["beta"], []]
+
+    result = _search_unique_junctions(Probe(), ["CASSF", "CAVF", "CASSF"], None, 4)
+    assert result == [["beta"], [], ["beta"]]
+    assert result[0] is result[2]
+
+    idx = VdjdbIndex.build(_tiny_vdjdb())
+    q = pl.DataFrame({"query_id": ["a", "b"], "cdr3": ["CASSIRSSYEQYF"] * 2,
+                      "v": ["TRBV19", "TRBV5"], "count": [2, 7]})
+    p = search_params("1,0,0,1")
+    combined = idx.annotate(q, p, gene="TRB", align=True, exclude_exact=True)
+    separate = pl.concat([idx.annotate(q.slice(i, 1), p, gene="TRB", align=True,
+                                      exclude_exact=True) for i in range(2)])
+    columns = [c for c in combined.columns if c != "qi"]
+    assert combined.select(columns).sort("query_id", "record_id").equals(
+        separate.select(columns).sort("query_id", "record_id"))
