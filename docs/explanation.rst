@@ -104,12 +104,17 @@ is chain evidence fusion, a different claim. Repeated observations of a paired
 receptor remain available as support metadata; ranking uses distinct paired receptor
 keys rather than treating repeated metadata as new sequence evidence.
 
-Paired ranking uses the sum of ``exp(-(score_alpha + score_beta) / 400)`` over
+Paired ranking uses the sum of
+``exp(-(score_alpha + score_beta) / score_scale)`` over
 distinct paired junction keys. ``n_hits`` counts those keys, ``n_records`` counts
 distinct supporting reference complexes, and ``n_reference`` counts distinct
 junction pairs for the candidate peptide–MHC set. Repeated observations add complex
 support without increasing the paired similarity score. The estimator is named
-``paired-reference-v1`` separately from single-chain NED-v1.
+``paired-reference-v1`` separately from single-chain NED-v1. The API default
+``score_scale`` is 400 and must be finite and positive; unit-cost CLI scoring uses
+scale 1. Detailed paired hits retain the source observations separately, with
+``alpha_``/``beta_`` metadata and optional alignment fields. Request them together
+with candidates using ``return_hits=True`` without repeating reference searches.
 
 Paired calibration requires both chain backgrounds. It reports
 ``n_control_alpha``, ``n_control_beta``, ``E``, ``p_enrichment`` and
@@ -118,7 +123,16 @@ The product of the chain background probabilities uses a stated conditional
 independence assumption. It describes the chance of the joint search event under
 those backgrounds; it is not a posterior probability of specificity and does not
 establish independence in a biological repertoire. Dependence and sample-level
-co-occurrence models are outside this calibration.
+co-occurrence models are outside this calibration. Paired CLI matching rejects
+``--match-v`` and ``--match-j`` until predicates can be applied separately to each
+chain; these flags are not silently ignored.
+
+The separate historical ``evalue.paired.paired_scan`` evaluates a nearest paired
+radius, defined as the maximum alpha/beta cost. Default two-tuple hits count
+observation associations. Its optional ``include_identity=True`` emits three-tuples
+carrying the two junctions; ``pvalue`` counts distinct pairs in that mode and its
+reference size ``N`` must count distinct pairs as well. This adaptive-radius helper
+is a separate contract from the Annotator's fixed-ball calibration.
 
 Statuses and sample summaries
 -----------------------------

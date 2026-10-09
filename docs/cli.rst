@@ -78,11 +78,12 @@ ranking. Reference and background loading errors propagate.
      - Source linkage column for paired rows, such as ``cell_id``.
    * - ``--match-v`` / ``--match-j``
      - Require matching V/J calls; sequence-only control calibration cannot support
-       these predicates, so combine with ``--no-evalue``.
+       these predicates, so combine with ``--no-evalue``. Paired matching rejects
+       both flags until chain-specific V/J predicates are supported.
    * - ``--no-evalue``
      - Use explicitly uncalibrated ranking without requesting a background.
    * - ``--no-align``
-     - Omit per-hit alignment and CIGAR computation.
+     - Omit per-hit alignment and CIGAR computation for single-chain and paired output.
    * - ``--threads``
      - Native sequence-search threads; default ``1``. ``0`` requests native automatic
        selection. This does not reconfigure an already initialized Polars thread pool.
@@ -97,6 +98,11 @@ convention and resource settings. Sample identities determine output names;
 colliding names are rejected rather than overwriting another sample.
 
 The hit table retains independent reference observations and their metadata.
+Paired hits are detailed same-complex alpha/beta observation matches, with chain
+metadata and optional alignment fields prefixed ``alpha_`` and ``beta_``. Paired
+candidates are reduced separately from those observations using distinct junction
+pairs; the hits table is not a copy of the candidate table. Both come from the same
+reference searches.
 Candidates retain competing peptide–MHC restrictions, ranking scores and any
 requested background evidence. Calls retain invalid and unmatched rows with
 explicit statuses. Ingestion diagnostics state input, missing, invalid, retained

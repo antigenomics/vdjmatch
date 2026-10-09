@@ -40,6 +40,11 @@ def annotate_sample(
         scope, engine="seqtm", matrix=matrix or "", gap_open=gap, gap_extend=gap
     )
     if paired:
+        if match_v or match_j:
+            raise ValueError(
+                "paired matching does not support match_v/match_j; "
+                "use single-chain matching or disable these flags"
+            )
         queries, report = io.read_cell(
             sample_path,
             link=link,
@@ -48,7 +53,7 @@ def annotate_sample(
             return_report=True,
         )
         # Joint calibration is handled explicitly by the paired API.
-        c = ann.paired_candidates(
+        hits, c = ann.paired_candidates(
             queries,
             cdr3a="cdr3a",
             cdr3b="cdr3b",
@@ -57,13 +62,16 @@ def annotate_sample(
             control=control,
             calibrate=with_evalue,
             species=species,
+            align=align,
+            score_scale=400.0 if matrix is not None else 1.0,
+            return_hits=True,
         )
         _, qa = _prepare(queries, "cdr3a", locus="TRA")
         _, qb = _prepare(queries, "cdr3b", locus="TRB")
         q = qa.join(qb.select("query_id"), on="query_id")
         calls = _append_calls(queries, q, c, index.genes, "vdjmatch_", paired=True)
         return {
-            "hits": c,
+            "hits": hits,
             "candidates": c,
             "calls": calls,
             "summary": c.group_by(PMHC).agg(

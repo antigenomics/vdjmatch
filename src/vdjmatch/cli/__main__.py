@@ -145,6 +145,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
         f"VDJdb: {vdj.height:,} observations; indexed loci {index.genes}",
         file=sys.stderr,
     )
+    reference_provenance = db.provenance(reference)
     matrix = match.load_vdjam() if p.matrix == "vdjam" else ""
     Path(a.output_prefix).parent.mkdir(parents=True, exist_ok=True)
     p.to_json(f"{a.output_prefix}.params.json")
@@ -172,7 +173,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
                 f"{a.output_prefix}.{name}.{kind}.txt", separator="\t"
             )
         manifest = {
-            "reference": db.provenance(reference),
+            "reference": reference_provenance,
             "sample": {"sha256": sha256(Path(sample))},
             "software": {
                 pkg: importlib.metadata.version(pkg)

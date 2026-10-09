@@ -369,6 +369,9 @@ class Annotator:
         control=None,
         calibrate=False,
         species="human",
+        align=False,
+        score_scale=400.0,
+        return_hits=False,
     ):
         """Genuine same-complex evidence; optional fixed-ball chain-independent calibration.
 
@@ -376,11 +379,17 @@ class Annotator:
         unique junction pairs. Independent observation counts do not multiply ranking votes.
         Joint enrichment assumes independent background chains; it is not a posterior label
         confidence and does not model repertoire co-occurrence (deferred research).
+        ``return_hits=True`` returns ``(joint_hits, candidates)`` from the same searches;
+        chain metadata in the detailed hits uses ``alpha_`` and ``beta_`` prefixes.
         """
+        import math
+
         from seqtree.evalue import evalue_result
 
         from .evalue.paired import build_paired_ref
 
+        if not math.isfinite(score_scale) or score_scale <= 0:
+            raise ValueError("score_scale must be finite and positive")
         build_paired_ref(self._index.reference)
         paired_controls = {}
         for chain in ("TRA", "TRB"):
@@ -408,24 +417,38 @@ class Annotator:
             if isinstance(scope, str)
             else scope
         )
-        ha = self._index.annotate(qa, sp, gene="TRA", threads=threads)
-        hb = self._index.annotate(qb, sp, gene="TRB", threads=threads)
+        ha = self._index.annotate(qa, sp, gene="TRA", threads=threads, align=align)
+        hb = self._index.annotate(qb, sp, gene="TRB", threads=threads, align=align)
         keys = ["query_id", "complex_id", *PMHC]
 
-        def projection(h):
+        def projection(h, prefix):
+            columns = h.columns if return_hits else ["score", "db_cdr3"]
             return (
                 h.with_columns(pl.col("complex_id").cast(pl.String))
                 .filter(
                     pl.col("complex_id").is_not_null()
                     & ~pl.col("complex_id").is_in(["0", ""])
                 )
-                .select(*keys, "score", "db_cdr3")
-                .unique()
+                .select(
+                    *keys,
+                    *[pl.col(c).alias(prefix + c) for c in columns if c not in keys],
+                )
             )
 
-        joint = projection(ha).join(
-            projection(hb), on=keys, nulls_equal=True, suffix="_beta"
+        detail = projection(ha, "alpha_").join(
+            projection(hb, "beta_"), on=keys, nulls_equal=True
         )
+        if return_hits:
+            detail = detail.sort(
+                ["query_id", "complex_id", "alpha_record_id", "beta_record_id"]
+            )
+        joint = detail.select(
+            *keys,
+            pl.col("alpha_score").alias("score"),
+            pl.col("beta_score").alias("score_beta"),
+            pl.col("alpha_db_cdr3").alias("db_cdr3"),
+            pl.col("beta_db_cdr3").alias("db_cdr3_beta"),
+        ).unique()
         dtype = qa.schema["query_id"]
         out_schema = {
             "query_id": dtype,
@@ -445,14 +468,15 @@ class Annotator:
             "estimator": pl.String,
         }
         if not joint.height:
-            return pl.DataFrame(schema=out_schema)
+            empty = pl.DataFrame(schema=out_schema)
+            return (detail, empty) if return_hits else empty
         records = joint.group_by(["query_id", *PMHC]).agg(
             pl.col("complex_id").n_unique().alias("n_records")
         )
         unique = joint.unique(subset=["query_id", *PMHC, "db_cdr3", "db_cdr3_beta"])
         out = unique.group_by(["query_id", *PMHC]).agg(
             pl.len().alias("n_hits"),
-            ((-(pl.col("score") + pl.col("score_beta")) / 400.0).exp())
+            ((-(pl.col("score") + pl.col("score_beta")) / score_scale).exp())
             .sum()
             .alias("ned_score"),
         )
@@ -497,7 +521,7 @@ class Annotator:
             stats = [
                 evalue_result(
                     nt,
-                    min(sizes[0], (a or 3)) * min(sizes[1], (b or 3)),
+                    (a or 3) * (b or 3),
                     nr,
                     sizes[0] * sizes[1],
                 )
@@ -545,7 +569,8 @@ class Annotator:
             pl.lit(calibration).alias("calibration"),
             pl.lit("paired-reference-v1").alias("estimator"),
         )
-        return out.select([pl.col(c).cast(t) for c, t in out_schema.items()])
+        candidates = out.select([pl.col(c).cast(t) for c, t in out_schema.items()])
+        return (detail, candidates) if return_hits else candidates
 
     def annotate_paired(
         self,
@@ -559,6 +584,8 @@ class Annotator:
         control=None,
         calibrate=False,
         species="human",
+        align=False,
+        score_scale=400.0,
     ):
         """Append same-reference-complex evidence with explicit chain-independent calibration."""
         _, qa = _prepare(data, cdr3a, locus="TRA")
@@ -572,6 +599,8 @@ class Annotator:
             control=control,
             calibrate=calibrate,
             species=species,
+            align=align,
+            score_scale=score_scale,
         )
         q = qa.join(qb.select("query_id"), on="query_id")
         return _append_calls(data, q, c, self.loci, prefix, paired=True)

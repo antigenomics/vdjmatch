@@ -230,3 +230,107 @@ def test_airr_junction_and_sequence_id_preserved_in_public_api():
     out = Annotator.from_frame(reference()).annotate(q, scope="0")
     assert out["sequence_id"].to_list() == ["query-a", "query-b"]
     assert out["vdjmatch_status"].to_list() == ["matched", "no_hit"]
+
+
+def _paired_detail_reference():
+    return pl.DataFrame(
+        {
+            "gene": ["TRA", "TRB", "TRA", "TRB"],
+            "cdr3": ["CAVVF", "CASSF", "CAVVF", "CASSF"],
+            "epitope": ["ONE"] * 4,
+            "complex_id": ["complex-one", "complex-one", "complex-two", "complex-two"],
+            "record_id": ["complex-one", "complex-one", "complex-two", "complex-two"],
+            "reference_id": ["study-one", "study-one", "study-two", "study-two"],
+            "source_note": ["a1", "b1", "a2", "b2"],
+        }
+    )
+
+
+def test_paired_details_preserve_metadata_without_repeated_search(monkeypatch):
+    a = Annotator.from_frame(_paired_detail_reference())
+    q = pl.DataFrame(
+        {
+            "query_id": ["query-one"],
+            "cdr3_alpha_aa": ["CAVVF"],
+            "cdr3_beta_aa": ["CASSF"],
+        }
+    )
+    calls = []
+    original = a._index.annotate
+
+    def counted(*args, **kwargs):
+        calls.append((kwargs["gene"], kwargs["align"]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(a._index, "annotate", counted)
+    hits, c = a.paired_candidates(q, scope="0", align=True, return_hits=True)
+    assert calls == [("TRA", True), ("TRB", True)]
+    assert hits["complex_id"].to_list() == ["complex-one", "complex-two"]
+    assert hits["alpha_record_id"].to_list() == ["complex-one", "complex-two"]
+    assert hits["beta_record_id"].to_list() == ["complex-one", "complex-two"]
+    assert hits["alpha_reference_id"].to_list() == ["study-one", "study-two"]
+    assert hits["beta_source_note"].to_list() == ["b1", "b2"]
+    assert hits["query_id"].to_list() == ["query-one"] * 2
+    for chain in ("alpha", "beta"):
+        assert hits[chain + "_n_subs"].to_list() == [0, 0]
+        assert hits[chain + "_score"].to_list() == [0, 0]
+        assert hits[chain + "_cigar"].null_count() == 0
+        assert hits[chain + "_match"].null_count() == 0
+    assert c["n_hits"][0] == 1 and c["n_records"][0] == 2
+    assert c.equals(a.paired_candidates(q, scope="0"))
+    empty_q = q.with_columns(pl.lit("CWWWF").alias("cdr3_beta_aa"))
+    empty_hits, empty_c = a.paired_candidates(
+        empty_q, scope="0", align=True, return_hits=True
+    )
+    assert empty_hits.height == empty_c.height == 0
+    assert empty_hits.schema == hits.schema
+    assert empty_c.schema == c.schema
+
+
+def test_paired_unit_cost_scale_and_annotate_forwarding():
+    import math
+    import pytest
+
+    a = Annotator.from_frame(_paired_detail_reference())
+    q = pl.DataFrame({"cdr3_alpha_aa": ["CAVAF"], "cdr3_beta_aa": ["CASSF"]})
+    scope = search_params("1", gap_open=1, gap_extend=1)
+    hits, c = a.paired_candidates(q, scope=scope, score_scale=1, return_hits=True)
+    assert hits["alpha_score"].to_list() == [1, 1]
+    assert c["ned_score"][0] == pytest.approx(math.exp(-1))
+    out = a.annotate_paired(q, scope=scope, score_scale=1, align=True)
+    assert out["vdjmatch_score"][0] == c["ned_score"][0]
+    for invalid in (0, -1, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="score_scale"):
+            a.paired_candidates(q, score_scale=invalid)
+
+
+def test_paired_runner_details_scale_and_unsupported_flags(tmp_path):
+    import math
+    import pytest
+    from vdjmatch.runner.multisample import annotate_sample
+
+    a = Annotator.from_frame(_paired_detail_reference())
+    path = tmp_path / "paired.tsv"
+    pl.DataFrame(
+        {
+            "pair_id": ["cell-one", "cell-one"],
+            "locus": ["TRA", "TRB"],
+            "cdr3": ["CAVAF", "CASSF"],
+        }
+    ).write_csv(path, separator="\t")
+    res = annotate_sample(
+        a._index,
+        path,
+        scope="1",
+        matrix=None,
+        with_evalue=False,
+        paired=True,
+        align=True,
+    )
+    assert res["hits"].height == 2
+    assert "alpha_record_id" in res["hits"].columns
+    assert "beta_cigar" in res["hits"].columns
+    assert res["candidates"]["ned_score"][0] == pytest.approx(math.exp(-1))
+    for flag in ("match_v", "match_j"):
+        with pytest.raises(ValueError, match="paired matching does not support"):
+            annotate_sample(a._index, path, paired=True, **{flag: True})
