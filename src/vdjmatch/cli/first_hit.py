@@ -6,10 +6,8 @@ Parser registration stays stdlib-only so the parent can set native thread budget
 
 from __future__ import annotations
 
-import gzip
 import hashlib
 import importlib.metadata
-import importlib.resources
 import json
 from pathlib import Path
 import resource
@@ -57,63 +55,9 @@ def _digest(path):
 
 
 def _control(args):
-    import polars as pl
-    from seqtree import Index
-    from ..evalue.control import _organism
+    from ..evalue.control import raw_background
 
-    if args.control:
-        path = Path(args.control)
-        suffix = path.with_suffix("").suffix if path.suffix == ".gz" else path.suffix
-        separator = "," if suffix == ".csv" else "\t"
-        headers = pl.read_csv(path, separator=separator, n_rows=0).columns
-        column = next(
-            (c for c in ("junction_aa", "cdr3_aa", "cdr3", "cdr3aa") if c in headers),
-            None,
-        )
-        if column is None:
-            raise ValueError("control requires a junction_aa or legacy junction column")
-        if column != "junction_aa" and (
-            "v_call" in headers or "sequence_id" in headers
-        ):
-            raise ValueError(
-                "AIRR control requires junction_aa; bare CDR3 cannot be calibrated"
-            )
-        frame = pl.read_csv(
-            path, separator=separator, columns=[column], infer_schema_length=0
-        )
-        frame = frame.with_columns(pl.col(column).str.strip_chars().str.to_uppercase())
-        valid = frame.filter(pl.col(column).str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$"))
-        sequences = sorted(set(valid[column]))
-        provenance = {
-            "kind": "explicit_raw_table",
-            "path": str(path.resolve()),
-            "sha256": _digest(path),
-            "source_rows": frame.height,
-            "productive_rows": valid.height,
-            "excluded_rows": frame.height - valid.height,
-            "declared_species": args.species,
-            "declared_locus": args.locus,
-        }
-    else:
-        if _organism(args.species) != "human" or args.locus != "TRB":
-            raise ValueError(
-                "this control is not bundled; supply --control with the matching raw species/locus repertoire"
-            )
-        asset = importlib.resources.files("seqtree").joinpath(
-            "data/control_human_trb_aa.txt.gz"
-        )
-        payload = asset.read_bytes()
-        raw_sequences = gzip.decompress(payload).decode().splitlines()
-        sequences = sorted(set(raw_sequences))
-        provenance = {
-            "kind": "bundled_raw",
-            "asset": "seqtree/data/control_human_trb_aa.txt.gz",
-            "sha256": hashlib.sha256(payload).hexdigest(),
-            "source_rows": len(raw_sequences),
-        }
-    if not sequences:
-        raise ValueError("control has no valid junctions for the requested locus")
-    return Index.build(sequences, "aa"), provenance
+    return raw_background(args.locus, args.species, args.control)
 
 
 def main(args):

@@ -197,3 +197,33 @@ def test_native_vdjtools_counts_are_preserved(tmp_path):
     cli.main(options)
     out = pl.read_csv(tmp_path / "out.evidence.tsv", separator="\t")
     assert out["count"].to_list() == [7]
+
+
+def test_noise_gate_scope_one_is_equivalent():
+    target = Index.build(["CASSF", "CATSF", "CADDF"], "aa")
+    control = Index.build(["CAGGF", "CASSAF", "CWYYF"], "aa")
+    queries = ["CASSF", "CASSAF", "CASF", "WWWW", "CAGGF"]
+    for exclude_exact in (False, True):
+        evidence = []
+        for scope in ("5,2,2,5", "1,1,1,1"):
+            hits, costs = first_hit.scan(
+                target,
+                [""] * len(target),
+                control,
+                queries,
+                params=search_params(scope),
+                threads=1,
+                exclude_exact=exclude_exact,
+            )
+            # This is the accepted noise predicate, including a single insertion/deletion.
+            evidence.append(
+                [
+                    first_hit.pvalue(
+                        [h for h in hs if h[0] <= 1], cs, len(target), len(control)
+                    )
+                    for hs, cs in zip(hits, costs)
+                ]
+            )
+        assert evidence[0] == evidence[1]
+        assert evidence[0][1]["radius"] == 1
+        assert evidence[0][2]["radius"] == 1

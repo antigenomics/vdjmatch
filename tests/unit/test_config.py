@@ -3,9 +3,32 @@ import argparse
 import json
 
 import polars as pl
+import pytest
 
 from vdjmatch.config import Params
 from vdjmatch.cli import __main__ as cli
+
+
+def test_cli_fresh_raw_control_and_exact_exclusion(tmp_path):
+    reference, query, control = (tmp_path / name for name in ("reference.tsv", "query.tsv", "control.tsv"))
+    pl.DataFrame({"cdr3": ["CASSF", "CATSF"], "gene": ["TRB"] * 2,
+                  "species": ["HomoSapiens"] * 2,
+                  "antigen.epitope": ["PEP"] * 2}).write_csv(reference, separator="\t")
+    pl.DataFrame({"sequence_id": ["input"], "junction_aa": ["CASSF"],
+                  "locus": ["TRB"]}).write_csv(query, separator="\t")
+    pl.DataFrame({"cdr3aa": ["CASSF", "CASRF"]}).write_csv(control, separator="\t")
+    prefix = tmp_path / "out"
+    arguments = ["match", str(query), "--vdjdb", str(reference), "--control", f"TRB={control}",
+                 "--fresh-control", "--exclude-exact", "--no-align", "-o", str(prefix)]
+    assert cli.main(arguments) == 0
+    candidates = pl.read_csv(tmp_path / "out.query.candidates.txt", separator="\t")
+    assert candidates["n_target"].to_list() == [1]
+    assert candidates["n_control"].to_list() == [1]
+    manifest = json.loads((tmp_path / "out.query.manifest.json").read_text())
+    assert manifest["exclude_exact"] is True
+    assert manifest["controls"]["TRB"]["source_rows"] == 2
+    with pytest.raises(SystemExit):
+        cli.main(arguments + ["--control", f"TRB={control}"])
 
 
 # --- Params dataclass round-trip ---
@@ -96,3 +119,14 @@ def test_cmd_match_writes_params_json(tmp_path, monkeypatch):
     written = Params.from_json(f"{prefix}.params.json")
     assert written.scope == "1,0,0,1"    # CLI override recorded
     assert written.min_score == 1        # from JSON config
+
+
+def test_raw_airr_control_rejects_bare_cdr3_with_only_j_call(tmp_path):
+    from vdjmatch.evalue.control import raw_background
+
+    path = tmp_path / "control.tsv"
+    pl.DataFrame({"cdr3_aa": ["ASS"], "j_call": ["TRBJ1-1"]}).write_csv(
+        path, separator="\t"
+    )
+    with pytest.raises(ValueError, match="requires junction_aa"):
+        raw_background("TRB", "human", path)

@@ -13,6 +13,8 @@ from seqtree.evalue import evalue_result
 
 from .first_hit import _cost_lists, scope
 
+PAIRED_BOUND_DELTA = 1e-6
+
 
 def build_paired_ref(df: pl.DataFrame) -> pl.DataFrame:
     """Validate TRA/TRB linkage and return one row per complete paired observation.
@@ -127,8 +129,73 @@ def paired_scan(
     return hits, [[c for c, _ in x] for x in ca], [[c for c, _ in x] for x in cb]
 
 
-def _joint_result(n_pair: int, n_ca: int, n_cb: int, N: int, Ma: int, Mb: int) -> dict:
-    """Apply each chain's existing rule of three, then the public Poisson helper."""
+def _joint_punctured_results(n_pair, n_ca, n_cb, N, Ma, Mb, za, zb):
+    """Vectorized fixed-ball bound under IID categorical/independent-chain assumptions.
+
+    Unique raw indexes do not establish these assumptions. Four simultaneous
+    one-sided Clopper–Pearson category bounds use total failure budget 1e-6;
+    the binomial target tail plus that budget is model-conditional. Cartesian
+    pairs share chains and are never treated as independent control trials.
+    """
+    import numpy as np
+    from scipy.stats import beta, binom, poisson
+
+    values = [np.asarray(x) for x in (n_pair, n_ca, n_cb, N, za, zb)]
+    if (not isinstance(Ma, int) or isinstance(Ma, bool) or Ma <= 0
+            or not isinstance(Mb, int) or isinstance(Mb, bool) or Mb <= 0):
+        raise ValueError("paired calibration requires nonempty integer control sizes")
+    if any(x.dtype.kind not in "iu" or x.ndim != 1 for x in values):
+        raise ValueError("paired calibration counts must be integer vectors")
+    if Ma * Mb > np.iinfo(np.int64).max or any(np.any(x > np.iinfo(np.int64).max) for x in values):
+        raise ValueError("paired calibration counts exceed supported integer range")
+    values = [x.astype(np.int64) for x in values]
+    if len({len(x) for x in values}) != 1:
+        raise ValueError("paired calibration count vectors must have equal lengths")
+    nt, na, nb, nr, ea, eb = values
+    if (np.any(nr < 0) or np.any(nt < 0) or np.any(nt > nr)
+            or np.any(na < 0) or np.any(na > Ma) or np.any(nb < 0) or np.any(nb > Mb)
+            or np.any(ea > 1) or np.any(eb > 1) or np.any(ea < 0) or np.any(eb < 0)
+            or np.any(ea > na) or np.any(eb > nb)):
+        raise ValueError("paired calibration counts lie outside their sizes/memberships")
+    eps = PAIRED_BOUND_DELTA / 4
+
+    def upper(k, m):
+        # SF quantile avoids loss of the small epsilon; endpoints are explicit.
+        k = k.astype(np.float64)
+        out = np.ones(len(k), dtype=np.float64)
+        interior = (k > 0) & (k < m)
+        out[interior] = beta.isf(eps, k[interior] + 1, m - k[interior])
+        out[k == 0] = -np.expm1(np.log(eps) / m)
+        return out
+
+    xa, ua = upper(ea, Ma), upper(na - ea, Ma)
+    xb, ub = upper(eb, Mb), upper(nb - eb, Mb)
+    probability = np.minimum(1.0, xa * ub + ua * xb + ua * ub)
+    # int64 holds practical control products (e.g. millions of unique chains).
+    joint = na.astype(np.int64) * nb.astype(np.int64) - ea * eb
+    raw = nr * (joint / (Ma * Mb))
+    return {
+        "n_control_joint": joint.tolist(),
+        "E_raw": raw.tolist(),
+        "p_poisson_raw": poisson.sf(nt - 1, raw).tolist(),
+        "p_upper": probability.tolist(),
+        "E": (nr * probability).tolist(),
+        "p_enrichment": np.minimum(1.0, PAIRED_BOUND_DELTA + binom.sf(nt - 1, nr, probability)).tolist(),
+        "finite_control_delta": [PAIRED_BOUND_DELTA] * len(nt),
+    }
+
+
+def _joint_result(n_pair: int, n_ca: int, n_cb: int, N: int, Ma: int, Mb: int,
+                  *, exclude_exact=False, n_exact_alpha=0, n_exact_beta=0) -> dict:
+    """Legacy Poisson by default; explicit joint puncture uses the fixed-ball bound.
+
+    Do not apply the new fixed-predicate coverage claim to an adaptive first-hit
+    radius. Historical :func:`pvalue` retains its original default calculation.
+    """
+    if exclude_exact:
+        result = _joint_punctured_results([n_pair], [n_ca], [n_cb], [N], Ma, Mb,
+                                         [n_exact_alpha], [n_exact_beta])
+        return {k: v[0] for k, v in result.items()}
     if Ma <= 0 or Mb <= 0:
         raise ValueError("paired calibration requires nonempty alpha and beta controls")
     if N < 0 or not 0 <= n_pair <= N or not 0 <= n_ca <= Ma or not 0 <= n_cb <= Mb:

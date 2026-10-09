@@ -34,10 +34,27 @@ diagnostics and a run manifest. Calls preserve input rows; exact ranking ties
 abstain. Default search threads are one. Samples run sequentially and native
 search uses one batch per locus. VDJAM is the CLI/API default scoring matrix.
 
-Requires ``seqtree>=1.0.1``, ``vdjtools>=5.0.0`` and ``polars>=1.41.2,<2``.
+Requires ``seqtree>=1.0.1``, ``vdjtools>=5.0.0``, ``polars>=1.41.2,<2`` and
+``scipy>=1.9`` for exact finite-control bounds and binomial tails.
 HF benchmark snapshots are explicit, separate from GitHub release resolution.
 Hard V/J calibration requires metadata-aware controls and fails explicitly.
 Paired CLI V/J restrictions are currently unsupported and fail explicitly.
 ``first-hit`` exposes global adaptive first-hit enrichment through the CLI,
 with fresh raw control indexing, original query rows and a provenance manifest.
+``match --fresh-control`` and repeatable ``--control LOCUS=TABLE`` support fresh
+raw-control manuscript runs. Single-chain ``--exclude-exact`` applies the same
+puncture to target and control evidence. Paired exclusion removes only exact/exact
+junction pairs and retains one-exact/other-neighbour evidence. Its all-count
+finite-control method uses four marginal category Clopper–Pearson upper bounds,
+fixed total failure budget ``1e-6``, and a binomial target tail plus that budget.
+Empirical Cartesian counts, raw E and raw Poisson tails remain diagnostics.
+The bound is explicitly conditional on IID category/target sampling and
+independent background chains; deduplicated controls do not establish those
+assumptions or unconditional biological calibration. Default paired Poisson
+calibration remains unchanged.
+Declared paired reference links survive string IDs, independent chain record IDs
+and repeated normalization; conflicting links fail explicitly.
+``search`` exposes fresh native batch matching, positional row identities,
+counts-only output, same-key filtering and vectorized positional matrix scores.
+Its manifest separates native build/search and positional rescoring times.
 Repertoire-level statistical inference remains future work.

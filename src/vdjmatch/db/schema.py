@@ -36,9 +36,24 @@ def _unpivot_paired(df: pl.DataFrame) -> pl.DataFrame:
         pl.col("cdr3.beta").fill_null("") != ""
     )
     # Retain the original wide fields, including repairs and submitted calls.
-    df = df.with_row_index("__full_row").with_columns(
-        pl.when(both).then(pl.col("__full_row") + 1).otherwise(0).alias("complex_id")
-    )
+    df = df.with_row_index("__full_row")
+    source_link = next((c for c in ("complex_id", "complex.id") if c in df.columns), None)
+    if source_link:
+        key = pl.col(source_link).cast(pl.String)
+        declared = key.is_not_null() & ~key.is_in(["", "0"])
+        # Explicit links win; physical wide rows still link otherwise missing
+        # partners. A separate row namespace avoids merging legacy numeric links.
+        fallback = pl.concat_str(pl.lit("__wide_row:"), pl.col("__full_row"))
+        generated = df.filter(~declared.fill_null(False) & both).select(fallback.alias("key"))
+        existing = df.filter(declared).select(key.alias("key"))
+        if generated.join(existing, on="key", how="inner").height:
+            raise ValueError("generated wide complex identity collides with a declared link")
+        link = pl.when(declared).then(key).otherwise(
+            pl.when(both).then(fallback).otherwise(pl.lit("0"))
+        )
+    else:
+        link = pl.when(both).then(pl.col("__full_row") + 1).otherwise(0)
+    df = df.with_columns(link.alias("complex_id"))
     parts = [
         df.with_columns(
             *[
@@ -122,14 +137,15 @@ def normalize(df: pl.DataFrame) -> pl.DataFrame:
     df = df.with_columns(
         pl.col("mhc_class").replace({"MHC-I": "MHCI", "MHC-II": "MHCII"})
     )
-    # Pair by observation, never by receptor hashes shared across independent records.
+    # Declared pair links outrank inferred observation links. Record IDs may be
+    # independent chain identities, particularly after VdjdbIndex expansion.
     identity = (
-        "record_id"
-        if "record_id" in df.columns
-        else "cell_id"
-        if "cell_id" in df.columns
-        else None
+        "record_id" if "record_id" in df.columns
+        else "cell_id" if "cell_id" in df.columns else None
     )
+    complex_key = pl.col("complex_id").cast(pl.String)
+    declared = complex_key.is_not_null() & ~complex_key.is_in(["", "0"])
+    link = pl.when(declared).then(complex_key).otherwise(pl.lit("0"))
     if identity:
         if (
             df[identity].null_count()
@@ -138,21 +154,46 @@ def normalize(df: pl.DataFrame) -> pl.DataFrame:
             raise ValueError(f"reference has missing {identity}")
         if df.select(identity, "gene").n_unique() != df.height:
             raise ValueError(f"reference has duplicate ({identity}, gene) identities")
+        known = pl.when(declared).then(complex_key).otherwise(None).drop_nulls()
+        declared_count = known.n_unique().over(identity)
+        if df.filter(declared_count > 1).height:
+            raise ValueError(f"reference has conflicting complex links within {identity}")
         paired = pl.col("gene").eq("TRA").any().over(identity) & pl.col("gene").eq(
             "TRB"
         ).any().over(identity)
-        df = df.with_columns(
+        missing_pair = ~declared.fill_null(False) & paired
+        # Zero is a valid source observation ID, but the complex field reserves
+        # it for unpaired rows. Keep the source ID and namespace its pair link.
+        observation_key = pl.col(identity).cast(pl.String)
+        inferred_key = pl.when(observation_key == "0").then(
+            pl.lit(f"__{identity}:0")
+        ).otherwise(observation_key)
+        # Inferred record/cell keys must not silently merge another declared pair.
+        unresolved = df.filter(missing_pair & (declared_count == 0)).select(
+            inferred_key.alias("key"), observation_key.alias("observation")
+        ).unique()
+        if unresolved.group_by("key").agg(pl.col("observation").n_unique()).filter(
+            pl.col("observation") > 1
+        ).height:
+            raise ValueError("inferred complex identities collide between observations")
+        unresolved = unresolved.select("key").unique()
+        existing = df.filter(declared).select(complex_key.alias("key")).unique()
+        if unresolved.join(existing, on="key", how="inner").height:
+            raise ValueError("inferred complex identity collides with a declared link")
+        link = pl.when(declared).then(complex_key).otherwise(
             pl.when(paired)
-            .then(pl.col(identity).cast(pl.String))
+            .then(pl.coalesce(known.first().over(identity), inferred_key))
             .otherwise(pl.lit("0"))
-            .alias("complex_id")
         )
         if "record_id" not in df.columns:
             df = df.with_columns(pl.col(identity).alias("record_id"))
-    else:
-        df = df.with_columns(
-            pl.col("complex_id").cast(pl.Int64, strict=False).fill_null(0)
-        )
+    links = df.select(link.alias("complex_id"))["complex_id"]
+    # Legacy integer IDs stay integers when conversion is lossless. Meaningful
+    # string IDs (including e.g. "01") are preserved rather than coerced to zero.
+    integers = links.cast(pl.Int64, strict=False)
+    if integers.null_count() == 0 and integers.cast(pl.String).equals(links):
+        links = integers
+    df = df.with_columns(links)
     if df.filter(
         pl.col("vdjdb_score").is_not_null()
         & (pl.col("vdjdb_score").cast(pl.String) != "")

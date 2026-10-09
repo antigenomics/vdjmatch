@@ -119,6 +119,7 @@ class VdjdbIndex:
         threads: int = 1,
         match_v: bool = False,
         match_j: bool = False,
+        exclude_exact: bool = False,
         align: bool = False,
         region_aware: bool = False,
         progress: bool = False,
@@ -129,6 +130,7 @@ class VdjdbIndex:
         Search is one native batch even with progress enabled. ``threads`` controls seqtree;
         Polars performs sequential post-search stages in its existing process-wide pool.
         ``chunk`` is retained for signature compatibility; it does not split native search.
+        ``exclude_exact`` removes zero-edit hits before alignment and observation expansion.
         """
         if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
             raise ValueError(
@@ -170,13 +172,16 @@ class VdjdbIndex:
                 f"{gene}: searching {q.height:,} queries in one native batch",
                 file=sys.stderr,
             )
-        res = idx.search_batch(q["cdr3"].to_list(), params, threads)
+        query_junctions = q["cdr3"].to_list()
+        reference_junctions = uc["cdr3"].to_list() if exclude_exact else None
+        res = idx.search_batch(query_junctions, params, threads)
         if progress:
             print(f"{gene}: native search complete", file=sys.stderr)
         flat = [
             (qi, h.ref_id, h.score, h.n_subs, h.n_ins, h.n_dels)
             for qi, hl in enumerate(res)
             for h in hl
+            if not exclude_exact or query_junctions[qi] != reference_junctions[h.ref_id]
         ]
         if not flat:
             return self.empty_hits(
