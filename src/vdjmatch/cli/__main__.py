@@ -208,6 +208,14 @@ def _cmd_match(a: argparse.Namespace) -> int:
         Path(f"{a.output_prefix}.{name}.manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n"
         )
+        if a.verbose:
+            elapsed = manifest["wall_seconds"]
+            n_queries = res["calls"].height
+            print(
+                f"[{name}] {elapsed:.3f}s; {n_queries / max(elapsed, 1e-9):,.0f} queries/s; "
+                f"process peak RSS {manifest['process_peak_rss_gb']:.3f} GB",
+                file=sys.stderr,
+            )
         print(
             f"[{name}] {res['hits'].height} hit rows -> {a.output_prefix}.{name}.*",
             file=sys.stderr,
