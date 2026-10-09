@@ -28,6 +28,7 @@ def annotate_sample(
     control=None,
     paired=False,
     link=None,
+    exclude_exact=False,
 ):
     """Return hit/candidate/call/count tables plus explicit ingestion diagnostics.
 
@@ -66,6 +67,7 @@ def annotate_sample(
             score_scale=400.0 if matrix is not None else 1.0,
             return_hits=True,
             progress=progress,
+            exclude_exact=exclude_exact,
         )
         _, qa = _prepare(queries, "cdr3a", locus="TRA")
         _, qb = _prepare(queries, "cdr3b", locus="TRB")
@@ -98,6 +100,7 @@ def annotate_sample(
         species=species,
         control=control,
         score_scale=400.0 if matrix is not None else 1.0,
+        exclude_exact=exclude_exact,
     )
     calls = _append_calls(queries, queries, c, index.genes, "vdjmatch_")
     return {

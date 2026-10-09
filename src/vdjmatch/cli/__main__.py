@@ -4,6 +4,7 @@ Subcommands:
   update     fetch/cache the latest VDJdb release
   match      annotate query sample(s) against VDJdb (E-values + ranked hits + epitope summary)
   first-hit  global first-hit control calibration
+  search     native sequence batch search with positional row identities
   precursor  T-cell precursor frequency and unseen-junction diversity for a set of TCRs
 
 ``match`` writes hit, candidate, call, descriptive summary and ingestion TSV tables,
@@ -103,6 +104,17 @@ def _cmd_match(a: argparse.Namespace) -> int:
     db, match = __getattr__("db"), __getattr__("match")
     annotate_sample = __getattr__("annotate_sample")
     p = _resolve_params(a)
+    raw_paths = {}
+    supplied_controls = getattr(a, "control", None) or []
+    if (supplied_controls or getattr(a, "fresh_control", False)) and not p.evalue:
+        raise ValueError("raw controls require calibration; omit --no-evalue")
+    for specification in supplied_controls:
+        locus, separator, path = specification.partition("=")
+        if not separator or locus not in {"TRA", "TRB"} or not path:
+            raise ValueError("--control requires TRA=TABLE or TRB=TABLE")
+        if locus in raw_paths:
+            raise ValueError(f"duplicate raw control for {locus}")
+        raw_paths[locus] = path
     names = []
     for sample in a.samples:
         name = Path(sample).name
@@ -147,6 +159,19 @@ def _cmd_match(a: argparse.Namespace) -> int:
         file=sys.stderr,
     )
     reference_provenance = db.provenance(reference)
+    controls, control_provenance = None, {}
+    if supplied_controls or getattr(a, "fresh_control", False):
+        from ..evalue.control import raw_background
+
+        controls = {}
+        for locus, path in raw_paths.items():
+            controls[locus], control_provenance[locus] = raw_background(
+                locus, control_species, path
+            )
+        if getattr(a, "fresh_control", False) and "TRB" not in controls and "TRB" in index.genes:
+            controls["TRB"], control_provenance["TRB"] = raw_background(
+                "TRB", control_species
+            )
     matrix = match.load_vdjam() if p.matrix == "vdjam" else ""
     Path(a.output_prefix).parent.mkdir(parents=True, exist_ok=True)
     p.to_json(f"{a.output_prefix}.params.json")
@@ -168,6 +193,8 @@ def _cmd_match(a: argparse.Namespace) -> int:
             sequence_convention=getattr(a, "sequence_convention", None),
             paired=getattr(a, "paired", False),
             link=getattr(a, "link", None),
+            control=controls,
+            exclude_exact=getattr(a, "exclude_exact", False),
         )
         for kind, frame in res.items():
             _flat_table(frame).write_csv(
@@ -178,15 +205,24 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "sample": {"sha256": sha256(Path(sample))},
             "software": {
                 pkg: importlib.metadata.version(pkg)
-                for pkg in ["vdjmatch", "seqtree", "vdjtools", "polars"]
+                for pkg in ["vdjmatch", "seqtree", "vdjtools", "polars", "scipy"]
             },
             "parameters": dataclasses.asdict(p),
             "reference_filters": reference_filters,
             "control_species": control_species,
+            "controls": control_provenance,
+            "exclude_exact": getattr(a, "exclude_exact", False),
             "input_format": getattr(a, "input_format", "auto"),
             "sequence_convention": getattr(a, "sequence_convention", None)
             or "producer-defined junction",
             "paired": getattr(a, "paired", False),
+            "paired_calibration_model": {
+                "method": "four_category_cp_upper_bound_plus_binomial_tail",
+                "delta": 1e-6,
+                "assumptions": "fixed predicate; IID marginal categories and target pairs; independent background chains; target/control independence",
+                "deduplicated_controls_establish_iid": False,
+                "unconditional_calibration_claim": False,
+            } if getattr(a, "paired", False) and getattr(a, "exclude_exact", False) and p.evalue else None,
             "link": getattr(a, "link", None),
             "resources": {
                 "native_threads": p.threads,
@@ -463,6 +499,12 @@ def main(argv: list[str] | None = None) -> int:
         choices=["human", "mouse"],
         help="background organism; required with --species any and calibration",
     )
+    m.add_argument("--control", action="append", metavar="LOCUS=TABLE",
+                   help="fresh raw junction control per active locus (repeatable)")
+    m.add_argument("--fresh-control", action="store_true",
+                   help="build fresh raw controls; human TRB bundled, other loci require --control")
+    m.add_argument("--exclude-exact", action="store_true",
+                   help="exclude exact identities from target and control search evidence")
     # --- params (overridable from --config; SUPPRESS default => only override JSON when passed) ---
     m.add_argument(
         "--species",
@@ -662,12 +704,15 @@ def main(argv: list[str] | None = None) -> int:
     from .first_hit import register
 
     register(sub)
+    from .search import register as register_search
+
+    register_search(sub)
 
     a = p.parse_args(argv)
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
-    if a.cmd in {"match", "update", "first-hit"}:
+    if a.cmd in {"match", "update", "first-hit", "search"}:
         import os
         import json
 

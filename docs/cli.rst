@@ -244,6 +244,39 @@ For AIRR reference exports without species metadata, use ``--species any``.
 Calibration then requires ``--control-species human`` or ``mouse``; alternatively
 select ``--no-evalue`` for uncalibrated ranking.
 
+For a fresh raw-input run, use ``--fresh-control``. Human TRB is bundled; other
+loci require ``--control TRA=control.tsv`` or ``--control TRB=control.tsv``.
+Supplied tables explicitly declare junctions from that locus and control species.
+Controls are rebuilt once and their raw hashes/counts enter the manifest; supplied
+mappings must cover every active locus. No persisted search index is reused.
+
+``--exclude-exact`` punctures zero-edit target and control hits before candidate
+reduction in single-chain mode. It preserves reference/control population sizes.
+In paired mode it removes only the exact/exact junction pair; an exact alpha
+with a neighbouring beta, or the reverse, remains evidence. Target counts use
+unique accepted junction pairs, while detailed output preserves accepted source
+observations. Reference pair population sizes remain unchanged.
+
+Paired exclusion reports empirical Cartesian ``n_control_joint = na*nb - za*zb``
+and ``E_raw`` with ``p_poisson_raw``. Here ``na,nb`` count accepted chain controls
+and ``za,zb`` their exact query memberships. Controls must contain unique
+junctions. The reported ``E`` uses a symmetric upper bound from four one-sided
+Clopper–Pearson marginal category bounds, applied at all counts with total failure
+budget ``delta=1e-6``. ``p_enrichment`` is
+``min(1, delta + BinomialSF(n_hits-1, n_reference, p_upper))``; this differs from
+the default paired Poisson calibration. The calibration label is
+``paired_independent_joint_punctured_binomial_bound``. ``rule_of_three`` is false
+for this method; ``finite_control_delta`` identifies its bound budget.
+
+This is model-conditional: the query and search predicate are fixed, marginal
+control categories and target pairs are IID, background chains are independent,
+and controls are independent of targets. Deduplicating raw controls does not
+establish IID sampling. Neither this bound nor its tail guarantees unconditional
+calibration for biological repertoires, estimates natural chain co-occurrence,
+or reports posterior specificity confidence. The manifest records these
+assumptions and the fixed budget. Default paired matching without exclusion
+retains its existing independent-chain Poisson calculation.
+
 ``--verbose`` reports coarse native search stages and per-sample timing/resource
 information. It keeps one native query batch per locus; it does not split the batch
 to render a progress bar.
@@ -271,3 +304,35 @@ Human TRB uses the raw control bundled with seqtree. Other species/loci require
 ``--control`` with a matching raw junction repertoire. Every invocation builds
 fresh target and control indexes and sends one native query batch to each.
 AIRR inputs require ``junction_aa``. Default threads are one.
+
+Sequence batch search
+---------------------
+
+``search`` exposes native amino-acid matching for reproducible graph and scaling
+calculations. It preserves original query/reference row positions, including
+duplicate sequences, and builds a fresh index for one native query batch.
+
+.. code-block:: bash
+
+   vdjmatch search queries.tsv --reference reference.tsv \
+     --sequence-col junction_aa --scope 1,1,1,1 --threads 4 \
+     --same-key-col v_call --output-prefix results/search
+
+Outputs are ``.pairs.tsv``, ``.counts.tsv`` and ``.manifest.json``. Pair rows report
+``query_row``, ``reference_row``, score and available edit counts. ``--counts-only``
+omits pair rows; counts include reference duplicates. ``--same-key-col`` requires
+equal non-null keys in both tables and filters hits before output construction
+and positional rescoring. It does not reduce the native candidate search memory.
+``--exclude-exact`` removes sequence identities. Generic amino-acid columns are
+accepted; this command does not infer receptor locus or CDR3/junction conventions.
+
+``--engine seqtm`` enforces individual substitution/insertion/deletion caps.
+``--engine seqtrie`` uses only the total unit-cost radius and reports null edit
+decomposition. Matrix scoring requires seqtm: choose ``none``, ``vdjam`` or
+``blosum62``. Scores follow the selected matrix's integer cost units.
+``--position-significance`` requires an explicit matrix and zero indel caps;
+it performs one unit-cost candidate search, then vectorized rescoring using the
+existing end-anchored positional model and integer weights
+``max(1, round(100 * significance_weight))``. These weighted scores have different
+units from unweighted matrix scores. The manifest records parameters, model/input
+hashes, counts, software versions and separate build/search/rescoring times.
