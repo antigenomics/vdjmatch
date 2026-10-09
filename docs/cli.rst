@@ -337,63 +337,33 @@ existing end-anchored positional model and integer weights
 units from unweighted matrix scores. The manifest records parameters, model/input
 hashes, counts, software versions and separate build/search/rescoring times.
 
-Graded and ranked annotation
-----------------------------
+Graded neighbourhood annotation
+-------------------------------
 
 ``--search-mode ball`` reports five fixed edit balls (radii 1–5). Unit-cost
 balls share one radius-5 native batch per locus and control. Weighted scoring
 uses one complete query batch per radius: its best alignment can use more edits
 than the minimum-edit alignment, so a broad weighted hit cannot simply be
-filtered into smaller balls. Each ball permits at most two
-insertions/deletions and caps total edits at its radius. Matrix penalties rank
-accepted neighbours. The calls table has one row per retained query and radius;
-it does not select the radius with the smallest P-value. Ball output can be large.
-For paired receptors use ranked mode.
+filtered into smaller balls. Each ball permits at most two insertions/deletions
+and caps total edits at its radius. Matrix penalties rank accepted neighbours.
+No global neighbour-count cap truncates the evidence. The calls table has one
+row per retained query and radius; it does not select the radius with the smallest
+P-value. Ball output can be large and does not include fixed-mode CIGAR strings.
 
 .. code-block:: bash
 
    vdjmatch match queries.tsv --vdjdb reference.zip --search-mode ball \
      --threads 4 --output-prefix results/balls
-   vdjmatch match queries.tsv --vdjdb reference.zip --search-mode ranked \
-     --top-k 10 --threads 4 --output-prefix results/ranked
-   vdjmatch match cells.tsv --vdjdb reference.zip --paired --search-mode ranked \
-     --top-k 5 --threads 4 --output-prefix results/paired
+   vdjmatch match cells.tsv --vdjdb reference.zip --paired --scope 3,1,1,3 \
+     --threads 4 --output-prefix results/paired
 
-Ranked mode scores the complete eligible reference with a native gap-block
-alignment. It retains at most K distinct junctions, or genuine junction pairs,
-then expands their independent observations. A single block accounts for the
-length difference; equal-length junctions are gapless. Allowed block starts are
-3, 4, −4 and −3 (zero based; negative starts relative to the longer sequence).
-Block opening costs twice the selected matrix scale, extension costs one;
-``--matrix none`` uses unit substitution penalties and opening cost two.
-This is a restricted gap-block model, not arbitrary affine alignment.
-No radius shortlist is used, and no dense query-by-reference score matrix is
-allocated. Retained ties are resolved by stable sorted reference sequence keys.
-Ranked/graded modes do not emit the fixed-mode CIGAR. Edit counts in ranked
-output are null because gap-block penalties are not Levenshtein distances.
+Paired receptors currently use fixed mode with an explicit edit scope. Graded
+paired balls require a separately validated joint calibration before use.
+Sequence-only controls cannot calibrate V/J predicates: ball mode rejects
+``--match-v`` and ``--match-j``. Fixed mode accepts those predicates with
+``--no-evalue``. Repertoire-level statistical inference remains future work.
 
-``.global_statistics.txt`` reports the predeclared K, original distinct-reference
-exposure N, number retained, Kth score threshold, empirical expected count
-``E_raw`` and ``p_global``. Singles additionally report control size M and count C
-as ``control_size`` and ``n_control``. The single-chain calibration identifier is
-``finite-sample-rank-v1``; its ``E``, ``p_upper`` and ``finite_control_delta`` are null.
-Paired output retains its finite-control upper bound ``E``. All control
-ties at or below the threshold count; K remains the declared value. Fewer than
-K finite eligible neighbours yield a null threshold and ``p_global=1``.
-Without controls, finite-threshold tests remain null. These are global reference
-statistics. Candidate label scores, margins and support are descriptive;
-their epitope E-value/P-value columns remain null.
-
-The single-chain test uses ``HypergeomSF(K-1, N+M, N, K+C)`` under pooled target/control
-label exchangeability; independent IID samples from the same query-conditioned
-background suffice. Exact exclusion maps identical junctions to infinity in both
-samples, preserving original N and M. It does not drop rows from either exposure.
-Paired scoring uses the worst-chain penalty, so the threshold defines a
-Cartesian intersection; paired controls assume independent chains and retain the
-separate confidence-bound/binomial method. Cartesian pairs share chains and must
-not be treated as independent controls in the single-chain rank test.
-Deduplicated biological data do not establish these assumptions. Exact-pair
-exclusion removes only the joint exact/exact corner and preserves original N.
-Selecting K, a radius or a locus after inspecting results is outside the test.
-Sequence-only controls cannot calibrate V/J predicates: graded/ranked modes
-reject ``--match-v`` and ``--match-j``.
+The experimental fixed-K annotation mode and ``--top-k`` option have been
+removed from the CLI and sample runner. The lower-level
+``Annotator.ranked_candidates`` research API remains available for reproducing
+historical diagnostics; it is not the production annotation workflow.

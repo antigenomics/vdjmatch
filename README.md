@@ -184,7 +184,6 @@ vdjmatch match --input-format airr --threads 1 -o results/run sample.tsv
 vdjmatch match --vdjdb reference.zip --no-evalue -o results/offline sample.tsv
 vdjmatch match --vdjdb reference.zip --paired --link cell_id -o results/cells cells.tsv
 vdjmatch match --vdjdb reference.zip --search-mode ball -o results/balls sample.tsv
-vdjmatch match --vdjdb reference.zip --search-mode ranked --top-k 10 -o results/ranked sample.tsv
 ```
 
 CLI matching requests calibration by default; `--no-evalue` selects uncalibrated

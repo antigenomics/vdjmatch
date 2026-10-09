@@ -22,6 +22,18 @@ def _genefam(col: pl.Expr) -> pl.Expr:
     return col.str.replace(r"\*.*$", "").str.replace(r"/.*$", "")
 
 
+def _search_unique_junctions(index, junctions, params, threads):
+    """Search each distinct junction once; expand read-only hit lists to query order.
+
+    Query V/J calls, counts and pairing affect later evidence, not sequence search.
+    Shared inner hit lists must not be mutated by callers. Nothing persists across calls.
+    """
+    keys = list(dict.fromkeys(junctions))
+    results = index.search_batch(keys, params, threads)
+    by_junction = dict(zip(keys, results))
+    return [by_junction[junction] for junction in junctions]
+
+
 class VdjdbIndex:
     """Explicitly owned reference index; unique junction search keys, independent records retained."""
 
@@ -127,7 +139,7 @@ class VdjdbIndex:
     ) -> pl.DataFrame:
         """Long hit evidence, preserving query_id/locus and all reference metadata.
 
-        Search is one native batch even with progress enabled. ``threads`` controls seqtree;
+        Search is one native batch of distinct junctions even with progress enabled. ``threads`` controls seqtree;
         Polars performs sequential post-search stages in its existing process-wide pool.
         ``chunk`` is retained for signature compatibility; it does not split native search.
         ``exclude_exact`` removes zero-edit hits before alignment and observation expansion.
@@ -174,7 +186,7 @@ class VdjdbIndex:
             )
         query_junctions = q["cdr3"].to_list()
         reference_junctions = uc["cdr3"].to_list() if exclude_exact else None
-        res = idx.search_batch(query_junctions, params, threads)
+        res = _search_unique_junctions(idx, query_junctions, params, threads)
         if progress:
             print(f"{gene}: native search complete", file=sys.stderr)
         flat = [

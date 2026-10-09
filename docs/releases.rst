@@ -59,17 +59,21 @@ counts-only output, same-key filtering and vectorized positional matrix scores.
 Its manifest separates native build/search and positional rescoring times.
 Repertoire-level statistical inference remains future work.
 
-Graded edit balls and exhaustive ranked alignment
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Graded neighbourhood annotation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``match --search-mode ball`` exposes fixed radii1–5. Unit-cost balls share
-one minimum-edit search; weighted balls use a complete batch per radius.
-``--search-mode ranked --top-k 5|10`` scores every eligible unique reference
-key with a native restricted gap-block scorer and bounded top-K storage.
-Genuine paired keys use the worst-chain penalty for selection. A separate
-global fixed-K test counts all control ties and preserves original exposure under
-exact exclusion. Single chains use an exact finite-sample hypergeometric rank test;
-paired chains retain the independent-marginal CP/binomial construction.
-Per-pMHC candidate ranks are descriptive; label P-values remain null.
-These modes require the seqtree1.0.2 candidate APIs; dependency publication
-is a release prerequisite. Existing fixed-mode behavior remains available.
+``match --search-mode ball`` exposes fixed radii 1–5 without a global neighbour
+cap. Unit-cost balls share one minimum-edit search; weighted balls use a complete
+batch per radius. Fixed paired annotation retains its explicit joint control
+calibration. Existing fixed-mode behaviour remains available.
+
+The experimental fixed-K CLI/sample-runner mode and ``--top-k`` argument were
+removed before publication. Historical ranked research APIs remain available for
+reproducing earlier diagnostics. Their calibration and label ranks must not be
+presented as the production neighbourhood scorer. Publishing seqtree 1.0.2
+remains a dependency prerequisite for the pending release.
+
+Repeated query junctions are searched once within each native batch, including
+single-chain and paired marginal controls. Hits are expanded back to every query
+row before evidence reduction, preserving distinct V/J calls, counts and pairing.
+No computed search results are persisted between runs.

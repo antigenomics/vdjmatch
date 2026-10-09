@@ -105,11 +105,10 @@ def _cmd_match(a: argparse.Namespace) -> int:
     annotate_sample = __getattr__("annotate_sample")
     p = _resolve_params(a)
     search_mode = getattr(a, "search_mode", "fixed")
-    top_k = getattr(a, "top_k", 10)
     paired = getattr(a, "paired", False)
     if search_mode != "fixed":
         if p.scope != "1,0,0,1":
-            raise ValueError("--scope applies to fixed mode; ball/ranked modes define their own search")
+            raise ValueError("--scope applies to fixed mode; ball mode defines its own search")
         p.align = False
     raw_paths = {}
     supplied_controls = getattr(a, "control", None) or []
@@ -203,7 +202,6 @@ def _cmd_match(a: argparse.Namespace) -> int:
             control=controls,
             exclude_exact=getattr(a, "exclude_exact", False),
             search_mode=search_mode,
-            top_k=top_k,
         )
         for kind, frame in res.items():
             _flat_table(frame).write_csv(
@@ -221,22 +219,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "control_species": control_species,
             "controls": control_provenance,
             "search_mode": search_mode,
-            "top_k": top_k if search_mode == "ranked" else None,
             "radii": list(range(1, 6)) if search_mode == "ball" else None,
-            "ranked_model": {
-                "method": "full_reference_fixed_k_gapblock",
-                "gap_positions": [3, 4, -4, -3],
-                "gap_open": 2 * matrix.scale() if matrix else 2,
-                "gap_extend": 1,
-                "ranking_temperature": 400.0 if matrix else 1.0,
-                "paired_selection": "max_chain_penalty",
-                "calibration": ("global_order_statistic_cp_plus_binomial" if paired
-                                else "finite-sample-rank-v1") if p.evalue else "uncalibrated",
-                "delta": 1e-6 if p.evalue and paired else None,
-                "assumptions": ("fixed K and score; IID target pairs and independent marginal controls; independent background chains"
-                                if paired else "fixed external query, K and score; pooled target/control label exchangeability; identical exact exclusion; original target/control exposures"),
-                "epitope_calibration": "none",
-            } if search_mode == "ranked" else None,
             "ball_model": {
                 "max_radius": 5,
                 "max_insertions": 2,
@@ -499,10 +482,8 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument(
         "--paired", action="store_true", help="read linked TRA/TRB cell rows"
     )
-    m.add_argument("--search-mode", choices=["fixed", "ball", "ranked"], default="fixed",
-                   help="fixed scope, five graded edit balls, or global gap-block top-K")
-    m.add_argument("--top-k", type=int, choices=[5, 10], default=10,
-                   help="predeclared neighbour count for ranked mode (default: 10)")
+    m.add_argument("--search-mode", choices=["fixed", "ball"], default="fixed",
+                   help="fixed scope or five graded edit balls (radii 1–5)")
     m.add_argument("--link", default=None, help="cell linkage column for --paired")
     m.add_argument(
         "--pin", default=None, help="pin a specific VDJdb release tag (default: latest)"
