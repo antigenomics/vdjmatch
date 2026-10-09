@@ -77,3 +77,9 @@ Repeated query junctions are searched once within each native batch, including
 single-chain and paired marginal controls. Hits are expanded back to every query
 row before evidence reduction, preserving distinct V/J calls, counts and pairing.
 No computed search results are persisted between runs.
+
+V-gene matching and germline model lookup preserve legitimate IMGT slash-containing
+names (for example TRAV23/DV6 and TRBV24/OR9-2) while stripping allele suffixes.
+These names must not be treated as decorations or collapsed to a different gene.
+Historical benchmark exports that stripped slash suffixes retain their original
+provenance and require explicit reconciliation before a fresh scientific comparison.
