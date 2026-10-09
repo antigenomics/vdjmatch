@@ -38,8 +38,6 @@ def annotate_sample(
     """
     if search_mode not in {"fixed", "ball"}:
         raise ValueError("search_mode must be fixed or ball")
-    if search_mode != "fixed" and (match_v or match_j):
-        raise ValueError("graded balls use sequence-only predicates; filter the reference explicitly")
     if search_mode == "ball" and paired:
         raise ValueError("paired graded balls are not supported; use fixed mode with an explicit scope")
     ann = Annotator(index)
@@ -99,7 +97,7 @@ def annotate_sample(
         hits, c = ann.graded_candidates(
             queries, threads=threads, matrix=matrix, control=control,
             calibrate=with_evalue, species=species, exclude_exact=exclude_exact,
-            return_hits=True,
+            return_hits=True, match_v=match_v, match_j=match_j,
         )
         calls = pl.concat([
             _append_calls(queries, queries, c.filter(pl.col("radius") == radius),

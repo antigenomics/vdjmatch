@@ -270,12 +270,14 @@ class Annotator:
     def graded_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
                           threads=1, control=None, calibrate=False, species=None,
                           matrix=None, sequence_convention=None, exclude_exact=False,
-                          return_hits=False):
+                          return_hits=False, match_v=False, match_j=False):
         """Five fixed edit balls with radius-constrained weighted rankings.
 
         Unit-cost balls share one minimum-edit search. Weighted search may choose
         a cheaper alignment with more edits, so each weighted radius is searched
         in one complete query batch. No best-radius P-value is selected.
+        Hard V/J predicates are supported for uncalibrated ranking; sequence-only
+        controls cannot calibrate these predicates and are rejected.
         """
         _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
         gap = DEFAULT_SCALE if matrix is not None else 1
@@ -284,7 +286,7 @@ class Annotator:
             h, c = self._evidence(q, sp, threads=threads, control=control,
                                   calibrate=calibrate, species=species,
                                   score_scale=1.0, exclude_exact=exclude_exact,
-                                  radii=range(1, 6))
+                                  radii=range(1, 6), match_v=match_v, match_j=match_j)
             h = h.with_columns((pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") +
                                 pl.col("n_dels")).alias("minimum_radius"))
         else:
@@ -294,7 +296,8 @@ class Annotator:
                                    matrix=matrix, gap_open=gap, gap_extend=gap)
                 rh, rc = self._evidence(q, sp, threads=threads, control=control,
                                        calibrate=calibrate, species=species,
-                                       score_scale=400.0, exclude_exact=exclude_exact)
+                                       score_scale=400.0, exclude_exact=exclude_exact,
+                                       match_v=match_v, match_j=match_j)
                 hs.append(rh.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius")))
                 cs.append(rc.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius")))
             h, c = pl.concat(hs, how="diagonal_relaxed"), pl.concat(cs, how="diagonal_relaxed")

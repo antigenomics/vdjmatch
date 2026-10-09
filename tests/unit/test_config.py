@@ -38,6 +38,23 @@ def test_cli_fresh_raw_control_and_exact_exclusion(tmp_path):
     assert "ranked_model" not in manifest and "top_k" not in manifest
 
 
+def test_cli_graded_hard_v_filters_and_remains_uncalibrated(tmp_path):
+    reference, query = (tmp_path / name for name in ("reference.tsv", "query.tsv"))
+    pl.DataFrame({"cdr3": ["CASSF", "CASRF"], "gene": ["TRB"] * 2,
+                  "v.segm": ["TRBV19", "TRBV5-1"], "species": ["HomoSapiens"] * 2,
+                  "antigen.epitope": ["E"] * 2}).write_csv(reference, separator="\t")
+    pl.DataFrame({"sequence_id": ["input"], "junction_aa": ["CASSF"],
+                  "v_call": ["TRBV19*01"], "locus": ["TRB"]}).write_csv(query, separator="\t")
+    arguments = ["match", str(query), "--vdjdb", str(reference), "--search-mode", "ball",
+                 "--match-v", "--no-evalue", "--no-align", "-o", str(tmp_path / "out")]
+    assert cli.main(arguments) == 0
+    candidates = pl.read_csv(tmp_path / "out.query.candidates.txt", separator="\t")
+    assert candidates["n_clonotypes"].to_list() == [1] * 5
+    assert candidates["n_reference"].to_list() == [1] * 5
+    assert candidates["calibration"].to_list() == ["uncalibrated"] * 5
+    assert candidates["p_enrichment"].null_count() == 5
+
+
 
 # --- Params dataclass round-trip ---
 def test_params_defaults():
