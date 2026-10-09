@@ -29,13 +29,14 @@ def test_cli_fresh_raw_control_and_exact_exclusion(tmp_path):
     assert manifest["controls"]["TRB"]["source_rows"] == 2
     with pytest.raises(SystemExit):
         cli.main(arguments + ["--control", f"TRB={control}"])
-    assert cli.main(arguments + ["--search-mode", "ranked", "-o", str(tmp_path / "ranked")]) == 0
-    manifest = json.loads((tmp_path / "ranked.query.manifest.json").read_text())
-    assert manifest["ranked_model"]["calibration"] == "finite-sample-rank-v1"
-    assert manifest["ranked_model"]["delta"] is None
-    stats = pl.read_csv(tmp_path / "ranked.query.global_statistics.txt", separator="\t")
-    assert stats["calibration"].to_list() == ["finite-sample-rank-v1"]
-    assert stats["control_size"].to_list() == [2]
+    for flags in (["--search-mode", "ranked"], ["--top-k", "10"]):
+        with pytest.raises(SystemExit):
+            cli.main(arguments + flags)
+    assert cli.main(arguments + ["--search-mode", "ball", "-o", str(tmp_path / "ball")]) == 0
+    manifest = json.loads((tmp_path / "ball.query.manifest.json").read_text())
+    assert manifest["radii"] == [1, 2, 3, 4, 5]
+    assert "ranked_model" not in manifest and "top_k" not in manifest
+
 
 
 # --- Params dataclass round-trip ---
@@ -69,7 +70,7 @@ def _ns(**kw):
     return argparse.Namespace(**base)
 
 
-@pytest.mark.parametrize("mode", ["ball", "ranked"])
+@pytest.mark.parametrize("mode", ["ball"])
 def test_nonfixed_mode_rejects_custom_scope(mode):
     with pytest.raises(ValueError, match="scope applies to fixed"):
         cli._cmd_match(_ns(search_mode=mode, scope="2,0,0,2"))
