@@ -143,6 +143,29 @@ class Annotator:
     def loci(self):
         return self._index.genes
 
+    def _control_species(self, loci, species):
+        from .evalue.control import _organism
+
+        reference = self._index.reference.filter(pl.col("gene").is_in(loci))
+        observed = (
+            reference["species"].cast(pl.String).str.strip_chars().replace("", None)
+        )
+        known = {_organism(s) for s in observed.drop_nulls().unique()}
+        if len(known) > 1:
+            raise ValueError(
+                "automatic calibration requires a single reference species"
+            )
+        if species is not None:
+            organism = _organism(species)
+            if known and organism not in known:
+                raise ValueError("control species does not match reference species")
+            return organism
+        if not known or observed.null_count():
+            raise ValueError(
+                "reference species is missing; supply an explicit control species"
+            )
+        return next(iter(known))
+
     def _evidence(
         self,
         q,
@@ -155,7 +178,7 @@ class Annotator:
         progress=False,
         control=None,
         calibrate=False,
-        species="human",
+        species=None,
         score_scale=400.0,
         soft_v=True,
     ):
@@ -171,6 +194,15 @@ class Annotator:
             raise ValueError(
                 "V/J-restricted calibration requires V/J-labelled controls; sequence-only controls cannot apply that predicate"
             )
+        active = sorted(set(self.loci) & set(q["locus"].drop_nulls()))
+        if isinstance(control, dict) and any(
+            control.get(gene) is None for gene in active
+        ):
+            raise ValueError(
+                "calibration requires a supplied control for every active locus"
+            )
+        if calibrate and control is None and active:
+            species = self._control_species(active, species)
         hs, cs = [], []
         for gene in self.loci:
             gq = q.filter(pl.col("locus") == gene)
@@ -275,7 +307,7 @@ class Annotator:
         match_j=False,
         control=None,
         calibrate=False,
-        species="human",
+        species=None,
         score_scale=400.0,
         soft_v=True,
         sequence_convention=None,
@@ -325,7 +357,7 @@ class Annotator:
         match_j=False,
         control=None,
         calibrate=False,
-        species="human",
+        species=None,
         score_scale=400.0,
         soft_v=True,
         sequence_convention=None,
@@ -370,7 +402,7 @@ class Annotator:
         threads=1,
         control=None,
         calibrate=False,
-        species="human",
+        species=None,
         align=False,
         score_scale=400.0,
         return_hits=False,
@@ -394,6 +426,13 @@ class Annotator:
         if not math.isfinite(score_scale) or score_scale <= 0:
             raise ValueError("score_scale must be finite and positive")
         build_paired_ref(self._index.reference)
+        if control is not None and (
+            not isinstance(control, dict)
+            or any(control.get(chain) is None for chain in ("TRA", "TRB"))
+        ):
+            raise ValueError("paired calibration requires both TRA and TRB controls")
+        if calibrate and control is None:
+            species = self._control_species(["TRA", "TRB"], species)
         paired_controls = {}
         for chain in ("TRA", "TRB"):
             ctrl = control.get(chain) if isinstance(control, dict) else None
@@ -401,10 +440,6 @@ class Annotator:
                 from .evalue.control import background
 
                 ctrl = background(chain, species)
-            if control is not None and ctrl is None:
-                raise ValueError(
-                    "paired calibration requires both TRA and TRB controls"
-                )
             if ctrl is not None and not len(ctrl):
                 raise ValueError("control index is empty")
             paired_controls[chain] = ctrl
@@ -590,7 +625,7 @@ class Annotator:
         threads=1,
         control=None,
         calibrate=False,
-        species="human",
+        species=None,
         align=False,
         score_scale=400.0,
     ):

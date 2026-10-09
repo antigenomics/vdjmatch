@@ -247,3 +247,27 @@ select ``--no-evalue`` for uncalibrated ranking.
 ``--verbose`` reports coarse native search stages and per-sample timing/resource
 information. It keeps one native query batch per locus; it does not split the batch
 to render a progress bar.
+
+Global first-hit calibration
+----------------------------
+
+``first-hit`` exposes the existing adaptive first-hit calculation against the
+whole selected reference. It reports enrichment relative to a raw control;
+this is distinct from peptide–MHC specificity confidence.
+
+.. code-block:: bash
+
+   vdjmatch first-hit sample.tsv --vdjdb vdjdb.txt --locus TRB \
+     --scope 5,2,2,5 --min-refs 2 --exclude-exact --threads 4 \
+     --output-prefix results/first_hit
+
+The command writes ``.evidence.tsv`` with one row per original query, including
+invalid and no-hit rows, and ``.manifest.json`` with input hashes, software
+versions, selection counts and resources. Target/control counts use unique
+junctions; query identity and abundance remain separate. ``--min-refs`` selects
+reference clonotype/epitope combinations supported by distinct studies.
+
+Human TRB uses the raw control bundled with seqtree. Other species/loci require
+``--control`` with a matching raw junction repertoire. Every invocation builds
+fresh target and control indexes and sends one native query batch to each.
+AIRR inputs require ``junction_aa``. Default threads are one.

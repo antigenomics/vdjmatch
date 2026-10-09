@@ -3,6 +3,7 @@
 Subcommands:
   update     fetch/cache the latest VDJdb release
   match      annotate query sample(s) against VDJdb (E-values + ranked hits + epitope summary)
+  first-hit  global first-hit control calibration
   precursor  T-cell precursor frequency and unseen-junction diversity for a set of TCRs
 
 ``match`` writes hit, candidate, call, descriptive summary and ingestion TSV tables,
@@ -341,9 +342,9 @@ def _cmd_precursor(a: argparse.Namespace) -> int:
 
 _EXAMPLES = """\
 examples:
-  vdjmatch update                                  # cache the latest VDJdb (slim)
+  vdjmatch update                                  # cache the latest VDJdb primary/legacy reference
   vdjmatch match sample.tsv                         # annotate one AIRR sample, default reference
-  vdjmatch match -o run/out --match-v *.tsv         # match V gene too, write under run/
+  vdjmatch match -o run/out --match-v --no-evalue *.tsv         # match V gene too, write under run/
   vdjmatch match --scope 2,1,1,2 --threads 8 s.tsv  # wider search budget, 8 threads
   vdjmatch precursor --vdjdb -o pre.txt             # precursor frequency per VDJdb epitope
   vdjmatch precursor tcrs.tsv --group-by epitope    # ... or for your own grouped TCR table
@@ -658,11 +659,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     pc.set_defaults(func=_cmd_precursor)
 
+    from .first_hit import register
+
+    register(sub)
+
     a = p.parse_args(argv)
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
-    if a.cmd in {"match", "update"}:
+    if a.cmd in {"match", "update", "first-hit"}:
         import os
         import json
 

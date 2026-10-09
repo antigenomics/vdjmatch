@@ -16,6 +16,21 @@ _CONTROL = {
 }
 
 
+def _organism(species: str) -> str:
+    aliases = {
+        "human": "human",
+        "homosapiens": "human",
+        "homo sapiens": "human",
+        "mouse": "mouse",
+        "musmusculus": "mouse",
+        "mus musculus": "mouse",
+    }
+    organism = aliases.get(str(species).strip().lower())
+    if organism is None:
+        raise ValueError(f"no control for species={species!r}")
+    return organism
+
+
 def background(
     locus: str = "TRB",
     species: str = "human",
@@ -26,16 +41,8 @@ def background(
 
     Bundled: human TRB. Others (human TRA, mouse TRA/TRB) download via ``seqtree[control]``.
     """
-    aliases = {
-        "human": "human",
-        "homosapiens": "human",
-        "homo sapiens": "human",
-        "mouse": "mouse",
-        "musmusculus": "mouse",
-        "mus musculus": "mouse",
-    }
-    organism = aliases.get(str(species).lower())
-    name = _CONTROL.get(f"{organism}:{locus}") if organism else None
+    organism = _organism(species)
+    name = _CONTROL.get(f"{organism}:{locus}")
     if name is None:
         raise ValueError(f"no control for locus={locus!r} species={species!r}")
     return load_control(name, size=size, cache_dir=cache_dir)

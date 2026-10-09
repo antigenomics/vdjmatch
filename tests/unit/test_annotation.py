@@ -351,3 +351,84 @@ def test_hf_asset_forwarded_and_native_progress(monkeypatch, capsys):
     assert seen["asset"] == "slim" and seen["tag"] == "tag"
     Annotator.from_frame(reference()).hits(["CASSF"], progress=True)
     assert "one native batch" in capsys.readouterr().err
+
+
+def test_standard_calibration_resolves_reference_species(monkeypatch):
+    import pytest
+    from vdjmatch.evalue import control as controls
+
+    requests = []
+    monkeypatch.setattr(
+        controls,
+        "background",
+        lambda locus, species: (
+            requests.append((locus, species)) or Index.build(["CASSF", "CAVVF"], "aa")
+        ),
+    )
+    mouse = reference().with_columns(pl.lit("MusMusculus").alias("species"))
+    ann = Annotator.from_frame(mouse)
+    ann.annotate(["CASSF"], scope="0", calibrate=True)
+    assert requests == [("TRB", "mouse")]
+    with pytest.raises(ValueError, match="does not match"):
+        ann.candidates(["CASSF"], scope="0", calibrate=True, species="human")
+    mixed = mouse.with_columns(
+        pl.Series("species", ["MusMusculus", "HomoSapiens", "MusMusculus"])
+    )
+    with pytest.raises(ValueError, match="single reference species"):
+        Annotator.from_frame(mixed).annotate(["CASSF"], calibrate=True, species="human")
+    unknown = Annotator.from_frame(reference().drop("species"))
+    with pytest.raises(ValueError, match="explicit control species"):
+        unknown.annotate(["CASSF"], calibrate=True)
+    unknown.annotate(["CASSF"], scope="0", calibrate=True, species="human")
+    assert requests[-1] == ("TRB", "human")
+    other_locus = (
+        reference()
+        .head(1)
+        .with_columns(
+            pl.lit("TRA").alias("gene"),
+            pl.lit("CAVVF").alias("cdr3"),
+            pl.lit("alpha").alias("record_id"),
+        )
+    )
+    Annotator.from_frame(pl.concat([mouse, other_locus])).annotate(
+        ["CASSF"],
+        scope="0",
+        calibrate=True,
+    )
+    assert requests[-1] == ("TRB", "mouse")
+    # Supplied custom controls have no encoded organism and remain caller-owned.
+    unknown.annotate(["CASSF"], scope="0", control=Index.build(["CASSF"], "aa"))
+
+    paired = Annotator.from_frame(
+        _paired_detail_reference().with_columns(pl.lit("MusMusculus").alias("species"))
+    )
+    q = pl.DataFrame({"cdr3_alpha_aa": ["CAVVF"], "cdr3_beta_aa": ["CASSF"]})
+    requests.clear()
+    paired.annotate_paired(q, scope="0", calibrate=True)
+    assert requests == [("TRA", "mouse"), ("TRB", "mouse")]
+    with pytest.raises(ValueError, match="does not match"):
+        paired.paired_candidates(q, calibrate=True, species="human")
+    with pytest.raises(ValueError, match="explicit control species"):
+        Annotator.from_frame(_paired_detail_reference()).paired_candidates(
+            q, calibrate=True
+        )
+
+
+def test_explicit_control_mappings_require_active_loci(monkeypatch):
+    import pytest
+    from vdjmatch.evalue import control as controls
+
+    def unexpected(*args):
+        raise AssertionError("incomplete explicit mapping must not fetch controls")
+
+    monkeypatch.setattr(controls, "background", unexpected)
+    ann = Annotator.from_frame(reference())
+    ctrl = Index.build(["CASSF"], "aa")
+    for calibrate in (False, True):
+        for supplied in ({}, {"TRA": ctrl}):
+            with pytest.raises(ValueError, match="every active locus"):
+                ann.annotate(["CASSF"], control=supplied, calibrate=calibrate)
+        paired = Annotator.from_frame(_paired_detail_reference())
+        q = pl.DataFrame({"cdr3_alpha_aa": ["CAVVF"], "cdr3_beta_aa": ["CASSF"]})
+        with pytest.raises(ValueError, match="both TRA and TRB"):
+            paired.paired_candidates(q, control={"TRB": ctrl}, calibrate=calibrate)

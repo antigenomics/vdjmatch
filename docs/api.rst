@@ -8,6 +8,11 @@ The public API is re-exported from the top-level :mod:`vdjmatch` package —
 :class:`vdjmatch.api.Annotator` and the module-level :func:`vdjmatch.annotate` shortcut. The
 submodules below expose the building blocks (VDJdb access, the search index, E-values, I/O).
 
+Automatic calibration derives the background organism from the queried reference loci;
+mixed species or an explicit mismatch raises an error, and missing metadata requires
+``species="human"`` or ``species="mouse"``. Supplied control mappings must cover every
+active locus (both TRA and TRB for paired queries); their organism is caller-owned.
+
 vdjmatch.api
 ------------
 
