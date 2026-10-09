@@ -32,9 +32,9 @@ Compatibility and limits
 CLI output now includes hits, candidates, calls, descriptive summaries, ingestion
 diagnostics and a run manifest. Calls preserve input rows; exact ranking ties
 abstain. Default search threads are one. Samples run sequentially and native
-search uses one batch per locus. VDJAM is the CLI/API default scoring matrix.
+search uses complete query batches per locus. VDJAM is the CLI/API default scoring matrix.
 
-Requires ``seqtree>=1.0.1``, ``vdjtools>=5.0.0``, ``polars>=1.41.2,<2`` and
+Requires ``seqtree>=1.0.2``, ``vdjtools>=5.0.0``, ``polars>=1.41.2,<2`` and
 ``scipy>=1.9`` for exact finite-control bounds and binomial tails.
 HF benchmark snapshots are explicit, separate from GitHub release resolution.
 Hard V/J calibration requires metadata-aware controls and fails explicitly.
@@ -58,3 +58,17 @@ and repeated normalization; conflicting links fail explicitly.
 counts-only output, same-key filtering and vectorized positional matrix scores.
 Its manifest separates native build/search and positional rescoring times.
 Repertoire-level statistical inference remains future work.
+
+Graded edit balls and exhaustive ranked alignment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``match --search-mode ball`` exposes fixed radii1–5. Unit-cost balls share
+one minimum-edit search; weighted balls use a complete batch per radius.
+``--search-mode ranked --top-k 5|10`` scores every eligible unique reference
+key with a native restricted gap-block scorer and bounded top-K storage.
+Genuine paired keys use the worst-chain penalty for selection. A separate
+global fixed-K order-statistic test counts all control ties, uses finite-control
+CP bounds and preserves original reference exposure under exact exclusion.
+Per-pMHC candidate ranks are descriptive; label P-values remain null.
+These modes require the seqtree1.0.2 candidate APIs; dependency publication
+is a release prerequisite. Existing fixed-mode behavior remains available.

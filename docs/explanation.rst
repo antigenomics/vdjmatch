@@ -154,3 +154,24 @@ from query annotation and background-match calibration.
 For paired finite controls, each zero-neighbour chain uses the existing rule-of-three
 upper bound ``min(1, 3/M)``. Capping at one matters for tiny controls and prevents
 pseudo-counts larger than the control size. Both paired implementations share this bound.
+
+Global fixed-K statistics
+-------------------------
+
+For a fixed query, score rule and predeclared K, let T be the Kth-smallest
+distinct-reference score and N the original reference exposure. Under an IID
+background score CDF F, the null CDF of this order statistic is
+``BinomialSF(K-1, N, F(T))``. This remains conservative for discrete score ties.
+An independent control of size M supplies C scores at or below T. The one-sided
+Clopper–Pearson upper bound U uses failure budget δ=10⁻⁶; the reported test is
+``min(1, δ + BinomialSF(K-1, N, U))``. Conditioning on target-selected T leaves
+the independent control unchanged, so a pointwise bound suffices. This is the
+confidence-set/failure-budget construction applied to a global order statistic,
+not the fixed-ball plug-in Poisson statistic.
+
+For paired score ``max(score_A, score_B)``, the same construction uses marginal
+control bounds for the Cartesian intersection. Exact/exact exclusion reuses the
+four-category bound described above; without exclusion two marginal CP bounds
+share δ equally. An additive paired score threshold cannot use this rectangle.
+Global enrichment is separate from per-pMHC ranking; it is not the probability
+that the winning epitope assignment is correct.

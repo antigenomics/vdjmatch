@@ -62,6 +62,12 @@ def _ns(**kw):
     return argparse.Namespace(**base)
 
 
+@pytest.mark.parametrize("mode", ["ball", "ranked"])
+def test_nonfixed_mode_rejects_custom_scope(mode):
+    with pytest.raises(ValueError, match="scope applies to fixed"):
+        cli._cmd_match(_ns(search_mode=mode, scope="2,0,0,2"))
+
+
 def test_resolve_params_no_config_no_flags_is_defaults():
     assert cli._resolve_params(_ns()) == Params.defaults()
 
