@@ -4,7 +4,7 @@ K is declared before search. T is the Kth distinct-key score; control counts
 include every score <= T, including ties. These tests do not calibrate labels.
 """
 
-from scipy.stats import beta, binom
+from scipy.stats import beta, binom, hypergeom
 
 from .paired import PAIRED_BOUND_DELTA, _joint_punctured_results
 
@@ -26,22 +26,25 @@ def _validate(k, n, counts):
 
 
 def order_statistic(k, n, nc, m):
-    """Confidence-bound plus binomial CDF for a predeclared Kth-neighbour score.
+    """Exact stopping-rank tail under pooled target/control label exchangeability.
 
-    Conditional on the target-selected finite threshold, independent IID controls
-    give a pointwise CP upper bound. Adding its failure budget bounds the global
-    order-statistic P-value under IID target scores from the same background.
-    Deduplicating biological reference/control sequences does not establish IID.
+    With no ties, nc controls precede the Kth target iff at least K target labels
+    occur in the first K+nc pooled ranks. Counting every control tie makes this
+    discrete tail conservative. Apply identical exact-to-infinity exclusion to
+    both samples, retaining their original exposures; fewer K finite targets
+    have no finite threshold and must be handled by the caller with P=1.
+    Query-conditioned IID sampling suffices, but biological deduplication does
+    not establish exchangeability. E_raw is descriptive, not a confidence bound.
     """
     _validate(k, n, [(nc, m)])
-    delta = PAIRED_BOUND_DELTA
-    upper = _upper(nc, m, delta)
     return {
-        "p_upper": upper,
+        "n_control": nc,
+        "control_size": m,
+        "p_upper": None,
         "E_raw": n * nc / m,
-        "E": n * upper,
-        "p_global": min(1.0, delta + float(binom.sf(k - 1, n, upper))),
-        "finite_control_delta": delta,
+        "E": None,
+        "p_global": float(hypergeom.sf(k - 1, n + m, n, k + nc)),
+        "finite_control_delta": None,
     }
 
 

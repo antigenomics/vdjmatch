@@ -29,6 +29,13 @@ def test_cli_fresh_raw_control_and_exact_exclusion(tmp_path):
     assert manifest["controls"]["TRB"]["source_rows"] == 2
     with pytest.raises(SystemExit):
         cli.main(arguments + ["--control", f"TRB={control}"])
+    assert cli.main(arguments + ["--search-mode", "ranked", "-o", str(tmp_path / "ranked")]) == 0
+    manifest = json.loads((tmp_path / "ranked.query.manifest.json").read_text())
+    assert manifest["ranked_model"]["calibration"] == "finite-sample-rank-v1"
+    assert manifest["ranked_model"]["delta"] is None
+    stats = pl.read_csv(tmp_path / "ranked.query.global_statistics.txt", separator="\t")
+    assert stats["calibration"].to_list() == ["finite-sample-rank-v1"]
+    assert stats["control_size"].to_list() == [2]
 
 
 # --- Params dataclass round-trip ---

@@ -158,20 +158,32 @@ pseudo-counts larger than the control size. Both paired implementations share th
 Global fixed-K statistics
 -------------------------
 
-For a fixed query, score rule and predeclared K, let T be the Kth-smallest
-distinct-reference score and N the original reference exposure. Under an IID
-background score CDF F, the null CDF of this order statistic is
-``BinomialSF(K-1, N, F(T))``. This remains conservative for discrete score ties.
-An independent control of size M supplies C scores at or below T. The one-sided
-Clopper–Pearson upper bound U uses failure budget δ=10⁻⁶; the reported test is
-``min(1, δ + BinomialSF(K-1, N, U))``. Conditioning on target-selected T leaves
-the independent control unchanged, so a pointwise bound suffices. This is the
-confidence-set/failure-budget construction applied to a global order statistic,
-not the fixed-ball plug-in Poisson statistic.
+For a fixed external query, score rule and predeclared K, let T be the Kth-smallest
+distinct-reference score, N the original reference exposure, M the original control
+size, and C the number of controls scoring at or below T, including every tie.
+Single-chain ``finite-sample-rank-v1`` reports
+``HypergeomSF(K-1, N+M, N, K+C)``. Under pooled target/control label exchangeability,
+the N target labels occupy a uniform subset of the pooled score ranks. With no
+ties, at most C controls precede the Kth target exactly when at least K target
+labels occupy the first K+C ranks. The tail is therefore an exact finite-sample
+stopping-rank test; counting all control ties makes it conservative.
 
-For paired score ``max(score_A, score_B)``, the same construction uses marginal
-control bounds for the Cartesian intersection. Exact/exact exclusion reuses the
+Identical junctions are assigned infinite scores in both samples when exact
+exclusion is requested. N and M retain those rows; fewer than K finite targets
+yield P=1. Query-conditioned IID draws from the same background suffice for the
+null, but biological deduplication and query selection do not establish it.
+The empirical expected count ``E_raw=N*C/M`` is descriptive. This test has no
+Clopper–Pearson confidence bound or failure budget; ``E``, ``p_upper`` and
+``finite_control_delta`` are null.
+
+For paired score ``max(score_A, score_B)``, the existing confidence-bound construction
+uses marginal control bounds for the Cartesian intersection and reports
+``min(1, delta + BinomialSF(K-1, N, U))``, with delta=10⁻⁶ and U the marginal-bound
+product (or punctured joint bound). Exact/exact exclusion reuses the
 four-category bound described above; without exclusion two marginal CP bounds
 share δ equally. An additive paired score threshold cannot use this rectangle.
+Cartesian control pairs share chains and cannot be counted as independent
+observations in the single-chain rank test. Paired assumptions and calibration
+remain separate and unchanged.
 Global enrichment is separate from per-pMHC ranking; it is not the probability
 that the winning epitope assignment is correct.
