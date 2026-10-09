@@ -434,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
         "-v",
         "--verbose",
         action="store_true",
-        help="show a per-sample progress bar and print wall time / queries-per-s / peak RSS",
+        help="show native search stages and print per-sample time / queries-per-s / peak RSS",
     )
     for selector in (
         "epitope",

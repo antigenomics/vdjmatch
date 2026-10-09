@@ -13,10 +13,14 @@ PARAMS = search_params("0,0,0,0")
 
 
 def observations(ids=("R1", "R2"), epitopes=("Z", "A")):
-    return pl.DataFrame({"complex_id": [cid for cid in ids for _ in range(2)],
-                         "gene": ["TRA", "TRB"] * len(ids),
-                         "cdr3": ["CAVF", "CASSF"] * len(ids),
-                         "epitope": [e for e in epitopes for _ in range(2)]})
+    return pl.DataFrame(
+        {
+            "complex_id": [cid for cid in ids for _ in range(2)],
+            "gene": ["TRA", "TRB"] * len(ids),
+            "cdr3": ["CAVF", "CASSF"] * len(ids),
+            "epitope": [e for e in epitopes for _ in range(2)],
+        }
+    )
 
 
 def controls():
@@ -40,7 +44,9 @@ def test_unique_pairs_preserve_observation_support_and_ties(ids):
     assert out["epitope"].to_list() == ["A"]
     assert out["E"][0] == pytest.approx(9 / 16)
     assert 0 < out["p_joint"][0] < 1
-    reverse = PairedVdjdbIndex.build(ref.reverse()).annotate_pairs(query(), controls(), controls(), PARAMS)
+    reverse = PairedVdjdbIndex.build(ref.reverse()).annotate_pairs(
+        query(), controls(), controls(), PARAMS
+    )
     assert out.equals(reverse)
 
 
@@ -69,7 +75,9 @@ def test_orphan_and_empty_reference():
     assert out["epitope"][0] is None
     idx = PairedVdjdbIndex.build(ref.clear())
     assert idx.n_pairs == 0
-    assert idx.annotate_pairs(query().clear(), controls(), controls(), PARAMS).height == 0
+    assert (
+        idx.annotate_pairs(query().clear(), controls(), controls(), PARAMS).height == 0
+    )
 
 
 def test_empty_controls_error_in_all_paths():
@@ -78,7 +86,12 @@ def test_empty_controls_error_in_all_paths():
     with pytest.raises(ValueError, match="nonempty"):
         idx.annotate_pairs(query(), empty, controls(), PARAMS)
     with pytest.raises(ValueError, match="nonempty"):
-        paired.paired_scan(paired.build_paired_ref(observations()), empty, controls(), [("CAVF", "CASSF")])
+        paired.paired_scan(
+            paired.build_paired_ref(observations()),
+            empty,
+            controls(),
+            [("CAVF", "CASSF")],
+        )
     with pytest.raises(ValueError, match="nonempty"):
         paired.pvalue([], [], [], 1, 0, 4)
 
@@ -97,9 +110,18 @@ def test_first_hit_finite_controls_radius_and_existing_count():
 
 def test_first_hit_identity_is_opt_in_and_deduplicates():
     ref = paired.build_paired_ref(observations())
-    old, ca, cb = paired.paired_scan(ref, controls(), controls(), [("CAVF", "CASSF")], params=PARAMS)
+    old, ca, cb = paired.paired_scan(
+        ref, controls(), controls(), [("CAVF", "CASSF")], params=PARAMS
+    )
     assert old == [[(0, "A"), (0, "Z")]]
-    new, _, _ = paired.paired_scan(ref, controls(), controls(), [("CAVF", "CASSF")], params=PARAMS, include_identity=True)
+    new, _, _ = paired.paired_scan(
+        ref,
+        controls(),
+        controls(),
+        [("CAVF", "CASSF")],
+        params=PARAMS,
+        include_identity=True,
+    )
     assert all(len(h) == 3 for h in new[0])
     out = paired.pvalue(new[0], ca[0], cb[0], N=1, Ma=4, Mb=4)
     assert out["n_pair"] == 1
@@ -113,3 +135,8 @@ def test_no_hit_and_count_validation():
     assert out["radius"] is None and out["n_pair"] == 0 and out["p_enrichment"] == 1
     with pytest.raises(ValueError, match="counts"):
         paired.pvalue([(0, "E"), (0, "E")], [], [], N=1, Ma=4, Mb=4)
+
+
+def test_tiny_paired_control_bound_is_not_above_one():
+    r = paired._joint_result(1, 0, 0, 1, 1, 1)
+    assert r["E"] == 1 and r["rule_of_three_alpha"] and r["rule_of_three_beta"]

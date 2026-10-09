@@ -163,7 +163,16 @@ class VdjdbIndex:
             return self.empty_hits(
                 q.schema["query_id"], align=align, region_aware=region_aware
             )
+        if progress:
+            import sys
+
+            print(
+                f"{gene}: searching {q.height:,} queries in one native batch",
+                file=sys.stderr,
+            )
         res = idx.search_batch(q["cdr3"].to_list(), params, threads)
+        if progress:
+            print(f"{gene}: native search complete", file=sys.stderr)
         flat = [
             (qi, h.ref_id, h.score, h.n_subs, h.n_ins, h.n_dels)
             for qi, hl in enumerate(res)

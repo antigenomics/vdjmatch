@@ -150,3 +150,7 @@ They do not implement repertoire-level statistical enrichment, donor comparisons
 or a Pgen-matched naive repertoire analysis. Those require a separately defined
 sample-level estimand and background. The optional precursor APIs remain separate
 from query annotation and background-match calibration.
+
+For paired finite controls, each zero-neighbour chain uses the existing rule-of-three
+upper bound ``min(1, 3/M)``. Capping at one matters for tiny controls and prevents
+pseudo-counts larger than the control size. Both paired implementations share this bound.

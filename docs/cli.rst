@@ -243,3 +243,7 @@ Study exclusions are explicit and recorded in the manifest.
 For AIRR reference exports without species metadata, use ``--species any``.
 Calibration then requires ``--control-species human`` or ``mouse``; alternatively
 select ``--no-evalue`` for uncalibrated ranking.
+
+``--verbose`` reports coarse native search stages and per-sample timing/resource
+information. It keeps one native query batch per locus; it does not split the batch
+to render a progress bar.

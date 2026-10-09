@@ -77,6 +77,13 @@ def _read_query(path, *, valid_aa, source, sequence_convention):
         )
         for target in targets:
             original = columns._resolve(raw).get(target)
+            if target == "count" and original is None and fmt == "airr_cell":
+                # AIRR Cell readers materialize absent optional counts as null.
+                # An omitted source count means one observation, not a malformed count.
+                frame = frame.drop(
+                    [c for c in columns.ALIASES["count"] if c in frame.columns]
+                )
+                frame = frame.with_columns(pl.lit(1, dtype=pl.Int64).alias("count"))
             if original is not None:
                 # Canonical aliases have priority; remove them before restoring raw.
                 for alias in columns.ALIASES[target]:

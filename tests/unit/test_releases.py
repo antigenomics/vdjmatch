@@ -440,11 +440,15 @@ def test_historical_sha256sums_checked(tmp_path, monkeypatch):
 
 def test_reference_selectors_preserve_metadata_and_observation_order(tmp_path):
     rich_tables(tmp_path)
-    selected = db.load(tmp_path, epitope="PEP", mhc_a=["HLA-A*02:01"], reference_id="PMID:2")
+    selected = db.load(
+        tmp_path, epitope="PEP", mhc_a=["HLA-A*02:01"], reference_id="PMID:2"
+    )
     assert selected["record_id"].to_list() == ["R2"]
     assert selected["method_verification"].to_list() == ["unknown"]
     assert selected["clonotype_id"].to_list() == ["CT3"]
-    assert db.load(tmp_path, exclude_reference_ids=["PMID:2"])["record_id"].to_list() == ["R1", "R1"]
+    assert db.load(tmp_path, exclude_reference_ids=["PMID:2"])[
+        "record_id"
+    ].to_list() == ["R1", "R1"]
     assert db.load(tmp_path, reference_id=["PMID:1", "PMID:2"]).height == 3
     assert db.load(tmp_path, epitope=[]).height == 0
     with pytest.raises(ValueError, match="list of strings"):
@@ -461,10 +465,13 @@ def test_reference_mhc_b_selection(tmp_path):
 
 def test_evidence_selector_matches_record_without_discarding_other_evidence(tmp_path):
     rich_tables(tmp_path)
-    pl.DataFrame({"record_id": ["R1", "R1", "R2"],
-                  "evidence_id": ["E1", "E2", "E3"],
-                  "evidence_type": ["structure_native", "independent_study", "other"]})\
-        .write_csv(tmp_path / "evidence.tsv", separator="\t")
+    pl.DataFrame(
+        {
+            "record_id": ["R1", "R1", "R2"],
+            "evidence_id": ["E1", "E2", "E3"],
+            "evidence_type": ["structure_native", "independent_study", "other"],
+        }
+    ).write_csv(tmp_path / "evidence.tsv", separator="\t")
     selected = db.load(tmp_path, evidence_type="structure_native")
     assert selected["record_id"].to_list() == ["R1", "R1"]
     assert len(selected["evidence"][0]) == 2
@@ -480,8 +487,18 @@ def test_evidence_predicate_requires_metadata_even_after_other_filters_empty(tmp
 
 def test_flat_evidence_type_selector(tmp_path):
     joined = rich_tables(tmp_path).with_columns(
-        pl.when(pl.col("record_id") == "R1").then(pl.lit("positive"))
-        .otherwise(pl.lit("unknown")).alias("evidence_type"))
+        pl.when(pl.col("record_id") == "R1")
+        .then(pl.lit("positive"))
+        .otherwise(pl.lit("unknown"))
+        .alias("evidence_type")
+    )
     path = tmp_path / "joined.tsv"
     joined.write_csv(path, separator="\t")
     assert db.load(path, evidence_type="positive").height == 2
+
+
+def test_explicit_primary_does_not_use_historical_bundle():
+    release = {"assets": [{"name": "vdjdb.zip", "browser_download_url": "unused"}]}
+    with pytest.raises(ValueError, match="primary"):
+        vdjdb._select_asset(release, "primary")
+    assert vdjdb._select_asset(release, "default")[1] is None

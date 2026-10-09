@@ -76,8 +76,8 @@ def _select_asset(rel: dict, asset: str) -> tuple[dict, dict | None]:
         raise ValueError(
             "release requires manifest.json when it does not have one historical ZIP"
         )
-    if asset == "airr":
-        raise ValueError("historical release does not declare an AIRR bundle")
+    if asset in {"primary", "airr"}:
+        raise ValueError(f"historical release does not declare a {asset!r} bundle")
     return zips[0], None
 
 
@@ -195,8 +195,6 @@ def fetch_latest(
                     raise ValueError("downloaded VDJdb SHA256 does not match release")
                 _validate_zip(stage, entry)
                 layout = entry["role"] if entry and asset == "default" else asset
-                if entry is None and asset == "primary":
-                    layout = "default"
                 schema.normalize(_load_archive(stage, layout))
                 publish(stage, archive)
         _validate_zip(archive, entry)
@@ -554,27 +552,43 @@ def load(
     else:
         raw = _read_table(path)
     df = schema.normalize(raw)
-    selectors = [("epitope", epitope), ("mhc_a", mhc_a), ("mhc_b", mhc_b),
-                 ("reference_id", reference_id), ("exclude_reference_ids", exclude_reference_ids),
-                 ("evidence_type", evidence_type)]
+    selectors = [
+        ("epitope", epitope),
+        ("mhc_a", mhc_a),
+        ("mhc_b", mhc_b),
+        ("reference_id", reference_id),
+        ("exclude_reference_ids", exclude_reference_ids),
+        ("evidence_type", evidence_type),
+    ]
     for name, selection in selectors:
         if selection is None:
             continue
         values = [selection] if isinstance(selection, str) else selection
-        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+        if not isinstance(values, list) or any(
+            not isinstance(value, str) for value in values
+        ):
             raise ValueError(f"{name} must be a string or list of strings")
         if name == "exclude_reference_ids":
             df = df.filter(~pl.col("reference_id").is_in(values).fill_null(False))
         elif name == "evidence_type":
             if "evidence_type" in df.columns:
                 predicate = pl.col("evidence_type").is_in(values)
-            elif ("evidence" in df.columns and isinstance(df.schema["evidence"], pl.List)
-                  and isinstance(df.schema["evidence"].inner, pl.Struct)
-                  and "evidence_type" in [field.name for field in df.schema["evidence"].inner.fields]):
-                predicate = pl.col("evidence").list.eval(
-                    pl.element().struct.field("evidence_type").is_in(values)).list.any()
+            elif (
+                "evidence" in df.columns
+                and isinstance(df.schema["evidence"], pl.List)
+                and isinstance(df.schema["evidence"].inner, pl.Struct)
+                and "evidence_type"
+                in [field.name for field in df.schema["evidence"].inner.fields]
+            ):
+                predicate = (
+                    pl.col("evidence")
+                    .list.eval(pl.element().struct.field("evidence_type").is_in(values))
+                    .list.any()
+                )
             else:
-                raise ValueError("reference has no evidence_type metadata; cannot apply evidence predicate")
+                raise ValueError(
+                    "reference has no evidence_type metadata; cannot apply evidence predicate"
+                )
             df = df.filter(predicate.fill_null(False))
         else:
             df = df.filter(pl.col(name).is_in(values))

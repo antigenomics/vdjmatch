@@ -194,10 +194,28 @@ def test_tcrvdb_retains_original_row_identity_and_reports_drops(tmp_path):
 
 def test_mixcr_reader_preserves_exact_counts_and_order(tmp_path):
     from vdjmatch.io import read_rearrangement
-    p=tmp_path/'mixcr.tsv'
-    p.write_text('cloneCount\tallVHitsWithScore\tallJHitsWithScore\tnSeqCDR3\taaSeqCDR3\n'
-                 '9007199254740993\tTRBV1*01(10)\tTRBJ1-1*01(10)\tTGTGCTTTT\tCAF\n'
-                 '2\tTRBV2*01(10)\tTRBJ2-1*01(10)\tTGTGGGTTT\tCGF\n')
-    q=read_rearrangement(p)
-    assert q['count'].to_list()==[9007199254740993,2]
-    assert q['cdr3'].to_list()==['CAF','CGF'] and q['query_id'].to_list()==[0,1]
+
+    p = tmp_path / "mixcr.tsv"
+    p.write_text(
+        "cloneCount\tallVHitsWithScore\tallJHitsWithScore\tnSeqCDR3\taaSeqCDR3\n"
+        "9007199254740993\tTRBV1*01(10)\tTRBJ1-1*01(10)\tTGTGCTTTT\tCAF\n"
+        "2\tTRBV2*01(10)\tTRBJ2-1*01(10)\tTGTGGGTTT\tCGF\n"
+    )
+    q = read_rearrangement(p)
+    assert q["count"].to_list() == [9007199254740993, 2]
+    assert q["cdr3"].to_list() == ["CAF", "CGF"] and q["query_id"].to_list() == [0, 1]
+
+
+def test_airr_cell_optional_count_absent_is_one_observation(tmp_path):
+    frame = pl.DataFrame(
+        {
+            "sequence_id": ["a", "b"],
+            "cell_id": ["pair", "pair"],
+            "junction_aa": ["CAVF", "CASSF"],
+            "v_call": ["TRAV1", "TRBV1"],
+            "j_call": ["TRAJ1", "TRBJ1"],
+            "locus": ["TRA", "TRB"],
+        }
+    )
+    out = read_cell(write_table(tmp_path, frame))
+    assert out["counta"].to_list() == [1] and out["countb"].to_list() == [1]

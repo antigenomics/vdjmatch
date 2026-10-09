@@ -65,6 +65,7 @@ def annotate_sample(
             align=align,
             score_scale=400.0 if matrix is not None else 1.0,
             return_hits=True,
+            progress=progress,
         )
         _, qa = _prepare(queries, "cdr3a", locus="TRA")
         _, qb = _prepare(queries, "cdr3b", locus="TRB")
@@ -92,6 +93,7 @@ def annotate_sample(
         match_v=match_v,
         match_j=match_j,
         align=align,
+        progress=progress,
         calibrate=with_evalue,
         species=species,
         control=control,

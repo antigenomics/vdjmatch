@@ -106,7 +106,7 @@ class Annotator:
         if source not in {"github", "hf"}:
             raise ValueError("source must be github or hf")
         path = (
-            db.fetch_hf(cache=cache, **({"tag": pin} if pin else {}))
+            db.fetch_hf(asset=asset, cache=cache, **({"tag": pin} if pin else {}))
             if source == "hf"
             else db.fetch_latest(asset=asset, cache=cache, pin=pin)
         )
@@ -152,6 +152,7 @@ class Annotator:
         match_v=False,
         match_j=False,
         align=False,
+        progress=False,
         control=None,
         calibrate=False,
         species="human",
@@ -183,6 +184,7 @@ class Annotator:
                 match_v=match_v,
                 match_j=match_j,
                 align=align,
+                progress=progress,
             )
             ctrl = control.get(gene) if isinstance(control, dict) else control
             if calibrate and ctrl is None:
@@ -372,6 +374,7 @@ class Annotator:
         align=False,
         score_scale=400.0,
         return_hits=False,
+        progress=False,
     ):
         """Genuine same-complex evidence; optional fixed-ball chain-independent calibration.
 
@@ -417,8 +420,12 @@ class Annotator:
             if isinstance(scope, str)
             else scope
         )
-        ha = self._index.annotate(qa, sp, gene="TRA", threads=threads, align=align)
-        hb = self._index.annotate(qb, sp, gene="TRB", threads=threads, align=align)
+        ha = self._index.annotate(
+            qa, sp, gene="TRA", threads=threads, align=align, progress=progress
+        )
+        hb = self._index.annotate(
+            qb, sp, gene="TRB", threads=threads, align=align, progress=progress
+        )
         keys = ["query_id", "complex_id", *PMHC]
 
         def projection(h, prefix):
@@ -521,7 +528,7 @@ class Annotator:
             stats = [
                 evalue_result(
                     nt,
-                    (a or 3) * (b or 3),
+                    min(sizes[0], a or 3) * min(sizes[1], b or 3),
                     nr,
                     sizes[0] * sizes[1],
                 )

@@ -178,7 +178,7 @@ def test_paired_duplicates_do_not_vote_and_finite_controls():
     ctrl = {"TRA": Index.build(["CWWWF"], "aa"), "TRB": Index.build(["CWWWF"], "aa")}
     c = Annotator.from_frame(r).paired_candidates(q, scope="0", control=ctrl)
     assert c["n_hits"][0] == 1 and c["n_records"][0] == 2 and c["ned_score"][0] == 1.0
-    assert c["E"][0] > 0 and c["p_enrichment"][0] > 0 and c["rule_of_three"][0]
+    assert c["E"][0] == 1.0 and c["p_enrichment"][0] > 0 and c["rule_of_three"][0]
 
 
 def test_runner_api_default_scoring_and_summary_units(tmp_path):
@@ -334,3 +334,20 @@ def test_paired_runner_details_scale_and_unsupported_flags(tmp_path):
     for flag in ("match_v", "match_j"):
         with pytest.raises(ValueError, match="paired matching does not support"):
             annotate_sample(a._index, path, paired=True, **{flag: True})
+
+
+def test_hf_asset_forwarded_and_native_progress(monkeypatch, capsys):
+    from vdjmatch import db
+
+    seen = {}
+
+    def fetch(**kw):
+        seen.update(kw)
+        return "example.tsv"
+
+    monkeypatch.setattr(db, "fetch_hf", fetch)
+    monkeypatch.setattr(Annotator, "from_path", classmethod(lambda cls, *a, **kw: None))
+    Annotator.latest(source="hf", asset="slim", pin="tag")
+    assert seen["asset"] == "slim" and seen["tag"] == "tag"
+    Annotator.from_frame(reference()).hits(["CASSF"], progress=True)
+    assert "one native batch" in capsys.readouterr().err
