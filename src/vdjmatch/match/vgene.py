@@ -53,7 +53,7 @@ _LOOPS: dict[str, str] = {}
 @lru_cache(maxsize=None)
 def vsim(v1: str | None, v2: str | None) -> float:
     """Germline CDR1+CDR2 similarity in ``[0,1]`` between two V genes (1.0 = same family or identical
-    loops; 0.0 if either loop is unknown). Allele/decoration is stripped first."""
+    loops; 0.0 if either loop is unknown). Allele suffixes are stripped; IMGT gene names retain slashes."""
     if not _LOOPS:
         _LOOPS.update(load_v_cdr12())
     f1, f2 = gene_family(v1), gene_family(v2)

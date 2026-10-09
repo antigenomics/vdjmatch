@@ -19,7 +19,7 @@ _HIT_SCHEMA = [
 
 
 def _genefam(col: pl.Expr) -> pl.Expr:
-    return col.str.replace(r"\*.*$", "").str.replace(r"/.*$", "")
+    return col.str.replace(r"\*.*$", "")
 
 
 def _search_unique_junctions(index, junctions, params, threads):
