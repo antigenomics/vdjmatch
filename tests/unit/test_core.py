@@ -272,3 +272,18 @@ def test_duplicate_junctions_share_search_but_keep_query_evidence():
     columns = [c for c in combined.columns if c != "qi"]
     assert combined.select(columns).sort("query_id", "record_id").equals(
         separate.select(columns).sort("query_id", "record_id"))
+
+
+def test_imgt_slashes_are_gene_identity_and_find_loop_models():
+    from vdjmatch.match.regions import gene_family
+    from vdjmatch.match.vgene import load_v_cdr12, vsim
+    assert gene_family("TRAV23/DV6*01") == "TRAV23/DV6"
+    assert gene_family("TRBV24/OR9-2*01") == "TRBV24/OR9-2"
+    assert gene_family("TRAV23/DV6*01") in load_v_cdr12()
+    assert vsim("TRAV23/DV6*01", "TRAV29/DV5*01") > 0
+    ref = pl.DataFrame({"gene": ["TRB", "TRB"], "cdr3": ["CASSF"] * 2,
+                        "v": ["TRBV24*01", "TRBV24/OR9-2*01"], "epitope": ["A", "B"]})
+    idx = VdjdbIndex.build(ref)
+    q = pl.DataFrame({"cdr3": ["CASSF"], "v": ["TRBV24*02"]})
+    hits = idx.annotate(q, search_params("1,0,0,1"), gene="TRB", match_v=True)
+    assert hits["epitope"].to_list() == ["A"]

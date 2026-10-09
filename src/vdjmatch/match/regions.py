@@ -17,8 +17,8 @@ _ALLELE = re.compile(r"\*.*$")
 
 
 def gene_family(g: str | None) -> str:
-    """Strip the allele / IMGT decoration: ``TRBV19*01`` -> ``TRBV19``."""
-    return _ALLELE.sub("", g.split("/")[0]) if g else ""
+    """Strip allele suffixes, retaining IMGT gene names such as TRAV23/DV6: ``TRBV19*01`` -> ``TRBV19``."""
+    return _ALLELE.sub("", g) if g else ""
 
 
 def load_retention(path=None) -> dict[tuple[str, str, str], list[float]]:
