@@ -67,8 +67,9 @@ one minimum-edit search; weighted balls use a complete batch per radius.
 ``--search-mode ranked --top-k 5|10`` scores every eligible unique reference
 key with a native restricted gap-block scorer and bounded top-K storage.
 Genuine paired keys use the worst-chain penalty for selection. A separate
-global fixed-K order-statistic test counts all control ties, uses finite-control
-CP bounds and preserves original reference exposure under exact exclusion.
+global fixed-K test counts all control ties and preserves original exposure under
+exact exclusion. Single chains use an exact finite-sample hypergeometric rank test;
+paired chains retain the independent-marginal CP/binomial construction.
 Per-pMHC candidate ranks are descriptive; label P-values remain null.
 These modes require the seqtree1.0.2 candidate APIs; dependency publication
 is a release prerequisite. Existing fixed-mode behavior remains available.
