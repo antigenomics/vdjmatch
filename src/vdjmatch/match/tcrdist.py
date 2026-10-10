@@ -216,24 +216,36 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
 
 def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,species='human',
                           threads=1,ctrim=2,exclude_exact=False):
-    """Retrieve the actual CDR3 ball, then apply unchanged V costs to sparse hits.
+    """Audit the actual CDR3 ball and unchanged V costs in one native reduction.
 
     Native units, eligibility and full-junction puncturing match total counts.
-    No K cap: fail before retrieval if projected sparse payload exceeds24GB.
+    No K cap. Older native backends retain a bounded sparse retrieval fallback.
     This audits uniform single-chain retrieval, not annotation confidence.
     """
     import time
     import inspect
-    for name in ['count_batch','ball_batch']:
+    streaming=hasattr(gapblock,'group_audit_batch')
+    for name in (['group_audit_batch'] if streaming else ['count_batch','ball_batch']):
         required={'position_weights_by_length','group_distances'}
         native=getattr(gapblock,'_gapblock_'+name,None)
         if (not required <= set(inspect.signature(getattr(gapblock,name)).parameters) or
                 any(k not in (getattr(native,'__doc__',None) or '') for k in required)):
-            raise RuntimeError('shortlist audit requires Python/native positional and grouped ball/count support')
+            raise RuntimeError('shortlist audit requires Python/native positional and grouped audit support')
     if type(radius) is not int or radius<0:
         raise ValueError('radius must be a nonnegative integer')
     q,r,options=_total_distance_options(queries,references,query_v,reference_v,
                                       species,threads,ctrim,'uniform')
+    if streaming:
+        start=time.perf_counter()
+        before,after,nearest=gapblock.group_audit_batch(q,r,[200*radius]*len(q),
+            exclude_exact=exclude_exact,**options)
+        reduced=time.perf_counter()
+        return {'cdr3_shortlist_keys':before,'post_v_radius_keys':after,
+                'nearest_within_shortlist_distance':[float(v)/200 if v>=0 else None for v in nearest],
+                'route':'native_streaming','projected_sparse_payload_bytes':0,
+                'native_output_bytes':20*len(q),
+                'stage_seconds':{'native_streamed_reduction':reduced-start,
+                                 'conversion':time.perf_counter()-reduced}}
     qgroups=np.asarray(options.pop('query_group_ids'),dtype=np.int32)
     rgroups=np.asarray(options.pop('reference_group_ids'),dtype=np.int32)
     offsets=np.asarray(options.pop('group_distances'),dtype=np.int32)
@@ -258,7 +270,7 @@ def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,spe
     np.minimum.at(nearest,qi,costs)
     return {'cdr3_shortlist_keys':sizes.tolist(),'post_v_radius_keys':retained.tolist(),
             'nearest_within_shortlist_distance':[float(v)/200 if size else None for v,size in zip(nearest,sizes)],
-            'projected_sparse_payload_bytes':estimate,
+            'route':'native_ball_then_numpy','projected_sparse_payload_bytes':estimate,'native_output_bytes':None,
             'stage_seconds':{'preflight_count':counted-start,'native_retrieval':retrieved-counted,
                              'vectorized_v':time.perf_counter()-retrieved}}
 

@@ -45,6 +45,7 @@ def test_sparse_budget_fails_before_retrieval_and_parallel_results_equal(monkeyp
     parallel=shortlist_audit_batch(q,r,qv,rv,threads=2)
     for key in ['cdr3_shortlist_keys','post_v_radius_keys','nearest_within_shortlist_distance']:
         assert serial[key]==parallel[key]
+    monkeypatch.delattr(tcrdist.gapblock,'group_audit_batch',raising=False)
     from functools import wraps
     @wraps(tcrdist.gapblock.count_batch)
     def huge_counts(*a,**k):return [[100_000_000]]*len(q)
@@ -59,6 +60,23 @@ def test_sparse_budget_fails_before_retrieval_and_parallel_results_equal(monkeyp
 def test_shortlist_requires_actual_native_geometry(monkeypatch):
     import pytest
     from vdjmatch.match import tcrdist
-    monkeypatch.setattr(tcrdist.gapblock,'_gapblock_ball_batch',object())
+    name='_gapblock_group_audit_batch' if hasattr(tcrdist.gapblock,'group_audit_batch') else '_gapblock_ball_batch'
+    monkeypatch.setattr(tcrdist.gapblock,name,object())
     with pytest.raises(RuntimeError,match='Python/native positional'):
         shortlist_audit_batch(['CASSLGQAYEQYF'],['CASSAGQAYEQYF'],['TRBV19*01'],['TRBV7-9*01'])
+
+
+def test_streaming_and_bounded_legacy_audits_equal(monkeypatch):
+    from vdjmatch.match import tcrdist
+    if not hasattr(tcrdist.gapblock,'group_audit_batch'):
+        import pytest
+        pytest.skip('streaming native extension unavailable')
+    args=(['CASSLGQAYEQYF','CASSLGQAPAYEQYF'],['CASSLGQAYEQYF','CASSAGQAYEQYF'],
+          ['TRBV19*01']*2,['TRBV7-9*01','TRBV19*01'])
+    streamed=shortlist_audit_batch(*args,exclude_exact=True)
+    assert streamed['route']=='native_streaming' and streamed['projected_sparse_payload_bytes']==0
+    monkeypatch.delattr(tcrdist.gapblock,'group_audit_batch')
+    legacy=shortlist_audit_batch(*args,exclude_exact=True)
+    assert legacy['route']=='native_ball_then_numpy'
+    for key in ['cdr3_shortlist_keys','post_v_radius_keys','nearest_within_shortlist_distance']:
+        assert streamed[key]==legacy[key]

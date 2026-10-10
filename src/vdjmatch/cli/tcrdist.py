@@ -362,7 +362,7 @@ def main(a):
             shortlist_rows.append(query_part.select('query_id','cdr3','_allele').join(
                 shared,on=['cdr3','_allele'],validate='m:1',maintain_order='left').drop('cdr3','_allele'))
             shortlist_costs.append(dict(target=task,query_appearances=query_part.height,
-                unique_computations=computation.height,**{k:audit[k] for k in ['stage_seconds','projected_sparse_payload_bytes']}))
+                unique_computations=computation.height,**{k:audit[k] for k in ['stage_seconds','projected_sparse_payload_bytes','route','native_output_bytes']}))
         # Paired calls hold two matrices plus native/gather temporaries; bound them together.
         matrix_budget=32*1024**2 if paired else 64*1024**2
         bytes_per_pair=16 if paired else 4
