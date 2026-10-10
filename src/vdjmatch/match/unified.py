@@ -128,6 +128,140 @@ def gapped_extension(queries, reference, control, *, species='human', threads=1,
         pl.lit(n_reference-ref.height,dtype=pl.UInt64).alias('n_reference_unavailable'))
 
 
+def require_historical_pssm_kernel():
+    """Fail before raw-control loading when either Python or native support is stale."""
+    import inspect
+    from seqtree import _core
+    keyword='position_weights_by_length'
+    if any(keyword not in inspect.signature(fn).parameters
+           for fn in (gapblock.score_matrix,gapblock.count_batch)) or any(
+            keyword not in (fn.__doc__ or '') for fn in (_core.gapblock_matrix,_core.gapblock_count_batch)):
+        raise RuntimeError('historical-pssm geometry requires positional seqtree gapblock support; rebuild/install the reviewed native source')
+
+
+def historical_pssm_extension(queries, reference, control, *, species='human', threads=1):
+    """Opt-in original-position PSSM kernel on edges outside its substitution ball.
+
+    Use full junctions and the native symmetric longer-sequence frame. Controls
+    count the identical weighted kernel at each accepted penalty. Original density
+    and its P-value remain separate; this component has no assigned P-value.
+    """
+    from .regions import significance_weights
+    from .vgene import vsim
+    require_historical_pssm_kernel()
+    if isinstance(threads,bool) or not isinstance(threads,int) or threads<1:
+        raise ValueError('threads must be positive')
+    if queries['query_id'].null_count() or queries['query_id'].n_unique()!=queries.height:
+        raise ValueError('query_id must be unique and non-null')
+    def prepare(frame):
+        return frame.with_columns(pl.col('cdr3','v').cast(pl.String)).with_columns(
+            pl.col('v').str.replace(r'\*.*$', '').fill_null('').alias('_gene'),
+            pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('_available'))
+    q=prepare(queries)
+    ref=prepare(reference.unique('cdr3',keep='first',maintain_order=True))
+    n_reference=ref.height
+    ref=ref.filter(pl.col('_available'))
+    full_control=list(dict.fromkeys(control.ref_seqs()))
+    m_gap=len(full_control)
+    if not m_gap:
+        raise ValueError('historical PSSM extension requires nonempty raw controls')
+    usable=q.filter(pl.col('_available')).select('cdr3','_gene').unique(maintain_order=True)
+    numeric={'gapped_density':pl.Float64,'gapped_density_same_v_unweighted':pl.Float64,
+        'gapped_density_cross_v_unweighted':pl.Float64,'gapped_edges_same_v':pl.UInt64,
+        'gapped_edges_cross_v':pl.UInt64,'gapped_floor_density':pl.Float64}
+    details={'gapped_best_kernel_penalty':pl.Int32,'gapped_best_reference_junction':pl.String,
+        'gapped_best_reference_v':pl.String,'gapped_best_contribution':pl.Float64,
+        'gapped_best_control_count':pl.UInt64,'gapped_best_gap_length':pl.UInt32,
+        'gapped_best_block_position':pl.Int32,'gapped_best_alignment_status':pl.String,
+        'gapped_best_total_distance':pl.Int32,'gapped_best_cdr3_distance':pl.Int32,
+        'gapped_best_vloop_distance':pl.Int32}
+    schema={**numeric,**details}
+    result=usable.with_columns(*[pl.lit(0,dtype=dtype).alias(c) for c,dtype in numeric.items()],
+        *[pl.lit('no_extension_edge' if c=='gapped_best_alignment_status' else None,dtype=dtype).alias(c)
+          for c,dtype in details.items()])
+    if ref.height and usable.height:
+        matrix=SubstitutionMatrix.blosum62()
+        rs,rv=ref['cdr3'].to_list(),ref['v'].to_list()
+        rlen=np.asarray(list(map(len,rs)))
+        rgenes=ref['_gene'].to_numpy()
+        genes,codes=np.unique(rgenes,return_inverse=True)
+        lengths={len(s) for s in [*usable['cdr3'].to_list(),*rs,*full_control]}
+        weights={length:[max(1,round(100*w)) for w in significance_weights(length)] for length in lengths}
+        options=dict(matrix=matrix,gap_open=2*matrix.scale()*100,gap_extend=matrix.scale()*100,
+            gap_prior=gapblock.positions_prior((3,4,-4,-3)),threads=threads,
+            position_weights_by_length=weights)
+        cutoff=5*matrix.scale()*100
+        budget=32*1024**2
+        if 32*ref.height>budget:
+            raise ValueError('gapped reference exceeds the32MiB work budget for one query')
+        batch=max(1,budget//(32*ref.height))
+        values={c:[] for c in schema}
+        for part in usable.iter_slices(batch):
+            seqs=part['cdr3'].to_list()
+            qgenes=part['_gene'].to_list()
+            # V factors mirror the original component, independently of sequence geometry.
+            priors={gene:np.asarray([1.0 if gene==r else .25*vsim(gene,r) for r in genes])[codes]
+                    for gene in set(qgenes)}
+            penalties=np.asarray(gapblock.score_matrix(seqs,rs,**options))
+            new=penalties<=cutoff
+            qlen=np.asarray(list(map(len,seqs)))
+            for length in np.unique(qlen):
+                qi,ri=np.flatnonzero(qlen==length),np.flatnonzero(rlen==length)
+                if not len(ri) or not new[np.ix_(qi,ri)].any():
+                    continue
+                qc=np.frombuffer(''.join(seqs[i] for i in qi).encode('ascii'),dtype=np.uint8).reshape(len(qi),int(length))
+                rc=np.frombuffer(''.join(rs[i] for i in ri).encode('ascii'),dtype=np.uint8).reshape(len(ri),int(length))
+                mismatches=np.zeros((len(qi),len(ri)),dtype=np.uint16)
+                for pos in range(int(length)):
+                    mismatches+=qc[:,None,pos]!=rc[None,:,pos]
+                # This also excludes every exact full-junction reference.
+                new[np.ix_(qi,ri)] &= mismatches>5
+            for i,gene in enumerate(qgenes):
+                new[i] &= priors[gene]>0
+            active=np.flatnonzero(new.any(axis=1))
+            thresholds=[np.unique(penalties[i,new[i]]).tolist() for i in active]
+            counts=gapblock.count_batch([seqs[i] for i in active],full_control,thresholds,
+                exclude_exact=True,**options) if len(active) else []
+            rows=[{**dict.fromkeys(numeric,0),**dict.fromkeys(details,None),
+                   'gapped_best_alignment_status':'no_extension_edge'} for _ in seqs]
+            for i,cutoffs,nc in zip(active,thresholds,counts):
+                accepted=np.flatnonzero(new[i])
+                positions=np.searchsorted(cutoffs,penalties[i,accepted])
+                nc=np.asarray(nc,dtype=np.uint64)[positions]
+                empirical=n_reference/m_gap*nc
+                unweighted=np.exp(-penalties[i,accepted]/400.0)/np.maximum(empirical,.01)
+                same=qgenes[i]==rgenes[accepted]
+                weighted=unweighted*priors[qgenes[i]][accepted]
+                row=rows[i]
+                row.update(gapped_density=float(weighted.sum()),
+                    gapped_density_same_v_unweighted=float(unweighted[same].sum()),
+                    gapped_density_cross_v_unweighted=float(unweighted[~same].sum()),
+                    gapped_edges_same_v=int(same.sum()),gapped_edges_cross_v=int((~same).sum()),
+                    gapped_floor_density=float(weighted[empirical<.01].sum()))
+                # Highest contribution, with first source-order representative on ties.
+                best_pos=int(np.argmax(weighted));best=int(accepted[best_pos])
+                row.update(gapped_best_kernel_penalty=int(penalties[i,best]),
+                    gapped_best_reference_junction=rs[best],gapped_best_reference_v=rv[best],
+                    gapped_best_contribution=float(weighted[best_pos]),
+                    gapped_best_control_count=int(nc[best_pos]),
+                    gapped_best_gap_length=abs(len(seqs[i])-len(rs[best])),
+                    gapped_best_alignment_status='not_returned_by_native')
+            for c in schema:
+                values[c].extend(row[c] for row in rows)
+        result=usable.with_columns(*[pl.Series(c,values[c],dtype=dtype) for c,dtype in schema.items()])
+    out=q.join(result,on=['cdr3','_gene'],how='left',validate='m:1',maintain_order='left')
+    return out.select('query_id',*[pl.col(c).fill_null(0).alias(c) for c in numeric],
+        pl.when(pl.col('gapped_best_reference_junction').is_not_null()).then(pl.col('v'))
+        .otherwise(None).alias('gapped_best_query_v'),
+        *[pl.col(c) for c in details],
+        (pl.col('_available') & pl.lit(bool(ref.height))).alias('availability'),
+        pl.when(~pl.col('_available')).then(pl.lit('unavailable_query_sequence'))
+        .when(pl.lit(not bool(ref.height))).then(pl.lit('no_usable_reference'))
+        .otherwise(pl.lit('available')).alias('gapped_status'),
+        pl.lit(m_gap,dtype=pl.UInt64).alias('M_gap'),
+        pl.lit(n_reference-ref.height,dtype=pl.UInt64).alias('n_reference_unavailable'))
+
+
 def unified_evidence(ann, q, *, threads=1, control=None, species=None, exclude_exact=False, distance="edit"):
     if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
         raise ValueError("threads must be a positive integer")

@@ -456,6 +456,22 @@ distances; rows that never enter scoring keep null diagnostics and their status.
 ``p_enrichment`` remains the original component test; the combined ranking has
 no calibrated P-value. This option does not change production annotation defaults.
 
+``--gapped-extension --gap-geometry historical-pssm`` instead extends the original
+full-junction positional BLOSUM Gram kernel. Integer positional weights use the
+longer junction as a symmetric frame; equal-length penalties reproduce the
+original kernel exactly. Gap charges are 2800/1400, allowed starts are
+3,4,-4,-3, the ball cutoff is7000, and the exponential kernel scale remains400.
+These fixed choices apply across the length range; there is no length switch or
+hit cap. This mode retains original raw V-gene weights, including their historical
+alias handling. Controls count the same weighted full-junction geometry, with
+full exact identities excluded. Highest-contribution reference junction/V,
+penalty, control count, contribution and gap length are exported. Block placement
+is explicitly unavailable from the native scalar output. The original density,
+score and P-value remain separate; this experimental addition has no combined
+P-value. It requires positional gap-block support in the installed seqtree binary
+and rejects older implementations before loading controls. TCRdist-specific
+radius/temperature options do not apply.
+
 Native TCRdist3-compatible distances
 ------------------------------------
 
@@ -466,7 +482,10 @@ the default TCRdist3 distance: three times the trimmed, restricted-gap CDR3
 distance, plus aligned V-gene CDR1, CDR2 and CDR2.5 distances. The bundled loop
 models and their license/provenance are under ``resources/tcrdist``. Use
 ``--species human|mouse`` to choose the organism. Missing allele
-suffixes explicitly resolve to ``*01``; unknown alleles and junctions shorter
+suffixes explicitly resolve to ``*01``. Model-proven co-locus aliases resolve
+uniquely without changing raw calls; ambiguous calls remain unavailable. The
+query table retains raw calls separately from resolved alleles, including chains
+with missing junctions. Unknown alleles and junctions shorter
 than eight residues remain unavailable in the query table. This command reports
 distances, not specificity probabilities.
 

@@ -19,8 +19,10 @@ def register(subparsers):
     p.add_argument('--alpha-control',help='raw alpha junction control for original paired density')
     p.add_argument('--germline-background',help='raw prior table; include original sparse-reference unpaired score')
     p.add_argument('--gapped-extension',action='store_true',help='experimental density extension outside the original substitution ball; no combined P-value')
-    p.add_argument('--gap-radius',type=int,default=90)
-    p.add_argument('--gap-temperature',type=float,default=12)
+    p.add_argument('--gap-geometry',choices=['tcrdist','historical-pssm'],default='tcrdist',
+                   help='opt-in extension geometry; historical-pssm uses fixed native positional kernel options')
+    p.add_argument('--gap-radius',type=int,default=90,help='TCRdist extension radius only')
+    p.add_argument('--gap-temperature',type=float,default=12,help='TCRdist extension temperature only')
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
@@ -252,6 +254,13 @@ def main(a):
     from ..match.historical import density,germline_prior,unpaired_score
     start=time.perf_counter()
     if a.threads<1:raise ValueError('threads must be positive')
+    if a.gap_geometry=='historical-pssm':
+        if not a.gapped_extension:
+            raise ValueError('--gap-geometry requires --gapped-extension')
+        if a.gap_radius!=90 or a.gap_temperature!=12:
+            raise ValueError('--gap-radius/--gap-temperature apply only to TCRdist geometry')
+        from ..match.unified import require_historical_pssm_kernel
+        require_historical_pssm_kernel()
     if a.cohort_column and a.locus!='paired':
         raise ValueError('--cohort-column requires --locus paired')
     if a.cohort_column:
@@ -283,13 +292,17 @@ def main(a):
         if a.gapped_extension:
             if not pool_reference:
                 raise ValueError('--gapped-extension requires pooled or sample-declared targets')
-            from ..match.unified import gapped_extension
-            extension=gapped_extension(queries,reference,ctrl,species=organism,threads=a.threads,
-                                        radius=a.gap_radius,temperature=a.gap_temperature)
+            from ..match.unified import gapped_extension,historical_pssm_extension
+            if a.gap_geometry=='historical-pssm':
+                extension=historical_pssm_extension(queries,reference,ctrl,species=organism,threads=a.threads)
+            else:
+                extension=gapped_extension(queries,reference,ctrl,species=organism,threads=a.threads,
+                                            radius=a.gap_radius,temperature=a.gap_temperature)
             scores=scores.rename({'score':'historical_density'}).join(extension,on='query_id',
                                     how='left',validate='1:1',maintain_order='left').with_columns(
                 (pl.col('historical_density')+pl.col('gapped_density')).alias('score'),
-                pl.lit('pssm-plus-gapped-extension-v1').alias('estimator'))
+                pl.lit('pssm-plus-historical-pssm-extension-v1' if a.gap_geometry=='historical-pssm'
+                       else 'pssm-plus-gapped-extension-v1').alias('estimator'))
         return scores
     prior_background=None
     if a.germline_background:
@@ -372,6 +385,12 @@ def main(a):
                                   gapped_edges_same_v=pl.UInt64,gapped_edges_cross_v=pl.UInt64,
                                   gapped_floor_density=pl.Float64,gapped_best_total_distance=pl.Int32,
                                   gapped_best_cdr3_distance=pl.Int32,gapped_best_vloop_distance=pl.Int32)
+            if a.gap_geometry=='historical-pssm':
+                score_columns.update(gapped_best_kernel_penalty=pl.Int32,gapped_best_reference_junction=pl.String,
+                    gapped_best_query_v=pl.String,
+                    gapped_best_reference_v=pl.String,gapped_best_contribution=pl.Float64,
+                    gapped_best_control_count=pl.UInt64,gapped_best_gap_length=pl.UInt32,
+                    gapped_best_block_position=pl.Int32,gapped_best_alignment_status=pl.String)
             if prior_background is not None:
                 score_columns['historical_score']=pl.Float64
         out=out.with_columns(*[pl.lit(None,dtype=dtype).alias(name) for name,dtype in score_columns.items()
@@ -403,9 +422,41 @@ def main(a):
         out=score_density(q,r)
     prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
     out.write_csv(str(prefix)+'.scores.tsv',separator='\t')
+    extension_manifest=None
     if a.gapped_extension:
-        from ..match.unified import gapped_extension
-        from ..match.tcrdist import distance_matrix, load_v_loops
+        from ..match.unified import gapped_extension,historical_pssm_extension
+        common={'geometry':a.gap_geometry,'native_sha256':sha256(Path(_core.__file__)),
+                'significance':'p_enrichment remains the original component test; no combined P-value'}
+        if a.gap_geometry=='historical-pssm':
+            from seqtree import SubstitutionMatrix
+            from ..match.regions import significance_weights
+            from ..match.vgene import vsim
+            resource_root=Path(significance_weights.__code__.co_filename).parent.parent/'resources'
+            scale=SubstitutionMatrix.blosum62().scale()
+            extension_manifest={**common,
+                'source_sha256':sha256(Path(historical_pssm_extension.__code__.co_filename)),
+                'position_source_sha256':sha256(Path(significance_weights.__code__.co_filename)),
+                'position_profile_sha256':sha256(resource_root/'trimming/position_significance.tsv'),
+                'v_weight_source_sha256':sha256(Path(vsim.__wrapped__.__code__.co_filename)),
+                'v_model_sha256':sha256(resource_root/'vgene/human_v_cdr12.tsv'),
+                'position_frame':'longer full junction','matrix':'BLOSUM62 Gram','weight_scale':100,
+                'weight_rounding':'max(1, round(100 * original significance_weights(length)))',
+                'gap_open':2*scale*100,'gap_extend':scale*100,'gap_positions':[3,4,-4,-3],
+                'cutoff':5*scale*100,'kernel_scale':400,
+                'control_geometry':'same full-junction weighted single-gap kernel; unique full controls; full identity excluded',
+                'formula':'original density plus new positional kernel edges only; V weight1 same allele-stripped gene/.25*vsim otherwise; original .01 denominator floor',
+                'v_contract':'original raw V gene_family/vsim handling, including unresolved historical aliases; no alias-aware refinement',
+                'retrieval':'all nonzero-V-weight reference representatives within cutoff, excluding original same-length<=5-substitution edges; no hit cap',
+                'diagnostics':'highest weighted-contribution reference junction/V, penalty/count/contribution/gap length; block position and alignment unavailable from scalar native output'}
+        else:
+            from ..match.tcrdist import distance_matrix, load_v_loops
+            extension_manifest={**common,
+                'source_sha256':sha256(Path(gapped_extension.__code__.co_filename)),
+                'distance_source_sha256':sha256(Path(distance_matrix.__code__.co_filename)),
+                'model_sha256':sha256(Path(load_v_loops.__code__.co_filename).parent.parent/'resources/tcrdist'/f'{organism}_v_loops.tsv'),
+                'control_geometry':'trimmed restricted-gap CDR3; unique full controls; exact full identity punctured',
+                'formula':'original density plus only new gapped/V-loop kernel edges; V weight1 same allele-stripped gene/.25 otherwise; no vsim multiplier',
+                'diagnostics':'pre-prior unweighted same/cross V sums, edge counts, weighted floor contribution, and source-order best accepted edge total/CDR3/V-loop distances'}
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
                     'seqtree_native_sha256':sha256(Path(_core.__file__)),
@@ -413,13 +464,7 @@ def main(a):
                     'cli_source_sha256':sha256(Path(__file__))},
         'reference':db.provenance(a.vdjdb),'control':provenance,'ingestion':ingestion,
         'alpha_control':alpha_provenance,
-        'gapped_extension':{'source_sha256':sha256(Path(gapped_extension.__code__.co_filename)),
-                             'distance_source_sha256':sha256(Path(distance_matrix.__code__.co_filename)),
-                             'model_sha256':sha256(Path(load_v_loops.__code__.co_filename).parent.parent/'resources/tcrdist'/f'{organism}_v_loops.tsv'),
-                             'control_geometry':'trimmed restricted-gap CDR3; unique full controls; exact full identity punctured',
-                             'formula':'original density plus only new gapped/V-loop kernel edges; V weight1 same allele-stripped gene/.25 otherwise; no vsim multiplier',
-                             'diagnostics':'pre-prior unweighted same/cross V sums, edge counts, weighted floor contribution, and source-order best accepted edge total/CDR3/V-loop distances',
-                             'significance':'p_enrichment remains the original component test; no combined P-value'} if a.gapped_extension else None,
+        'gapped_extension':extension_manifest,
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
         'scope':'PSSM5 substitutions; unit controls5,2,2; significance nearest<=1; exact excluded',
         'representative':('first source-order V per declared task union junction' if a.targets_from_sample
