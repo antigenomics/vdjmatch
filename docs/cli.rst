@@ -536,7 +536,10 @@ Use ``--junction-ends trim3`` for symmetric end exclusion or
 profile. They cannot be combined. The profile is quantised to 0.01, with a
 minimum 0.01; it is not a gene-specific NDN boundary model. The existing candidate
 minimum distances/counts retain their unweighted comparator geometry. The
-manifest distinguishes that output from the new enrichment geometry. Paired
+manifest distinguishes that output from the new enrichment geometry. It also
+records control loading, count-batch wall time (including Python adapter
+preparation), and total enrichment-stage wall time; these are separate from
+the complete command wall time. Paired
 background enrichment is rejected until a joint-control contract is defined.
 
 

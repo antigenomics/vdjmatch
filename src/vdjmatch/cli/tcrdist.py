@@ -163,7 +163,9 @@ def main(a):
     # Counts share one distance on references and controls; no dense control matrix.
     enrichment_rows=[]
     background_provenance=None
+    background_costs={'control_load':0.0,'native_count_batches':0.0}
     if a.background:
+        background_start=time.perf_counter()
         groups=list(groups)  # assayed_targets is streamed; the new arm uses it twice
         from ..match.tcrdist import total_distance_count_batch
         from ..evalue.control import raw_gene_background
@@ -174,10 +176,13 @@ def main(a):
                 return []
             if not population.height:
                 return [0]*part.height
-            return [row[0] for row in total_distance_count_batch(
+            count_start=time.perf_counter()
+            result=[row[0] for row in total_distance_count_batch(
                 part['cdr3'].to_list(),population['cdr3'].to_list(),
                 part['_allele'].to_list(),population['_allele'].to_list(),
                 [[200*a.radius]]*part.height,**options)]
+            background_costs['native_count_batches']+=time.perf_counter()-count_start
+            return result
         def populations(part,population):
             if not a.exclude_exact:
                 return [population.height]*part.height
@@ -185,7 +190,9 @@ def main(a):
             return [population.height-multiplicity.get(s,0) for s in part['cdr3']]
         shared=None
         if a.background!='vdjdb-other':
+            load_start=time.perf_counter()
             controls,background_provenance=raw_gene_background(a.control,a.locus,organism,deduplicate=a.background!='generative')
+            background_costs['control_load']=time.perf_counter()-load_start
             # One native control batch, shared transiently across declared targets.
             parts=[part.select('cdr3','_allele') for _,part,_ in groups if part.height]
             usable=pl.concat(parts).unique(maintain_order=True) if parts else q.select('cdr3','_allele').head(0)
@@ -222,6 +229,7 @@ def main(a):
             enrichment_rows.append(part.select('query_id','cdr3','_allele').join(evidence,
                 on=['cdr3','_allele'],how='left',validate='m:1',maintain_order='left').drop('cdr3','_allele')
                 .with_columns(*(pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC)))
+        background_costs['total']=time.perf_counter()-background_start
     rows=[]
     dispositions={}
     for task,query_part,reference_part in groups:
@@ -337,7 +345,7 @@ def main(a):
         'distance':('TCRdist3 default' if ctrim==2 else 'experimental symmetric-trim')+
                    ' 3*CDR3+CDR1+CDR2+CDR2.5; '+organism+' combo_xcr_2024-03-05',
         'junction_end_trim':{'n_terminal':3,'c_terminal':ctrim},
-        **({'background_enrichment':{'background':background_provenance,
+        **({'background_enrichment':{'background':background_provenance,'stage_wall_seconds':background_costs,
             'geometry':'full-profile decay' if a.position_weighting=='significance' else f'trim3/{ctrim}',
             'formula':'n_reference/[reference_population*(n_control+0.5)/(control_population+1)]',
             'denominators':'reference distinct junction/V-allele keys; controls use declared population units; both after optional full-junction exclusion',
