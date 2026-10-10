@@ -17,6 +17,7 @@ interfaces are documented in :doc:`cli` and :doc:`api`.
    how-to
    explanation
    scoring
+   pgen
    releases
    cli
    api
