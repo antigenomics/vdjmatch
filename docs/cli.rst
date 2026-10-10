@@ -516,8 +516,10 @@ the other-peptide population through its other annotation.
 
 The control table must provide full ``junction_aa`` and V calls (legacy
 junction columns are accepted only outside AIRR). Present species/locus columns
-are filtered; without them the caller declares those properties. Counts use
-distinct full-junction/resolved-V-allele keys, ignoring abundance. Ambiguous
+are filtered; without them the caller declares those properties. Reference and
+real-control counts use distinct full-junction/resolved-V-allele keys, ignoring
+abundance. Generated controls retain every eligible draw, including repeated
+keys, to preserve their empirical generative mass. Ambiguous
 V calls remain unavailable. ``--exclude-exact`` removes every full-junction
 identity from counts and population sizes on both sides.
 

@@ -53,8 +53,10 @@ background questions. Healthy control metadata does not establish naive-cell
 provenance. Sequence Pgen is not the probability of an entire distance ball.
 The historical control loader discards V/J. The experimental count CLI instead
 retains supplied V calls and counts the same total junction-plus-V-loop distance
-on both populations. Counts use distinct full-junction/resolved-V-allele keys;
-ambiguous or unmodelled calls are excluded and reported. Present species/locus
+on both populations. References and real controls use distinct full-junction/
+resolved-V-allele keys. Generated controls retain repeated eligible draws to
+estimate generative-law mass; deduplicating them would change that law.
+Ambiguous or unmodelled calls are excluded and reported. Present species/locus
 metadata are filtered before gene resolution. With exact exclusion, all keys
 sharing the query full junction are removed from both counts and denominators.
 

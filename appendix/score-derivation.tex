@@ -16,8 +16,9 @@ Let $R_X$ be the eligible reference population and $B$ the eligible control popu
 $N=|R_X|$ and $M=|B|$ are their sizes.
 The ratios below require $N>0$ and $M>0$; empty populations are unavailable,
 not zero-enrichment observations.
-Use the same observation unit, distance and exact-identity exclusion for both.
-The experimental CLI uses distinct full-junction/resolved-V-allele keys.
+Use the same receptor representation, distance and exact-identity exclusion.
+References and real controls use distinct full-junction/resolved-V-allele keys;
+generated controls retain repeated draws to preserve generative-law mass.
 Eligibility and exclusions precede denominator calculation.
 Historical denominators are preserved separately for reproduction.
 

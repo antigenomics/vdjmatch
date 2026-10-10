@@ -39,7 +39,8 @@ def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,backgroun
     pl.DataFrame({'cdr3':[q,r,r,q],'v':['TRBV19']*4,'gene':['TRB']*4,
         'species':['HomoSapiens']*4,'epitope':['E','E','other','exact-only'],
         'mhc_a':['HLA-A*02:01']*4,'mhc_b':['B2M']*4,'mhc_class':['MHCI']*4}).write_csv(reference,separator='\t')
-    pl.DataFrame({'junction_aa':[q,r],'v_call':['TRBV19']*2}).write_csv(control,separator='\t')
+    control_sequences=[q,r,r] if background=='generative' else [q,r]
+    pl.DataFrame({'junction_aa':control_sequences,'v_call':['TRBV19']*len(control_sequences)}).write_csv(control,separator='\t')
     args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus','TRB',
           '--targets-from-sample','--junction-ends','trim3','--radius','0','--exclude-exact',
           '--background',background,'--output-prefix',str(prefix)]
@@ -48,8 +49,10 @@ def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,backgroun
     scores=pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     e=scores.filter(pl.col('epitope')=='E').row(0,named=True)
     assert e['n_reference']==e['reference_population']==1
-    assert e['n_control']==e['control_population']==1
-    assert e['expected_count']==.75 and e['enrichment']==pytest.approx(4/3)
+    M=2 if background=='generative' else 1
+    assert e['n_control']==e['control_population']==M
+    assert e['expected_count']==(M+.5)/(M+1)
+    assert e['enrichment']==pytest.approx((M+1)/(M+.5))
     assert not e['zero_control_hits']
     unavailable=scores.filter(pl.col('epitope')!='E')
     assert unavailable['enrichment'].null_count()==2

@@ -185,7 +185,7 @@ def main(a):
             return [population.height-multiplicity.get(s,0) for s in part['cdr3']]
         shared=None
         if a.background!='vdjdb-other':
-            controls,background_provenance=raw_gene_background(a.control,a.locus,organism)
+            controls,background_provenance=raw_gene_background(a.control,a.locus,organism,deduplicate=a.background!='generative')
             # One native control batch, shared transiently across declared targets.
             parts=[part.select('cdr3','_allele') for _,part,_ in groups if part.height]
             usable=pl.concat(parts).unique(maintain_order=True) if parts else q.select('cdr3','_allele').head(0)
@@ -340,7 +340,7 @@ def main(a):
         **({'background_enrichment':{'background':background_provenance,
             'geometry':'full-profile decay' if a.position_weighting=='significance' else f'trim3/{ctrim}',
             'formula':'n_reference/[reference_population*(n_control+0.5)/(control_population+1)]',
-            'denominators':'eligible distinct junction/V-allele keys after optional full-junction exclusion',
+            'denominators':'reference distinct junction/V-allele keys; controls use declared population units; both after optional full-junction exclusion',
             'calibration':'none; Jeffreys background predictive smoothing, not a Bayes factor or P-value',
             'nearest_output':'distance and native neighbour counts retain their unweighted comparator geometry'}} if a.background else {}),
         'calibration':'none','wall_seconds':time.perf_counter()-start},indent=2)+'\n')

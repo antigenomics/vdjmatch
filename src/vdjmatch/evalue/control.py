@@ -123,12 +123,13 @@ def raw_background(locus="TRB", species="human", path=None):
     return Index.build(sequences, "aa"), provenance
 
 
-def raw_gene_background(path, locus="TRB", species="human"):
+def raw_gene_background(path, locus="TRB", species="human", *, deduplicate=True):
     """Fresh eligible junction/V-allele keys for total-distance control counts.
 
     Uses supplied V annotations; never chooses one conflicting V call or weights
     rows by abundance. Distinct V assignments for the same junction are distinct
-    keys. Present species/locus columns are filtered; absent columns require the
+    keys when deduplicating; generated draw multiplicities can be retained.
+    Present species/locus columns are filtered; absent columns require the
     caller's explicit declaration.
     """
     from pathlib import Path
@@ -172,7 +173,9 @@ def raw_gene_background(path, locus="TRB", species="human"):
     frame = frame.with_columns(resolve_v_alleles(frame["v"], load_v_loops(organism), locus=locus).alias("_allele"))
     valid = frame.filter(pl.col("cdr3").str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]{8,}$").fill_null(False))
     eligible = valid.filter(pl.col("_allele").is_not_null())
-    keys = eligible.select("cdr3", "_allele").unique().sort("cdr3", "_allele")
+    keys = eligible.select("cdr3", "_allele")
+    unique_keys = keys.unique()
+    keys = (unique_keys if deduplicate else keys).sort("cdr3", "_allele")
     if not keys.height:
         raise ValueError("control has no eligible junction/V-allele keys")
     return keys, {
@@ -183,7 +186,9 @@ def raw_gene_background(path, locus="TRB", species="human"):
         "excluded_metadata_rows": raw.height-selected.height,
         "excluded_sequence_rows": frame.height-valid.height,
         "excluded_gene_rows": valid.height-eligible.height,
-        "eligible_rows": eligible.height, "unique_keys": keys.height,
-        "observation_unit": "distinct full junction + resolved V allele; abundance ignored",
+        "eligible_rows": eligible.height, "unique_keys": unique_keys.height,
+        "population_size": keys.height, "deduplicated": deduplicate,
+        "observation_unit": ("distinct full junction + resolved V allele; abundance ignored" if deduplicate else
+                             "eligible generated receptor draw; repeated junction/V keys retained"),
         "v_annotation_policy": "source-supplied calls; ambiguous/unmodeled excluded, no first-call choice",
     }
