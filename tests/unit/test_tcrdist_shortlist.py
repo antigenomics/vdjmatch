@@ -22,7 +22,7 @@ def test_cli_audit_preserves_exhaustive_output_and_unavailable_rows(tmp_path):
     from vdjmatch.cli.__main__ import main
     meta=dict(species='HomoSapiens',epitope='E',mhc_a='HLA-A*02:01',mhc_b='B2M',mhc_class='MHCI')
     q=tmp_path/'q.tsv';r=tmp_path/'r.tsv'
-    pl.DataFrame([dict(junction_aa='CASSLGQAYEQYF',v_call=v,locus='TRB',**meta) for v in ['TRBV19*01','unknown']]).write_csv(q,separator='\t')
+    pl.DataFrame([dict(junction_aa='CASSLGQAYEQYF',v_call=v,locus='TRB',**meta) for v in ['TRBV19*01','unknown','TRBV19*01']]).write_csv(q,separator='\t')
     pl.DataFrame([dict(cdr3='CASSAGQAYEQYF',v='TRBV7-9*01',gene='TRB',**meta)]).write_csv(r,separator='\t')
     for audit in [False,True]:
         prefix=tmp_path/str(audit)
@@ -30,10 +30,12 @@ def test_cli_audit_preserves_exhaustive_output_and_unavailable_rows(tmp_path):
         assert main(args+(['--shortlist-audit'] if audit else []))==0
     for suffix in ['queries','candidates']:
         assert pl.read_csv(tmp_path/f'False.{suffix}.tsv',separator='\t').equals(pl.read_csv(tmp_path/f'True.{suffix}.tsv',separator='\t'))
-    diagnostic=pl.read_csv(tmp_path/'True.shortlist.tsv',separator='\t');assert diagnostic.height==2
-    assert diagnostic['cdr3_shortlist_keys'].to_list()==[1,None]
-    assert diagnostic['status'].to_list()==['matched','invalid_query_or_gene']
-    assert 'shortlist_audit' in json.loads((tmp_path/'True.manifest.json').read_text())
+    diagnostic=pl.read_csv(tmp_path/'True.shortlist.tsv',separator='\t');assert diagnostic.height==3
+    assert diagnostic['cdr3_shortlist_keys'].to_list()==[1,None,1]
+    assert diagnostic['status'].to_list()==['matched','invalid_query_or_gene','matched']
+    manifest=json.loads((tmp_path/'True.manifest.json').read_text())
+    assert manifest['shortlist_audit']['stages'][0]['query_appearances']==2
+    assert manifest['shortlist_audit']['stages'][0]['unique_computations']==1
 
 def test_sparse_budget_fails_before_retrieval_and_parallel_results_equal(monkeypatch):
     import pytest

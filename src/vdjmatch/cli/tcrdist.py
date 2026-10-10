@@ -351,14 +351,18 @@ def main(a):
             continue
         if a.shortlist_audit:
             from ..match.tcrdist import shortlist_audit_batch
-            audit=shortlist_audit_batch(query_part['cdr3'],reference_part['cdr3'],
-                query_part['_allele'],reference_part['_allele'],radius=a.radius,
+            computation=query_part.unique(['cdr3','_allele'],maintain_order=True)
+            audit=shortlist_audit_batch(computation['cdr3'],reference_part['cdr3'],
+                computation['_allele'],reference_part['_allele'],radius=a.radius,
                 species=organism,threads=a.threads,ctrim=ctrim,exclude_exact=a.exclude_exact)
-            shortlist_rows.append(query_part.select('query_id').with_columns(
+            shared=computation.select('cdr3','_allele').with_columns(
                 pl.Series('cdr3_shortlist_keys',audit['cdr3_shortlist_keys'],dtype=pl.UInt64),
                 pl.Series('post_v_radius_keys',audit['post_v_radius_keys'],dtype=pl.UInt64),
-                pl.Series('nearest_within_shortlist_distance',audit['nearest_within_shortlist_distance'],dtype=pl.Float64)))
-            shortlist_costs.append(dict(target=task,**{k:audit[k] for k in ['stage_seconds','projected_sparse_payload_bytes']}))
+                pl.Series('nearest_within_shortlist_distance',audit['nearest_within_shortlist_distance'],dtype=pl.Float64))
+            shortlist_rows.append(query_part.select('query_id','cdr3','_allele').join(
+                shared,on=['cdr3','_allele'],validate='m:1',maintain_order='left').drop('cdr3','_allele'))
+            shortlist_costs.append(dict(target=task,query_appearances=query_part.height,
+                unique_computations=computation.height,**{k:audit[k] for k in ['stage_seconds','projected_sparse_payload_bytes']}))
         # Paired calls hold two matrices plus native/gather temporaries; bound them together.
         matrix_budget=32*1024**2 if paired else 64*1024**2
         bytes_per_pair=16 if paired else 4
