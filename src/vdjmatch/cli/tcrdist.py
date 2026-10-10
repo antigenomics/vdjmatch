@@ -186,7 +186,9 @@ def main(a):
         def populations(part,population):
             if not a.exclude_exact:
                 return [population.height]*part.height
-            multiplicity=dict(population.group_by('cdr3').len().iter_rows())
+            # Only query identities can be punctured; avoid a full-control Python map.
+            exact=population.filter(pl.col('cdr3').is_in(part['cdr3'].unique().implode()))
+            multiplicity=dict(exact.group_by('cdr3').len().iter_rows())
             return [population.height-multiplicity.get(s,0) for s in part['cdr3']]
         shared=None
         if a.background!='vdjdb-other':
