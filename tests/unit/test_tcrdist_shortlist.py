@@ -34,3 +34,16 @@ def test_cli_audit_preserves_exhaustive_output_and_unavailable_rows(tmp_path):
     assert diagnostic['cdr3_shortlist_keys'].to_list()==[1,None]
     assert diagnostic['status'].to_list()==['matched','invalid_query_or_gene']
     assert 'shortlist_audit' in json.loads((tmp_path/'True.manifest.json').read_text())
+
+def test_sparse_budget_fails_before_retrieval_and_parallel_results_equal(monkeypatch):
+    import pytest
+    from vdjmatch.match import tcrdist
+    q=['CASSLGQAYEQYF']*2;r=['CASSAGQAYEQYF'];qv=['TRBV19*01']*2;rv=['TRBV7-9*01']
+    serial=shortlist_audit_batch(q,r,qv,rv,threads=1)
+    parallel=shortlist_audit_batch(q,r,qv,rv,threads=2)
+    for key in ['cdr3_shortlist_keys','post_v_radius_keys','nearest_within_shortlist_distance']:
+        assert serial[key]==parallel[key]
+    monkeypatch.setattr(tcrdist.gapblock,'count_batch',lambda *a,**k:[[100_000_000]]*len(q))
+    monkeypatch.setattr(tcrdist.gapblock,'ball_batch',lambda *a,**k:pytest.fail('retrieval must not allocate over budget'))
+    with pytest.raises(MemoryError,match='no hits truncated'):
+        shortlist_audit_batch(q,r,qv,rv)
