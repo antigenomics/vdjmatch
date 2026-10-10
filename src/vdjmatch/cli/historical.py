@@ -116,6 +116,8 @@ def _paired_scores(a, reference, beta_control, prior_background):
     alpha_control,alpha_provenance=raw_background('TRA',a.species,a.alpha_control)
     controls={'alpha':alpha_control,'beta':beta_control}
     canonical=r'^[ACDEFGHIKLMNPQRSTVWY]+$'
+    genes_present={suffix:pl.all_horizontal(pl.col('v'+suffix,'j'+suffix).str.strip_chars().ne('').fill_null(False))
+                   for suffix in ['a','b']}
     parts=[]
     for task,part,selected in assayed_targets(paired,metadata,reference,a.species):
         out=part.drop('species',*PMHC)
@@ -126,8 +128,9 @@ def _paired_scores(a, reference, beta_control, prior_background):
                 pl.col('v'+suffix).alias('v'),pl.col('j'+suffix).alias('j'))
             if ref.height and queries.height:
                 scores=density(queries,ref,controls[name],threads=a.threads,pool_reference=True)
-                prior=germline_prior(queries,ref,prior_background,include_length=chain=='TRB')
-                scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',
+                prior=germline_prior(queries.filter(pl.all_horizontal(pl.col('v','j').str.strip_chars().ne('').fill_null(False))),
+                                     ref,prior_background,include_length=chain=='TRB')
+                scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',how='left',
                                    validate='1:1',maintain_order='left').drop(PMHC)
                 scores=scores.rename({c:('density_score_' if c=='score' else c+'_')+name
                                      for c in scores.columns if c!='query_id'})
@@ -143,6 +146,8 @@ def _paired_scores(a, reference, beta_control, prior_background):
             .when(~pl.col('cdr3a').str.contains(canonical).fill_null(False)).then(pl.lit('invalid_alpha'))
             .when(~pl.col('cdr3b').str.contains(canonical).fill_null(False)).then(pl.lit('invalid_beta'))
             .when(pl.lit(any(not isinstance(v,str) or not v.strip() for v in task.values()))).then(pl.lit('invalid_target'))
+            .when(~genes_present['a']).then(pl.lit('missing_v_or_j_alpha'))
+            .when(~genes_present['b']).then(pl.lit('missing_v_or_j_beta'))
             .when(pl.col('n_reference_alpha')==0).then(pl.lit('no_reference_alpha'))
             .when(pl.col('n_reference_beta')==0).then(pl.lit('no_reference_beta'))
             .otherwise(pl.lit('scored')).alias('status'),
@@ -235,6 +240,7 @@ def main(a):
         prior_background=io.read_rearrangement(a.germline_background,source='legacy')
         if not (a.pool_reference or a.targets_from_sample):
             raise ValueError('original unpaired scoring requires --pool-reference')
+    genes_present=pl.all_horizontal(pl.col('v','j').str.strip_chars().ne('').fill_null(False))
     alpha_provenance=None
     if a.locus=='paired':
         out,ingestion,alpha_provenance=_paired_scores(a,r,ctrl,prior_background)
@@ -258,16 +264,24 @@ def main(a):
                 continue
             scores=score_density(querypart,referencepart,pool_reference=True)
             if prior_background is not None:
-                prior=germline_prior(querypart,referencepart,prior_background,include_length=a.locus=='TRB')
-                scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',validate='1:1',maintain_order='left')
-                scores=scores.rename({'score':'density_score'}).with_columns(
-                    unpaired_score(scores['score'],scores['germline_lr'],int(scores['n_reference'][0])))
-                if a.gapped_extension:
-                    scores=scores.with_columns(unpaired_score(scores['historical_density'],scores['germline_lr'],
-                                               int(scores['n_reference'][0])).alias('historical_score'))
+                prior=germline_prior(querypart.filter(genes_present),referencepart,prior_background,include_length=a.locus=='TRB')
+                valid=scores.join(prior.select('query_id','germline_lr'),on='query_id',validate='1:1',maintain_order='left')
+                full=valid.select('query_id','germline_lr')
+                if valid.height:
+                    full=full.with_columns(unpaired_score(valid['score'],valid['germline_lr'],int(valid['n_reference'][0])))
+                    if a.gapped_extension:
+                        full=full.with_columns(unpaired_score(valid['historical_density'],valid['germline_lr'],
+                                               int(valid['n_reference'][0])).alias('historical_score'))
+                else:
+                    full=full.with_columns(pl.lit(None,dtype=pl.Float64).alias('score'))
+                    if a.gapped_extension:
+                        full=full.with_columns(pl.lit(None,dtype=pl.Float64).alias('historical_score'))
+                scores=scores.rename({'score':'density_score'}).join(full,on='query_id',how='left',
+                                                                    validate='1:1',maintain_order='left')
             parts.append(scores.with_columns(
                 *[pl.lit(v,dtype=pl.String).alias(k) for k,v in task.items()],
-                pl.lit('scored').alias('status')))
+                (pl.when(pl.col('germline_lr').is_null()).then(pl.lit('missing_v_or_j'))
+                 .otherwise(pl.lit('scored')) if prior_background is not None else pl.lit('scored')).alias('status')))
         # Raw metadata survives normalization's invalid/missing-sequence filtering.
         if 'locus' in selected.columns:
             declared=pl.col('locus').str.to_uppercase()
@@ -284,6 +298,11 @@ def main(a):
             out=out.with_columns(pl.lit(None,dtype=pl.String).alias('status'))
         out=out.with_columns(pl.when(~species_selected).then(pl.lit('unselected_species'))
                             .otherwise(pl.col('status').fill_null('invalid_query')).alias('status')).sort('_order').drop('_order')
+        if prior_background is not None:
+            missing_gene_ids=q.filter(~genes_present)['query_id']
+            out=out.with_columns(pl.when(pl.col('query_id').is_in(missing_gene_ids.implode()) &
+                                        pl.col('status').is_in(['scored','no_reference']))
+                                 .then(pl.lit('missing_v_or_j')).otherwise(pl.col('status')).alias('status'))
         score_columns={'score':pl.Float64,'p_enrichment':pl.Float64,'n_reference':pl.UInt64,
                        'control_size':pl.UInt64,'estimator':pl.String}
         if prior_background is not None:
@@ -291,7 +310,12 @@ def main(a):
         if a.gapped_extension:
             score_columns.update(historical_density=pl.Float64,gapped_density=pl.Float64,
                                   availability=pl.Boolean,gapped_status=pl.String,M_gap=pl.UInt64,
-                                  n_reference_unavailable=pl.UInt64)
+                                  n_reference_unavailable=pl.UInt64,
+                                  gapped_density_same_v_unweighted=pl.Float64,
+                                  gapped_density_cross_v_unweighted=pl.Float64,
+                                  gapped_edges_same_v=pl.UInt64,gapped_edges_cross_v=pl.UInt64,
+                                  gapped_floor_density=pl.Float64,gapped_best_total_distance=pl.Int32,
+                                  gapped_best_cdr3_distance=pl.Int32,gapped_best_vloop_distance=pl.Int32)
             if prior_background is not None:
                 score_columns['historical_score']=pl.Float64
         out=out.with_columns(*[pl.lit(None,dtype=dtype).alias(name) for name,dtype in score_columns.items()
@@ -301,13 +325,22 @@ def main(a):
         for _,part in r.group_by('epitope',maintain_order=True):
             scores=score_density(q,part,pool_reference=True)
             if prior_background is not None:
-                prior=germline_prior(q,part,prior_background,include_length=a.locus=='TRB')
-                scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',validate='1:1',maintain_order='left')
-                scores=scores.rename({'score':'density_score'}).with_columns(
-                    unpaired_score(scores['score'],scores['germline_lr'],int(scores['n_reference'][0])))
-                if a.gapped_extension:
-                    scores=scores.with_columns(unpaired_score(scores['historical_density'],scores['germline_lr'],
-                                               int(scores['n_reference'][0])).alias('historical_score'))
+                prior=germline_prior(q.filter(genes_present),part,prior_background,include_length=a.locus=='TRB')
+                valid=scores.join(prior.select('query_id','germline_lr'),on='query_id',validate='1:1',maintain_order='left')
+                full=valid.select('query_id','germline_lr')
+                if valid.height:
+                    full=full.with_columns(unpaired_score(valid['score'],valid['germline_lr'],int(valid['n_reference'][0])))
+                    if a.gapped_extension:
+                        full=full.with_columns(unpaired_score(valid['historical_density'],valid['germline_lr'],
+                                               int(valid['n_reference'][0])).alias('historical_score'))
+                else:
+                    full=full.with_columns(pl.lit(None,dtype=pl.Float64).alias('score'))
+                    if a.gapped_extension:
+                        full=full.with_columns(pl.lit(None,dtype=pl.Float64).alias('historical_score'))
+                scores=scores.rename({'score':'density_score'}).join(full,on='query_id',how='left',
+                                                                    validate='1:1',maintain_order='left')
+                scores=scores.with_columns(pl.when(pl.col('germline_lr').is_null()).then(pl.lit('missing_v_or_j'))
+                                            .otherwise(pl.lit('scored')).alias('status'))
             parts.append(scores)
         out=pl.concat(parts)
     else:
@@ -328,7 +361,8 @@ def main(a):
                              'distance_source_sha256':sha256(Path(distance_matrix.__code__.co_filename)),
                              'model_sha256':sha256(Path(load_v_loops.__code__.co_filename).parent.parent/'resources/tcrdist'/f'{organism}_v_loops.tsv'),
                              'control_geometry':'trimmed restricted-gap CDR3; unique full controls; exact full identity punctured',
-                             'formula':'original density plus only new gapped/V-loop kernel edges',
+                             'formula':'original density plus only new gapped/V-loop kernel edges; V weight1 same allele-stripped gene/.25 otherwise; no vsim multiplier',
+                             'diagnostics':'pre-prior unweighted same/cross V sums, edge counts, weighted floor contribution, and source-order best accepted edge total/CDR3/V-loop distances',
                              'significance':'p_enrichment remains the original component test; no combined P-value'} if a.gapped_extension else None,
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
         'scope':'PSSM5 substitutions; unit controls5,2,2; significance nearest<=1; exact excluded',

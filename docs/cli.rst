@@ -436,11 +436,23 @@ invalid inputs retain their original pair/chain IDs and explicit statuses.
 ``--gapped-extension`` is an experimental single-chain ranking candidate for pooled
 or sample-declared targets. It preserves the original density and adds reference
 edges outside the equal-length five-substitution ball, at every supported length.
-Each additional edge contributes exp(-total TCRdist / 12) divided by the empirical
-CDR3 background mass, with the original 0.01 denominator floor. Total distance
-includes V CDR1/CDR2/CDR2.5; background counts use CDR3 distance alone.
+Each additional edge contributes w(V) exp(-total TCRdist / tau) divided by the
+empirical CDR3 background mass, with the original 0.01 denominator floor. Here
+w(V) is 1 for the same allele-stripped V gene and 0.25 for different genes. This
+is a categorical gene prior: different genes retain the 0.25 factor even when
+their native loop templates are identical. Total distance already includes
+continuous V CDR1/CDR2/CDR2.5 differences; no additional loop-similarity multiplier
+is applied. Background counts use CDR3 distance alone.
 ``--gap-radius`` defaults to 90 and ``--gap-temperature`` to 12. The output retains
 ``historical_density`` and, when priors are supplied, ``historical_score``.
+Flat diagnostics report the pre-prior, pre-V-weight same-gene and cross-gene
+kernel sums and accepted-edge counts. ``gapped_density`` equals the same-gene
+sum plus 0.25 times the cross-gene sum. ``gapped_floor_density`` is the weighted
+contribution of edges whose empirical denominator is strictly below 0.01. Best
+accepted-edge total, weighted CDR3 and V-loop distances retain native TCRdist
+units, with the first source-order reference chosen on total-distance ties.
+Empty or unavailable extension outputs have zero sums/counts and null best-edge
+distances; rows that never enter scoring keep null diagnostics and their status.
 ``p_enrichment`` remains the original component test; the combined ranking has
 no calibrated P-value. This option does not change production annotation defaults.
 
@@ -476,3 +488,27 @@ lookups add germline-loop distances. Single-chain distance outputs are bounded
 to 64 MiB per batch; paired matrix work uses a 32 MiB budget. These allocation
 bounds do not establish whole-process RSS. A clipped BLOSUM-derived matrix reproduces TCRdist penalties; ordinary
 seqtree BLOSUM Gram penalties are a different metric.
+
+Exhaustive TCRdist nearest reference
+------------------------------------
+
+``tcrdist-neighbours --targets-from-sample --unbounded-nearest`` reports the
+minimum native TCRdist distance over every usable, nonexcluded reference in each
+query's declared compatible pMHC union. A minimum may exceed ``--radius``;
+``n_neighbours`` continues to count only references within that radius. With
+``--exclude-exact``, exclusion compares the complete junction. In paired mode,
+only equality of both complete junctions excludes a reference pair, and distance
+is the alpha-plus-beta sum to the same linked reference pair.
+
+The command emits one candidate per available query/declared target when any
+nonexcluded reference remains. An exact-only excluded pool produces no candidate
+and keeps ``no_neighbours`` disposition. Unknown genes, invalid junctions,
+unselected species and missing partners retain their query rows and existing
+statuses. Without this flag, the original radius-ball candidate output is
+unchanged. The new flag requires ``--targets-from-sample``.
+
+This mode reduces each existing bounded native distance-matrix batch to query
+minima and radius counts; it does not materialize all query/reference hit pairs.
+The manifest records the selection mode and all CLI parameters. The resulting
+nearest distances are uncalibrated distances, suitable for separately defined
+comparator ranking; the command does not assign a specificity probability.

@@ -152,3 +152,62 @@ def test_paired_tcrdist_cli_unavailable_raw_rows_and_assayed_union(tmp_path,caps
     with pytest.raises(SystemExit) as error:
         main(args)
     assert error.value.code==2 and 'conflicting species' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('locus', ['TRB', 'paired'])
+def test_tcrdist_unbounded_nearest_outside_ball_and_exact_only(tmp_path, capsys, monkeypatch, locus):
+    import polars as pl
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.match import tcrdist as native
+    function='paired_distance_matrix' if locus=='paired' else 'distance_matrix'
+    original=getattr(native,function)
+    def read_only(*args, **kwargs):
+        matrix=original(*args, **kwargs)
+        matrix.setflags(write=False)
+        return matrix
+    monkeypatch.setattr(native,function,read_only)
+    a='CASSLGQAYEQYF';b='CASSLGRAYEQYF'
+    sample=tmp_path/'q.tsv';reference=tmp_path/'r.tsv';prefix=tmp_path/'out'
+    if locus=='paired':
+        raw=pl.DataFrame({'query_id':['raw-a','raw-b'],'clone_id':['007']*2,
+            'locus':['TRA','TRB'],'junction_aa':[a,a],'v_call':['TRAV1-1*01','TRBV19*01']})
+        ref=pl.DataFrame({'complex_id':['1','1'],'gene':['TRA','TRB'],'cdr3':[a,b],
+                         'v':['TRAV1-1*01','TRBV19*01']})
+    else:
+        raw=pl.DataFrame({'query_id':['hit','unknown','invalid','other'],
+            'locus':['TRB']*4,'junction_aa':[a,a,'INVALID!',a],
+            'v_call':['TRBV19*01','unknown','TRBV19*01','TRBV19*01']})
+        ref=pl.DataFrame({'gene':['TRB'],'cdr3':[b],'v':['TRBV19*01']})
+    raw=raw.with_columns(pl.lit('human').alias('species'),pl.lit('E').alias('epitope'),
+        pl.lit('HLA-A*02').alias('mhc_a'),pl.lit('B2M').alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
+    if locus=='TRB':
+        raw=raw.with_columns(pl.when(pl.col('query_id')=='other').then(pl.lit('mouse'))
+                            .otherwise(pl.col('species')).alias('species'))
+    raw.write_csv(sample,separator='\t')
+    ref=ref.with_columns(pl.lit('HomoSapiens').alias('species'),pl.lit('E').alias('epitope'),
+        pl.lit('HLA-A*02:01').alias('mhc_a'),pl.lit('B2M').alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
+    ref.write_csv(reference,separator='\t')
+    args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus',locus,
+          '--radius','0','--exclude-exact','--output-prefix',str(prefix)]
+    with pytest.raises(SystemExit) as error:
+        main(args+['--unbounded-nearest'])
+    assert error.value.code==2 and 'requires --targets-from-sample' in capsys.readouterr().err
+    args+=['--targets-from-sample']
+    assert main(args)==0
+    assert pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t').height==0
+    assert main(args+['--unbounded-nearest'])==0
+    scores=pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t')
+    assert scores['distance'].to_list()==[9] and scores['n_neighbours'].to_list()==[0]
+    assert scores['mhc_a'].to_list()==['HLA-A*02']
+    status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t',infer_schema_length=0)
+    if locus=='paired':
+        assert status['query_ida'].to_list()==['raw-a'] and status['query_idb'].to_list()==['raw-b']
+    else:
+        assert status['query_id'].to_list()==['hit','unknown','invalid','other']
+        assert status['status'].to_list()==['matched','invalid_query_or_gene','invalid_query_or_gene','unselected_species']
+    # The only reference is now a full junction identity (a full pair in paired mode).
+    ref.with_columns(pl.lit(a).alias('cdr3')).write_csv(reference,separator='\t')
+    assert main(args+['--unbounded-nearest'])==0
+    assert pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t').height==0
+    status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
+    assert status['status'][0]=='no_neighbours'

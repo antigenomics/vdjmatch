@@ -16,6 +16,7 @@ def register(subparsers):
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--radius',type=int,default=90,help='maximum distance; paired uses the alpha+beta sum against one linked reference')
     p.add_argument('--exclude-exact',action='store_true')
+    p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
 
@@ -95,6 +96,8 @@ def main(a):
     from ..evalue.control import _organism
     start=time.perf_counter()
     if a.threads<1 or a.radius<0:raise ValueError('positive threads and nonnegative radius required')
+    if a.unbounded_nearest and not a.targets_from_sample:
+        raise ValueError('--unbounded-nearest requires --targets-from-sample')
     raw=_read_table(a.sample)
     if 'query_id' not in raw.columns:raw=raw.with_row_index('query_id')
     if raw['query_id'].null_count() or raw['query_id'].n_unique()!=raw.height:
@@ -169,12 +172,23 @@ def main(a):
                 seqs=part['cdr3'].to_list()
                 distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads)
             keep=distances<=a.radius
+            nonexact=True
             if a.exclude_exact:
                 if paired:
-                    keep&=~((np.asarray(qa)[:,None]==np.asarray(ra)[None,:]) &
-                            (np.asarray(qb)[:,None]==np.asarray(rb)[None,:]))
+                    nonexact=~((np.asarray(qa)[:,None]==np.asarray(ra)[None,:]) &
+                               (np.asarray(qb)[:,None]==np.asarray(rb)[None,:]))
                 else:
-                    keep&=np.asarray(seqs)[:,None]!=np.asarray(rs)[None,:]
+                    nonexact=np.asarray(seqs)[:,None]!=np.asarray(rs)[None,:]
+                keep&=nonexact
+            if a.unbounded_nearest:
+                sentinel=np.iinfo(np.int32).max
+                nearest=np.min(distances,axis=1,where=nonexact,initial=sentinel)
+                available=nearest!=sentinel
+                h=part.filter(pl.Series(available)).select('query_id').with_columns(
+                    pl.Series('distance',nearest[available]),
+                    pl.Series('n_neighbours',keep.sum(axis=1,dtype=np.uint32)[available]))
+                rows.append(h.with_columns(*(pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC)))
+                continue
             qi,ri=np.nonzero(keep)
             h=pl.DataFrame({'_qi':qi,'_ri':ri,'distance':distances[qi,ri]})
             h=h.join(part.with_row_index('_qi').select('_qi','query_id'),on='_qi')
@@ -227,6 +241,8 @@ def main(a):
             'matrix_work_budget_bytes':32*1024**2,
             'independent_marginal_baseline':'not emitted; requires separate full compatible single-chain reference axes'} if paired else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
+        'selection':('exhaustive nearest nonexcluded reference; n_neighbours counts only within radius'
+                     if a.unbounded_nearest else 'radius ball'),
         'distance':'TCRdist3 default3*CDR3+CDR1+CDR2+CDR2.5; '+organism+' combo_xcr_2024-03-05',
         'calibration':'none','wall_seconds':time.perf_counter()-start},indent=2)+'\n')
     return 0

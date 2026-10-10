@@ -13,7 +13,9 @@ def gapped_extension(queries, reference, control, *, species='human', threads=1,
     """Experimental additive density on edges outside the original five-substitution ball.
 
     The kernel uses total TCRdist, while its empirical CDF uses weighted CDR3
-    distance only. This is an uncalibrated component: no new P-value is assigned.
+    distance only. Allele-stripped equal V genes have categorical weight one;
+    different genes have weight .25, independently of their native loop similarity.
+    This is an uncalibrated component: no new P-value is assigned.
     Reference junctions retain their first source-order V representative. N includes
     all those representatives; unavailable genes contribute no extension edges.
     """
@@ -49,19 +51,28 @@ def gapped_extension(queries, reference, control, *, species='human', threads=1,
     # Do not deduplicate these trimmed strings: distinct full junctions are observations.
     trimmed_control=[s[3:-2] for s in full_control]
     usable=q.filter(pl.col('_available')).select('cdr3','_allele').unique(maintain_order=True)
-    result=usable.with_columns(pl.lit(0.0).alias('gapped_density'))
+    diagnostics={'gapped_density':pl.Float64,
+        'gapped_density_same_v_unweighted':pl.Float64,'gapped_density_cross_v_unweighted':pl.Float64,
+        'gapped_edges_same_v':pl.UInt64,'gapped_edges_cross_v':pl.UInt64,
+        'gapped_floor_density':pl.Float64,'gapped_best_total_distance':pl.Int32,
+        'gapped_best_cdr3_distance':pl.Int32,'gapped_best_vloop_distance':pl.Int32}
+    result=usable.with_columns(*[pl.lit(-1 if 'best_' in c else 0,dtype=dtype).alias(c)
+                                for c,dtype in diagnostics.items()])
     if ref.height and usable.height:
         rs,rv=ref['cdr3'].to_list(),ref['_allele'].to_list()
         rlen=np.asarray(list(map(len,rs)))
+        # Same normalization as regions.gene_family: strip allele, retain the gene.
+        rgenes=ref['_allele'].str.replace(r'\*.*$', '').to_numpy()
         # Reserve component/total matrices, masks and per-length vectorized Hamming work.
         budget=32*1024**2
         if 32*ref.height>budget:
             raise ValueError('gapped reference exceeds the32MiB work budget for one query')
         batch=max(1,budget//(32*ref.height))
-        values=[]
+        values={c:[] for c in diagnostics}
         options=_cdr3_options(threads)
         for part in usable.iter_slices(batch):
             seqs=part['cdr3'].to_list()
+            qgenes=part['_allele'].str.replace(r'\*.*$', '').to_numpy()
             total,cdr3=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,
                 species=species,threads=threads,return_cdr3=True)
             new=total<=radius
@@ -80,17 +91,35 @@ def gapped_extension(queries, reference, control, *, species='human', threads=1,
             thresholds=[np.unique(2*cdr3[i,new[i]]//3).tolist() for i in active]
             counts=gapblock.count_batch([seqs[i][3:-2] for i in active],trimmed_control,thresholds,
                                        exclude_exact=False,**options) if len(active) else []
-            scores=np.zeros(len(seqs),dtype=np.float64)
+            arrays={c:np.full(len(seqs),-1 if 'best_' in c else 0,
+                    dtype=np.int32 if 'best_' in c else np.uint64 if 'edges_' in c else np.float64)
+                    for c in diagnostics}
             for i,cutoffs,nc in zip(active,thresholds,counts):
                 # Puncture the full identity only, preserving other trimmed-identical controls.
                 nc=np.asarray(nc,dtype=np.int64)-int(seqs[i] in full_control_set)
                 positions=np.searchsorted(cutoffs,2*cdr3[i,new[i]]//3)
-                denominator=np.maximum(n_reference/m_gap*nc[positions],.01)
-                scores[i]=np.sum(np.exp(-total[i,new[i]]/temperature)/denominator)
-            values.extend(scores.tolist())
-        result=usable.with_columns(pl.Series('gapped_density',values,dtype=pl.Float64))
+                empirical=n_reference/m_gap*nc[positions]
+                unweighted=np.exp(-total[i,new[i]]/temperature)/np.maximum(empirical,.01)
+                same=qgenes[i]==rgenes[new[i]]
+                weighted=unweighted*np.where(same,1.0,.25)
+                arrays['gapped_density'][i]=weighted.sum()
+                arrays['gapped_density_same_v_unweighted'][i]=unweighted[same].sum()
+                arrays['gapped_density_cross_v_unweighted'][i]=unweighted[~same].sum()
+                arrays['gapped_edges_same_v'][i]=same.sum()
+                arrays['gapped_edges_cross_v'][i]=(~same).sum()
+                arrays['gapped_floor_density'][i]=weighted[empirical<.01].sum()
+                # argmin selects the first accepted source-order reference on ties.
+                accepted=np.flatnonzero(new[i])
+                best=accepted[np.argmin(total[i,accepted])]
+                arrays['gapped_best_total_distance'][i]=total[i,best]
+                arrays['gapped_best_cdr3_distance'][i]=cdr3[i,best]
+                arrays['gapped_best_vloop_distance'][i]=total[i,best]-cdr3[i,best]
+            for c in diagnostics:
+                values[c].extend(arrays[c].tolist())
+        result=usable.with_columns(*[pl.Series(c,values[c],dtype=dtype) for c,dtype in diagnostics.items()])
     out=q.join(result,on=['cdr3','_allele'],how='left',validate='m:1',maintain_order='left')
-    return out.select('query_id',pl.col('gapped_density').fill_null(0.0),
+    return out.select('query_id',*[pl.when(pl.col(c)>=0).then(pl.col(c)).otherwise(None).alias(c)
+        if 'best_' in c else pl.col(c).fill_null(0).alias(c) for c in diagnostics],
         (pl.col('_available') & pl.lit(bool(ref.height))).alias('availability'),
         pl.when(~pl.col('_available')).then(pl.lit('unavailable_query_or_gene'))
         .when(pl.lit(not bool(ref.height))).then(pl.lit('no_usable_reference'))
@@ -141,6 +170,8 @@ def unified_evidence(ann, q, *, threads=1, control=None, species=None, exclude_e
         refseqs = refs["cdr3"].to_list()
         unique_queries = queries.select("cdr3").unique().sort("cdr3")
         # Bound the native all-versus-all int32 matrix at 64 MiB. Reduce immediately.
+        if 4 * len(refseqs) > 64 * 1024**2:
+            raise ValueError('gapped reference exceeds the64MiB matrix budget for one query')
         batch_size = max(1, (64 * 1024**2) // (4 * len(refseqs)))
         for batch in unique_queries.iter_slices(batch_size):
             seqs = batch["cdr3"].to_list()

@@ -5,6 +5,30 @@ from seqtree import Index, SubstitutionMatrix, gapblock
 from vdjmatch.api import Annotator
 
 
+
+def test_unified_gap_rejects_one_row_over_matrix_budget_before_native_allocation(monkeypatch):
+    from types import SimpleNamespace
+    import pytest
+    from vdjmatch.match.unified import unified_evidence
+    class OversizedSequences:
+        def __len__(self): return 64*1024**2//4+1
+    class VirtualReference:
+        def select(self,*args): return self
+        def unique(self): return self
+        def sort(self,*args): return self
+        def with_row_index(self,*args): return self
+        def __getitem__(self,key): return self
+        def to_list(self): return OversizedSequences()
+    ann=SimpleNamespace(loci=['TRB'],_index=SimpleNamespace(records_for=lambda locus:VirtualReference()))
+    def forbidden(*args,**kwargs):
+        raise AssertionError('oversized one-query matrix must be rejected before native allocation')
+    monkeypatch.setattr(gapblock,'score_matrix',forbidden)
+    monkeypatch.setattr(gapblock,'count_batch',forbidden)
+    q=pl.DataFrame({'query_id':['q'],'cdr3':['CASSLGQAYEQYF'],'locus':['TRB']})
+    with pytest.raises(ValueError,match='64MiB matrix budget for one query'):
+        unified_evidence(ann,q,control=Index.build(['CASSLGQAYEQYF']),distance='gapblock')
+
+
 def test_unified_routes_counts_identity_and_parallel_equality():
     short = "CASSLGQAYEQYF"
     long = "CASSLGQAYEQYSSSSSSSSSSSF"
@@ -123,3 +147,48 @@ def test_gapped_extension_uses_v_loops_but_cdr3_only_background_and_first_v():
     assert unavailable['gapped_density'].to_list()==[0.0]
     assert unavailable['availability'].to_list()==[False]
     assert unavailable['n_reference_unavailable'].to_list()==[1]
+
+
+def test_gapped_extension_categorical_v_prior_and_flat_diagnostics(monkeypatch):
+    from vdjmatch.match.unified import gapped_extension
+    from vdjmatch.match import tcrdist
+    q='CASSLGQAYEQYF'
+    same,cross='TRBV24-1*01','TRBV24/OR9-2*01'
+    model=tcrdist.load_v_loops()
+    assert same.split('*')[0]!=cross.split('*')[0]
+    assert all(model[same][k]==model[cross][k] for k in ('cdr1','cdr2','cdr25'))
+    refs=pl.DataFrame({'cdr3':[q+'F',q+'W'],'v':[same,cross]})
+    queries=pl.DataFrame({'query_id':['q','unknown'],'cdr3':[q,q],'v':[same,'unknown']})
+    total,cdr3=tcrdist.distance_matrix([q],refs['cdr3'].to_list(),[same],[same,cross],return_cdr3=True)
+    assert total[0,0]==total[0,1] and (total==cdr3).all()
+    calls=[];native_distance=tcrdist.distance_matrix;native_count=gapblock.count_batch
+    def distance(*args,**kwargs):
+        calls.append('distance');return native_distance(*args,**kwargs)
+    def count(*args,**kwargs):
+        calls.append('count');return native_count(*args,**kwargs)
+    monkeypatch.setattr(tcrdist,'distance_matrix',distance)
+    monkeypatch.setattr(gapblock,'count_batch',count)
+    control=Index.build([q]);tau=15
+    out=gapped_extension(queries,refs,control,temperature=tau)
+    assert calls==['distance','count']
+    row=out.row(0,named=True);base=math.exp(-int(total[0,0])/tau)/.01
+    assert math.isclose(row['gapped_density_same_v_unweighted'],base)
+    assert math.isclose(row['gapped_density_cross_v_unweighted'],base)
+    assert math.isclose(row['gapped_density'],1.25*base)
+    assert math.isclose(row['gapped_density'],row['gapped_density_same_v_unweighted']+.25*row['gapped_density_cross_v_unweighted'])
+    assert row['gapped_edges_same_v']==row['gapped_edges_cross_v']==1
+    assert row['gapped_floor_density']==row['gapped_density']
+    assert row['gapped_best_total_distance']==int(total[0,0])
+    assert row['gapped_best_cdr3_distance']==int(cdr3[0,0])
+    assert row['gapped_best_vloop_distance']==0
+    empty=gapped_extension(queries.head(1),refs.head(0),control)
+    no_edges=gapped_extension(queries.head(1),pl.DataFrame({'cdr3':[q],'v':[same]}),control)
+    assert out.schema==empty.schema==no_edges.schema
+    assert empty['gapped_status'].to_list()==['no_usable_reference']
+    for frame in (out.tail(1),empty,no_edges):
+        for name in out.columns:
+            if name.startswith('gapped_best_'):
+                assert frame[name].to_list()==[None]
+            elif name.startswith(('gapped_density','gapped_edges_','gapped_floor_')):
+                assert frame[name].to_list()==[0]
+    assert calls==['distance','count','distance']
