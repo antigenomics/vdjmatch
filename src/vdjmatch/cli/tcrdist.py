@@ -25,6 +25,7 @@ def _paired_input(path, raw, model, organism):
     """Preserve raw pair/chain identities, including rows dropped during ingestion."""
     import polars as pl
     from .. import io
+    from ..match.tcrdist import resolve_v_alleles
     from ..aggregate.candidates import PMHC
     if 'clone_id' not in raw.columns:
         raise ValueError('paired AIRR input requires clone_id linkage')
@@ -45,20 +46,23 @@ def _paired_input(path, raw, model, organism):
     if shared and raw.group_by('pair_id').agg(*(pl.col(c).n_unique().alias(c) for c in shared)).filter(
             pl.any_horizontal(*(pl.col(c)>1 for c in shared))).height:
         raise ValueError('paired query has conflicting species or peptide/MHC annotations')
+    v_column=io.columns._resolve(raw).get('v')
     pairs=raw.group_by('pair_id',maintain_order=True).agg(
         pl.col('clone_id').first(),*(pl.col(c).first() for c in metadata),
         *[pl.col(c).filter(pl.col('_locus')==locus).first().alias(c+suffix)
           for locus,suffix in [('TRA','a'),('TRB','b')]
-          for c in ['query_id',*(['sequence_id'] if 'sequence_id' in raw.columns else [])]])
+          for c in ['query_id',*(['sequence_id'] if 'sequence_id' in raw.columns else [])]],
+        *[(pl.col(v_column).filter(pl.col('_locus')==locus).first() if v_column else
+           pl.lit(None,dtype=pl.String)).alias('v_call_'+name)
+          for locus,name in [('TRA','alpha'),('TRB','beta')]])
     pairs=pairs.with_row_index('query_id')
     cells,ingestion=io.read_cell(path,link='clone_id',source='airr',valid_aa=False,return_report=True)
-    # Chain IDs come from raw rows, including missing/invalid sequences.
+    # Chain IDs and V calls come from raw rows, including missing/invalid sequences.
     cells=cells.drop([c for c in cells.columns if c.startswith('query_id') or c.startswith('sequence_id')])
     pairs=pairs.join(cells,on='pair_id',how='left',validate='1:1',maintain_order='left')
-    for suffix,locus in [('a','TRA'),('b','TRB')]:
+    for suffix,locus,name in [('a','TRA','alpha'),('b','TRB','beta')]:
         allele='_allele'+suffix
-        pairs=pairs.with_columns(pl.when(pl.col('v'+suffix).str.contains(r'\*')).then(pl.col('v'+suffix))
-            .otherwise(pl.col('v'+suffix)+'*01').alias(allele))
+        pairs=pairs.with_columns(resolve_v_alleles(pairs['v_call_'+name],model,locus=locus).alias(allele))
         allowed=[v for v,m in model.items() if m['locus']==locus]
         pairs=pairs.with_columns(
             pl.col('cdr3'+suffix).str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$').fill_null(False).alias('_sequence_valid'+suffix),
@@ -92,7 +96,7 @@ def main(a):
     from ..io.airr import _read_table
     from ..db.cache import sha256
     from seqtree import _core
-    from ..match.tcrdist import distance_matrix,paired_distance_matrix,load_v_loops
+    from ..match.tcrdist import distance_matrix,paired_distance_matrix,load_v_loops,resolve_v_alleles
     from ..evalue.control import _organism
     start=time.perf_counter()
     if a.threads<1 or a.radius<0:raise ValueError('positive threads and nonnegative radius required')
@@ -119,8 +123,7 @@ def main(a):
     original=r.height
     allowed=[v for v,m in model.items() if m['locus']==a.locus]
     def prepare(frame):
-        return frame.with_columns(pl.when(pl.col('v').str.contains(r'\*')).then(pl.col('v'))
-            .otherwise(pl.col('v')+'*01').alias('_allele')).filter(
+        return frame.with_columns(resolve_v_alleles(frame['v'],model,locus=a.locus).alias('_allele')).filter(
                 pl.col('_allele').is_in(allowed)&(pl.col('cdr3').str.len_chars()>=8))
     if paired:
         from ..evalue.paired import build_paired_ref
@@ -128,8 +131,7 @@ def main(a):
         paired_observations=r.height
         for suffix,locus in [('alpha','TRA'),('beta','TRB')]:
             allowed_chain=[v for v,m in model.items() if m['locus']==locus]
-            r=r.with_columns(pl.when(pl.col('v_'+suffix).str.contains(r'\*')).then(pl.col('v_'+suffix))
-                .otherwise(pl.col('v_'+suffix)+'*01').alias('_allele_'+suffix)).filter(
+            r=r.with_columns(resolve_v_alleles(r['v_'+suffix],model,locus=locus).alias('_allele_'+suffix)).filter(
                     pl.col('_allele_'+suffix).is_in(allowed_chain) & (pl.col(suffix).str.len_chars()>=8))
         search_keys=['alpha','beta','_allele_alpha','_allele_beta']
         r=r.unique(subset=[*search_keys,*PMHC],maintain_order=True)
@@ -202,7 +204,9 @@ def main(a):
     out=out.sort('query_id','distance',*PMHC,nulls_last=True)
     if paired:
         status=pair_rows.select(*[c for c in ['query_id','pair_id','clone_id','query_ida','query_idb',
-            'sequence_ida','sequence_idb','species',*PMHC] if c in pair_rows.columns],'available','status')
+            'sequence_ida','sequence_idb','species',*PMHC] if c in pair_rows.columns],'available','status',
+            'v_call_alpha','v_call_beta',
+            pl.col('_allelea').alias('resolved_v_allele_alpha'),pl.col('_alleleb').alias('resolved_v_allele_beta'))
         hit_ids=set(out['query_id'])
         status=status.with_columns(pl.Series('status',[
             old if old!='searched' else dispositions.get(query_id) if dispositions.get(query_id) in {'invalid_target','no_reference'} else
@@ -210,6 +214,11 @@ def main(a):
             for query_id,old in zip(status['query_id'],status['status'])]))
     else:
         status=raw.select([c for c in ('query_id','sequence_id') if c in raw.columns]).join(q.select('query_id').with_columns(pl.lit(True).alias('available')),on='query_id',how='left')
+    if not paired:
+        v_column=io.columns._resolve(raw).get('v')
+        raw_calls=raw[v_column] if v_column else pl.Series([None]*raw.height,dtype=pl.String)
+        status=status.with_columns(raw_calls.alias('v_call'),
+            resolve_v_alleles(raw_calls,model,locus=a.locus).alias('resolved_v_allele'))
     status=status.with_columns(pl.col('available').fill_null(False))
     if a.targets_from_sample and not paired:
         valid_target_ids=set(dispositions)

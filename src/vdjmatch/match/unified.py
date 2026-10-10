@@ -19,7 +19,7 @@ def gapped_extension(queries, reference, control, *, species='human', threads=1,
     Reference junctions retain their first source-order V representative. N includes
     all those representatives; unavailable genes contribute no extension edges.
     """
-    from .tcrdist import distance_matrix,load_v_loops,_cdr3_options
+    from .tcrdist import distance_matrix,load_v_loops,_cdr3_options,resolve_v_alleles
     if isinstance(threads,bool) or not isinstance(threads,int) or threads<1:
         raise ValueError('threads must be positive')
     if isinstance(radius,bool) or not isinstance(radius,int) or radius<0 or not np.isfinite(temperature) or temperature<=0:
@@ -28,8 +28,8 @@ def gapped_extension(queries, reference, control, *, species='human', threads=1,
         raise ValueError('query_id must be unique and non-null')
     model=load_v_loops(species)
     def prepare(frame):
-        return frame.with_columns(pl.col('cdr3','v').cast(pl.String)).with_columns(pl.when(pl.col('v').str.contains(r'\*')).then(pl.col('v'))
-            .otherwise(pl.col('v')+'*01').alias('_allele')).with_columns(
+        return frame.with_columns(pl.col('cdr3','v').cast(pl.String)).with_columns(
+            resolve_v_alleles(frame['v'],model).alias('_allele')).with_columns(
                 (pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$') &
                  pl.col('_allele').is_in(model)).fill_null(False).alias('_available'))
     ref=prepare(reference.unique('cdr3',keep='first',maintain_order=True))

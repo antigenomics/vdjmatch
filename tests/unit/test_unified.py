@@ -192,3 +192,18 @@ def test_gapped_extension_categorical_v_prior_and_flat_diagnostics(monkeypatch):
             elif name.startswith(('gapped_density','gapped_edges_','gapped_floor_')):
                 assert frame[name].to_list()==[0]
     assert calls==['distance','count','distance']
+
+
+def test_gapped_alias_prepare_preserves_raw_v_and_model_prior():
+    from vdjmatch.match.unified import gapped_extension
+    from vdjmatch.match.tcrdist import distance_matrix
+    q='CASSLGQAYEQYF';r=q+'F'
+    queries=pl.DataFrame({'query_id':['alias','delta'],'cdr3':[q,q],'v':['TRAV29','TRDV1']})
+    reference=pl.DataFrame({'cdr3':[r],'v':['TRAV29/DV5']})
+    before=queries.clone();control=Index.build([q])
+    out=gapped_extension(queries,reference,control)
+    total=distance_matrix([q],[r],['TRAV29/DV5'],['TRAV29/DV5'])[0,0]
+    assert queries.equals(before)
+    assert out['availability'].to_list()==[True,False]
+    assert math.isclose(out['gapped_density'][0],math.exp(-int(total)/12)/.01)
+    assert out['gapped_edges_same_v'].to_list()==[1,0]

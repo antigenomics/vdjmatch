@@ -32,6 +32,42 @@ def load_v_loops(species='human'):
         return {r['allele']:r for r in csv.DictReader(f,delimiter='\t')}
 
 
+def resolve_v_alleles(calls, model, *, locus=None):
+    """Resolve exact/model-proven co-locus spellings, preserving callers' raw calls.
+
+    Omitted allele means *01. Only a unique modeled co-locus gene can supply an
+    omitted /DV suffix or slash; no gene-family prefix or first comma call is chosen.
+    Unknown alleles, missing inputs, cross-locus calls and ambiguous aliases are null.
+    Mouse -DV and /DV spellings merge only when their aligned templates agree.
+    """
+    import polars as pl
+    aliases={};exact_targets={}
+    for key,meta in model.items():
+        gene,allele=key.split('*')
+        canonical=gene.replace('-DV','/DV')+'*'+allele
+        if canonical not in model or any(meta[c]!=model[canonical][c] for c in ('locus','cdr1','cdr2','cdr25')):
+            canonical=key
+        exact_targets[key]=canonical
+        forms={gene}
+        if '/DV' in canonical:
+            full=canonical.split('*')[0]
+            forms.update([full,full.replace('/',''),full.split('/DV')[0]])
+        for form in forms:
+            tokens=[form+'*'+allele]+([form] if allele=='01' else [])
+            for token in tokens:
+                aliases.setdefault(token,set()).add(canonical)
+    values=pl.Series(calls,dtype=pl.String)
+    unique=values.drop_nulls().unique()
+    resolved=[]
+    for raw in unique:
+        token=raw.strip()
+        exact=token if '*' in token else token+'*01'
+        candidates={exact_targets[exact]} if exact in model else aliases.get(token,set())
+        target=next(iter(candidates)) if len(candidates)==1 else None
+        resolved.append(target if target is not None and (locus is None or model[target]['locus']==locus) else None)
+    return values.replace_strict(unique,pl.Series(resolved,dtype=pl.String),default=None,return_dtype=pl.String)
+
+
 def _substitution_costs():
     alphabet=amino_acids(); b=SubstitutionMatrix.blosum62()
     return np.asarray([[0 if a==c else max(0,min(4,4-b.similarity(a,c)))
@@ -49,7 +85,8 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     """TCRdist3 default distances in a bounded native batch, maximum64MiB output.
 
     Exact alleles are used; a missing allele suffix explicitly means *01, as in the
-    comparator. Unknown alleles, cross-locus inputs and junctions shorter than8 fail
+    comparator. Model-proven co-locus aliases resolve without changing raw calls.
+    Unknown alleles, ambiguous names, cross-locus inputs and junctions shorter than8 fail
     instead of silently losing gene evidence. Dots in aligned loops carry the original
     TCRdist3 unknown-symbol cost zero (also for stars). Human templates are28 aligned
     positions; mouse TRA templates are29. Callers handle missing calls explicitly.
@@ -66,7 +103,7 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     if any(not isinstance(s,str) or len(s)<8 or not set(s)<=canonical for s in queries+references):
         raise ValueError('TCRdist junctions require canonical amino acids and length>=8')
     model=load_v_loops(species)
-    genes=[v if isinstance(v,str) and '*' in v else str(v)+'*01' for v in query_v+reference_v]
+    genes=resolve_v_alleles(query_v+reference_v,model).to_list()
     if any(v not in model for v in genes):
         raise ValueError(f'unknown {species} V allele; handle missing gene evidence before scoring')
     if len({model[v]['locus'] for v in genes})>1:
@@ -108,9 +145,11 @@ def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_b
     qa,qb,ra,rb,qva,qvb,rva,rvb=parts
     if len({len(qa),len(qb),len(qva),len(qvb)})>1 or len({len(ra),len(rb),len(rva),len(rvb)})>1:
         raise ValueError('each linked pair requires alpha and beta junctions and V calls')
-    if any(not isinstance(v,str) or not v.startswith('TRAV') for v in qva+rva) or any(
-            not isinstance(v,str) or not v.startswith('TRBV') for v in qvb+rvb):
-        raise ValueError('linked pair V calls must have their declared alpha/beta locus')
+    model=load_v_loops(species)
+    qva,rva=(resolve_v_alleles(v,model,locus='TRA').to_list() for v in [qva,rva])
+    qvb,rvb=(resolve_v_alleles(v,model,locus='TRB').to_list() for v in [qvb,rvb])
+    if any(v is None for v in qva+rva+qvb+rvb):
+        raise ValueError('linked pair V calls must resolve uniquely to their declared alpha/beta locus')
     out=distance_matrix(qa,ra,qva,rva,species=species,threads=threads)
     out+=distance_matrix(qb,rb,qvb,rvb,species=species,threads=threads)
     return out

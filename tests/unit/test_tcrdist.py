@@ -211,3 +211,111 @@ def test_tcrdist_unbounded_nearest_outside_ball_and_exact_only(tmp_path, capsys,
     assert pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t').height==0
     status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
     assert status['status'][0]=='no_neighbours'
+
+
+@pytest.mark.parametrize('species,raw,expected',[
+ ('human','TRAV29','TRAV29/DV5*01'),('human','TRAV14','TRAV14/DV4*01'),
+ ('human','TRAV38-2','TRAV38-2/DV8*01'),('human','TRAV23','TRAV23/DV6*01'),
+ ('human','TRAV36','TRAV36/DV7*01'),('human','TRAV14DV4','TRAV14/DV4*01'),
+ ('human','TRAV14DV4*02','TRAV14/DV4*02'),
+ ('mouse','TRAV16D','TRAV16D/DV11*01'),('mouse','TRAV14D-3','TRAV14D-3/DV8*01'),
+ ('mouse','TRAV16D-DV11*03','TRAV16D/DV11*03')])
+def test_native_model_proven_v_aliases_preserve_alleles_and_distances(species,raw,expected):
+    from vdjmatch.match.tcrdist import resolve_v_alleles
+    model=load_v_loops(species);calls=[raw,raw]
+    assert resolve_v_alleles(calls,model,locus='TRA').to_list()==[expected,expected]
+    q='CASSLGQAYEQYF';r='CASSLGRAYEQYF'
+    assert np.array_equal(distance_matrix([q],[r],[raw],[raw],species=species),
+                          distance_matrix([q],[r],[expected],[expected],species=species))
+    assert calls==[raw,raw]
+
+
+def test_v_aliases_reject_ambiguity_unknown_alleles_and_wrong_roles():
+    from vdjmatch.match.tcrdist import resolve_v_alleles
+    model=load_v_loops('human')
+    calls=[None,'','TRAV14*99','TRAV14,TRAV29','TRDV1','TRBV19','TRAV3']
+    resolved=resolve_v_alleles(calls,model,locus='TRA')
+    assert resolved.to_list()==[None]*6+['TRAV3*01']
+    # Distinct genes with identical loops never make an ambiguous short call certain.
+    ambiguous={k:v for k,v in model.items() if k=='TRAV14/DV4*01'}
+    ambiguous['TRAV14/DV7*01']=dict(ambiguous['TRAV14/DV4*01'])
+    assert resolve_v_alleles(['TRAV14'],ambiguous).to_list()==[None]
+    assert resolve_v_alleles(['TRAV14/DV4*01'],ambiguous).to_list()==['TRAV14/DV4*01']
+    with pytest.raises(ValueError,match='unknown human V'):
+        distance_matrix(['CASSLGQAYEQYF'],['CASSLGQAYEQYF'],['TRDV1'],['TRAV14'])
+    a='CASSLGQAYEQYF';b='CASSLGRAYEQYF'
+    assert np.array_equal(paired_distance_matrix([a],[a],[b],[b],['TRAV29'],['TRBV19'],
+        ['TRAV29/DV5'],['TRBV19']),paired_distance_matrix([a],[a],[b],[b],['TRAV29/DV5'],['TRBV19'],
+        ['TRAV29/DV5'],['TRBV19']))
+
+
+def test_tcrdist_cli_alias_filters_keep_raw_calls_and_reject_delta_and_ambiguity(tmp_path):
+    import polars as pl
+    from vdjmatch.cli.__main__ import main
+    q,r,prefix=[tmp_path/n for n in ['q.tsv','r.tsv','out']]
+    calls=['TRAV29','TRAV29,TRAV14','TRDV1','TRBV19','TRAV14DV4*02']
+    pl.DataFrame({'query_id':['alias','ambiguous','delta','wrong-role','explicit'],
+        'junction_aa':['CASSLGQAYEQYF']*5,'v_call':calls,'locus':['TRA']*5,'species':['human']*5,
+        'epitope':['E']*5,'mhc_a':['HLA-A*02']*5,'mhc_b':['B2M']*5,'mhc_class':['MHCI']*5}).write_csv(q,separator='\t')
+    pl.DataFrame({'cdr3':['CASSLGRAYEQYF'],'gene':['TRA'],'v':['TRAV29'],
+        'species':['HomoSapiens'],'epitope':['E'],'mhc_a':['HLA-A*02'],
+        'mhc_b':['B2M'],'mhc_class':['MHCI']}).write_csv(r,separator='\t')
+    args=['tcrdist-neighbours',str(q),'--vdjdb',str(r),'--locus','TRA','--species','human',
+        '--targets-from-sample','--unbounded-nearest','--exclude-exact','--output-prefix',str(prefix)]
+    assert main(args)==0
+    status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
+    assert status['v_call'].to_list()==calls
+    assert status['resolved_v_allele'].to_list()==['TRAV29/DV5*01',None,None,None,'TRAV14/DV4*02']
+    assert status['status'].to_list()==['matched']+['invalid_query_or_gene']*3+['matched']
+    scores=pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t')
+    assert set(scores['query_id'])=={'alias','explicit'}
+    # Both paired query and reference filters must use the same resolver.
+    pl.DataFrame({'query_id':['a','b'],'clone_id':['pair']*2,'locus':['TRA','TRB'],
+        'junction_aa':['CASSLGQAYEQYF']*2,'v_call':['TRAV29','TRBV19'],
+        'species':['human']*2,'epitope':['E']*2,'mhc_a':['HLA-A*02']*2,'mhc_b':['B2M']*2,
+        'mhc_class':['MHCI']*2}).write_csv(q,separator='\t')
+    pl.DataFrame({'cdr3':['CASSLGRAYEQYF']*2,'gene':['TRA','TRB'],'v':['TRAV29','TRBV19'],
+        'complex_id':['ref']*2,'species':['HomoSapiens']*2,'epitope':['E']*2,
+        'mhc_a':['HLA-A*02']*2,'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(r,separator='\t')
+    args[args.index('--locus')+1]='paired'
+    assert main(args)==0
+    status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
+    assert status['status'].to_list()==['matched']
+    assert status['v_call_alpha'].to_list()==['TRAV29']
+    assert status['resolved_v_allele_alpha'].to_list()==['TRAV29/DV5*01']
+
+
+def test_previously_accepted_alleles_keep_exact_aligned_loop_templates():
+    from vdjmatch.match.tcrdist import resolve_v_alleles
+    for species in ['human','mouse']:
+        model=load_v_loops(species)
+        resolved=resolve_v_alleles(list(model),model).to_list()
+        assert len(resolved)==len(model) and None not in resolved
+        for raw,canonical in zip(model,resolved):
+            assert all(model[raw][c]==model[canonical][c] for c in ('locus','cdr1','cdr2','cdr25'))
+
+
+@pytest.mark.parametrize('missing',[None,''])
+@pytest.mark.parametrize('missing_locus',['TRA','TRB'])
+def test_paired_cli_missing_junction_preserves_raw_v_and_resolves_gene_separately(tmp_path,missing,missing_locus):
+    import polars as pl
+    from vdjmatch.cli.__main__ import main
+    sample,reference,prefix=[tmp_path/n for n in ['q.tsv','r.tsv','out']]
+    pl.DataFrame({'query_id':['raw-alpha','raw-beta'],'clone_id':['pair']*2,'locus':['TRA','TRB'],
+        'junction_aa':([missing,'CASSLGQAYEQYF'] if missing_locus=='TRA' else ['CASSLGQAYEQYF',missing]),
+        'v_call':['TRAV29','TRBV19'],
+        'species':['human']*2,'epitope':['E']*2,'mhc_a':['HLA-A*02']*2,
+        'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':['CASSLGRAYEQYF']*2,'gene':['TRA','TRB'],'v':['TRAV29','TRBV19'],
+        'complex_id':['ref']*2,'species':['HomoSapiens']*2,'epitope':['E']*2,
+        'mhc_a':['HLA-A*02']*2,'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(reference,separator='\t')
+    assert main(['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus','paired',
+        '--targets-from-sample','--unbounded-nearest','--output-prefix',str(prefix)])==0
+    out=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
+    assert out['query_ida'].to_list()==['raw-alpha'] and out['query_idb'].to_list()==['raw-beta']
+    assert out['v_call_alpha'].to_list()==['TRAV29'] and out['v_call_beta'].to_list()==['TRBV19']
+    assert out['resolved_v_allele_alpha'].to_list()==['TRAV29/DV5*01']
+    assert out['resolved_v_allele_beta'].to_list()==['TRBV19*01']
+    assert out['available'].to_list()==[False]
+    assert out['status'].to_list()==['invalid_alpha_query' if missing_locus=='TRA' else 'invalid_beta_query']
+    assert pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t').height==0
