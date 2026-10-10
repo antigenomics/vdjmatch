@@ -173,7 +173,7 @@ def main(a):
     if a.background:
         background_start=time.perf_counter()
         groups=list(groups)  # assayed_targets is streamed; the new arm uses it twice
-        from ..match.tcrdist import total_distance_count_batch
+        from ..match.tcrdist import total_distance_count_batch,paired_total_distance_mass_batch
         from ..evalue.control import raw_gene_background
         linear=a.neighbour_weighting=='linear'
         query_keys=['cdr3a','cdr3b','_allelea','_alleleb'] if paired else ['cdr3','_allele']
@@ -186,25 +186,15 @@ def main(a):
                 return [0]*part.height,[0.0]*part.height
             count_start=time.perf_counter()
             if paired:
-                # Reduce bounded matrices against linked pairs, never marginal products.
-                result=[];mass=[]
-                if 16*population.height>32*1024**2:
-                    raise ValueError('paired background exceeds the matrix budget for one query')
-                batch=max(1,(32*1024**2)//(16*population.height))
-                ra,rb=population['alpha'].to_list(),population['beta'].to_list()
-                rva,rvb=population['_allele_alpha'].to_list(),population['_allele_beta'].to_list()
-                for chunk in part.iter_slices(batch):
-                    qa,qb=chunk['cdr3a'].to_list(),chunk['cdr3b'].to_list()
-                    d=paired_distance_matrix(qa,qb,ra,rb,chunk['_allelea'].to_list(),chunk['_alleleb'].to_list(),
-                        rva,rvb,species=organism,threads=a.threads,ctrim=ctrim)
-                    eligible=np.ones(d.shape,dtype=bool)
-                    if a.exclude_exact:
-                        eligible&=~((np.asarray(qa)[:,None]==np.asarray(ra)[None,:]) &
-                                    (np.asarray(qb)[:,None]==np.asarray(rb)[None,:]))
-                    hit=(d<=a.radius)&eligible
-                    result.extend(hit.sum(axis=1,dtype=np.uint64).tolist())
-                    mass.extend((np.maximum(0,1-d.astype(np.float64)/a.radius)*eligible).sum(axis=1).tolist()
-                                if linear else hit.sum(axis=1,dtype=np.uint64).tolist())
+                native=paired_total_distance_mass_batch(
+                    part['cdr3a'].to_list(),part['cdr3b'].to_list(),
+                    population['alpha'].to_list(),population['beta'].to_list(),
+                    part['_allelea'].to_list(),part['_alleleb'].to_list(),
+                    population['_allele_alpha'].to_list(),population['_allele_beta'].to_list(),
+                    [[200*a.radius]]*part.height,species=organism,threads=a.threads,
+                    ctrim=ctrim,exclude_exact=a.exclude_exact)
+                result=[row[0] for row in native[0]]
+                mass=[row[0]/(200*a.radius) for row in native[1]] if linear else result
             else:
                 native=total_distance_count_batch(part['cdr3'].to_list(),population['cdr3'].to_list(),
                     part['_allele'].to_list(),population['_allele'].to_list(),

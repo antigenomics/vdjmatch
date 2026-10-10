@@ -92,3 +92,20 @@ def test_linear_mass_is_dense_taper_with_boundary_and_full_identity():
             threads=threads,exclude_exact=True,linear_mass=True)
         assert got==[[sum(a!=b and scores[i,j]<=R for j,b in enumerate(r)) for R in cuts[i]] for i,a in enumerate(q)]
         assert mass==[[sum(max(0,int(R)-int(scores[i,j])) for j,b in enumerate(r) if a!=b) for R in cuts[i]] for i,a in enumerate(q)]
+
+
+@pytest.mark.parametrize('ctrim',[2,3])
+def test_linked_mass_equals_dense_sum_and_not_marginal_product(ctrim):
+    a='CASSLGQAYEQYF';b='CASSLGRAYEQYF';c='CASSLGQAPAYEQYF'
+    qa=[a,b];qb=[a,c];ra=[a,a,b,c];rb=[a,b,a,c]
+    qva=['TRAV1-1']*2;qvb=['TRBV19']*2;rva=['TRAV1-1','TRAV1-2','TRAV1-1','TRAV1-1'];rvb=['TRBV19']*4
+    d=200*tcrdist.paired_distance_matrix(qa,qb,ra,rb,qva,qvb,rva,rvb,ctrim=ctrim)
+    cuts=[[18000,0,1800,-1,18000]]*2
+    for threads in (1,4):
+        counts,mass=tcrdist.paired_total_distance_mass_batch(qa,qb,ra,rb,qva,qvb,rva,rvb,cuts,
+            ctrim=ctrim,exclude_exact=True,threads=threads)
+        eligible=[[not(qa[i]==ra[j] and qb[i]==rb[j]) for j in range(len(ra))] for i in range(len(qa))]
+        assert counts==[[sum(eligible[i][j] and d[i,j]<=R for j in range(len(ra))) for R in cuts[i]] for i in range(len(qa))]
+        assert mass==[[sum(max(0,int(R)-int(d[i,j])) for j in range(len(ra)) if eligible[i][j]) for R in cuts[i]] for i in range(len(qa))]
+    with pytest.raises(ValueError,match='alpha/beta locus'):
+        tcrdist.paired_total_distance_mass_batch([a],[a],[a],[a],['TRBV19'],['TRAV1-1'],['TRBV19'],['TRAV1-1'],[[18000]])

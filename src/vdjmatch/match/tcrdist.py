@@ -199,6 +199,14 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
         raise RuntimeError('total-distance counts require seqtree gapblock group_distances support')
     if linear_mass and 'linear_mass' not in inspect.signature(gapblock.count_batch).parameters:
         raise RuntimeError('linear mass requires seqtree gapblock linear_mass support')
+    queries,references,options=_total_distance_options(queries,references,query_v,reference_v,
+        species,threads,ctrim,position_weighting)
+    return gapblock.count_batch(queries,references,thresholds,**options,
+        exclude_exact=exclude_exact,**({'linear_mass':True} if linear_mass else {}))
+
+
+def _total_distance_options(queries,references,query_v,reference_v,species,threads,ctrim,position_weighting):
+    """Shared full-coordinate geometry for marginal and linked-pair reductions."""
     if position_weighting not in ('uniform','significance'):
         raise ValueError('position_weighting must be uniform or significance')
     if position_weighting=='significance' and ctrim!=2:
@@ -213,14 +221,46 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
         weights={length:[max(1,round(100*w)) for w in significance_weights(length)] for length in lengths}
     else:
         weights={length:[0]*3+[100]*(length-3-ctrim)+[0]*ctrim for length in lengths}
-    return gapblock.count_batch(queries,references,thresholds,
+    options=dict(
         matrix=SubstitutionMatrix.from_similarity((-3*costs).tolist()),
         gap_open=2400,gap_extend=2400,gap_prior=_full_gap_prior,
         position_weights_by_length=weights,
         query_group_ids=indices[:len(queries)].tolist(),
         reference_group_ids=indices[len(queries):].tolist(),
-        group_distances=(200*loop_dist).tolist(),threads=threads,exclude_exact=exclude_exact,
-        **({'linear_mass':True} if linear_mass else {}))
+        group_distances=(200*loop_dist).tolist(),threads=threads)
+    return queries,references,options
+
+
+def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,reference_beta,
+        query_v_alpha,query_v_beta,reference_v_alpha,reference_v_beta,thresholds,*,
+        species='human',threads=1,ctrim=2,exclude_exact=False):
+    """Counts and triangular integer mass for linked alpha+beta total distances.
+
+    Thresholds and masses use native units200 times ordinary TCRdist distance.
+    Exact exclusion requires both full junctions equal, irrespective of V calls.
+    Uniform full-coordinate trim weights reproduce paired_distance_matrix; no
+    dense matrix, independent marginal matching or paired control model is added.
+    """
+    if not hasattr(gapblock,'paired_sum_count_batch'):
+        raise RuntimeError('linked mass requires seqtree paired_sum_count_batch support')
+    axes=[];options={};shared=None
+    model=load_v_loops(species)
+    keys=('position_weights_by_length','query_group_ids','reference_group_ids','group_distances')
+    for suffix,q,r,qv,rv in [('alpha',query_alpha,reference_alpha,query_v_alpha,reference_v_alpha),
+                            ('beta',query_beta,reference_beta,query_v_beta,reference_v_beta)]:
+        locus='TRA' if suffix=='alpha' else 'TRB'
+        qv=resolve_v_alleles(qv,model,locus=locus).to_list()
+        rv=resolve_v_alleles(rv,model,locus=locus).to_list()
+        if any(v is None for v in qv+rv):
+            raise ValueError('linked pair V calls must resolve to their alpha/beta locus')
+        q,r,kw=_total_distance_options(q,r,qv,rv,species,threads,ctrim,'uniform')
+        axes.append((q,r))
+        options.update({key+'_'+suffix:kw.pop(key) for key in keys})
+        shared=kw
+    if len(axes[0][0])!=len(axes[1][0]) or len(axes[0][1])!=len(axes[1][1]):
+        raise ValueError('each linked pair requires both junctions')
+    return gapblock.paired_sum_count_batch(axes[0][0],axes[1][0],axes[0][1],axes[1][1],thresholds,
+        **shared,**options,exclude_exact=exclude_exact)
 
 
 def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_beta,
