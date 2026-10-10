@@ -5,155 +5,136 @@
 \setlength{\parskip}{5pt}
 \begin{document}
 \begin{center}
-{\Large Neighbourhood enrichment: distance, background and prior}\par
-{\small Historical correspondence and experimental ranking; single chains and linked pairs}
+{\Large Distance-local receptor evidence}\par
+{\small Historical correspondence, finite ranks and an explicit probability model}
 \end{center}
-\textbf{Question and counting units.}
-For a query receptor $q$ and epitope $X$, ask whether compatible VDJdb receptors
-are more frequent near $q$ than receptors from a declared background.
-A junction includes its conserved Cys and terminal Phe/Trp anchors.
-Let $R_X$ be the eligible reference population and $B$ the eligible control population;
-$N=|R_X|$ and $M=|B|$ are their sizes.
-The ratios below require $N>0$ and $M>0$; empty populations are unavailable,
-not zero-enrichment observations.
-Use the same receptor representation, distance and exact-identity exclusion.
-References and real controls use distinct full-junction/resolved-V-allele keys;
-generated controls retain repeated draws to preserve generative-law mass.
-Eligibility and exclusions precede denominator calculation.
-Historical denominators are preserved separately for reproduction.
+\textbf{Receptors, targets and populations.}
+The query $q$ is a TRA, TRB or linked TRA--TRB receptor. Target $X$ includes
+peptide and MHC restriction. Its eligible reference set has size $N$;
+the declared background has size $M$. A junction includes both conserved anchors.
+Full-junction identity exclusion and metadata eligibility precede every count.
+References/real controls use distinct junction/V keys; generated controls retain draws.
+Those different sampling units do not establish a common null distribution.
 
 \textbf{One additive distance.}
-For amino acids $a,b$, let $s(a,b)$ be their BLOSUM62 entry and define
+For residues $a,b$, let $s(a,b)$ be BLOSUM62 and set
+$c(a,a)=0$, $c(a,b)=\max(0,\min(4,4-s(a,b)))$ for $a\ne b$.
+Let $h$ be the junction-length difference, $L$ the longer length,
+and $A$ an allowed alignment with one central block of $h$ gaps.
+The TCRdist-like distance is
 \[
-c(a,b)=\begin{cases}0,&a=b,\\ \max(0,\min(4,4-s(a,b))),&a\ne b.\end{cases}
+d(q,r)=d_V(q,r)+\min_A\left\{3\sum_{(i,j)\in A}
+w_{L,\max(i,j)}c(q_i,r_j)+12h\right\}.
 \]
-This is the clipped substitution cost used by TCRdist3, not the BLOSUM Gram penalty.
-Let $\ell_q,\ell_r$ denote junction lengths, $h=|\ell_q-\ell_r|$, and
-$L=\max(\ell_q,\ell_r)$.
-An allowed alignment $A$ has one contiguous length-difference block;
-$(i,j)\in A$ denotes an aligned residue pair, indexed from zero.
-With nonnegative positional weights $w_{L,k}$ and gap charge $g(h)$, use
-\begin{equation}
-\boxed{d(q,r)=d_V(q,r)+
-\min_A\left[3\sum_{(i,j)\in A}w_{L,\max(i,j)}c(q_i,r_j)+g(h)\right].}
-\end{equation}
-Here $d_V$ is the sum of aligned CDR1, CDR2 and CDR2.5 substitution costs
-from the two V-allele templates; each loop has weight one.
-Missing or unresolved V calls do not imply zero loop distance.
+Here $d_V$ sums aligned V-template CDR1/CDR2/CDR2.5 distances, each with weight one;
+$i,j$ are zero-based positions in the full junctions. TCRdist3 uses unit interior
+weights, trimming three N-terminal and two C-terminal residues. The symmetric
+comparison trims three at both ends. Alternatively the shipped empirical profile
+uses $u_{L,k}=1-\max\{p_V(k),p_J(L-1-k)\}$ and
+$w_{L,k}=u_{L,k}/(L^{-1}\sum_t u_{L,t})$. The profiles $p_V,p_J$ are measured
+same-epitope retention probabilities indexed from each end, not exact NDN boundaries.
+Native weights have 0.01 resolution/minimum; they weight substitutions.
 
-\textbf{Flanks versus the junction core.}
-TCRdist3 uses unit interior weights and excludes the first three and last two
-junction residues. The author-requested comparison excludes three at \emph{both} ends.
-Keep full strings for exact-identity exclusion even when end weights are zero:
-different junctions with the same trimmed core are still distinct receptors.
-An alternative is the shipped end-anchored empirical profile:
+The term $12h$ is a \emph{linear} gap penalty, not an affine opening/extension
+scheme or Smith--Waterman alignment. An affine alternative would be
+$g(0)=0$, $g(h)=g_{\rm open}+(h-1)g_{\rm extend}$ for $h>0$; it is a different model.
+For linked receptors sum the two chain distances to the \emph{same} reference pair.
+Do not infer a joint null from independent marginal control chains.
+
+\textbf{Historical score and the broad-kernel experiment.}
+Original vdjmatch sums, over nonexact equal-length neighbours within five substitutions,
 \[
-u_{L,k}=1-\max\{p_V(k),p_J(L-1-k)\},\qquad
-w_{L,k}=u_{L,k}\big/\left(L^{-1}\sum_{t=0}^{L-1}u_{L,t}\right).
+S_{\rm old}=\sum_r
+\frac{a(q,r)e^{-P(q,r)/400}}
+{\max\{N\widehat F_q^{\rm edit}(H(q,r)),0.01\}}.
 \]
-Here $p_V$ and $p_J$ are measured probabilities that a one-substitution
-neighbour shares the epitope, indexed from the V and J ends; distant offsets
-use the last pooled profile value. This discounts germline-rich flanks and
-emphasises the central region. Native weights are rounded to 0.01, with a
-minimum 0.01. It is not an exact V/NDN/J boundary assignment.
-A separate existing gene-specific retention profile estimates germline origin;
-using it requires a symmetric query/reference weighting rule.
-The ends can still carry gene information, which is represented explicitly by $d_V$.
+Here $a$ is the historical V factor, $P$ the positional BLOSUM Gram penalty,
+$H$ the substitution count, and $\widehat F_q^{\rm edit}$ the control edit-ball
+fraction. Sparse targets additionally use the original marginal V/J/length
+log-frequency ratios; historical paired output uses cohort rank fusion.
+These contracts remain reproducible and are distinct from the model below.
 
-\textbf{What does $g$ mean?}
-It is a distance penalty, not a similarity reward.
-For TCRdist3 repertoire defaults, $g(h)=12h$: the inner gap cost is four per
-residue and the entire junction distance has outer weight three.
-The gap position is optimised over the restricted central interval.
-This is neither Smith--Waterman nor general multiple-indel alignment.
-An affine alternative has $g(0)=0$ and
-$g(h)=g_{\rm open}+(h-1)g_{\rm extend}$ for $h>0$;
-linear is the special case $g_{\rm open}=g_{\rm extend}$.
-A smoothly varying alternative charge is a different model, not a TCRdist3 default.
-No discontinuous 20-residue route switch is required.
+The preceding experimental score was
+$S_{\rm linear}=(W_X/N)/[(W_B+1/2)/(M+1)]$, where
+$W_X=\sum_r K_D(d(q,r))$, $W_B=\sum_b K_D(d(q,b))$ and
+$K_D(t)=\max(0,1-t/D)$ at fixed radius $D$ (not diameter).
+It compares broad average proximity. A very close match may still be diluted.
+The new construction restores distance-local normalization; neither experiment
+is an accepted replacement default or an established biological TP probability.
 
+\textbf{Background identity matters.}
+Generative draws measure recombination accessibility; real controls include
+biological selection; VDJdb excluding $X$ reflects other annotated specificities
+and ascertainment. Keep these questions separate. Point probability
+$P_{\rm gen}(q)$ is not neighbourhood probability. Preserve full junctions for
+identity/Pgen even if terminal matching weights are zero.
 \newpage
-\begin{center}{\large A count ratio with an explicit background}\end{center}
-\textbf{Retaining near-versus-far evidence.}
-Fix a positive radius $D$ in the units of $d$ before scoring; it is not a diameter.
-For a distance $t\ge0$, use the linear taper $K_D(t)=\max(0,1-t/D)$.
-Define $W_X=\sum_{r\in R_X}K_D(d(q,r))$ and
-$W_B=\sum_{b\in B}K_D(d(q,b))$, after the stated identity exclusion.
-All eligible receptors remain in $N,M$, including zero-weight distant ones.
-The ranking score is
-\begin{equation}
-\boxed{S_X(q)=\frac{W_X/N}{\widetilde\mu_B},\qquad
-\widetilde\mu_B=\frac{W_B+1/2}{M+1}.}
-\end{equation}
-A unit-concentration Dirichlet-process prior on background distance, with half
-its base mass at zero and half outside $D$, gives this posterior mean of
-$K_D$: the prior mean is $1/2$, hence the numerator $W_B+1/2$.
-This is explicit regularisation, not a calibrated P-value or a Bayes factor.
-Replacing $K_D$ by the binary ball predicate gives the preceding count score
-$n/[N(m+1/2)/(M+1)]$, with the usual Jeffreys binary prior.
-The linear version retains distances without an exponential or a new scale.
-It is also an average of nested-ball evidence:
-$W_B=D^{-1}\int_0^D m(t)\,dt$, where $m(t)$ counts background distances at most $t$.
-A boundary match counts towards support but has zero weight.
-Zero reference weight gives zero score; empty populations remain unavailable.
-With increasing $M$, the denominator approaches the empirical kernel mean.
-Report counts $n,m$, sizes $N,M$, weights $W_X,W_B$, and $N\widetilde\mu_B$.
-For $n>0$, the distance effect is exactly
+\begin{center}{\large A normalized reciprocal-rank score}\end{center}
+\textbf{Rank and ties.}
+For reference $r_i$, let $R_i$ be its distance rank among $M$ controls plus itself.
+Let $H_k=\sum_{j=1}^k1/j$ and $H_0=0$. Define
 \[
-\frac{S_X}{E_J}=\frac{W_X/n}{(W_B+1/2)/(m+1/2)},
-\qquad E_J=\frac{n}{N(m+1/2)/(M+1)}.
+\boxed{B_X(q)=\frac1N\sum_{i=1}^N h_M(R_i),\qquad
+h_M(r)=\frac{M+1}{H_{M+1}r}.}
 \]
-The numerator is the mean reference weight inside the ball; the denominator
-is the regularised mean control weight there. Farther reference evidence is
-therefore discounted relative to nearer controls. Population sizes cancel.
-For $n=0$, both scores are zero; this ratio is undefined.
-Native integer mass $L=\sum\max(0,200D-d_{\rm native})$ is divided by $200D$;
-the half-unit regulariser is added only after this conversion.
-For linked pairs, $d=d_\alpha+d_\beta$ to the same reference pair;
-other-epitope linked pairs define the joint comparison population.
-Real/generated paired nulls are not inferred from independent chain products.
-
-\textbf{Three backgrounds, three questions.}
-A generative V(D)J background measures enrichment beyond recombination accessibility.
-A real control repertoire measures enrichment beyond its observed biological distribution;
-healthy does not establish naive-cell provenance.
-VDJdb excluding $X$ measures separation from other annotated specificities and
-inherits database ascertainment bias.
-They are separate named comparisons, not interchangeable estimates of the same null.
-Sequence $P_{\rm gen}(q)$ is not ball probability $p_B$;
-$P_{\rm gen}$ stratification diagnoses whether one method favours common rearrangements.
-V-loop-inclusive counts require retained V annotations in controls.
-Historical loading keeps only unique junctions and discards V/J; the opt-in
-count CLI retains V annotations and filters present species/locus metadata.
-
-\textbf{A prior without double counting.}
-If a categorical V/J prior is wanted instead of embedding that information in
-$d$, let $z$ denote one declared category and $N_z,M_z$ its reference/control sizes.
-Let $n_z,m_z$ be geometric counts within those conditional populations.
-Then the exact unsmoothed factorisation is
+This is inverse local background mass with its finite harmonic normalization,
+not an exponential kernel with a fitted scale. In the CLI both populations use
+integer bins $\lceil d_{\rm native}/200\rceil$. For $l$ controls in lower bins
+and $t$ controls in the same bin, average over the possible tied ranks:
 \[
-\frac{N_z/N}{M_z/M}\;\frac{n_z/N_z}{m_z/M_z}
-=\frac{n_z/N}{m_z/M}.
+\overline h_{l,t}=\frac{M+1}{H_{M+1}}
+\frac{H_{l+t+1}-H_l}{t+1}.
 \]
-The first factor is categorical enrichment; the second is conditional geometric
-enrichment. Multiplying an unconditioned V-loop score by another V prior counts
-related evidence twice. Empty or unavailable strata require explicit dispositions.
+Do not break ties using target labels or input order.
 
-\textbf{Historical model and status.}
-Original vdjmatch sums
-$a(q,r)e^{-p(q,r)/400}/\max\{N\widehat F_q^{\rm edit}(H(q,r)),0.01\}$
-over nonexact equal-length neighbours with at most five substitutions.
-Here $a$ is the historical V factor, $p$ the positional BLOSUM Gram penalty,
-$H$ the substitution count, and $\widehat F^{\rm edit}$ the control edit-ball mass.
-The exponential is a historical attenuation heuristic, not a statistical derivation.
-The matched-PSSM experiment substitutes the same positional geometry in that
-background mass, but retains attenuation and, when the original prior is
-requested and $N<500$, the historical
-$\log(S+10^{-6})+G$ fusion, where $S$ is the summed density and $G$ the original
-sum of marginal gene/length log-frequency ratios.
-Otherwise the output remains $S$, including when $N\ge500$.
-Its affine gap is $2800+1400(h-1)$ in different integer units; it is not $12h$.
-Neither kernel choice passed all-task nonregression.
-Equation (2) is opt-in ranking; comparisons determine acceptance.
-Old scores remain reproducible; paired confidence calibration and M3 remain deferred.
+\textbf{Censoring far evidence.}
+The fixed radius $D$ determines computation, not a chosen target-dependent gate.
+Let $n_D,m_D$ be reference/control counts inside it.
+Far references contribute their conditional null mean
+\[
+\overline h_{\rm far}=\frac{M+1}{H_{M+1}}
+\frac{H_{M+1}-H_{m_D}}{M-m_D+1},\qquad
+B_X=\frac{\sum_{i:d_i\le D}\overline h_i+(N-n_D)\overline h_{\rm far}}N.
+\]
+No far ordering enters this statistic. No near evidence on either side gives
+$B_X=1$. A singleton target is valid. Empty populations are explicitly unavailable;
+the model posterior then remains its prior. No clustering minimum, K cap or
+20-residue switch is required.
+
+\textbf{Null bound and Bayesian derivation.}
+Under $H_0$, distance labels are exchangeable conditional on the pooled distances
+and fixed population sizes. A randomized reference rank is uniform on
+$1,\ldots,M+1$, so $\mathbb E_0 h_M(R_i)=1$ and $\mathbb E_0B_X=1$.
+Shared controls require no independence between these contributions.
+Tie averaging and genuinely censored far ranks preserve this equality by
+conditional expectation. Consequently
+\[
+\boxed{p_{\rm bound}=\min(1,B_X^{-1}),\qquad
+\Pr_0(p_{\rm bound}\le\alpha)\le\alpha\quad(0<\alpha<1).}
+\]
+This Markov bound is conservative, not the exact tail distribution of $B_X$.
+A separate nearest-reference test has
+$p_{\rm nearest}=\Pr\{K\ge1\}$ for
+$K\sim\mathrm{Hypergeom}(N+M,N,m_*+1)$, where $m_*$ counts controls at or below
+the nearest reference bin. Upper-bin ties are conservative; censored no-hits
+receive one. It is not combined with the full-score bound.
+
+For the \emph{specified rank-tilted alternative} $H_1$, define
+$dP_1=B_X\,dP_0$. Its mass is one, so $B_X$ is its Bayes factor.
+With declared prior $\pi=\Pr(H_1)$,
+\[
+\boxed{\Pr(H_1\mid\text{rank evidence})=
+\frac{\pi B_X}{1-\pi+\pi B_X}.}
+\]
+The CLI default $\pi=1/2$ means equal model odds, not biological specificity
+prevalence. This alternative is explicitly chosen; its normalization is not
+proof that it describes receptor recognition. Deduplication, generated-draw
+multiplicity and ascertainment may violate exchangeability. Outputs therefore
+remain conditional model quantities until sampling and biological calibration
+are validated. P-values are not probability FP, and model posteriors are not
+automatically probability TP. Target/route selection requires its own calibration.
+General expectation-one evidence: Vovk and Wang, Ann.
+Statist.
+49:1736--1754 (2021), \href{https://doi.org/10.1214/20-AOS2020}{doi:10.1214/20-AOS2020}.
+Original scoring remains default; M3 stays deferred.
 \end{document}

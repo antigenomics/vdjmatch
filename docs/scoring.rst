@@ -314,3 +314,57 @@ Use ``--gap-geometry matched-pssm --gapped-extension --pssm-kernel-scale 400``.
 Scales 200, 400 and 800 provide explicit half/default/double weighting
 comparisons while holding geometry, retrieval, controls and original
 comparison fixed. These choices are diagnostic, not an accuracy claim.
+
+Distance-local rank evidence (experimental)
+-------------------------------------------
+
+``tcrdist-neighbours --neighbour-weighting local-rank --background ...`` uses
+fixed integer distance cutoffs from zero through ``--radius``. Both populations
+use the same upward distance bins, V-loop geometry and full-junction exclusion.
+The score is separate from the existing ``enrichment`` count ratio.
+
+Let :math:`N` and :math:`M` be eligible reference and control sizes, and
+:math:`R_i` the rank of reference :math:`i` among the controls plus itself.
+With :math:`H_k=\sum_{j=1}^k1/j`, :math:`H_0=0`, define
+
+.. math::
+
+   B_X(q)=\frac1N\sum_{i=1}^N\frac{M+1}{H_{M+1}R_i}.
+
+This restores distance-local inverse background-mass evidence without a fitted
+exponent, kernel scale, length switch or target-cluster requirement. Tied ranks
+are averaged. If :math:`l` controls are in lower bins and :math:`t` in the same
+bin, average over ranks :math:`l+1,\ldots,l+t+1`. Far references are censored,
+not discarded: if :math:`m_D` controls fall inside the radius, their contribution
+is the mean over ranks :math:`m_D+1,\ldots,M+1`. Full populations remain in
+:math:`N,M`. A singleton target is valid; no near evidence on either side gives
+neutral :math:`B_X=1`. Empty populations have unavailable evidence and retain
+the declared prior, rather than implying a negative prediction.
+
+Under exchangeable distance labels, reference ranks are uniform and the
+normalization gives :math:`\mathbb E_0 B_X=1`, even with shared controls.
+The alternative label law :math:`dP_1=B_XdP_0` is a specified rank-tilted model.
+The CLI exports ``rank_bayes_factor`` for this model, the conservative
+``p_rank_bound`` :math:`\min(1,1/B_X)`, and ``posterior_rank_signal``
+:math:`\pi B_X/(1-\pi+\pi B_X)`. ``--rank-signal-prior`` declares :math:`\pi`;
+equal odds (0.5) is an explicit model default, not a specificity prevalence estimate.
+The P-value bound follows from Markov's inequality; it is not an exact tail.
+
+A separate ``p_nearest_rank`` tests first-reference proximity. If :math:`m_*`
+controls fall at or below the nearest reference bin, its finite-label tail is
+:math:`\Pr\{K\ge1\}`, where :math:`K` is hypergeometric with population
+:math:`N+M`, :math:`N` reference labels and draw size :math:`m_*+1`.
+Upper-bin ties make this conservative; censored no-hit queries receive one.
+It is not the P-value of the full averaged score and is not merged into it.
+
+These are conditional model quantities, not empirically calibrated biological
+recognition probabilities or false-positive risks. Generated draws versus
+unique reference keys, repertoire selection and database ascertainment do not
+automatically support exchangeability. ``rank_model_status`` and the manifest
+retain this restriction; deployment priors cannot be inferred from VDJdb or
+custom benchmark fractions. Target/route selection is not calibrated here.
+Original annotation remains the default; M3 remains deferred.
+
+The general expectation-one and conservative conversion are discussed by
+`Vovk and Wang <https://arxiv.org/abs/1912.06116>`_. The particular reciprocal-rank
+alternative and censoring construction above are this package's explicit model.

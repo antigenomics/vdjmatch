@@ -21,8 +21,10 @@ def register(subparsers):
     p.add_argument('--control',help='raw junction/V control table for real or generative background')
     p.add_argument('--position-weighting',choices=['uniform','significance'],default='uniform',
                    help='enrichment geometry; significance uses the complete shipped flank/core decay profile')
-    p.add_argument('--neighbour-weighting',choices=['ball','linear'],default='ball',
-                   help='enrichment weights: ball counts or max(0,1-distance/radius); no new confidence')
+    p.add_argument('--neighbour-weighting',choices=['ball','linear','local-rank'],default='ball',
+                   help='ball/linear enrichment or experimental background-local rank evidence')
+    p.add_argument('--rank-signal-prior',type=float,default=.5,
+                   help='prior for the local-rank model only; not biological specificity prevalence')
     p.add_argument('--radius',type=int,default=90,help='maximum distance; paired uses the alpha+beta sum against one linked reference')
     p.add_argument('--exclude-exact',action='store_true')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
@@ -117,6 +119,8 @@ def main(a):
         raise ValueError('paired background requires vdjdb-other and uniform positional weights; generative/real joint controls are not defined')
     if a.neighbour_weighting=='linear' and (not a.background or a.radius<=0):
         raise ValueError('linear neighbour weighting requires a background and positive radius')
+    if a.neighbour_weighting=='local-rank' and (not a.background or not 0<a.rank_signal_prior<1):
+        raise ValueError('local-rank requires a background and prior strictly between zero and one')
     if bool(a.control) != (a.background in {'real','generative'}):
         raise ValueError('--control is required only for --background real or generative')
     if a.position_weighting!='uniform' and (not a.background or a.junction_ends!='tcrdist'):
@@ -176,33 +180,37 @@ def main(a):
         from ..match.tcrdist import total_distance_count_batch,paired_total_distance_mass_batch
         from ..evalue.control import raw_gene_background
         linear=a.neighbour_weighting=='linear'
+        local=a.neighbour_weighting=='local-rank'
         query_keys=['cdr3a','cdr3b','_allelea','_alleleb'] if paired else ['cdr3','_allele']
         options=dict(species=organism,threads=a.threads,ctrim=ctrim,
                      position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear)
         def counts(part,population):
             if not part.height:
-                return [],[]
+                return [],[],np.zeros((0,a.radius+1),dtype=np.uint64) if local else None
             if not population.height:
-                return [0]*part.height,[0.0]*part.height
+                return [0]*part.height,[0.0]*part.height,np.zeros((part.height,a.radius+1),dtype=np.uint64) if local else None
             count_start=time.perf_counter()
+            thresholds=[list(range(0,200*a.radius+1,200))]*part.height if local else [[200*a.radius]]*part.height
             if paired:
                 native=paired_total_distance_mass_batch(
                     part['cdr3a'].to_list(),part['cdr3b'].to_list(),
                     population['alpha'].to_list(),population['beta'].to_list(),
                     part['_allelea'].to_list(),part['_alleleb'].to_list(),
                     population['_allele_alpha'].to_list(),population['_allele_beta'].to_list(),
-                    [[200*a.radius]]*part.height,species=organism,threads=a.threads,
+                    thresholds,species=organism,threads=a.threads,
                     ctrim=ctrim,exclude_exact=a.exclude_exact)
-                result=[row[0] for row in native[0]]
+                curve=np.asarray(native[0],dtype=np.uint64) if local else None
+                result=[row[-1] for row in native[0]]
                 mass=[row[0]/(200*a.radius) for row in native[1]] if linear else result
             else:
                 native=total_distance_count_batch(part['cdr3'].to_list(),population['cdr3'].to_list(),
                     part['_allele'].to_list(),population['_allele'].to_list(),
-                    [[200*a.radius]]*part.height,**options)
-                result=[row[0] for row in (native[0] if linear else native)]
+                    thresholds,**options)
+                curve=np.asarray(native,dtype=np.uint64) if local else None
+                result=[row[-1] for row in (native[0] if linear else native)]
                 mass=[row[0]/(200*a.radius) for row in native[1]] if linear else result
             background_costs['native_count_batches']+=time.perf_counter()-count_start
-            return result,mass
+            return result,mass,curve
         def populations(part,population):
             if not a.exclude_exact:
                 return [population.height]*part.height
@@ -223,9 +231,12 @@ def main(a):
             # One native control batch, shared transiently across declared targets.
             parts=[part.select('cdr3','_allele') for _,part,_ in groups if part.height]
             usable=pl.concat(parts).unique(maintain_order=True) if parts else q.select('cdr3','_allele').head(0)
-            m,w=counts(usable,controls)
+            m,w,mc=counts(usable,controls)
             shared=usable.with_columns(pl.Series('_m',m,dtype=pl.UInt64),pl.Series('control_weight',w,dtype=pl.Float64),
                                        pl.Series('_M',populations(usable,controls),dtype=pl.UInt64))
+            if local:
+                shared=shared.with_columns(pl.Series('_rank_control',mc))
+            del mc
         else:
             background_provenance={'kind':'vdjdb_other_epitopes','reference':db.provenance(a.vdjdb),
                 'target_removal':'all records of target peptide, before key deduplication',
@@ -238,15 +249,18 @@ def main(a):
             if not unique.height:
                 continue
             reference_keys=reference_part.unique(search_keys,maintain_order=True)
-            n,reference_weight=counts(unique,reference_keys)
+            n,reference_weight,nc=counts(unique,reference_keys)
             N=populations(unique,reference_keys)
             if shared is not None:
                 evidence=unique.join(shared,on=query_keys,how='left',validate='1:1',maintain_order='left')
             else:
                 other=r.filter(pl.col('epitope')!=task['epitope']).unique(search_keys,maintain_order=True)
-                m,w=counts(unique,other)
+                m,w,mc=counts(unique,other)
                 evidence=unique.with_columns(pl.Series('_m',m,dtype=pl.UInt64),pl.Series('control_weight',w,dtype=pl.Float64),
                                             pl.Series('_M',populations(unique,other),dtype=pl.UInt64))
+                if local:
+                    evidence=evidence.with_columns(pl.Series('_rank_control',mc))
+                del mc
             evidence=evidence.with_columns(pl.Series('n_reference',n,dtype=pl.UInt64),
                                           pl.Series('reference_weight',reference_weight,dtype=pl.Float64),
                                           pl.Series('reference_population',N,dtype=pl.UInt64))
@@ -257,6 +271,18 @@ def main(a):
                 pl.when(available).then(pl.lit('available')).otherwise(pl.lit('empty_population')).alias('enrichment_status'))
             evidence=evidence.with_columns((pl.col('reference_weight')/pl.col('expected_count')).alias('enrichment'),
                 (pl.col('n_control')==0).alias('zero_control_hits'),(pl.col('control_weight')==0).alias('zero_control_weight'))
+            if local:
+                from ..evalue.local_rank import local_rank_evidence
+                rank=local_rank_evidence(nc,evidence['_rank_control'].to_numpy(),N,
+                                         evidence['control_population'].to_numpy(),prior=a.rank_signal_prior)
+                evidence=evidence.drop('_rank_control').with_columns(
+                    *(pl.Series(k,v) for k,v in rank.items()),
+                    pl.lit(a.rank_signal_prior).alias('rank_signal_prior'),
+                    pl.when(available).then(pl.lit('conditional_rank_model_only')).otherwise(pl.lit('empty_population')).alias('rank_model_status'))
+                evidence=evidence.with_columns(
+                    pl.when(available).then(pl.col('rank_bayes_factor')).alias('rank_bayes_factor'),
+                    *(pl.when(available).then(pl.col(c)).alias(c) for c in ['p_rank_bound','p_nearest_rank']))
+            del nc
             enrichment_rows.append(part.select('query_id',*query_keys).join(evidence,
                 on=query_keys,how='left',validate='m:1',maintain_order='left').drop(query_keys)
                 .with_columns(*(pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC)))
@@ -357,6 +383,10 @@ def main(a):
                 'expected_count':pl.Float64,'enrichment_status':pl.String,'enrichment':pl.Float64,
                 'zero_control_hits':pl.Boolean,'zero_control_weight':pl.Boolean}
         enrichment=pl.concat(enrichment_rows) if enrichment_rows else pl.DataFrame(schema=schema)
+        if a.neighbour_weighting=='local-rank' and not enrichment_rows:
+            enrichment=enrichment.with_columns(
+                *(pl.lit(None,dtype=pl.Float64).alias(k) for k in ['rank_bayes_factor','p_rank_bound','p_nearest_rank','posterior_rank_signal','rank_signal_prior']),
+                pl.lit(None,dtype=pl.String).alias('rank_model_status'))
         enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
@@ -386,5 +416,16 @@ def main(a):
             'calibration':('none; posterior mean kernel mass under unit Dirichlet prior split equally at distance0/outside-radius; ranking only'
                            if a.neighbour_weighting=='linear' else 'none; Jeffreys background predictive smoothing, not a Bayes factor or P-value'),
             'nearest_output':'distance and native neighbour counts retain their unweighted comparator geometry'}} if a.background else {}),
+        **({'local_rank_model':{
+            'score_column':'rank_bayes_factor','distance_bins':'ceil(native distance / 200), fixed integer cutoffs 0..radius',
+            'rank_weight':'(M+1)/(H_(M+1)*rank); ties averaged; outside-radius references have conditional null mean',
+            'null':'exchangeable reference/control distance labels conditional on pooled distances',
+            'alternative':'null label law tilted by the mean normalized reciprocal reference rank',
+            'p_rank_bound':'min(1,1/rank_bayes_factor); conservative Markov bound, not exact tail',
+            'p_nearest_rank':'hypergeometric first-target rank tail; upper-bin ties conservative; separate statistic',
+            'posterior_rank_signal':'prior*BF/(1-prior+prior*BF); model probability, not biological Prob(TP)',
+            'prior':a.rank_signal_prior,'sampling_status':'exchangeability is not established by source declaration; generated draws versus distinct references may violate it',
+            'selection':'fixed radius, geometry and target; no selected-route or multiple-target calibration'}}
+           if a.neighbour_weighting=='local-rank' else {}),
         'calibration':'none','wall_seconds':time.perf_counter()-start},indent=2)+'\n')
     return 0

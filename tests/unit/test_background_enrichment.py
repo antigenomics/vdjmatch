@@ -30,7 +30,8 @@ def test_gene_controls_filter_declared_metadata_before_shared_gene_resolution(tm
 
 
 @pytest.mark.parametrize('background',['real','generative','vdjdb-other'])
-def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,background):
+@pytest.mark.parametrize('weighting',['ball','local-rank'])
+def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,background,weighting):
     q='CASSLGQAYEQYF';r=q[:-3]+'W'+q[-2:]
     sample=tmp_path/'q.tsv';reference=tmp_path/'r.tsv';control=tmp_path/'b.tsv';prefix=tmp_path/'out'
     pl.DataFrame({'junction_aa':[q,q,q],'v_call':['TRBV19']*3,'locus':['TRB']*3,
@@ -44,6 +45,7 @@ def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,backgroun
     args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus','TRB',
           '--targets-from-sample','--junction-ends','trim3','--radius','0','--exclude-exact',
           '--background',background,'--output-prefix',str(prefix)]
+    args+=['--neighbour-weighting',weighting,'--rank-signal-prior','.3']
     if background!='vdjdb-other':args+=['--control',str(control)]
     assert main(args)==0
     scores=pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t')
@@ -60,6 +62,13 @@ def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,backgroun
     manifest=json.loads((tmp_path/'out.manifest.json').read_text())
     assert manifest['calibration']=='none'
     assert manifest['background_enrichment']['geometry']=='trim3/3'
+    if weighting=='local-rank':
+        assert e['rank_bayes_factor']==pytest.approx(1)
+        assert e['p_rank_bound']==pytest.approx(1)
+        assert e['posterior_rank_signal']==pytest.approx(.3)
+        assert unavailable['rank_bayes_factor'].null_count()==2
+        assert unavailable['posterior_rank_signal'].to_list()==pytest.approx([.3,.3])
+        assert manifest['local_rank_model']['prior']==.3
 
 
 def test_background_options_reject_undefined_joint_and_ignored_controls():
@@ -71,7 +80,8 @@ def test_background_options_reject_undefined_joint_and_ignored_controls():
         assert error.value.code==2
 
 
-def test_linear_paired_score_keeps_linkage_and_punctures_both_populations(tmp_path):
+@pytest.mark.parametrize('weighting',['linear','local-rank'])
+def test_linear_paired_score_keeps_linkage_and_punctures_both_populations(tmp_path,weighting):
     a='CASSLGQAYEQYF';b='CASSLGRAYEQYF'
     sample=tmp_path/'q.tsv';reference=tmp_path/'r.tsv';prefix=tmp_path/'out'
     pl.DataFrame({'query_id':['a','b'],'clone_id':['001']*2,'junction_aa':[a,a],
@@ -81,16 +91,22 @@ def test_linear_paired_score_keeps_linkage_and_punctures_both_populations(tmp_pa
         'cdr3':[a,a,a,b,b,a,b,b],'v':['TRAV1-1','TRBV19']*4,'species':['HomoSapiens']*8,
         'epitope':['E']*4+['other']*4,'mhc_a':['HLA-A*02']*8,'mhc_b':['B2M']*8,'mhc_class':['MHCI']*8}).write_csv(reference,separator='\t')
     args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus','paired',
-        '--targets-from-sample','--background','vdjdb-other','--neighbour-weighting','linear',
+        '--targets-from-sample','--background','vdjdb-other','--neighbour-weighting',weighting,
         '--exclude-exact','--radius','18','--output-prefix',str(prefix)]
     assert main(args)==0
     row=pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t').row(0,named=True)
     # Query identities remove the exact pair, not the two marginal matches.
     assert row['reference_population']==row['n_reference']==1
     assert row['control_population']==row['n_control']==2
-    assert row['reference_weight']==pytest.approx(.5)
-    assert row['control_weight']==pytest.approx(.5)  # linked distances9 and18
-    assert row['enrichment']==pytest.approx(1.5)
+    if weighting=='linear':
+        assert row['reference_weight']==pytest.approx(.5)
+        assert row['control_weight']==pytest.approx(.5)  # linked distances9 and18
+        assert row['enrichment']==pytest.approx(1.5)
+    else:
+        assert row['rank_bayes_factor']==pytest.approx(27/22)
+        assert row['p_rank_bound']==pytest.approx(22/27)
+        assert row['p_nearest_rank']==pytest.approx(2/3)
+        assert row['posterior_rank_signal']==pytest.approx(27/49)
     status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t',infer_schema_length=0)
     assert status['pair_id'].to_list()==['001']
 

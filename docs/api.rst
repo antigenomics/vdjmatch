@@ -134,3 +134,8 @@ set. Mixing two-tuple and three-tuple hits is rejected.
    :members: build_paired_ref, paired_scan, pvalue
    :undoc-members:
    :show-inheritance:
+
+Experimental local-rank evidence
+--------------------------------
+
+.. autofunction:: vdjmatch.evalue.local_rank.local_rank_evidence
