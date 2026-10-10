@@ -27,7 +27,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # Candidate prerequisite until seqtree 1.0.3 is published; remove after release.
-          pip install "seqtree @ git+https://github.com/antigenomics/seqtree.git@655af6441484b63a4b70115af5988a53fe5ada91"
+          pip install "seqtree @ git+https://github.com/antigenomics/seqtree.git@226ad94b0f79df39f23e2a27cdfa08151f472480"
           pip install -e ".[test,bench]"
       - name: Import must not need the precursor extra
         run: python -c "import vdjmatch; print(vdjmatch.__version__)"

@@ -253,6 +253,8 @@ def test_cli_extension_retains_original_score_and_source_identities(tmp_path):
     assert out['gapped_density'][0]>0 and out['score'][0]==out['gapped_density'][0]
     info=json.loads(Path(str(prefix)+'.manifest.json').read_text())['gapped_extension']
     assert all(len(info[k])==64 for k in ['source_sha256','distance_source_sha256','model_sha256'])
+    manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
+    assert len(manifest['software']['seqtree_native_sha256'])==64
 
 
 

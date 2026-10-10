@@ -190,6 +190,7 @@ def main(a):
     from .. import db,io
     from ..api import _prepare
     from ..db.cache import sha256
+    from seqtree import _core
     from ..evalue.control import raw_background, _organism
     from ..match.historical import density,germline_prior,unpaired_score
     start=time.perf_counter()
@@ -318,6 +319,7 @@ def main(a):
         from ..match.tcrdist import distance_matrix, load_v_loops
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
+                    'seqtree_native_sha256':sha256(Path(_core.__file__)),
                     'scorer_source_sha256':sha256(Path(density.__code__.co_filename)),
                     'cli_source_sha256':sha256(Path(__file__))},
         'reference':db.provenance(a.vdjdb),'control':provenance,'ingestion':ingestion,

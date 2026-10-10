@@ -90,6 +90,7 @@ def main(a):
     from ..aggregate.candidates import PMHC
     from ..io.airr import _read_table
     from ..db.cache import sha256
+    from seqtree import _core
     from ..match.tcrdist import distance_matrix,paired_distance_matrix,load_v_loops
     from ..evalue.control import _organism
     start=time.perf_counter()
@@ -213,6 +214,7 @@ def main(a):
     status.write_csv(str(prefix)+'.queries.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
+                    'seqtree_native_sha256':sha256(Path(_core.__file__)),
                     'scorer_source_sha256':sha256(Path(distance_matrix.__code__.co_filename)),
                     'cli_source_sha256':sha256(Path(__file__))},
         'reference':db.provenance(a.vdjdb),'ingestion':ingestion,'reference_observations':original,
