@@ -716,5 +716,12 @@ in the candidate reference population. ``--calibration-score p_enrichment`` reta
 the enrichment-tail diagnostic. The enrichment P-value depends on the observed
 number of neighbours and is not the probability of a false winning-label call;
 it is not interchangeable with an E-value or a biological posterior.
+``--calibration-score score`` exports the existing winning-label ranking score.
+``calibrate-calls`` reports its empirical expected false calls per query as the
+largest observed null-source any-call tail at each cutoff. For a sample of Q
+queries evaluated at a common cutoff, multiply this value by Q to obtain the
+empirical expected number of false calls. This expectation requires no independence
+assumption, but transport to a new population remains unvalidated. It is distinct
+from the Poisson neighbour-count E-value and is not a confidence bound.
 Neither this command nor ``calibrate-calls`` supplies a biological posterior or
 filters principal accuracy/ranking evaluations with a recommended cutoff.

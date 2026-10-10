@@ -29,12 +29,14 @@ def test_cli_separate_nulls_ties_and_no_hits(tmp_path):
     assert result['correct_calls'] == 1
     assert result['vdjdb_correct_call_recall'] == pytest.approx(1/3)
     assert result['vdjdb_call_precision'] == 1.
+    assert result['empirical_E_false_calls_per_query'] == 0.
     assert result['nulls'] == [
         {'source': 'generated', 'queries': 2, 'calls': 0, 'call_rate': 0.},
         {'source': 'withheld', 'queries': 3, 'calls': 0, 'call_rate': 0.},
     ]
     curve = pl.read_csv(tmp_path / 'out.operating_points.tsv', separator='\t')
     assert curve.filter(pl.col('cutoff') == 8.)['eligible'][0] is False
+    assert curve.filter(pl.col('cutoff') == 8.)['empirical_E_false_calls_per_query'][0] == pytest.approx(2/3)
     # Inverting score direction preserves every operating point and selected call.
     lower = rows.with_columns((-pl.col('score')).alias('score'))
     same, _ = calibration.operating_points(lower, .34, higher_is_better=False)

@@ -58,10 +58,12 @@ def operating_points(frame, target_fpr, *, higher_is_better=True):
     incorrect = counts(labelled.filter(pl.col('outcome') == 'incorrect'))
     eligible = np.ones(len(cuts) + 1, dtype=bool)
     sources = []
+    empirical_expected = np.zeros(len(cuts) + 1, dtype=float)
     for source in sorted(null['null_source'].unique().to_list()):
         part = null.filter(pl.col('null_source') == source)
         calls = counts(part)
         eligible &= calls / part.height <= target_fpr
+        empirical_expected = np.maximum(empirical_expected, calls / part.height)
         sources.append((source, part.height, calls))
     selected = int(np.flatnonzero(eligible)[-1])
     cutoff = None if selected == 0 else float(sign * cuts[selected - 1])
@@ -77,6 +79,12 @@ def operating_points(frame, target_fpr, *, higher_is_better=True):
         'vdjdb_correct_call_recall': float(correct[selected] / labelled.height),
         'vdjdb_call_precision': float(precision[selected]) if np.isfinite(precision[selected]) else None,
         'no_score_queries': frame['score'].null_count(),
+        'empirical_E_false_calls_per_query': float(empirical_expected[selected]),
+        'E_definition': ('Maximum observed null-source any-call tail after winning-label selection; '
+                         'expected false calls per query under the supplied null populations. '
+                         'For Q queries at a common cutoff, empirical expected false calls = Q * E. '
+                         'Not a finite-sample upper confidence bound, Poisson neighbour E, '
+                         'test-martingale e-value or biological specificity probability.'),
         'nulls': [{'source': s, 'queries': n, 'calls': int(c[selected]),
                   'call_rate': float(c[selected] / n)} for s, n, c in sources],
     }
@@ -89,6 +97,7 @@ def operating_points(frame, target_fpr, *, higher_is_better=True):
         'vdjdb_queries': [labelled.height] * len(eligible),
         'vdjdb_correct_call_recall': correct / labelled.height,
         'vdjdb_call_precision': pl.Series(precision).fill_nan(None),
+        'empirical_E_false_calls_per_query': empirical_expected,
     })
     curve = pl.concat([base.with_columns(
         pl.lit(s).alias('null_source'), pl.lit(n).alias('null_queries'),
