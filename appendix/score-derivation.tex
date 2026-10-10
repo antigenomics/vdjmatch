@@ -133,6 +133,9 @@ a new probabilistic model.
 \item No accepted reference neighbours gives $S_X=0$.
 \item As $\tau\to0$, positive-penalty edges vanish; nonexact zero-penalty edges,
 if present, retain their contribution.
+For positive nonexact penalties, the sparse-reference output tends to
+$\log\eta+G_X$: changing $\tau$ changes density/prior balance, so better
+density ranking need not improve fused ranking.
 \item As $\tau\to\infty$, attenuation disappears within $D$: this remains a
 sum of inverse-background-mass contributions, not one ball-count ratio.
 \item Uniform position weights and forbidden gaps give weighted-BLOSUM

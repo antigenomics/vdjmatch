@@ -7,6 +7,9 @@ statistic. It has not replaced the default annotation scorer or acquired a
 calibrated P-value. These equations describe the implemented single-chain score;
 paired joint scoring remains a separate contract.
 
+Download the :download:`two-page derivation <../appendix/score-derivation.pdf>`
+or its :download:`editable LaTeX source <../appendix/score-derivation.tex>`.
+
 Populations and geometry
 ------------------------
 
@@ -168,6 +171,12 @@ counts :math:`c_{X,f}` and :math:`c_{B_G,f}`, and raw prior population size
 The prior background :math:`B_G` retains raw multiplicities and is distinct
 from :math:`B`. Original alpha reproduction uses its declared original beta
 prior background; this historical choice remains explicit.
+
+If all nonexact penalties are positive, :math:`\tau\to0` gives
+:math:`T_X\to\log\eta+G_X` in the sparse-reference branch. Changing
+:math:`\tau` therefore changes the relative spread of density and prior;
+improved density ranking need not improve the fused output ranking.
+The historical 500-reference switch is also discontinuous in reference size.
 
 Use ``--gap-geometry matched-pssm --gapped-extension --pssm-kernel-scale 400``.
 Scales 200, 400 and 800 provide explicit half/default/double weighting
