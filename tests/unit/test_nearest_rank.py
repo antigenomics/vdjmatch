@@ -8,11 +8,11 @@ from vdjmatch.cli.__main__ import main
 @pytest.mark.parametrize('locus',['TRB','paired'])
 def test_cli_nearest_rank_recovers_outside_ball_without_changing_existing_fields(tmp_path,locus):
     sample,reference=[tmp_path/n for n in ['q.tsv','r.tsv']]
-    a='CASSLGQAYEQYF';b='CASSLGRAYEQYF';c='CASSWGRAYEQYF'
+    a='CASSLGQAYEQYF';b='CASSLGRAYEQYF';c='CASSWGRAYEQYF';d='CASAWGRAYEQYF'
     meta=dict(species='human',epitope='E',mhc_a='HLA-A*02',mhc_b='B2M',mhc_class='MHCI')
     loci=['TRA','TRB'] if locus=='paired' else ['TRB'];genes=['TRAV1-1*01','TRBV19*01'] if locus=='paired' else ['TRBV19*01']
     pl.DataFrame([dict(clone_id='q',junction_aa=a,v_call=v,locus=l,**meta) for l,v in zip(loci,genes)]).write_csv(sample,separator='\t')
-    rows=[dict(complex_id=str(i),cdr3=s,v=v,gene=l,**(meta|{'species':'HomoSapiens','epitope':e})) for i,(s,e) in enumerate([(a,'E'),(b,'E'),(b,'OTHER'),(c,'OTHER')]) for l,v in zip(loci,genes)]
+    rows=[dict(complex_id=str(i),cdr3=s,v=v,gene=l,**(meta|{'species':'HomoSapiens','epitope':e})) for i,(s,e) in enumerate([(a,'E'),(b,'E'),(b,'OTHER'),(c,'OTHER'),(d,'OTHER')]) for l,v in zip(loci,genes)]
     pl.DataFrame(rows).write_csv(reference,separator='\t')
     args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus',locus,'--targets-from-sample','--unbounded-nearest','--background','vdjdb-other','--neighbour-weighting','local-rank','--radius','0','--exclude-exact']
     for extra in [[],['--nearest-rank']]:
@@ -23,10 +23,10 @@ def test_cli_nearest_rank_recovers_outside_ball_without_changing_existing_fields
     assert old.equals(new.select(old.columns));assert old['n_reference'][0]==0 and old['p_nearest_rank'][0]==1
     distance=pl.read_csv(tmp_path/'new.candidates.tsv',separator='\t')['distance'][0]
     from vdjmatch.match.tcrdist import distance_matrix,paired_distance_matrix
-    controls=[b,c]
-    if locus=='paired':d=paired_distance_matrix([a],[a],controls,controls,[genes[0]],[genes[1]],[genes[0]]*2,[genes[1]]*2)[0]
-    else:d=distance_matrix([a],controls,[genes[0]],[genes[0]]*2)[0]
-    m=int(np.count_nonzero(d<=distance));p=float(hypergeom.sf(0,3,1,m+1))
+    controls=[b,c,d]
+    if locus=='paired':d=paired_distance_matrix([a],[a],controls,controls,[genes[0]],[genes[1]],[genes[0]]*len(controls),[genes[1]]*len(controls))[0]
+    else:d=distance_matrix([a],controls,[genes[0]],[genes[0]]*len(controls))[0]
+    m=int(np.count_nonzero(d<=distance));p=float(hypergeom.sf(0,4,1,m+1))
     assert new['nearest_rank_control_count'][0]==m
     assert new['p_nearest_unbounded'][0]==pytest.approx(p)
     assert new['nearest_rank_score'][0]==pytest.approx(-p)

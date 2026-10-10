@@ -433,8 +433,9 @@ def main(a):
             usable=(evidence['reference_population']>0)&(evidence['control_population']>0)&evidence['nearest_rank_control_count'].is_not_null()
             tail=np.full(evidence.height,np.nan)
             if usable.any():
-                n=evidence.filter(usable);N=n['reference_population'].to_numpy();M=n['control_population'].to_numpy()
-                tail[usable.to_numpy()]=hypergeom.sf(0,N+M,N,n['nearest_rank_control_count'].to_numpy()+1)
+                # SciPy support arithmetic must not underflow on unsigned counts.
+                n=evidence.filter(usable);N=n['reference_population'].cast(pl.Float64).to_numpy();M=n['control_population'].cast(pl.Float64).to_numpy()
+                tail[usable.to_numpy()]=hypergeom.sf(0,N+M,N,n['nearest_rank_control_count'].cast(pl.Float64).to_numpy()+1)
             enrichment_rows[i]=evidence.with_columns(pl.Series('p_nearest_unbounded',tail,nan_to_null=True)).with_columns(
                 (-pl.col('p_nearest_unbounded')).alias('nearest_rank_score'),
                 pl.when(pl.col('p_nearest_unbounded').is_not_null()).then(pl.lit('conditional_rank_model_only'))
