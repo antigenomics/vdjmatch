@@ -21,6 +21,8 @@ def register(subparsers):
     p.add_argument('--control',help='raw junction/V control table for real or generative background')
     p.add_argument('--position-weighting',choices=['uniform','significance'],default='uniform',
                    help='enrichment geometry; significance uses the complete shipped flank/core decay profile')
+    p.add_argument('--neighbour-weighting',choices=['ball','linear'],default='ball',
+                   help='enrichment weights: ball counts or max(0,1-distance/radius); no new confidence')
     p.add_argument('--radius',type=int,default=90,help='maximum distance; paired uses the alpha+beta sum against one linked reference')
     p.add_argument('--exclude-exact',action='store_true')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
@@ -109,8 +111,12 @@ def main(a):
     if a.threads<1 or a.radius<0:raise ValueError('positive threads and nonnegative radius required')
     if a.unbounded_nearest and not a.targets_from_sample:
         raise ValueError('--unbounded-nearest requires --targets-from-sample')
-    if a.background and (not a.targets_from_sample or a.locus=='paired'):
-        raise ValueError('--background requires single-chain --targets-from-sample; joint controls are not defined')
+    if a.background and not a.targets_from_sample:
+        raise ValueError('--background requires --targets-from-sample')
+    if a.locus=='paired' and a.background and (a.background!='vdjdb-other' or a.position_weighting!='uniform'):
+        raise ValueError('paired background requires vdjdb-other and uniform positional weights; generative/real joint controls are not defined')
+    if a.neighbour_weighting=='linear' and (not a.background or a.radius<=0):
+        raise ValueError('linear neighbour weighting requires a background and positive radius')
     if bool(a.control) != (a.background in {'real','generative'}):
         raise ValueError('--control is required only for --background real or generative')
     if a.position_weighting!='uniform' and (not a.background or a.junction_ends!='tcrdist'):
@@ -169,23 +175,52 @@ def main(a):
         groups=list(groups)  # assayed_targets is streamed; the new arm uses it twice
         from ..match.tcrdist import total_distance_count_batch
         from ..evalue.control import raw_gene_background
+        linear=a.neighbour_weighting=='linear'
+        query_keys=['cdr3a','cdr3b','_allelea','_alleleb'] if paired else ['cdr3','_allele']
         options=dict(species=organism,threads=a.threads,ctrim=ctrim,
-                     position_weighting=a.position_weighting,exclude_exact=a.exclude_exact)
+                     position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear)
         def counts(part,population):
             if not part.height:
-                return []
+                return [],[]
             if not population.height:
-                return [0]*part.height
+                return [0]*part.height,[0.0]*part.height
             count_start=time.perf_counter()
-            result=[row[0] for row in total_distance_count_batch(
-                part['cdr3'].to_list(),population['cdr3'].to_list(),
-                part['_allele'].to_list(),population['_allele'].to_list(),
-                [[200*a.radius]]*part.height,**options)]
+            if paired:
+                # Reduce bounded matrices against linked pairs, never marginal products.
+                result=[];mass=[]
+                if 16*population.height>32*1024**2:
+                    raise ValueError('paired background exceeds the matrix budget for one query')
+                batch=max(1,(32*1024**2)//(16*population.height))
+                ra,rb=population['alpha'].to_list(),population['beta'].to_list()
+                rva,rvb=population['_allele_alpha'].to_list(),population['_allele_beta'].to_list()
+                for chunk in part.iter_slices(batch):
+                    qa,qb=chunk['cdr3a'].to_list(),chunk['cdr3b'].to_list()
+                    d=paired_distance_matrix(qa,qb,ra,rb,chunk['_allelea'].to_list(),chunk['_alleleb'].to_list(),
+                        rva,rvb,species=organism,threads=a.threads,ctrim=ctrim)
+                    eligible=np.ones(d.shape,dtype=bool)
+                    if a.exclude_exact:
+                        eligible&=~((np.asarray(qa)[:,None]==np.asarray(ra)[None,:]) &
+                                    (np.asarray(qb)[:,None]==np.asarray(rb)[None,:]))
+                    hit=(d<=a.radius)&eligible
+                    result.extend(hit.sum(axis=1,dtype=np.uint64).tolist())
+                    mass.extend((np.maximum(0,1-d.astype(np.float64)/a.radius)*eligible).sum(axis=1).tolist()
+                                if linear else hit.sum(axis=1,dtype=np.uint64).tolist())
+            else:
+                native=total_distance_count_batch(part['cdr3'].to_list(),population['cdr3'].to_list(),
+                    part['_allele'].to_list(),population['_allele'].to_list(),
+                    [[200*a.radius]]*part.height,**options)
+                result=[row[0] for row in (native[0] if linear else native)]
+                mass=[row[0]/(200*a.radius) for row in native[1]] if linear else result
             background_costs['native_count_batches']+=time.perf_counter()-count_start
-            return result
+            return result,mass
         def populations(part,population):
             if not a.exclude_exact:
                 return [population.height]*part.height
+            if paired:
+                exact=population.select(pl.col('alpha').alias('cdr3a'),pl.col('beta').alias('cdr3b')).join(
+                    part.select('cdr3a','cdr3b').unique(),on=['cdr3a','cdr3b'],how='semi')
+                multiplicity=dict((tuple(row[:2]),row[2]) for row in exact.group_by('cdr3a','cdr3b').len().iter_rows())
+                return [population.height-multiplicity.get(key,0) for key in part.select('cdr3a','cdr3b').iter_rows()]
             # Only query identities can be punctured; avoid a full-control Python map.
             exact=population.filter(pl.col('cdr3').is_in(part['cdr3'].unique().implode()))
             multiplicity=dict(exact.group_by('cdr3').len().iter_rows())
@@ -198,38 +233,42 @@ def main(a):
             # One native control batch, shared transiently across declared targets.
             parts=[part.select('cdr3','_allele') for _,part,_ in groups if part.height]
             usable=pl.concat(parts).unique(maintain_order=True) if parts else q.select('cdr3','_allele').head(0)
-            shared=usable.with_columns(pl.Series('_m',counts(usable,controls),dtype=pl.UInt64),
+            m,w=counts(usable,controls)
+            shared=usable.with_columns(pl.Series('_m',m,dtype=pl.UInt64),pl.Series('control_weight',w,dtype=pl.Float64),
                                        pl.Series('_M',populations(usable,controls),dtype=pl.UInt64))
         else:
             background_provenance={'kind':'vdjdb_other_epitopes','reference':db.provenance(a.vdjdb),
                 'target_removal':'all records of target peptide, before key deduplication',
                 'shared_key_policy':'other epitope annotations retained; no arbitrary label selection',
-                'observation_unit':'distinct full junction + resolved V allele; no abundance weights',
+                'observation_unit':('distinct linked full alpha/beta junctions + resolved V alleles' if paired else
+                                    'distinct full junction + resolved V allele')+'; no abundance weights',
                 'restriction':'same species/locus; other epitopes may have other MHC restrictions'}
         for task,part,reference_part in groups:
-            unique=part.select('cdr3','_allele').unique(maintain_order=True)
+            unique=part.select(query_keys).unique(maintain_order=True)
             if not unique.height:
                 continue
             reference_keys=reference_part.unique(search_keys,maintain_order=True)
-            n=counts(unique,reference_keys)
+            n,reference_weight=counts(unique,reference_keys)
             N=populations(unique,reference_keys)
             if shared is not None:
-                evidence=unique.join(shared,on=['cdr3','_allele'],how='left',validate='1:1',maintain_order='left')
+                evidence=unique.join(shared,on=query_keys,how='left',validate='1:1',maintain_order='left')
             else:
                 other=r.filter(pl.col('epitope')!=task['epitope']).unique(search_keys,maintain_order=True)
-                evidence=unique.with_columns(pl.Series('_m',counts(unique,other),dtype=pl.UInt64),
+                m,w=counts(unique,other)
+                evidence=unique.with_columns(pl.Series('_m',m,dtype=pl.UInt64),pl.Series('control_weight',w,dtype=pl.Float64),
                                             pl.Series('_M',populations(unique,other),dtype=pl.UInt64))
             evidence=evidence.with_columns(pl.Series('n_reference',n,dtype=pl.UInt64),
+                                          pl.Series('reference_weight',reference_weight,dtype=pl.Float64),
                                           pl.Series('reference_population',N,dtype=pl.UInt64))
             evidence=evidence.rename({'_m':'n_control','_M':'control_population'})
             available=(pl.col('reference_population')>0)&(pl.col('control_population')>0)
             evidence=evidence.with_columns(
-                pl.when(available).then(pl.col('reference_population')*(pl.col('n_control')+.5)/(pl.col('control_population')+1)).alias('expected_count'),
+                pl.when(available).then(pl.col('reference_population')*(pl.col('control_weight')+.5)/(pl.col('control_population')+1)).alias('expected_count'),
                 pl.when(available).then(pl.lit('available')).otherwise(pl.lit('empty_population')).alias('enrichment_status'))
-            evidence=evidence.with_columns((pl.col('n_reference')/pl.col('expected_count')).alias('enrichment'),
-                (pl.col('n_control')==0).alias('zero_control_hits'))
-            enrichment_rows.append(part.select('query_id','cdr3','_allele').join(evidence,
-                on=['cdr3','_allele'],how='left',validate='m:1',maintain_order='left').drop('cdr3','_allele')
+            evidence=evidence.with_columns((pl.col('reference_weight')/pl.col('expected_count')).alias('enrichment'),
+                (pl.col('n_control')==0).alias('zero_control_hits'),(pl.col('control_weight')==0).alias('zero_control_weight'))
+            enrichment_rows.append(part.select('query_id',*query_keys).join(evidence,
+                on=query_keys,how='left',validate='m:1',maintain_order='left').drop(query_keys)
                 .with_columns(*(pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC)))
         background_costs['total']=time.perf_counter()-background_start
     rows=[]
@@ -324,7 +363,9 @@ def main(a):
     if a.background:
         schema={'query_id':q.schema['query_id'],**{c:pl.String for c in PMHC},
                 **{c:pl.UInt64 for c in ['n_reference','reference_population','n_control','control_population']},
-                'expected_count':pl.Float64,'enrichment_status':pl.String,'enrichment':pl.Float64,'zero_control_hits':pl.Boolean}
+                'reference_weight':pl.Float64,'control_weight':pl.Float64,
+                'expected_count':pl.Float64,'enrichment_status':pl.String,'enrichment':pl.Float64,
+                'zero_control_hits':pl.Boolean,'zero_control_weight':pl.Boolean}
         enrichment=pl.concat(enrichment_rows) if enrichment_rows else pl.DataFrame(schema=schema)
         enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
@@ -349,9 +390,11 @@ def main(a):
         'junction_end_trim':{'n_terminal':3,'c_terminal':ctrim},
         **({'background_enrichment':{'background':background_provenance,'stage_wall_seconds':background_costs,
             'geometry':'full-profile decay' if a.position_weighting=='significance' else f'trim3/{ctrim}',
-            'formula':'n_reference/[reference_population*(n_control+0.5)/(control_population+1)]',
-            'denominators':'reference distinct junction/V-allele keys; controls use declared population units; both after optional full-junction exclusion',
-            'calibration':'none; Jeffreys background predictive smoothing, not a Bayes factor or P-value',
+            'formula':'reference_weight/[reference_population*(control_weight+0.5)/(control_population+1)]',
+            'kernel':'max(0,1-distance/radius)' if a.neighbour_weighting=='linear' else 'distance<=radius',
+            'denominators':'reference distinct receptor/V-allele keys; controls use declared population units; both after optional full-junction exclusion',
+            'calibration':('none; posterior mean kernel mass under unit Dirichlet prior split equally at distance0/outside-radius; ranking only'
+                           if a.neighbour_weighting=='linear' else 'none; Jeffreys background predictive smoothing, not a Bayes factor or P-value'),
             'nearest_output':'distance and native neighbour counts retain their unweighted comparator geometry'}} if a.background else {}),
         'calibration':'none','wall_seconds':time.perf_counter()-start},indent=2)+'\n')
     return 0

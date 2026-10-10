@@ -525,8 +525,15 @@ identity from counts and population sizes on both sides.
 
 The additional ``OUT.enrichment.tsv`` exports ``n_reference``,
 ``reference_population``, ``n_control``, ``control_population``,
-``expected_count`` and ``enrichment=n_reference/expected_count``, where
-``expected_count=reference_population*(n_control+0.5)/(control_population+1)``.
+``reference_weight``, ``control_weight``, ``expected_count`` and
+``enrichment=reference_weight/expected_count``, where
+``expected_count=reference_population*(control_weight+0.5)/(control_population+1)``.
+With the default ``--neighbour-weighting ball``, weights equal ball counts.
+With ``--neighbour-weighting linear`` and a positive radius, each receptor
+contributes ``max(0,1-distance/radius)``. Counts and weights are reduced in
+one native traversal; boundary matches count but have zero weight.
+The manifest states the kernel and smoothing contract; ``zero_control_weight``
+distinguishes zero weighted support from ``zero_control_hits``.
 Empty populations produce null enrichment with ``empty_population`` status;
 zero control support is reported separately. This is a regularised ranking
 statistic, with no P-value or confidence calibration.
@@ -539,8 +546,12 @@ minimum distances/counts retain their unweighted comparator geometry. The
 manifest distinguishes that output from the new enrichment geometry. It also
 records control loading, count-batch wall time (including Python adapter
 preparation), and total enrichment-stage wall time; these are separate from
-the complete command wall time. Paired
-background enrichment is rejected until a joint-control contract is defined.
+the complete command wall time. Paired ``--background vdjdb-other`` is supported
+with uniform positional weights. It uses the summed alpha/beta distance to each
+linked pair, distinct full-pair/V-allele keys and exact exclusion only when both
+full junctions match. The paired enrichment IDs map through ``OUT.queries.tsv``
+to the original ``pair_id``. Real/generated paired backgrounds remain rejected;
+independent chain products are not a joint null.
 
 
 ``--junction-ends trim3`` is an experimental comparison that removes three

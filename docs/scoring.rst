@@ -25,6 +25,43 @@ It is an opt-in regularised ranking statistic, not a Bayes factor,
 P-value or accepted replacement. Counts, eligible populations, exclusion
 rules and distance must agree between reference and control.
 
+Linear distance-weighted evidence
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``--neighbour-weighting linear`` retains near-versus-far information inside
+the same positive radius, without an exponent or a second scale. Define
+
+.. math::
+
+   K_D(t)=\max(0,1-t/D),\qquad
+   W_X=\sum_{r\in R_X}K_D(d(q,r)),\qquad
+   W_B=\sum_{b\in B}K_D(d(q,b)),
+
+   \boxed{S_X(q)=\frac{W_X/N}{(W_B+1/2)/(M+1)}}.
+
+Here :math:`R_X,B` are the eligible reference/control populations, :math:`q`
+is the query and :math:`d` the identical distance on both sides. All eligible
+receptors remain in :math:`N,M`, including distant zero-weight ones. Exact
+exclusion precedes both weights and denominators. A boundary match contributes
+to the ball count but has zero weight; no reference weight gives zero score.
+
+The smoothed denominator is the posterior mean kernel weight under a
+unit-concentration Dirichlet-process prior whose base distribution puts half
+its mass at distance zero and half outside the radius. Its prior kernel mean
+is therefore one half. This is an explicit regularizer, not a calibrated
+specificity probability, Bayes factor or P-value. The binary kernel reduces
+to the preceding ball formula. Also :math:`W_B=D^{-1}\int_0^D m(t)\,dt`, where
+:math:`m(t)` is the cumulative background count: the taper averages nested
+balls rather than choosing their best radius.
+
+Native linear mass sums integer :math:`\max(0,200D-d_{\rm native})` in the
+existing batched count traversal. Division by :math:`200D` precedes the
+half-unit regularizer; raw ball counts are exported alongside the weights.
+Linked-pair comparison uses :math:`d_\alpha+d_\beta` against the same linked
+reference pair and other-peptide linked pairs as its joint population. It does
+not multiply independently selected chain matches. Real/generated joint controls
+and paired confidence calibration remain undefined.
+
 An additive TCRdist-like geometry uses clipped BLOSUM costs, explicit
 positional weights, a linear gap charge and aligned V loops:
 

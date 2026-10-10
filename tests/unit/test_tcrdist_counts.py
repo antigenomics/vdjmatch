@@ -79,3 +79,16 @@ def test_count_capability_gate(monkeypatch):
     monkeypatch.setattr(tcrdist.gapblock,'count_batch',lambda queries,refs,thresholds:None)
     with pytest.raises(RuntimeError,match='group_distances'):
         tcrdist.total_distance_count_batch([],[],[],[],[])
+
+
+def test_linear_mass_is_dense_taper_with_boundary_and_full_identity():
+    q=['CASSLGQAYEQYF','CASSLGRAYEQYF']
+    r=q+['AASSLGQAYEQYF','CASSLGQAPAYEQYF']
+    qv=['TRBV19']*2;rv=['TRBV19','TRBV19','TRBV7-9','TRBV19']
+    scores=200*tcrdist.distance_matrix(q,r,qv,rv,ctrim=3)
+    cuts=[[18000,0,1800,1800,-1] for _ in q]
+    for threads in (1,4):
+        got,mass=tcrdist.total_distance_count_batch(q,r,qv,rv,cuts,ctrim=3,
+            threads=threads,exclude_exact=True,linear_mass=True)
+        assert got==[[sum(a!=b and scores[i,j]<=R for j,b in enumerate(r)) for R in cuts[i]] for i,a in enumerate(q)]
+        assert mass==[[sum(max(0,int(R)-int(scores[i,j])) for j,b in enumerate(r) if a!=b) for R in cuts[i]] for i,a in enumerate(q)]

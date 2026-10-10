@@ -69,3 +69,34 @@ def test_background_options_reject_undefined_joint_and_ignored_controls():
                   ['--locus','TRB','--background','real','--targets-from-sample']):
         with pytest.raises(SystemExit) as error:main(base+flags)
         assert error.value.code==2
+
+
+def test_linear_paired_score_keeps_linkage_and_punctures_both_populations(tmp_path):
+    a='CASSLGQAYEQYF';b='CASSLGRAYEQYF'
+    sample=tmp_path/'q.tsv';reference=tmp_path/'r.tsv';prefix=tmp_path/'out'
+    pl.DataFrame({'query_id':['a','b'],'clone_id':['001']*2,'junction_aa':[a,a],
+        'v_call':['TRAV1-1','TRBV19'],'locus':['TRA','TRB'],'species':['human']*2,
+        'epitope':['E']*2,'mhc_a':['HLA-A*02']*2,'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(sample,separator='\t')
+    pl.DataFrame({'complex_id':['1','1','2','2','3','3','4','4'],'gene':['TRA','TRB']*4,
+        'cdr3':[a,a,a,b,b,a,b,b],'v':['TRAV1-1','TRBV19']*4,'species':['HomoSapiens']*8,
+        'epitope':['E']*4+['other']*4,'mhc_a':['HLA-A*02']*8,'mhc_b':['B2M']*8,'mhc_class':['MHCI']*8}).write_csv(reference,separator='\t')
+    args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus','paired',
+        '--targets-from-sample','--background','vdjdb-other','--neighbour-weighting','linear',
+        '--exclude-exact','--radius','18','--output-prefix',str(prefix)]
+    assert main(args)==0
+    row=pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t').row(0,named=True)
+    # Query identities remove the exact pair, not the two marginal matches.
+    assert row['reference_population']==row['n_reference']==1
+    assert row['control_population']==row['n_control']==2
+    assert row['reference_weight']==pytest.approx(.5)
+    assert row['control_weight']==pytest.approx(.5)  # linked distances9 and18
+    assert row['enrichment']==pytest.approx(1.5)
+    status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t',infer_schema_length=0)
+    assert status['pair_id'].to_list()==['001']
+
+
+@pytest.mark.parametrize('flags',[['--radius','0','--background','vdjdb-other','--targets-from-sample'],[]])
+def test_linear_rejects_zero_radius_or_missing_background(flags):
+    with pytest.raises(SystemExit):
+        main(['tcrdist-neighbours','missing','--vdjdb','missing','--locus','TRB',
+              '--neighbour-weighting','linear','--output-prefix','out',*flags])

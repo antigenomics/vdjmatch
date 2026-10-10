@@ -168,7 +168,7 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
 
 def total_distance_count_batch(queries, references, query_v, reference_v, thresholds, *,
                                species='human', threads=1, ctrim=2,
-                               position_weighting='uniform', exclude_exact=False):
+                               position_weighting='uniform', exclude_exact=False, linear_mass=False):
     """Count full-junction/V-loop balls without a dense query/reference matrix.
 
     ``thresholds`` contains one integer list per query, in native units200 times
@@ -187,10 +187,18 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
     junctions even for different V calls; duplicate references count separately.
     Unknown/ambiguous/mixed-locus inputs fail as in distance_matrix. This supplies
     geometry, not a background population, calibrated P-value or paired count.
+
+    With ``linear_mass=True``, return ``(counts, masses)`` in one native traversal;
+    mass is the integer sum ``max(0, threshold-distance)``. Divide by a positive
+    threshold to obtain the sum of triangular kernel weights. Counts include
+    boundary ties whose kernel weight is zero. This mode requires the matching
+    seqtree native reducer; it never substitutes a dense matrix or another score.
     """
     import inspect
     if 'group_distances' not in inspect.signature(gapblock.count_batch).parameters:
         raise RuntimeError('total-distance counts require seqtree gapblock group_distances support')
+    if linear_mass and 'linear_mass' not in inspect.signature(gapblock.count_batch).parameters:
+        raise RuntimeError('linear mass requires seqtree gapblock linear_mass support')
     if position_weighting not in ('uniform','significance'):
         raise ValueError('position_weighting must be uniform or significance')
     if position_weighting=='significance' and ctrim!=2:
@@ -211,7 +219,8 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
         position_weights_by_length=weights,
         query_group_ids=indices[:len(queries)].tolist(),
         reference_group_ids=indices[len(queries):].tolist(),
-        group_distances=(200*loop_dist).tolist(),threads=threads,exclude_exact=exclude_exact)
+        group_distances=(200*loop_dist).tolist(),threads=threads,exclude_exact=exclude_exact,
+        **({'linear_mass':True} if linear_mass else {}))
 
 
 def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_beta,

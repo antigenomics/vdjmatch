@@ -74,29 +74,35 @@ No discontinuous 20-residue route switch is required.
 
 \newpage
 \begin{center}{\large A count ratio with an explicit background}\end{center}
-\textbf{Observed and expected neighbours.}
-Fix a radius $D$ in the units of $d$ before counting.
-It is a radius, not a diameter.
-Write $n$ for the nonexact reference count within $D$, and $m$ for the
-nonexact control count under the identical predicate.
-If background ball probability is $p_B$, a sample of $N$ independent receptors
-from that background has expected count $Np_B$.
-Thus the basic enrichment and its finite-control ranking version are
+\textbf{Retaining near-versus-far evidence.}
+Fix a positive radius $D$ in the units of $d$ before scoring; it is not a diameter.
+For a distance $t\ge0$, use the linear taper $K_D(t)=\max(0,1-t/D)$.
+Define $W_X=\sum_{r\in R_X}K_D(d(q,r))$ and
+$W_B=\sum_{b\in B}K_D(d(q,b))$, after the stated identity exclusion.
+All eligible receptors remain in $N,M$, including zero-weight distant ones.
+The ranking score is
 \begin{equation}
-E=\frac{n/N}{m/M},\qquad
-\boxed{E_J=\frac{n}{N\widetilde p_B},\quad
-\widetilde p_B=\frac{m+1/2}{M+1}.}
+\boxed{S_X(q)=\frac{W_X/N}{\widetilde\mu_B},\qquad
+\widetilde\mu_B=\frac{W_B+1/2}{M+1}.}
 \end{equation}
-The second expression uses the posterior-predictive probability under a
-Jeffreys $\mathrm{Beta}(1/2,1/2)$ prior for the binary background-ball event.
-It leaves $n=0$ at zero and avoids an arbitrary expected-count floor.
-It is a regularised enrichment ranking, not a Bayes factor or a calibrated P-value.
-Always report $n,N,m,M,N\widetilde p_B$ and zero-control support.
-For $m/M>0$ and increasing $M$, $E_J$ approaches $E$;
-with no control hits, its value depends on the available control size.
-If both populations share the same distribution, their unsmoothed population
-frequency ratio is one. Searching radii or selecting the best route requires
-separate inferential calibration; a fixed-ball test cannot be reused unchanged.
+A unit-concentration Dirichlet-process prior on background distance, with half
+its base mass at zero and half outside $D$, gives this posterior mean of
+$K_D$: the prior mean is $1/2$, hence the numerator $W_B+1/2$.
+This is explicit regularisation, not a calibrated P-value or a Bayes factor.
+Replacing $K_D$ by the binary ball predicate gives the preceding count score
+$n/[N(m+1/2)/(M+1)]$, with the usual Jeffreys binary prior.
+The linear version retains distances without an exponential or a new scale.
+It is also an average of nested-ball evidence:
+$W_B=D^{-1}\int_0^D m(t)\,dt$, where $m(t)$ counts background distances at most $t$.
+A boundary match counts towards support but has zero weight.
+Zero reference weight gives zero score; empty populations remain unavailable.
+With increasing $M$, the denominator approaches the empirical kernel mean.
+Report counts $n,m$, sizes $N,M$, weights $W_X,W_B$, and $N\widetilde\mu_B$.
+Native integer mass $L=\sum\max(0,200D-d_{\rm native})$ is divided by $200D$;
+the half-unit regulariser is added only after this conversion.
+For linked pairs, $d=d_\alpha+d_\beta$ to the same reference pair;
+other-epitope linked pairs define the joint comparison population.
+Real/generated paired nulls are not inferred from independent chain products.
 
 \textbf{Three backgrounds, three questions.}
 A generative V(D)J background measures enrichment beyond recombination accessibility.
@@ -139,6 +145,6 @@ sum of marginal gene/length log-frequency ratios.
 Otherwise the output remains $S$, including when $N\ge500$.
 Its affine gap is $2800+1400(h-1)$ in different integer units; it is not $12h$.
 Neither kernel choice passed all-task nonregression.
-Equation (2) is implemented as opt-in single-chain ranking, not an accepted replacement.
-Old scores remain reproducible; paired joint calibration and M3 are outside this note.
+Equation (2) is opt-in ranking; comparisons determine acceptance.
+Old scores remain reproducible; paired confidence calibration and M3 remain deferred.
 \end{document}
