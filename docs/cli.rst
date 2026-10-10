@@ -478,6 +478,22 @@ P-value. It requires positional gap-block support in the installed seqtree binar
 and rejects older implementations before loading controls. TCRdist-specific
 radius/temperature options do not apply.
 
+``--gapped-extension --gap-geometry matched-pssm`` uses the same positional
+geometry for every accepted nonexact reference neighbour, including original
+substitution-ball edges within the weighted cutoff of 7000. It computes each contribution as
+``V_weight * exp(-penalty / 400) / max(N * control_count(penalty) / M, .01)``.
+``N`` is the number of unique reference junction representatives, ``M`` the
+number of unique full control junctions, and ``control_count(penalty)`` counts
+nonexact controls under that identical weighted predicate. The same legacy
+expected-count floor is retained; this is not a finite-sample P-value.
+The score is this matched-kernel sum, rather than original density plus an
+extension. ``historical_density`` remains the unchanged original comparator;
+``gapped_density`` reports the whole matched sum in this mode. The estimator is
+``matched-positional-kernel-apex6-v1``. Original germline-prior fusion, if requested,
+remains explicit. Neither this mode nor an additive extension assigns a new
+confidence or changes the original component significance gate.
+
+
 Native TCRdist3-compatible distances
 ------------------------------------
 

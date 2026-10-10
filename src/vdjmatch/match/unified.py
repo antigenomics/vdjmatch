@@ -139,18 +139,22 @@ def require_historical_pssm_kernel():
         raise RuntimeError('historical-pssm geometry requires positional seqtree gapblock support; rebuild/install the reviewed native source')
 
 
-def historical_pssm_extension(queries, reference, control, *, species='human', threads=1):
+def historical_pssm_extension(queries, reference, control, *, species='human', threads=1, matched_background=False):
     """Opt-in original-position PSSM kernel on edges outside its substitution ball.
 
     Use full junctions and the native symmetric longer-sequence frame. Pin the
     gap after six matched prefix residues (Cys at index0), clamped to the
     shorter junction length. Equal-length pairs have no gap. Controls
-    count the identical weighted kernel at each accepted penalty. Original density
+    count the identical weighted kernel at each accepted penalty. With
+    matched_background=True, include original edges under that same predicate/CDF
+    instead of adding this component to the original density. Original density
     and its P-value remain separate; this component has no assigned P-value.
     """
     from .regions import significance_weights
     from .vgene import vsim
     require_historical_pssm_kernel()
+    if not isinstance(matched_background,bool):
+        raise ValueError('matched_background must be boolean')
     if isinstance(threads,bool) or not isinstance(threads,int) or threads<1:
         raise ValueError('threads must be positive')
     if queries['query_id'].null_count() or queries['query_id'].n_unique()!=queries.height:
@@ -205,19 +209,20 @@ def historical_pssm_extension(queries, reference, control, *, species='human', t
             priors={gene:np.asarray([1.0 if gene==r else .25*vsim(gene,r) for r in genes])[codes]
                     for gene in set(qgenes)}
             penalties=np.asarray(gapblock.score_matrix(seqs,rs,**options))
-            new=penalties<=cutoff
-            qlen=np.asarray(list(map(len,seqs)))
-            for length in np.unique(qlen):
-                qi,ri=np.flatnonzero(qlen==length),np.flatnonzero(rlen==length)
-                if not len(ri) or not new[np.ix_(qi,ri)].any():
-                    continue
-                qc=np.frombuffer(''.join(seqs[i] for i in qi).encode('ascii'),dtype=np.uint8).reshape(len(qi),int(length))
-                rc=np.frombuffer(''.join(rs[i] for i in ri).encode('ascii'),dtype=np.uint8).reshape(len(ri),int(length))
-                mismatches=np.zeros((len(qi),len(ri)),dtype=np.uint16)
-                for pos in range(int(length)):
-                    mismatches+=qc[:,None,pos]!=rc[None,:,pos]
-                # This also excludes every exact full-junction reference.
-                new[np.ix_(qi,ri)] &= mismatches>5
+            new=(penalties<=cutoff) & (np.asarray(seqs)[:,None]!=np.asarray(rs)[None,:])
+            if not matched_background:
+                qlen=np.asarray(list(map(len,seqs)))
+                for length in np.unique(qlen):
+                    qi,ri=np.flatnonzero(qlen==length),np.flatnonzero(rlen==length)
+                    if not len(ri) or not new[np.ix_(qi,ri)].any():
+                        continue
+                    qc=np.frombuffer(''.join(seqs[i] for i in qi).encode('ascii'),dtype=np.uint8).reshape(len(qi),int(length))
+                    rc=np.frombuffer(''.join(rs[i] for i in ri).encode('ascii'),dtype=np.uint8).reshape(len(ri),int(length))
+                    mismatches=np.zeros((len(qi),len(ri)),dtype=np.uint16)
+                    for pos in range(int(length)):
+                        mismatches+=qc[:,None,pos]!=rc[None,:,pos]
+                    # This also excludes every exact full-junction reference.
+                    new[np.ix_(qi,ri)] &= mismatches>5
             for i,gene in enumerate(qgenes):
                 new[i] &= priors[gene]>0
             active=np.flatnonzero(new.any(axis=1))

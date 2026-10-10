@@ -18,9 +18,9 @@ def register(subparsers):
     p.add_argument('--cohort-column',help='paired mode: isolate rank fusion by this explicit raw metadata column and emit original single-chain scores')
     p.add_argument('--alpha-control',help='raw alpha junction control for original paired density')
     p.add_argument('--germline-background',help='raw prior table; include original sparse-reference unpaired score')
-    p.add_argument('--gapped-extension',action='store_true',help='experimental density extension outside the original substitution ball; no combined P-value')
-    p.add_argument('--gap-geometry',choices=['tcrdist','historical-pssm'],default='tcrdist',
-                   help='opt-in extension geometry; historical-pssm uses fixed native positional kernel options')
+    p.add_argument('--gapped-extension',action='store_true',help='experimental gapped density mode; matched-pssm rescores all accepted edges; no combined P-value')
+    p.add_argument('--gap-geometry',choices=['tcrdist','historical-pssm','matched-pssm'],default='tcrdist',
+                   help='tcrdist/historical-pssm add extension edges; matched-pssm uses one positional kernel and control CDF for all edges')
     p.add_argument('--gap-radius',type=int,default=90,help='TCRdist extension radius only')
     p.add_argument('--gap-temperature',type=float,default=12,help='TCRdist extension temperature only')
     p.add_argument('--threads',type=int,default=1)
@@ -254,7 +254,7 @@ def main(a):
     from ..match.historical import density,germline_prior,unpaired_score
     start=time.perf_counter()
     if a.threads<1:raise ValueError('threads must be positive')
-    if a.gap_geometry=='historical-pssm':
+    if a.gap_geometry in ('historical-pssm','matched-pssm'):
         if not a.gapped_extension:
             raise ValueError('--gap-geometry requires --gapped-extension')
         if a.gap_radius!=90 or a.gap_temperature!=12:
@@ -293,15 +293,18 @@ def main(a):
             if not pool_reference:
                 raise ValueError('--gapped-extension requires pooled or sample-declared targets')
             from ..match.unified import gapped_extension,historical_pssm_extension
-            if a.gap_geometry=='historical-pssm':
-                extension=historical_pssm_extension(queries,reference,ctrl,species=organism,threads=a.threads)
+            if a.gap_geometry in ('historical-pssm','matched-pssm'):
+                extension=historical_pssm_extension(queries,reference,ctrl,species=organism,threads=a.threads,
+                    matched_background=a.gap_geometry=='matched-pssm')
             else:
                 extension=gapped_extension(queries,reference,ctrl,species=organism,threads=a.threads,
                                             radius=a.gap_radius,temperature=a.gap_temperature)
             scores=scores.rename({'score':'historical_density'}).join(extension,on='query_id',
                                     how='left',validate='1:1',maintain_order='left').with_columns(
-                (pl.col('historical_density')+pl.col('gapped_density')).alias('score'),
-                pl.lit('pssm-plus-historical-pssm-apex6-extension-v2' if a.gap_geometry=='historical-pssm'
+                (pl.col('gapped_density') if a.gap_geometry=='matched-pssm' else
+                 pl.col('historical_density')+pl.col('gapped_density')).alias('score'),
+                pl.lit('matched-positional-kernel-apex6-v1' if a.gap_geometry=='matched-pssm' else
+                       'pssm-plus-historical-pssm-apex6-extension-v2' if a.gap_geometry=='historical-pssm'
                        else 'pssm-plus-gapped-extension-v1').alias('estimator'))
         return scores
     prior_background=None
@@ -385,7 +388,7 @@ def main(a):
                                   gapped_edges_same_v=pl.UInt64,gapped_edges_cross_v=pl.UInt64,
                                   gapped_floor_density=pl.Float64,gapped_best_total_distance=pl.Int32,
                                   gapped_best_cdr3_distance=pl.Int32,gapped_best_vloop_distance=pl.Int32)
-            if a.gap_geometry=='historical-pssm':
+            if a.gap_geometry in ('historical-pssm','matched-pssm'):
                 score_columns.update(gapped_best_kernel_penalty=pl.Int32,gapped_best_reference_junction=pl.String,
                     gapped_best_query_v=pl.String,
                     gapped_best_reference_v=pl.String,gapped_best_contribution=pl.Float64,
@@ -427,7 +430,7 @@ def main(a):
         from ..match.unified import gapped_extension,historical_pssm_extension
         common={'geometry':a.gap_geometry,'native_sha256':sha256(Path(_core.__file__)),
                 'significance':'p_enrichment remains the original component test; no combined P-value'}
-        if a.gap_geometry=='historical-pssm':
+        if a.gap_geometry in ('historical-pssm','matched-pssm'):
             from seqtree import SubstitutionMatrix
             from ..match.regions import significance_weights
             from ..match.vgene import vsim
@@ -446,9 +449,12 @@ def main(a):
                 'gap_charge':'2800 + (d - 1) * 1400 for d = abs(query length - reference length) > 0; zero at d = 0',
                 'cutoff':5*scale*100,'kernel_scale':400,
                 'control_geometry':'same full-junction weighted single-gap kernel; unique full controls; full identity excluded',
-                'formula':'original density plus new positional kernel edges only; V weight1 same allele-stripped gene/.25*vsim otherwise; original .01 denominator floor',
+                'score_composition':'matched_kernel_only' if a.gap_geometry=='matched-pssm' else 'original_plus_extension',
+                'formula':('sum of all accepted positional kernel edges with the same weighted control CDF; ' if a.gap_geometry=='matched-pssm' else 'original density plus new positional kernel edges only; ') +
+                          'V weight1 same allele-stripped gene/.25*vsim otherwise; original .01 expected-count denominator floor',
                 'v_contract':'original raw V gene_family/vsim handling, including unresolved historical aliases; no alias-aware refinement',
-                'retrieval':'all nonzero-V-weight reference representatives within cutoff, excluding original same-length<=5-substitution edges; no hit cap',
+                'retrieval':'all nonexact nonzero-V-weight reference representatives within cutoff; ' +
+                    ('original edges rescored with matched CDF; no hit cap' if a.gap_geometry=='matched-pssm' else 'excluding original same-length<=5-substitution edges; no hit cap'),
                 'diagnostics':'highest weighted-contribution reference junction/V, penalty/count/contribution/gap length; block position and alignment unavailable from scalar native output'}
         else:
             from ..match.tcrdist import distance_matrix, load_v_loops
