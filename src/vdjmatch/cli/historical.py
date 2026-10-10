@@ -32,7 +32,9 @@ def main(a):
     q=q.filter(pl.col('locus')==a.locus)
     r=db.load(a.vdjdb,species=a.species,gene=a.locus,epitope=a.epitope,mhc_a=[a.mhc_a])
     r=r.filter(pl.col('reference_valid'))
-    if not r.height:raise ValueError('reference selection is empty')
+    missing=sorted(set(a.epitope)-set(r['epitope'].to_list()))
+    if missing:
+        raise ValueError('requested epitopes absent under the selected reference restriction: '+', '.join(missing))
     ctrl,provenance=raw_background(a.locus,a.species,a.control)
     out=density(q,r,ctrl,threads=a.threads)
     prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)

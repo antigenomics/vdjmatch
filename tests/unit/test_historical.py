@@ -23,3 +23,18 @@ def test_historical_density_formula_and_duplicate_queries():
     assert all(math.isclose(x,expected) for x in got['score'])
     assert got['n_reference'].to_list()==[1,1]
     assert all(math.isclose(x,1-math.exp(-.5),rel_tol=1e-14) for x in got['p_enrichment'])
+
+
+def test_cli_rejects_missing_target_before_control_loading(tmp_path, capsys):
+    import pytest
+    from vdjmatch.cli.__main__ import main
+    q=tmp_path/'q.tsv';r=tmp_path/'r.tsv'
+    pl.DataFrame({'junction_aa':['CASSLGQAYEQYF'],'locus':['TRB']}).write_csv(q,separator='\t')
+    pl.DataFrame({'cdr3':['CASSLGRAYEQYF'],'gene':['TRB'],'species':['HomoSapiens'],
+                  'epitope':['E'],'mhc_a':['HLA-A*02:01']}).write_csv(r,separator='\t')
+    with pytest.raises(SystemExit) as error:
+        main(['historical-density',str(q),'--vdjdb',str(r),'--locus','TRB',
+              '--epitope','E','--epitope','missing','--mhc-a','HLA-A*02:01',
+              '--control',str(tmp_path/'nonexistent'),'--output-prefix',str(tmp_path/'out')])
+    assert error.value.code==2
+    assert 'absent under the selected reference restriction: missing' in capsys.readouterr().err
