@@ -142,7 +142,9 @@ def require_historical_pssm_kernel():
 def historical_pssm_extension(queries, reference, control, *, species='human', threads=1):
     """Opt-in original-position PSSM kernel on edges outside its substitution ball.
 
-    Use full junctions and the native symmetric longer-sequence frame. Controls
+    Use full junctions and the native symmetric longer-sequence frame. Pin the
+    gap after six matched prefix residues (Cys at index0), clamped to the
+    shorter junction length. Equal-length pairs have no gap. Controls
     count the identical weighted kernel at each accepted penalty. Original density
     and its P-value remain separate; this component has no assigned P-value.
     """
@@ -188,7 +190,7 @@ def historical_pssm_extension(queries, reference, control, *, species='human', t
         lengths={len(s) for s in [*usable['cdr3'].to_list(),*rs,*full_control]}
         weights={length:[max(1,round(100*w)) for w in significance_weights(length)] for length in lengths}
         options=dict(matrix=matrix,gap_open=2*matrix.scale()*100,gap_extend=matrix.scale()*100,
-            gap_prior=gapblock.positions_prior((3,4,-4,-3)),threads=threads,
+            gap_prior=gapblock.positions_prior((6,)),threads=threads,
             position_weights_by_length=weights)
         cutoff=5*matrix.scale()*100
         budget=32*1024**2

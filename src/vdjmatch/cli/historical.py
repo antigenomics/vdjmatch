@@ -301,7 +301,7 @@ def main(a):
             scores=scores.rename({'score':'historical_density'}).join(extension,on='query_id',
                                     how='left',validate='1:1',maintain_order='left').with_columns(
                 (pl.col('historical_density')+pl.col('gapped_density')).alias('score'),
-                pl.lit('pssm-plus-historical-pssm-extension-v1' if a.gap_geometry=='historical-pssm'
+                pl.lit('pssm-plus-historical-pssm-apex6-extension-v2' if a.gap_geometry=='historical-pssm'
                        else 'pssm-plus-gapped-extension-v1').alias('estimator'))
         return scores
     prior_background=None
@@ -441,7 +441,9 @@ def main(a):
                 'v_model_sha256':sha256(resource_root/'vgene/human_v_cdr12.tsv'),
                 'position_frame':'longer full junction','matrix':'BLOSUM62 Gram','weight_scale':100,
                 'weight_rounding':'max(1, round(100 * original significance_weights(length)))',
-                'gap_open':2*scale*100,'gap_extend':scale*100,'gap_positions':[3,4,-4,-3],
+                'gap_open':2*scale*100,'gap_extend':scale*100,'gap_positions':[6],
+                'gap_placement':'single Cys-relative block start min(6, shorter full junction length); equal-length prior ignored',
+                'gap_charge':'2800 + (d - 1) * 1400 for d = abs(query length - reference length) > 0; zero at d = 0',
                 'cutoff':5*scale*100,'kernel_scale':400,
                 'control_geometry':'same full-junction weighted single-gap kernel; unique full controls; full identity excluded',
                 'formula':'original density plus new positional kernel edges only; V weight1 same allele-stripped gene/.25*vsim otherwise; original .01 denominator floor',

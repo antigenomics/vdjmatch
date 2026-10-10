@@ -459,8 +459,14 @@ no calibrated P-value. This option does not change production annotation default
 ``--gapped-extension --gap-geometry historical-pssm`` instead extends the original
 full-junction positional BLOSUM Gram kernel. Integer positional weights use the
 longer junction as a symmetric frame; equal-length penalties reproduce the
-original kernel exactly. Gap charges are 2800/1400, allowed starts are
-3,4,-4,-3, the ball cutoff is7000, and the exponential kernel scale remains400.
+original kernel exactly. The sole gap start is Cys-relative column6: six
+matched prefix residues, with the conserved Cys at index0. On junctions shorter
+than six residues the native rule uses ``min(6, shorter length)``.
+Equal-length pairs have no gap and ignore the gap prior. For length difference
+``d > 0``, the gap charge is ``2800 + (d - 1) * 1400``; at ``d = 0`` it is zero.
+The ball cutoff
+is7000, and the exponential kernel scale remains400. The estimator is
+``pssm-plus-historical-pssm-apex6-extension-v2``.
 These fixed choices apply across the length range; there is no length switch or
 hit cap. This mode retains original raw V-gene weights, including their historical
 alias handling. Controls count the same weighted full-junction geometry, with

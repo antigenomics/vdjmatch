@@ -13,9 +13,11 @@ from vdjmatch.match.vgene import vsim
 def _penalty(q,r):
     base=SubstitutionMatrix.blosum62();scale=base.scale();d=abs(len(q)-len(r))
     weights=[max(1,round(100*x)) for x in significance_weights(max(len(q),len(r)))]
-    prior=gapblock.positions_prior((3,4,-4,-3));values=[]
+    values=[]
     for start in range(min(len(q),len(r))+1):
-        score=(2*scale*100+(d-1)*scale*100 if d else 0)+prior(start,d,max(len(q),len(r)))
+        if d and start!=min(6,min(len(q),len(r))):
+            continue
+        score=(2*scale*100+(d-1)*scale*100 if d else 0)
         for j in range(min(len(q),len(r))):
             qi=j+(d if len(q)>len(r) and j>=start else 0)
             ri=j+(d if len(r)>len(q) and j>=start else 0)
@@ -26,7 +28,7 @@ def _penalty(q,r):
 
 def test_original_edges_excluded_and_weighted_cdf_matches_brute_oracle(monkeypatch):
     from vdjmatch.match.unified import historical_pssm_extension
-    q='CASSLGQAYEQYF';old=q[:-2]+'AF';r=q[:4]+'A'+q[4:];cross=q[:3]+'G'+q[3:];six='ATTTIA'+q[6:]
+    q='CASSLGQAYEQYF';old=q[:-2]+'AF';r=q[:6]+'A'+q[6:];cross=q[:6]+'G'+q[6:];six='ATTTIA'+q[6:]
     queries=pl.DataFrame({'query_id':['q','duplicate','unknown'],'cdr3':[q,q,q],'v':['TRBV19','TRBV19*01','unknown']})
     refs=pl.DataFrame({'cdr3':[q,old,r,cross,r,six],'v':['TRBV19','TRBV19','TRBV19','TRBV5-1','TRBV5-1','TRBV19']})
     control=Index.build([q,r,r,old]);calls=[];original=gapblock.count_batch
@@ -67,7 +69,7 @@ def test_no_length_switch_unchanged_original_and_invalid_id_retention():
     from vdjmatch.match.unified import historical_pssm_extension
     from vdjmatch.match.historical import density
     q='CASSLGQAYEQYF';old=q[:-2]+'AF';long='CASSLGQAYEQYFQAYEQYFF'
-    refs=pl.DataFrame({'cdr3':[old,q[:4]+'A'+q[4:],long[:4]+'A'+long[4:]],'v':['TRBV19']*3,
+    refs=pl.DataFrame({'cdr3':[old,q[:6]+'A'+q[6:],long[:6]+'A'+long[6:]],'v':['TRBV19']*3,
         'epitope':['E']*3,'mhc_a':['HLA-A*02:01']*3,'mhc_b':['B2M']*3,'mhc_class':['MHCI']*3,'species':['HomoSapiens']*3,'gene':['TRB']*3})
     queries=pl.DataFrame({'query_id':['short','long'],'cdr3':[q,long],'v':['TRBV19']*2})
     control=Index.build([q,old,long]);before=density(queries,refs,control,threads=1,pool_reference=True)
@@ -85,7 +87,7 @@ def test_no_length_switch_unchanged_original_and_invalid_id_retention():
 
 def test_cli_geometry_keeps_original_density_and_records_explicit_contract(tmp_path):
     from vdjmatch.cli.__main__ import main
-    q='CASSLGQAYEQYF';old=q[:-2]+'AF';r=q[:4]+'A'+q[4:]
+    q='CASSLGQAYEQYF';old=q[:-2]+'AF';r=q[:6]+'A'+q[6:]
     sample,reference,control,prefix=[tmp_path/n for n in ('q.tsv','r.tsv','c.tsv','out')]
     pl.DataFrame({'query_id':['q'],'junction_aa':[q],'locus':['TRB'],'v_call':['TRBV19'],'j_call':['TRBJ1-1']}).write_csv(sample,separator='\t')
     pl.DataFrame({'cdr3':[old,r],'gene':['TRB']*2,'species':['HomoSapiens']*2,'epitope':['E']*2,'mhc_a':['HLA-A*02:01']*2,'v':['TRBV19']*2}).write_csv(reference,separator='\t')
@@ -101,6 +103,10 @@ def test_cli_geometry_keeps_original_density_and_records_explicit_contract(tmp_p
     info=json.loads(Path(str(prefix)+'.manifest.json').read_text())['gapped_extension']
     assert info['geometry']=='historical-pssm'
     assert info['gap_open']==2800 and info['gap_extend']==1400 and info['cutoff']==7000
+    assert info['gap_positions']==[6]
+    assert info['gap_placement']=='single Cys-relative block start min(6, shorter full junction length); equal-length prior ignored'
+    assert info['gap_charge']=='2800 + (d - 1) * 1400 for d = abs(query length - reference length) > 0; zero at d = 0'
+    assert scores['estimator'][0]=='pssm-plus-historical-pssm-apex6-extension-v2'
     assert info['kernel_scale']==400 and info['position_frame']=='longer full junction'
     assert len(info['native_sha256'])==64
     assert info['significance']=='p_enrichment remains the original component test; no combined P-value'
@@ -135,7 +141,7 @@ def test_stale_native_binding_is_rejected(monkeypatch):
 
 def test_original_raw_v_alias_weight_is_preserved():
     from vdjmatch.match.unified import historical_pssm_extension
-    q='CASSLGQAYEQYF';r=q[:4]+'A'+q[4:]
+    q='CASSLGQAYEQYF';r=q[:6]+'A'+q[6:]
     query=pl.DataFrame({'query_id':['alias'],'cdr3':[q],'v':['TRAV14']})
     ref=pl.DataFrame({'cdr3':[r],'v':['TRAV14/DV4']})
     assert vsim('TRAV14','TRAV14/DV4')==0
