@@ -359,9 +359,11 @@ P-value. Ball output can be large and does not include fixed-mode CIGAR strings.
 
 Paired receptors currently use fixed mode with an explicit edit scope. Graded
 paired balls require a separately validated joint calibration before use.
-Sequence-only controls cannot calibrate V/J predicates: ball mode rejects
-``--match-v`` and ``--match-j``. Fixed mode accepts those predicates with
-``--no-evalue``. Repertoire-level statistical inference remains future work.
+Both fixed and graded single-chain modes accept ``--match-v`` and ``--match-j``
+with ``--no-evalue``. Gene matching strips allele suffixes and preserves IMGT
+slash-containing gene names. Reference sizes follow the same gene predicates.
+Sequence-only controls cannot calibrate these restrictions; calibrated requests
+fail explicitly. Repertoire-level statistical inference remains future work.
 
 The experimental fixed-K annotation mode and ``--top-k`` option have been
 removed from the CLI and sample runner. The lower-level
