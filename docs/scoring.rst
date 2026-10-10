@@ -54,6 +54,20 @@ to the preceding ball formula. Also :math:`W_B=D^{-1}\int_0^D m(t)\,dt`, where
 :math:`m(t)` is the cumulative background count: the taper averages nested
 balls rather than choosing their best radius.
 
+For nonzero reference support :math:`n`, the exact change from the ball score is
+
+.. math::
+
+   \frac{S_X}{E_J}
+   =\frac{W_X/n}{(W_B+1/2)/(m+1/2)}.
+
+The numerator is the mean reference weight inside the ball. The denominator
+is the regularized mean control weight inside the ball. Thus a broad ball
+loses score when its reference matches lie farther away than its controls;
+near reference evidence gains relative weight. This identity separates the
+distance effect from population-size normalization. When :math:`n=0`, both
+scores are zero and their ratio is undefined; report zero support directly.
+
 Native linear mass sums integer :math:`\max(0,200D-d_{\rm native})` in the
 existing batched count traversal. Division by :math:`200D` precedes the
 half-unit regularizer; raw ball counts are exported alongside the weights.

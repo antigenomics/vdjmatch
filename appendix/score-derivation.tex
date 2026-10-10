@@ -98,6 +98,15 @@ A boundary match counts towards support but has zero weight.
 Zero reference weight gives zero score; empty populations remain unavailable.
 With increasing $M$, the denominator approaches the empirical kernel mean.
 Report counts $n,m$, sizes $N,M$, weights $W_X,W_B$, and $N\widetilde\mu_B$.
+For $n>0$, the distance effect is exactly
+\[
+\frac{S_X}{E_J}=\frac{W_X/n}{(W_B+1/2)/(m+1/2)},
+\qquad E_J=\frac{n}{N(m+1/2)/(M+1)}.
+\]
+The numerator is the mean reference weight inside the ball; the denominator
+is the regularised mean control weight there. Farther reference evidence is
+therefore discounted relative to nearer controls. Population sizes cancel.
+For $n=0$, both scores are zero; this ratio is undefined.
 Native integer mass $L=\sum\max(0,200D-d_{\rm native})$ is divided by $200D$;
 the half-unit regulariser is added only after this conversion.
 For linked pairs, $d=d_\alpha+d_\beta$ to the same reference pair;
