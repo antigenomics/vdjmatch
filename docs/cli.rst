@@ -748,3 +748,21 @@ multiplicity and observed junction/V population units remain unchanged.
 This option changes background enrichment/local-rank geometry only. The nearest
 distance output retains its TCRdist3 comparator geometry. It provides an
 experimental ranking contrast, with no default annotation or confidence change.
+
+Fixed V-loop information contrast
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``tcrdist-neighbours --v-loop-weight 0`` is an experimental CDR3-only
+contrast against the default ``--v-loop-weight 1``. Both retain identical
+query/reference/control V-call eligibility, full identity keys and optional
+exact puncturing. Only CDR1/CDR2/CDR2.5 distance offsets are removed;
+CDR3 substitution, gap, trim and positional geometry remain the same.
+The option applies to nearest distances and background count/mass/rank
+batches, including linked alpha/beta pairs against the same reference pair.
+No arbitrary fitted weight or task-specific blend is exposed.
+
+This contrast isolates V-loop information within the eligible population;
+it does not establish a recall-preserving CDR3 shortlist, recover queries
+with missing V calls, or transfer calibrated recommendations between
+geometries. The manifest records the experimental geometry and weight.
+Native rival manuscript parameters remain unchanged.

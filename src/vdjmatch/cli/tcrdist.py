@@ -16,6 +16,8 @@ def register(subparsers):
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--junction-ends',choices=['tcrdist','trim3'],default='tcrdist',
                    help='TCRdist3 trims 3 N/2 C residues; trim3 tests 3 residues at both ends')
+    p.add_argument('--v-loop-weight',type=int,choices=[0,1],default=1,
+                   help='fixed experimental CDR3-only(0) versus CDR3+V(1); identical V eligibility')
     p.add_argument('--background',choices=['real','generative','vdjdb-other'],
                    help='experimental assayed-target ball enrichment; no P-value')
     p.add_argument('--control',help='raw junction/V control table for real or generative background')
@@ -185,7 +187,7 @@ def main(a):
         local=a.neighbour_weighting=='local-rank'
         query_keys=['cdr3a','cdr3b','_allelea','_alleleb'] if paired else ['cdr3','_allele']
         options=dict(species=organism,threads=a.threads,ctrim=ctrim,
-                     position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear)
+                     position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear,v_loop_weight=a.v_loop_weight)
         def boundaries(sequences,genes):
             return [boundary_map[(s,v)] for s,v in zip(sequences,genes)]
         def counts(part,population):
@@ -202,7 +204,7 @@ def main(a):
                     part['_allelea'].to_list(),part['_alleleb'].to_list(),
                     population['_allele_alpha'].to_list(),population['_allele_beta'].to_list(),
                     thresholds,species=organism,threads=a.threads,
-                    ctrim=ctrim,exclude_exact=a.exclude_exact,position_weighting=a.position_weighting,
+                    ctrim=ctrim,exclude_exact=a.exclude_exact,position_weighting=a.position_weighting,v_loop_weight=a.v_loop_weight,
                     **({
                         'query_boundaries_alpha':boundaries(part['cdr3a'],part['_allelea']),
                         'query_boundaries_beta':boundaries(part['cdr3b'],part['_alleleb']),
@@ -355,10 +357,10 @@ def main(a):
                 qa,qb=part['cdr3a'].to_list(),part['cdr3b'].to_list()
                 ra,rb=reference_part['alpha'].to_list(),reference_part['beta'].to_list()
                 distances=paired_distance_matrix(qa,qb,ra,rb,part['_allelea'].to_list(),part['_alleleb'].to_list(),
-                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads,ctrim=ctrim)
+                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight)
             else:
                 seqs=part['cdr3'].to_list()
-                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim)
+                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight)
             keep=distances<=a.radius
             nonexact=True
             if a.exclude_exact:
@@ -450,10 +452,12 @@ def main(a):
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
         'selection':('exhaustive nearest nonexcluded reference; n_neighbours counts only within radius'
                      if a.unbounded_nearest else 'radius ball'),
-        'distance':('TCRdist3 default' if ctrim==2 else 'experimental symmetric-trim')+
-                   ' 3*CDR3+CDR1+CDR2+CDR2.5; '+organism+' combo_xcr_2024-03-05',
+        'distance':(('TCRdist3 default' if ctrim==2 else 'experimental symmetric-trim')+
+                    ' 3*CDR3+CDR1+CDR2+CDR2.5; ' if a.v_loop_weight else
+                    'experimental CDR3-only:3*CDR3; ')+organism+' combo_xcr_2024-03-05',
         'junction_end_trim':{'n_terminal':3,'c_terminal':ctrim},
         **({'background_enrichment':{'background':background_provenance,'stage_wall_seconds':background_costs,
+            'v_loop_weight':a.v_loop_weight,
             'geometry':'fixed0.1VJ/1NDN' if a.position_weighting=='ndn' else 'full-profile decay' if a.position_weighting=='significance' else f'trim3/{ctrim}',
             **({'boundaries':boundary_provenance} if boundary_provenance else {}),
             'formula':'reference_weight/[reference_population*(control_weight+0.5)/(control_population+1)]',

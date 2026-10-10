@@ -136,7 +136,7 @@ def _v_loop_groups(genes, model, d):
     return loop_dist, indices
 
 
-def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2):
+def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2, v_loop_weight=1):
     """TCRdist3 default distances in a bounded native batch, maximum64MiB output.
 
     Exact alleles are used; a missing allele suffix explicitly means *01, as in the
@@ -146,9 +146,12 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     TCRdist3 unknown-symbol cost zero (also for stars). Human templates are28 aligned
     positions; mouse TRA templates are29. Callers handle missing calls explicitly.
     ``return_cdr3=True`` returns total and weighted CDR3 matrices separately.
+    ``v_loop_weight=0`` is the fixed CDR3-only ablation; eligibility stays identical.
     ``ctrim=3`` tests removal of three residues at both junction ends; the default
     remains the TCRdist3 three/two trim. Full junction identity is handled by callers.
     """
+    if type(v_loop_weight) is not int or v_loop_weight not in (0,1):
+        raise ValueError("v_loop_weight must be integer0 or1")
     queries, references, model, genes = _distance_inputs(
         queries, references, query_v, reference_v, species, threads, ctrim, dense=True)
     if not queries or not references:
@@ -162,14 +165,14 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     cdr3*=3
     out=cdr3.copy() if return_cdr3 else cdr3
     loop_dist, indices = _v_loop_groups(genes, model, d)
-    out+=loop_dist[indices[:len(queries),None],indices[None,len(queries):]]
+    out+=v_loop_weight*loop_dist[indices[:len(queries),None],indices[None,len(queries):]]
     return (out,cdr3) if return_cdr3 else out
 
 
 def total_distance_count_batch(queries, references, query_v, reference_v, thresholds, *,
                                species='human', threads=1, ctrim=2,
                                position_weighting='uniform', exclude_exact=False, linear_mass=False,
-                               query_boundaries=None, reference_boundaries=None):
+                               query_boundaries=None, reference_boundaries=None, v_loop_weight=1):
     """Count full-junction/V-loop balls without a dense query/reference matrix.
 
     ``thresholds`` contains one integer list per query, in native units200 times
@@ -191,6 +194,8 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
     use the larger query/reference weight. Length-only profiles do not supply boundaries.
     Unknown/ambiguous/mixed-locus inputs fail as in distance_matrix. This supplies
     geometry, not a background population, calibrated P-value or paired count.
+    ``v_loop_weight=0`` removes only V-loop cost, retaining identical V eligibility,
+    reference/control identity units, CDR3 geometry and exact puncturing. No fitted weight.
 
     With ``linear_mass=True``, return ``(counts, masses)`` in one native traversal;
     mass is the integer sum ``max(0, threshold-distance)``. Divide by a positive
@@ -204,18 +209,20 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
     if linear_mass and 'linear_mass' not in inspect.signature(gapblock.count_batch).parameters:
         raise RuntimeError('linear mass requires seqtree gapblock linear_mass support')
     queries,references,options=_total_distance_options(queries,references,query_v,reference_v,
-        species,threads,ctrim,position_weighting,query_boundaries,reference_boundaries)
+        species,threads,ctrim,position_weighting,query_boundaries,reference_boundaries,v_loop_weight)
     return gapblock.count_batch(queries,references,thresholds,**options,
         exclude_exact=exclude_exact,**({'linear_mass':True} if linear_mass else {}))
 
 
 def _total_distance_options(queries,references,query_v,reference_v,species,threads,ctrim,position_weighting,
-                            query_boundaries=None,reference_boundaries=None):
+                            query_boundaries=None,reference_boundaries=None,v_loop_weight=1):
     """Shared full-coordinate geometry for marginal and linked-pair reductions."""
     if position_weighting not in ('uniform','significance','ndn'):
         raise ValueError('position_weighting must be uniform, significance or ndn')
     if position_weighting!='uniform' and ctrim!=2:
         raise ValueError('full positional geometry requires ctrim default2')
+    if type(v_loop_weight) is not int or v_loop_weight not in (0,1):
+        raise ValueError("v_loop_weight must be integer0 or1")
     queries, references, model, genes = _distance_inputs(
         queries, references, query_v, reference_v, species, threads, ctrim)
     costs=_substitution_costs()
@@ -255,7 +262,7 @@ def _total_distance_options(queries,references,query_v,reference_v,species,threa
         position_weights_by_length=weights,
         query_group_ids=indices[:len(queries)].tolist(),
         reference_group_ids=indices[len(queries):].tolist(),
-        group_distances=(200*loop_dist).tolist(),threads=threads)
+        group_distances=(200*v_loop_weight*loop_dist).tolist(),threads=threads)
     if position_weighting=='ndn':options.update(sequence_weights)
     return queries,references,options
 
@@ -264,7 +271,7 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
         query_v_alpha,query_v_beta,reference_v_alpha,reference_v_beta,thresholds,*,
         species='human',threads=1,ctrim=2,exclude_exact=False,position_weighting='uniform',
         query_boundaries_alpha=None,query_boundaries_beta=None,
-        reference_boundaries_alpha=None,reference_boundaries_beta=None):
+        reference_boundaries_alpha=None,reference_boundaries_beta=None,v_loop_weight=1):
     """Counts and triangular integer mass for linked alpha+beta total distances.
 
     Thresholds and masses use native units200 times ordinary TCRdist distance.
@@ -287,7 +294,7 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
         rv=resolve_v_alleles(rv,model,locus=locus).to_list()
         if any(v is None for v in qv+rv):
             raise ValueError('linked pair V calls must resolve to their alpha/beta locus')
-        q,r,kw=_total_distance_options(q,r,qv,rv,species,threads,ctrim,position_weighting,*boundaries[suffix])
+        q,r,kw=_total_distance_options(q,r,qv,rv,species,threads,ctrim,position_weighting,*boundaries[suffix],v_loop_weight)
         axes.append((q,r))
         options.update({key+'_'+suffix:kw.pop(key) for key in keys})
         shared=kw
@@ -299,7 +306,7 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
 
 def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_beta,
                            query_v_alpha, query_v_beta, reference_v_alpha, reference_v_beta,
-                           *, species='human', threads=1, ctrim=2):
+                           *, species='human', threads=1, ctrim=2, v_loop_weight=1):
     """Sum alpha/beta distances against the same ordered reference pairs.
 
     Each position identifies one linked receptor pair; independent marginal nearest
@@ -315,6 +322,6 @@ def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_b
     qvb,rvb=(resolve_v_alleles(v,model,locus='TRB').to_list() for v in [qvb,rvb])
     if any(v is None for v in qva+rva+qvb+rvb):
         raise ValueError('linked pair V calls must resolve uniquely to their declared alpha/beta locus')
-    out=distance_matrix(qa,ra,qva,rva,species=species,threads=threads,ctrim=ctrim)
-    out+=distance_matrix(qb,rb,qvb,rvb,species=species,threads=threads,ctrim=ctrim)
+    out=distance_matrix(qa,ra,qva,rva,species=species,threads=threads,ctrim=ctrim,v_loop_weight=v_loop_weight)
+    out+=distance_matrix(qb,rb,qvb,rvb,species=species,threads=threads,ctrim=ctrim,v_loop_weight=v_loop_weight)
     return out
