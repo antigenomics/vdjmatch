@@ -727,3 +727,24 @@ assumption, but transport to a new population remains unvalidated. It is distinc
 from the Poisson neighbour-count E-value and is not a confidence bound.
 Neither this command nor ``calibrate-calls`` supplies a biological posterior or
 filters principal accuracy/ranking evaluations with a recommended cutoff.
+
+Fixed V/J versus NDN geometry
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The experimental ``tcrdist-neighbours --position-weighting ndn`` arm requires
+``vdjmatch[ndn]`` and a seqtree native build with per-input positional weights.
+Use it with ``--background`` and default ``--junction-ends tcrdist``. It weights
+verified ARDA V/J junction flanks by0.1 and NDN by1, retaining the clipped
+BLOSUM62 substitution matrix, V-loop contribution and positive length-gap costs.
+Aligned substitutions use the larger of the query and reference position weights.
+
+Annotation uses one shared query/reference/control catalog. Conflicting or
+ambiguous J calls, missing calls, changed junctions or unusable boundaries retain
+uniform full weight. No benchmark sequence is repaired. The CLI emits
+``.boundaries.tsv`` with every eligible junction/V key and its disposition; the
+manifest records geometry, counts and source identities. Generated draw
+multiplicity and observed junction/V population units remain unchanged.
+
+This option changes background enrichment/local-rank geometry only. The nearest
+distance output retains its TCRdist3 comparator geometry. It provides an
+experimental ranking contrast, with no default annotation or confidence change.

@@ -81,7 +81,12 @@ def test_background_options_reject_undefined_joint_and_ignored_controls():
 
 
 @pytest.mark.parametrize('weighting',['linear','local-rank'])
-def test_linear_paired_score_keeps_linkage_and_punctures_both_populations(tmp_path,weighting):
+@pytest.mark.parametrize('geometry',['uniform','ndn'])
+def test_linear_paired_score_keeps_linkage_and_punctures_both_populations(tmp_path,weighting,geometry):
+    if geometry=='ndn':
+        pytest.importorskip('arda.cdr3fix')
+        from seqtree import gapblock
+        if 'query_position_weights' not in gapblock._gapblock_count_batch.__doc__:pytest.skip('native per-input geometry unavailable')
     a='CASSLGQAYEQYF';b='CASSLGRAYEQYF'
     sample=tmp_path/'q.tsv';reference=tmp_path/'r.tsv';prefix=tmp_path/'out'
     pl.DataFrame({'query_id':['a','b'],'clone_id':['001']*2,'junction_aa':[a,a],
@@ -92,7 +97,7 @@ def test_linear_paired_score_keeps_linkage_and_punctures_both_populations(tmp_pa
         'epitope':['E']*4+['other']*4,'mhc_a':['HLA-A*02']*8,'mhc_b':['B2M']*8,'mhc_class':['MHCI']*8}).write_csv(reference,separator='\t')
     args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus','paired',
         '--targets-from-sample','--background','vdjdb-other','--neighbour-weighting',weighting,
-        '--exclude-exact','--radius','18','--output-prefix',str(prefix)]
+        '--exclude-exact','--radius','18','--position-weighting',geometry,'--output-prefix',str(prefix)]
     assert main(args)==0
     row=pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t').row(0,named=True)
     # Query identities remove the exact pair, not the two marginal matches.

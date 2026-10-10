@@ -19,8 +19,8 @@ def register(subparsers):
     p.add_argument('--background',choices=['real','generative','vdjdb-other'],
                    help='experimental assayed-target ball enrichment; no P-value')
     p.add_argument('--control',help='raw junction/V control table for real or generative background')
-    p.add_argument('--position-weighting',choices=['uniform','significance'],default='uniform',
-                   help='enrichment geometry; significance uses the complete shipped flank/core decay profile')
+    p.add_argument('--position-weighting',choices=['uniform','significance','ndn'],default='uniform',
+                   help='enrichment geometry; ndn uses fixed0.1V/J flanks and1NDN with verified ARDA boundaries')
     p.add_argument('--neighbour-weighting',choices=['ball','linear','local-rank'],default='ball',
                    help='ball/linear enrichment or experimental background-local rank evidence')
     p.add_argument('--rank-signal-prior',type=float,default=.5,
@@ -115,8 +115,8 @@ def main(a):
         raise ValueError('--unbounded-nearest requires --targets-from-sample')
     if a.background and not a.targets_from_sample:
         raise ValueError('--background requires --targets-from-sample')
-    if a.locus=='paired' and a.background and (a.background!='vdjdb-other' or a.position_weighting!='uniform'):
-        raise ValueError('paired background requires vdjdb-other and uniform positional weights; generative/real joint controls are not defined')
+    if a.locus=='paired' and a.background and (a.background!='vdjdb-other' or a.position_weighting not in ('uniform','ndn')):
+        raise ValueError('paired background requires vdjdb-other and uniform or ndn positional weights; generative/real joint controls are not defined')
     if a.neighbour_weighting=='linear' and (not a.background or a.radius<=0):
         raise ValueError('linear neighbour weighting requires a background and positive radius')
     if a.neighbour_weighting=='local-rank' and (not a.background or not 0<a.rank_signal_prior<1):
@@ -124,7 +124,7 @@ def main(a):
     if bool(a.control) != (a.background in {'real','generative'}):
         raise ValueError('--control is required only for --background real or generative')
     if a.position_weighting!='uniform' and (not a.background or a.junction_ends!='tcrdist'):
-        raise ValueError('significance weighting requires --background and excludes an additional trim3')
+        raise ValueError('full positional weighting requires --background and excludes an additional trim3')
     raw=_read_table(a.sample)
     if 'query_id' not in raw.columns:raw=raw.with_row_index('query_id')
     if raw['query_id'].null_count() or raw['query_id'].n_unique()!=raw.height:
@@ -158,10 +158,10 @@ def main(a):
             r=r.with_columns(resolve_v_alleles(r['v_'+suffix],model,locus=locus).alias('_allele_'+suffix)).filter(
                     pl.col('_allele_'+suffix).is_in(allowed_chain) & (pl.col(suffix).str.len_chars()>=8))
         search_keys=['alpha','beta','_allele_alpha','_allele_beta']
-        r=r.unique(subset=[*search_keys,*PMHC],maintain_order=True)
+        r=r.unique(subset=[*search_keys,*PMHC,*(['j_alpha','j_beta'] if a.position_weighting=='ndn' else [])],maintain_order=True)
     else:
         q=prepare(q.filter(pl.col('locus')==a.locus))
-        r=prepare(r.filter(pl.col('reference_valid'))).unique(subset=['cdr3','_allele',*PMHC],maintain_order=True)
+        r=prepare(r.filter(pl.col('reference_valid'))).unique(subset=['cdr3','_allele',*PMHC,*(['j'] if a.position_weighting=='ndn' else [])],maintain_order=True)
         search_keys=['cdr3','_allele']
     if a.targets_from_sample:
         if a.epitope or a.mhc_a or a.mhc_b:
@@ -174,6 +174,8 @@ def main(a):
     enrichment_rows=[]
     background_provenance=None
     background_costs={'control_load':0.0,'native_count_batches':0.0}
+    boundary_provenance=None
+    boundary_map={}
     if a.background:
         background_start=time.perf_counter()
         groups=list(groups)  # assayed_targets is streamed; the new arm uses it twice
@@ -184,6 +186,8 @@ def main(a):
         query_keys=['cdr3a','cdr3b','_allelea','_alleleb'] if paired else ['cdr3','_allele']
         options=dict(species=organism,threads=a.threads,ctrim=ctrim,
                      position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear)
+        def boundaries(sequences,genes):
+            return [boundary_map[(s,v)] for s,v in zip(sequences,genes)]
         def counts(part,population):
             if not part.height:
                 return [],[],np.zeros((0,a.radius+1),dtype=np.uint64) if local else None
@@ -198,14 +202,23 @@ def main(a):
                     part['_allelea'].to_list(),part['_alleleb'].to_list(),
                     population['_allele_alpha'].to_list(),population['_allele_beta'].to_list(),
                     thresholds,species=organism,threads=a.threads,
-                    ctrim=ctrim,exclude_exact=a.exclude_exact)
+                    ctrim=ctrim,exclude_exact=a.exclude_exact,position_weighting=a.position_weighting,
+                    **({
+                        'query_boundaries_alpha':boundaries(part['cdr3a'],part['_allelea']),
+                        'query_boundaries_beta':boundaries(part['cdr3b'],part['_alleleb']),
+                        'reference_boundaries_alpha':boundaries(population['alpha'],population['_allele_alpha']),
+                        'reference_boundaries_beta':boundaries(population['beta'],population['_allele_beta'])
+                    } if a.position_weighting=='ndn' else {}))
                 curve=np.asarray(native[0],dtype=np.uint64) if local else None
                 result=[row[-1] for row in native[0]]
                 mass=[row[0]/(200*a.radius) for row in native[1]] if linear else result
             else:
                 native=total_distance_count_batch(part['cdr3'].to_list(),population['cdr3'].to_list(),
                     part['_allele'].to_list(),population['_allele'].to_list(),
-                    thresholds,**options)
+                    thresholds,**options,**({
+                        'query_boundaries':boundaries(part['cdr3'],part['_allele']),
+                        'reference_boundaries':boundaries(population['cdr3'],population['_allele'])
+                    } if a.position_weighting=='ndn' else {}))
                 curve=np.asarray(native,dtype=np.uint64) if local else None
                 result=[row[-1] for row in (native[0] if linear else native)]
                 mass=[row[0]/(200*a.radius) for row in native[1]] if linear else result
@@ -224,10 +237,42 @@ def main(a):
             multiplicity=dict(exact.group_by('cdr3').len().iter_rows())
             return [population.height-multiplicity.get(s,0) for s in part['cdr3']]
         shared=None
+        controls=None
         if a.background!='vdjdb-other':
             load_start=time.perf_counter()
-            controls,background_provenance=raw_gene_background(a.control,a.locus,organism,deduplicate=a.background!='generative')
+            controls,background_provenance=raw_gene_background(a.control,a.locus,organism,deduplicate=a.background!='generative',include_j=a.position_weighting=='ndn')
             background_costs['control_load']=time.perf_counter()-load_start
+        if a.position_weighting=='ndn':
+            from ..match.regions import annotate_ndn_boundaries
+            from arda.cdr3fix import markup_batch
+            from arda.paths import vdj_dir
+            anchor_path=vdj_dir(organism)/'cdr3_anchors.tsv'
+            if not anchor_path.is_file():raise ValueError('NDN geometry requires the ARDA anchor table')
+            annotation_start=time.perf_counter()
+            if paired:
+                frames=[q.select(pl.col('cdr3'+s).alias('cdr3'),pl.col('_allele'+s).alias('_allele'),pl.col('j'+s).alias('j')) for s in ('a','b')]
+                frames += [r.select(pl.col(s).alias('cdr3'),pl.col('_allele_'+s).alias('_allele'),pl.col('j_'+s).alias('j')) for s in ('alpha','beta')]
+            else:
+                frames=[q.select('cdr3','_allele','j'),r.select('cdr3','_allele','j')]
+                if controls is not None:frames.append(controls.select('cdr3','_allele','j'))
+            annotated=annotate_ndn_boundaries(pl.concat(frames,how='vertical_relaxed'),species=organism).unique(['cdr3','_allele'],maintain_order=True)
+            boundary_map={(s,v):(ve,js) if status=='annotated' else None for s,v,ve,js,status in
+                annotated.select('cdr3','_allele','v_end','j_start','boundary_status').iter_rows()}
+            boundary_path=Path(str(a.output_prefix)+'.boundaries.tsv');boundary_path.parent.mkdir(parents=True,exist_ok=True)
+            annotated.select('cdr3','_allele','v_end','j_start','boundary_status').write_csv(boundary_path,separator='\t')
+            boundary_provenance={'producer':'arda.cdr3fix.markup_batch','version':version('arda-mapper'),
+                'wrapper_source_sha256':sha256(Path(annotate_ndn_boundaries.__code__.co_filename)),
+                'producer_source_sha256':sha256(Path(markup_batch.__code__.co_filename)),
+                'anchor_table_sha256':sha256(anchor_path),
+                'coordinate':'0-based half-open unchanged full junction; v_end count, j_start first J residue',
+                'pair_substitution_weight':'max(aligned query weight, aligned reference weight)',
+                'weights':{'V_J':0.1,'NDN':1.0},'fallback':'uniform1 on missing/conflicting/ambiguous/changed/unusable annotation; no row removed',
+                'status_counts':dict(annotated.group_by('boundary_status').len().iter_rows()),
+                'final_table_sha256':sha256(boundary_path),'annotation_seconds':time.perf_counter()-annotation_start}
+            if controls is not None and a.background!='generative':
+                controls=controls.unique(['cdr3','_allele'],maintain_order=True)
+                background_provenance['population_size']=controls.height
+        if a.background!='vdjdb-other':
             # One native control batch, shared transiently across declared targets.
             parts=[part.select('cdr3','_allele') for _,part,_ in groups if part.height]
             usable=pl.concat(parts).unique(maintain_order=True) if parts else q.select('cdr3','_allele').head(0)
@@ -409,7 +454,8 @@ def main(a):
                    ' 3*CDR3+CDR1+CDR2+CDR2.5; '+organism+' combo_xcr_2024-03-05',
         'junction_end_trim':{'n_terminal':3,'c_terminal':ctrim},
         **({'background_enrichment':{'background':background_provenance,'stage_wall_seconds':background_costs,
-            'geometry':'full-profile decay' if a.position_weighting=='significance' else f'trim3/{ctrim}',
+            'geometry':'fixed0.1VJ/1NDN' if a.position_weighting=='ndn' else 'full-profile decay' if a.position_weighting=='significance' else f'trim3/{ctrim}',
+            **({'boundaries':boundary_provenance} if boundary_provenance else {}),
             'formula':'reference_weight/[reference_population*(control_weight+0.5)/(control_population+1)]',
             'kernel':'max(0,1-distance/radius)' if a.neighbour_weighting=='linear' else 'distance<=radius',
             'denominators':'reference distinct receptor/V-allele keys; controls use declared population units; both after optional full-junction exclusion',
