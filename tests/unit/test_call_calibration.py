@@ -75,8 +75,8 @@ def test_reference_calls_retains_truth_and_withholds_all_restrictions(tmp_path):
         calls = pl.read_csv(str(prefix)+'.calls.tsv', separator='\t')
         cases = pl.read_csv(str(prefix)+'.calibration-cases.tsv', separator='\t')
         assert cases['score'].to_list() == calls.select(
-            pl.when(pl.col('vdjmatch_status') == 'matched').then(pl.col('vdjmatch_E'))
-            .otherwise(None))['vdjmatch_E'].to_list()
+            pl.when(pl.col('vdjmatch_status') == 'matched').then(pl.col('vdjmatch_score'))
+            .otherwise(None))['vdjmatch_score'].to_list()
         assert calls.height == (3 if mode == 'withheld' else 2)
         truth = pl.read_csv(str(prefix)+'.truth.tsv', separator='\t')
         assert truth.height == 3

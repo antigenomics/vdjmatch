@@ -711,9 +711,11 @@ and retained/excluded record counts are exported.
 Nonbundled species/loci require a matching raw ``--control`` repertoire. Output
 includes continuous candidates, calls, full truth labels, calibration input and a
 manifest. Wrong labels and no-hit/ambiguous dispositions remain in denominators.
-Calibration input uses ``E`` by default: the expected number of background hits
-in the candidate reference population. ``--calibration-score p_enrichment`` retains
-the enrichment-tail diagnostic. The enrichment P-value depends on the observed
+Calibration input uses the existing winning-label ranking ``score`` by default.
+``--calibration-score E`` exports the expected number of background hits in the
+candidate reference population; ``--calibration-score p_enrichment`` retains
+the enrichment-tail diagnostic. Neither diagnostic measures winning-label error.
+The enrichment P-value depends on the observed
 number of neighbours and is not the probability of a false winning-label call;
 it is not interchangeable with an E-value or a biological posterior.
 ``--calibration-score score`` exports the existing winning-label ranking score.

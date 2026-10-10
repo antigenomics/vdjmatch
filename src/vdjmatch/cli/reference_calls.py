@@ -10,7 +10,7 @@ def register(subparsers):
     p.add_argument('--control', help='matching raw repertoire; human TRB has a bundled input')
     p.add_argument('--scope', default='1,0,0,1')
     p.add_argument('--threads', type=int, default=1)
-    p.add_argument('--calibration-score', choices=['E', 'p_enrichment', 'score'], default='E',
+    p.add_argument('--calibration-score', choices=['E', 'p_enrichment', 'score'], default='score',
                    help='optional recommendation statistic; never filters continuous outputs')
     p.add_argument('--min-target-records', type=int, default=30,
                    help='benchmark query targets only; the searchable reference remains complete')
