@@ -6,7 +6,7 @@
 \begin{document}
 \begin{center}
 {\Large Neighbourhood enrichment: distance, background and prior}\par
-{\small Historical correspondence and proposed simpler score; single-chain contract}
+{\small Historical correspondence and experimental simpler score; single-chain contract}
 \end{center}
 \textbf{Question and counting units.}
 For a query receptor $q$ and epitope $X$, ask whether compatible VDJdb receptors
@@ -17,7 +17,8 @@ $N=|R_X|$ and $M=|B|$ are their sizes.
 The ratios below require $N>0$ and $M>0$; empty populations are unavailable,
 not zero-enrichment observations.
 Use the same observation unit, distance and exact-identity exclusion for both.
-Eligibility and exclusions must precede denominator calculation in the proposed model.
+The experimental CLI uses distinct full-junction/resolved-V-allele keys.
+Eligibility and exclusions precede denominator calculation.
 Historical denominators are preserved separately for reproduction.
 
 \textbf{One additive distance.}
@@ -52,7 +53,8 @@ w_{L,k}=u_{L,k}\big/\left(L^{-1}\sum_{t=0}^{L-1}u_{L,t}\right).
 Here $p_V$ and $p_J$ are measured probabilities that a one-substitution
 neighbour shares the epitope, indexed from the V and J ends; distant offsets
 use the last pooled profile value. This discounts germline-rich flanks and
-emphasises the central region. It is not an exact V/NDN/J boundary assignment.
+emphasises the central region. Native weights are rounded to 0.01, with a
+minimum 0.01. It is not an exact V/NDN/J boundary assignment.
 A separate existing gene-specific retention profile estimates germline origin;
 using it requires a symmetric query/reference weighting rule.
 The ends can still carry gene information, which is represented explicitly by $d_V$.
@@ -105,7 +107,8 @@ They are separate named comparisons, not interchangeable estimates of the same n
 Sequence $P_{\rm gen}(q)$ is not ball probability $p_B$;
 $P_{\rm gen}$ stratification diagnoses whether one method favours common rearrangements.
 V-loop-inclusive counts require retained V annotations in controls.
-Current historical control loading keeps only unique junctions and discards V/J.
+Historical loading keeps only unique junctions and discards V/J; the opt-in
+count CLI retains V annotations and filters present species/locus metadata.
 
 \textbf{A prior without double counting.}
 If a categorical V/J prior is wanted instead of embedding that information in
@@ -135,6 +138,6 @@ sum of marginal gene/length log-frequency ratios.
 Otherwise the output remains $S$, including when $N\ge500$.
 Its affine gap is $2800+1400(h-1)$ in different integer units; it is not $12h$.
 Neither kernel choice passed all-task nonregression.
-Equation (2) is the proposed simpler normalisation, not an accepted replacement.
+Equation (2) is implemented as opt-in single-chain ranking, not an accepted replacement.
 Old scores remain reproducible; paired joint calibration and M3 are outside this note.
 \end{document}

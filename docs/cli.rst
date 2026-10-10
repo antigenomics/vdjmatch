@@ -502,6 +502,42 @@ See :doc:`scoring` for the equations, statistical interpretation and limits.
 Native TCRdist3-compatible distances
 ------------------------------------
 
+Experimental background enrichment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For single-chain declared-target comparisons, add ``--targets-from-sample
+--background real --control RAW_TABLE`` to ``tcrdist-neighbours``. The same
+control-table interface supports ``--background generative``; this flag declares
+its origin and does not generate sequences. ``--background vdjdb-other`` builds
+controls from other-peptide annotations in the selected species/locus reference,
+without a separate control file. Other MHC restrictions are retained in that
+background. A key annotated to both the target and another peptide remains in
+the other-peptide population through its other annotation.
+
+The control table must provide full ``junction_aa`` and V calls (legacy
+junction columns are accepted only outside AIRR). Present species/locus columns
+are filtered; without them the caller declares those properties. Counts use
+distinct full-junction/resolved-V-allele keys, ignoring abundance. Ambiguous
+V calls remain unavailable. ``--exclude-exact`` removes every full-junction
+identity from counts and population sizes on both sides.
+
+The additional ``OUT.enrichment.tsv`` exports ``n_reference``,
+``reference_population``, ``n_control``, ``control_population``,
+``expected_count`` and ``enrichment=n_reference/expected_count``, where
+``expected_count=reference_population*(n_control+0.5)/(control_population+1)``.
+Empty populations produce null enrichment with ``empty_population`` status;
+zero control support is reported separately. This is a regularised ranking
+statistic, with no P-value or confidence calibration.
+
+Use ``--junction-ends trim3`` for symmetric end exclusion or
+``--position-weighting significance`` for the complete empirical flank/core
+profile. They cannot be combined. The profile is quantised to 0.01, with a
+minimum 0.01; it is not a gene-specific NDN boundary model. The existing candidate
+minimum distances/counts retain their unweighted comparator geometry. The
+manifest distinguishes that output from the new enrichment geometry. Paired
+background enrichment is rejected until a joint-control contract is defined.
+
+
 ``--junction-ends trim3`` is an experimental comparison that removes three
 residues at both junction ends. The default ``--junction-ends tcrdist``
 preserves the TCRdist3 three-N/two-C trim. Both keep full-junction exact

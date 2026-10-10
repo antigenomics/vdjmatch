@@ -1,8 +1,8 @@
 Neighbourhood score: formula and interpretation
 ===============================================
 
-Simpler count model under development
--------------------------------------
+Experimental count enrichment
+-----------------------------
 
 For a fixed distance radius :math:`D`, let :math:`n` be the number of
 eligible nonexact epitope-reference receptors in the ball, :math:`N` the
@@ -21,7 +21,7 @@ The last expression uses the Jeffreys posterior-predictive probability
 for a binary background-ball event. It keeps no-neighbour evidence
 (:math:`n=0,N>0`) at zero
 and gives a finite denominator without the historical 0.01 floor.
-It is a proposed regularised ranking statistic, not a Bayes factor,
+It is an opt-in regularised ranking statistic, not a Bayes factor,
 P-value or accepted replacement. Counts, eligible populations, exclusion
 rules and distance must agree between reference and control.
 
@@ -51,8 +51,19 @@ measure observed repertoire composition, and VDJdb excluding the target
 measures separation from other annotated specificities. These are different
 background questions. Healthy control metadata does not establish naive-cell
 provenance. Sequence Pgen is not the probability of an entire distance ball.
-The current historical control loader discards V/J: it cannot calibrate
-a V-loop-inclusive total distance. That count implementation remains open.
+The historical control loader discards V/J. The experimental count CLI instead
+retains supplied V calls and counts the same total junction-plus-V-loop distance
+on both populations. Counts use distinct full-junction/resolved-V-allele keys;
+ambiguous or unmodelled calls are excluded and reported. Present species/locus
+metadata are filtered before gene resolution. With exact exclusion, all keys
+sharing the query full junction are removed from both counts and denominators.
+
+``tcrdist-neighbours --targets-from-sample --background`` writes these counts
+and :math:`E_J` to a separate enrichment table. ``--position-weighting significance``
+uses the shipped full-length empirical decay profile, quantised to 0.01 with a
+minimum weight of 0.01; no additional terminal trim is applied. The default
+nearest-distance comparator remains unweighted. Neither arm changes annotation
+confidence, and scientific nonregression remains under evaluation.
 
 V evidence already included in the distance must not be multiplied by a
 second unconditional V prior. For a separately declared categorical
