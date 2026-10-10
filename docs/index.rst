@@ -16,6 +16,7 @@ interfaces are documented in :doc:`cli` and :doc:`api`.
    tutorial
    how-to
    explanation
+   scoring
    releases
    cli
    api

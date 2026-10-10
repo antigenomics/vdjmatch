@@ -23,6 +23,7 @@ def register(subparsers):
                    help='tcrdist/historical-pssm add extension edges; matched-pssm uses one positional kernel and control CDF for all edges')
     p.add_argument('--gap-radius',type=int,default=90,help='TCRdist extension radius only')
     p.add_argument('--gap-temperature',type=float,default=12,help='TCRdist extension temperature only')
+    p.add_argument('--pssm-kernel-scale',type=float,default=400,help='positive positional-kernel decay scale in integer penalty units; positional modes only')
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
@@ -244,6 +245,7 @@ def _paired_scores(a, reference, beta_control, prior_background):
 def main(a):
     from importlib.metadata import version
     import json
+    import math
     import time
     import polars as pl
     from .. import db,io
@@ -254,6 +256,10 @@ def main(a):
     from ..match.historical import density,germline_prior,unpaired_score
     start=time.perf_counter()
     if a.threads<1:raise ValueError('threads must be positive')
+    if not math.isfinite(a.pssm_kernel_scale) or a.pssm_kernel_scale<=0:
+        raise ValueError('--pssm-kernel-scale must be finite and positive')
+    if a.gap_geometry=='tcrdist' and a.pssm_kernel_scale!=400:
+        raise ValueError('--pssm-kernel-scale requires a positional gap geometry')
     if a.gap_geometry in ('historical-pssm','matched-pssm'):
         if not a.gapped_extension:
             raise ValueError('--gap-geometry requires --gapped-extension')
@@ -295,7 +301,7 @@ def main(a):
             from ..match.unified import gapped_extension,historical_pssm_extension
             if a.gap_geometry in ('historical-pssm','matched-pssm'):
                 extension=historical_pssm_extension(queries,reference,ctrl,species=organism,threads=a.threads,
-                    matched_background=a.gap_geometry=='matched-pssm')
+                    matched_background=a.gap_geometry=='matched-pssm',kernel_scale=a.pssm_kernel_scale)
             else:
                 extension=gapped_extension(queries,reference,ctrl,species=organism,threads=a.threads,
                                             radius=a.gap_radius,temperature=a.gap_temperature)
@@ -447,7 +453,7 @@ def main(a):
                 'gap_open':2*scale*100,'gap_extend':scale*100,'gap_positions':[6],
                 'gap_placement':'single Cys-relative block start min(6, shorter full junction length); equal-length prior ignored',
                 'gap_charge':'2800 + (d - 1) * 1400 for d = abs(query length - reference length) > 0; zero at d = 0',
-                'cutoff':5*scale*100,'kernel_scale':400,
+                'cutoff':5*scale*100,'kernel_scale':a.pssm_kernel_scale,
                 'control_geometry':'same full-junction weighted single-gap kernel; unique full controls; full identity excluded',
                 'score_composition':'matched_kernel_only' if a.gap_geometry=='matched-pssm' else 'original_plus_extension',
                 'formula':('sum of all accepted positional kernel edges with the same weighted control CDF; ' if a.gap_geometry=='matched-pssm' else 'original density plus new positional kernel edges only; ') +

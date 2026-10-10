@@ -493,6 +493,11 @@ extension. ``historical_density`` remains the unchanged original comparator;
 remains explicit. Neither this mode nor an additive extension assigns a new
 confidence or changes the original component significance gate.
 
+``--pssm-kernel-scale`` sets the positional decay scale (default 400); it must
+be finite and positive. It changes kernel weighting, not the 7000 retrieval
+cutoff, control counts, original comparator or component significance.
+See :doc:`scoring` for the equations, statistical interpretation and limits.
+
 
 Native TCRdist3-compatible distances
 ------------------------------------

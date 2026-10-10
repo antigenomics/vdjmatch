@@ -139,7 +139,7 @@ def require_historical_pssm_kernel():
         raise RuntimeError('historical-pssm geometry requires positional seqtree gapblock support; rebuild/install the reviewed native source')
 
 
-def historical_pssm_extension(queries, reference, control, *, species='human', threads=1, matched_background=False):
+def historical_pssm_extension(queries, reference, control, *, species='human', threads=1, matched_background=False, kernel_scale=400.0):
     """Opt-in original-position PSSM kernel on edges outside its substitution ball.
 
     Use full junctions and the native symmetric longer-sequence frame. Pin the
@@ -155,6 +155,8 @@ def historical_pssm_extension(queries, reference, control, *, species='human', t
     require_historical_pssm_kernel()
     if not isinstance(matched_background,bool):
         raise ValueError('matched_background must be boolean')
+    if isinstance(kernel_scale,bool) or not isinstance(kernel_scale,(int,float)) or not np.isfinite(kernel_scale) or kernel_scale<=0:
+        raise ValueError('kernel_scale must be finite and positive')
     if isinstance(threads,bool) or not isinstance(threads,int) or threads<1:
         raise ValueError('threads must be positive')
     if queries['query_id'].null_count() or queries['query_id'].n_unique()!=queries.height:
@@ -236,7 +238,7 @@ def historical_pssm_extension(queries, reference, control, *, species='human', t
                 positions=np.searchsorted(cutoffs,penalties[i,accepted])
                 nc=np.asarray(nc,dtype=np.uint64)[positions]
                 empirical=n_reference/m_gap*nc
-                unweighted=np.exp(-penalties[i,accepted]/400.0)/np.maximum(empirical,.01)
+                unweighted=np.exp(-penalties[i,accepted]/kernel_scale)/np.maximum(empirical,.01)
                 same=qgenes[i]==rgenes[accepted]
                 weighted=unweighted*priors[qgenes[i]][accepted]
                 row=rows[i]

@@ -27,6 +27,11 @@ def test_matched_kernel_includes_original_edges_with_same_control_cdf():
     for threads in [4]:
         other=historical_pssm_extension(queries,refs,control,threads=threads,matched_background=True)
         assert result.equals(other)
+    broader=historical_pssm_extension(queries,refs,control,matched_background=True,kernel_scale=800)
+    assert broader['gapped_density'][0]>result['gapped_density'][0]
+    for scale in [0,-1,float('inf'),float('nan'),True]:
+        with pytest.raises(ValueError,match='kernel_scale'):
+            historical_pssm_extension(queries,refs,control,matched_background=True,kernel_scale=scale)
 
 
 def test_matched_cli_preserves_original_and_records_nonadditive_formula(tmp_path):
@@ -45,3 +50,9 @@ def test_matched_cli_preserves_original_and_records_nonadditive_formula(tmp_path
     manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())['gapped_extension']
     assert manifest['score_composition']=='matched_kernel_only'
     assert manifest['significance']=='p_enrichment remains the original component test; no combined P-value'
+    main([*args[:-1],str(prefix)+'-800','--pssm-kernel-scale','800'])
+    broader=pl.read_csv(str(prefix)+'-800.scores.tsv',separator='\t')
+    assert broader['score'][0]>out['score'][0]
+    assert broader['historical_density'][0]==out['historical_density'][0]
+    assert broader['p_enrichment'][0]==out['p_enrichment'][0]
+    assert json.loads(Path(str(prefix)+'-800.manifest.json').read_text())['gapped_extension']['kernel_scale']==800
