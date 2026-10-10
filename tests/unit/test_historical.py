@@ -253,3 +253,62 @@ def test_cli_extension_retains_original_score_and_source_identities(tmp_path):
     assert out['gapped_density'][0]>0 and out['score'][0]==out['gapped_density'][0]
     info=json.loads(Path(str(prefix)+'.manifest.json').read_text())['gapped_extension']
     assert all(len(info[k])==64 for k in ['source_sha256','distance_source_sha256','model_sha256'])
+
+
+
+def test_cli_sample_targets_retains_unselected_species_rows(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    sample, reference, control, prefix = [tmp_path/n for n in ('q.tsv','r.tsv','c.tsv','out')]
+    q, r = 'CASSLGQAYEQYF', 'CASSLGRAYEQYF'
+    pl.DataFrame({'query_id':['selected','unselected'], 'junction_aa':[q,q], 'locus':['TRB','TRB'],
+        'v_call':['TRBV19','TRBV19'], 'j_call':['TRBJ1-1','TRBJ1-1'], 'species':['human','mouse'],
+        'epitope':['E','E'], 'mhc_a':['HLA-A*02','H-2-Kb'], 'mhc_b':['B2M','B2M'],
+        'mhc_class':['MHCI','MHCI'], 'binder':[1,0]}).write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':[r], 'gene':['TRB'], 'v':['TRBV19'], 'species':['HomoSapiens'],
+        'epitope':['E'], 'mhc_a':['HLA-A*02'], 'mhc_b':['B2M'], 'mhc_class':['MHCI']}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':[q,r]}).write_csv(control,separator='\t')
+    assert main(['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+        '--targets-from-sample','--control',str(control),'--output-prefix',str(prefix)])==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['query_id'].to_list()==['selected','unselected']
+    assert out['binder'].to_list()==[1,0]
+    assert out['status'].to_list()==['scored','unselected_species']
+    assert out['score'][1] is None
+    assert out['mhc_a'].to_list()==['HLA-A*02','H-2-Kb']
+
+
+def test_cli_original_paired_retains_unselected_species_and_chain_ids(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    mouse=raw.head(2).with_columns(pl.Series('query_id',['ma','mb']),pl.lit('mouse-pair').alias('clone_id'),
+                                 pl.lit('mouse').alias('species'),pl.lit('H-2-Kb').alias('mhc_a'))
+    pl.concat([raw,mouse]).write_csv(sample,separator='\t')
+    assert main(args)==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['query_id'].to_list()==['one','two','missing','invalid','mouse-pair']
+    assert out['status'][-1]=='unselected_species' and out['score'][-1] is None
+    assert out['query_id_alpha'][-1]=='ma' and out['query_id_beta'][-1]=='mb'
+    assert out['species'][-1]=='mouse' and out['mhc_a'][-1]=='H-2-Kb'
+
+
+def test_cli_all_invalid_extension_prior_has_complete_null_schema(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    sample,reference,control,prior,prefix=[tmp_path/n for n in ('q.tsv','r.tsv','c.tsv','prior.tsv','out')]
+    q='CASSLGQAYEQYF'
+    pl.DataFrame({'query_id':['invalid'], 'junction_aa':['CAXF'], 'locus':['TRB'],
+        'v_call':['TRBV19'], 'j_call':['TRBJ1-1'], 'species':['human'], 'epitope':['E'],
+        'mhc_a':['HLA-A*02'], 'mhc_b':['B2M'], 'mhc_class':['MHCI']}).write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':[q], 'gene':['TRB'], 'v':['TRBV19'], 'j':['TRBJ1-1'],
+        'species':['HomoSapiens'], 'epitope':['E'], 'mhc_a':['HLA-A*02'],
+        'mhc_b':['B2M'], 'mhc_class':['MHCI']}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':[q]}).write_csv(control,separator='\t')
+    pl.DataFrame({'cdr3':[q], 'v':['TRBV19'], 'j':['TRBJ1-1']}).write_csv(prior,separator='\t')
+    assert main(['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+        '--targets-from-sample','--control',str(control),'--germline-background',str(prior),
+        '--gapped-extension','--output-prefix',str(prefix)])==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['status'].to_list()==['invalid_query']
+    required={'historical_score','historical_density','gapped_density','density_score','germline_lr',
+              'availability','gapped_status','M_gap','n_reference_unavailable','score','p_enrichment'}
+    assert required<=set(out.columns)
+    assert all(out[name].to_list()==[None] for name in required)

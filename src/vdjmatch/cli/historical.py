@@ -90,8 +90,7 @@ def _paired_scores(a, reference, beta_control, prior_background):
         raise ValueError('linked paired rows have conflicting species, target or label metadata')
     # Taking a representative is safe only after all linked metadata agree.
     metadata=normalized.group_by('pair_id',maintain_order=True).agg(pl.col(metadata_columns).first())
-    metadata=metadata.filter(pl.col('species')==_organism(a.species)).with_columns(
-        pl.col('pair_id').alias('query_id'))
+    metadata=metadata.with_columns(pl.col('pair_id').alias('query_id'))
     # read_cell owns chain parsing and rejects ambiguous pairs; invalid amino acids
     # remain present for explicit chain status rather than disappearing silently.
     cells,ingestion=io.read_cell(a.sample,link=link,valid_aa=False,source='airr',return_report=True)
@@ -162,8 +161,24 @@ def _paired_scores(a, reference, beta_control, prior_background):
                                   ['score','rank_density_beta','rank_density_alpha','rank_germline_prior']])
         parts.append(out)
     scores=pl.concat(parts,how='diagonal_relaxed') if parts else paired.head(0)
-    out=metadata.join(scores.drop('pair_id'),on='query_id',how='left',validate='1:1',maintain_order='left')
-    out=out.with_columns(pl.lit('original-paired-cohort-rank-sum-v1').alias('estimator'))
+    # Preserve every original pair and both source chain IDs, even when its
+    # species is not selected for this invocation's reference and controls.
+    out=metadata.join(paired.drop('pair_id'),on='query_id',how='left',validate='1:1',maintain_order='left')
+    scoring=scores.drop([c for c in paired.columns if c!='query_id' and c in scores.columns])
+    out=out.join(scoring,on='query_id',how='left',validate='1:1',maintain_order='left')
+    score_columns={'status':pl.String,'score':pl.Float64,'germline_lr':pl.Float64,
+                   'cohort_size':pl.UInt64,'rank_density_alpha':pl.Float64,
+                   'rank_density_beta':pl.Float64,'rank_germline_prior':pl.Float64}
+    for name in ['alpha','beta']:
+        score_columns.update({c+'_'+name:dtype for c,dtype in
+            [('density_score',pl.Float64),('germline_lr',pl.Float64),('p_enrichment',pl.Float64),
+             ('n_reference',pl.UInt64),('control_size',pl.UInt64)]})
+    out=out.with_columns(*[pl.lit(None,dtype=dtype).alias(name) for name,dtype in score_columns.items()
+                           if name not in out.columns])
+    out=out.with_columns(
+        pl.when(pl.col('species')!=_organism(a.species)).then(pl.lit('unselected_species'))
+        .otherwise(pl.col('status').fill_null('invalid_query')).alias('status'),
+        pl.lit('original-paired-cohort-rank-sum-v1').alias('estimator'))
     return out,ingestion,alpha_provenance
 
 
@@ -229,8 +244,9 @@ def main(a):
         if 'query_id' not in raw.columns:
             raw=raw.with_row_index('query_id')
         aliases=['human','homosapiens','homo sapiens'] if organism=='human' else ['mouse','musmusculus','mus musculus']
-        selected=raw.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases))
-        q=q.join(selected.select('query_id'),on='query_id',how='semi',maintain_order='left')
+        species_selected=pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases).fill_null(False)
+        q=q.join(raw.filter(species_selected).select('query_id'),on='query_id',how='semi',maintain_order='left')
+        selected=raw
         parts=[]
         for task,querypart,referencepart in assayed_targets(q,raw,r,a.species):
             if not referencepart.height:
@@ -265,14 +281,18 @@ def main(a):
             out=out.join(scores,on='query_id',how='left',validate='1:1',maintain_order='left')
         else:
             out=out.with_columns(pl.lit(None,dtype=pl.String).alias('status'))
-        out=out.with_columns(pl.col('status').fill_null('invalid_query')).sort('_order').drop('_order')
+        out=out.with_columns(pl.when(~species_selected).then(pl.lit('unselected_species'))
+                            .otherwise(pl.col('status').fill_null('invalid_query')).alias('status')).sort('_order').drop('_order')
         score_columns={'score':pl.Float64,'p_enrichment':pl.Float64,'n_reference':pl.UInt64,
                        'control_size':pl.UInt64,'estimator':pl.String}
         if prior_background is not None:
             score_columns.update(density_score=pl.Float64,germline_lr=pl.Float64)
         if a.gapped_extension:
             score_columns.update(historical_density=pl.Float64,gapped_density=pl.Float64,
-                                  availability=pl.Boolean,gapped_status=pl.String,M_gap=pl.UInt64)
+                                  availability=pl.Boolean,gapped_status=pl.String,M_gap=pl.UInt64,
+                                  n_reference_unavailable=pl.UInt64)
+            if prior_background is not None:
+                score_columns['historical_score']=pl.Float64
         out=out.with_columns(*[pl.lit(None,dtype=dtype).alias(name) for name,dtype in score_columns.items()
                                if name not in out.columns])
     elif a.pool_reference:
