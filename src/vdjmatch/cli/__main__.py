@@ -105,6 +105,8 @@ def _cmd_match(a: argparse.Namespace) -> int:
     annotate_sample = __getattr__("annotate_sample")
     p = _resolve_params(a)
     search_mode = getattr(a, "search_mode", "fixed")
+    if getattr(a, "unified_distance", None) is not None and search_mode != "unified":
+        raise ValueError("--unified-distance requires --search-mode unified")
     paired = getattr(a, "paired", False)
     if search_mode != "fixed":
         if p.scope != "1,0,0,1":
@@ -147,6 +149,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "epitope",
             "mhc_a",
             "mhc_b",
+            "mhc_match",
             "reference_id",
             "exclude_reference_ids",
             "evidence_type",
@@ -202,8 +205,11 @@ def _cmd_match(a: argparse.Namespace) -> int:
             control=controls,
             exclude_exact=getattr(a, "exclude_exact", False),
             search_mode=search_mode,
+            unified_distance=(getattr(a, "unified_distance", None) or "edit"),
         )
         for kind, frame in res.items():
+            if kind == "hits" and getattr(a, "no_hit_table", False):
+                continue
             _flat_table(frame).write_csv(
                 f"{a.output_prefix}.{name}.{kind}.txt", separator="\t"
             )
@@ -219,6 +225,10 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "control_species": control_species,
             "controls": control_provenance,
             "search_mode": search_mode,
+            "unified_model": {"estimator": "background-mass-v1", "distance": (getattr(a, "unified_distance", None) or "edit"),
+                "short_scope": "5,2,2,5", "long_matrix": "blosum62", "long_cutoff_scales": 5,
+                "gap_open_scales": 2, "gap_extend_scales": 1, "gap_positions": [3, 4, -4, -3],
+                "routing": "none; selected component evaluated over all lengths", "experimental": True} if search_mode == "unified" else None,
             "radii": list(range(1, 6)) if search_mode == "ball" else None,
             "ball_model": {
                 "max_radius": 5,
@@ -482,8 +492,11 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument(
         "--paired", action="store_true", help="read linked TRA/TRB cell rows"
     )
-    m.add_argument("--search-mode", choices=["fixed", "ball"], default="fixed",
-                   help="fixed scope or five graded edit balls (radii 1–5)")
+    m.add_argument("--search-mode", choices=["fixed", "ball", "unified"], default="fixed",
+                   help="fixed scope, five graded balls, or experimental background-mass component scoring")
+    m.add_argument("--unified-distance", choices=["edit", "gapblock"], default=None,
+                   help="experimental unified-mode component, evaluated at every query length")
+    m.add_argument("--no-hit-table", action="store_true", help="omit the expanded observation hit export; retain candidate and call tables")
     m.add_argument("--link", default=None, help="cell linkage column for --paired")
     m.add_argument(
         "--pin", default=None, help="pin a specific VDJdb release tag (default: latest)"
@@ -512,6 +525,10 @@ def main(argv: list[str] | None = None) -> int:
             action="append",
             help="reference selector (repeatable)",
         )
+    m.add_argument(
+        "--mhc-match", choices=["exact", "compatible"], default="exact",
+        help="reference restriction matching at exact or compatible family/allele resolution",
+    )
     m.add_argument(
         "--control-species",
         choices=["human", "mouse"],
@@ -725,12 +742,18 @@ def main(argv: list[str] | None = None) -> int:
     from .search import register as register_search
 
     register_search(sub)
+    from .historical import register as register_historical
+    register_historical(sub)
+    from .tcrdist import register as register_tcrdist
+    register_tcrdist(sub)
+    from .pgen import register as register_pgen
+    register_pgen(sub)
 
     a = p.parse_args(argv)
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
-    if a.cmd in {"match", "update", "first-hit", "search"}:
+    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "pgen"}:
         import os
         import json
 
@@ -740,7 +763,13 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
             p.error("threads must be a nonnegative integer")
         if threads > 0:
-            os.environ["POLARS_MAX_THREADS"] = str(threads)
+            try:
+                table_threads = int(previous_threads) if previous_threads is not None else threads
+            except ValueError:
+                p.error("POLARS_MAX_THREADS must be a positive integer")
+            if table_threads < 1:
+                p.error("POLARS_MAX_THREADS must be a positive integer")
+            os.environ["POLARS_MAX_THREADS"] = str(min(threads, table_threads))
     try:
         return a.func(a)
     except (ValueError, FileNotFoundError, RuntimeError) as exc:

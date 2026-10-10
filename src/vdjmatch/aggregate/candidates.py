@@ -81,6 +81,8 @@ def candidates(
     match_j=False,
     control_counts=None,
     distance_column="edits",
+    background_mass=False,
+    control_totals=None,
 ):
     """Reduce independent observations to candidate evidence for each stable query_id.
 
@@ -89,6 +91,8 @@ def candidates(
     ``control_size=None`` requests explicitly uncalibrated ranking. Soft V uses existing
     germline-loop similarity (weight 0.25 across families); unknown/missing calls are neutral.
     """
+    if background_mass and (control_size is None or soft_v):
+        raise ValueError("background-mass scoring requires controls and soft_v=False")
     if distance_column not in {"edits", "score"}:
         raise ValueError("distance_column must be edits or score")
     if controls is not None and control_counts is not None:
@@ -168,6 +172,10 @@ def candidates(
             / (pl.col("_nc") + 1)
         ).alias("_w")
     )
+    if background_mass:
+        # One vote per statistical search key, independent of gene/record multiplicity.
+        u = u.with_columns(
+            (1.0 / ((pl.col("_nc") + 1) * pl.len().over([*groups, "db_cdr3"]))).alias("_w"))
     out = u.group_by(groups).agg(
         pl.len().alias("n_clonotypes"),
         pl.col("db_cdr3").n_unique().alias("n_target"),
@@ -225,7 +233,13 @@ def candidates(
         .rename({"len": "n_reference"})
     )
     out = out.join(coverage, on=joinkeys, how="left", nulls_equal=True, validate="m:1")
-    if controls is not None:
+    if background_mass:
+        out = out.with_columns((pl.col("ned_score") * control_size / pl.col("n_reference")).alias("ned_score"))
+    if control_totals is not None:
+        out = out.join(control_totals, on="query_id", how="left", validate="m:1")
+        if out["n_control"].null_count():
+            raise ValueError("control totals must cover every candidate query")
+    elif controls is not None:
         counts = controls.group_by("query_id").len().rename({"len": "n_control"})
         out = out.join(counts, on="query_id", how="left").with_columns(
             pl.col("n_control").fill_null(0)
@@ -262,7 +276,7 @@ def candidates(
     out = out.with_columns(
         pl.int_range(1, pl.len() + 1).over("query_id").cast(pl.UInt32).alias("rank"),
         pl.col("n_records").sum().over("query_id").cast(pl.UInt32).alias("n_hits"),
-        pl.lit(ESTIMATOR).alias("estimator"),
+        pl.lit("background-mass-v1" if background_mass else ESTIMATOR).alias("estimator"),
         pl.lit("fixed_ball" if control_size is not None else "uncalibrated").alias(
             "calibration"
         ),

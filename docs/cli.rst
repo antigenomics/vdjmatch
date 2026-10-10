@@ -369,3 +369,269 @@ The experimental fixed-K annotation mode and ``--top-k`` option have been
 removed from the CLI and sample runner. The lower-level
 ``Annotator.ranked_candidates`` research API remains available for reproducing
 historical diagnostics; it is not the production annotation workflow.
+
+Experimental background-mass components
+---------------------------------------
+
+``match --search-mode unified --matrix none --unified-distance edit`` evaluates
+an experimental five-edit ball (at most two insertions and two deletions).
+``--unified-distance gapblock`` instead evaluates an anchored BLOSUM62
+single-gap penalty ball at every query length. There is no length switch or
+neighbour cap. These are component diagnostics, not a validated combined scorer.
+The default fixed-mode scorer is unchanged.
+
+Both components rank a pMHC by ``M/N * sum(1/(b(d)+1))`` over its distinct matched
+junctions: ``M`` is the number of unique control junctions, ``N`` the pMHC
+reference junction count, and ``b(d)`` the number of controls at distance at most
+that neighbour's distance. The existing ``ned_score`` column carries this score;
+``estimator=background-mass-v1`` distinguishes it from NED. Fixed-ball Poisson
+statistics are separate model-conditional evidence, not posterior specificity.
+The gap-block cutoff is five BLOSUM62 scale units, gap opening two units and
+extension one unit, with allowed starts 3, 4, -4 and -3. Target and control use
+the same predicate and exact-hit exclusion. Native dense distance buffers are
+bounded to 64 MiB per query batch and reduced immediately.
+
+These experimental components require unique sequence controls. Paired input,
+V/J restrictions, matrix overrides and disabling controls are rejected. They do
+not implement germline-loop calibration or establish improvements over existing
+results. Use their labelled output tables to evaluate both geometries on the
+same observations before developing a combined score.
+
+Historical PSSM density baseline
+--------------------------------
+
+``vdjmatch historical-density SAMPLE --vdjdb REFERENCE --locus TRB
+--epitope NLVPMVATV --mhc-a 'HLA-A*02:01' --threads 4 --output-prefix OUT``
+recomputes the historical single-chain density component from raw controls.
+Use ``--control TABLE`` for a supplied control (required for nonbundled loci).
+It uses positional BLOSUM62 penalties within five substitutions, soft V-loop
+weights, temperature 400 and the historical control-density floor of 0.01.
+The original unit-distance significance calculation is reported separately.
+Exact junction matches are excluded on both sides. Query identities remain
+separate even when their sequences coincide. For reproduction only, the first
+source-order V representative is used within each pMHC/junction group.
+
+``--mhc-match compatible --pool-reference`` pools intersecting family and allele
+restrictions before counting unique reference junctions. Source restriction
+labels remain intact in the reference. ``--targets-from-sample`` instead selects
+each row's declared peptide, both MHC chains and class; it preserves observation
+identity and reports unavailable targets explicitly.
+
+``--germline-background RAW_TABLE`` adds the original sparse-reference unpaired
+formula: log(density + 1e-6) plus the V/J/length log likelihood ratio when the
+reference has fewer than 500 unique junctions. Background multiplicity is retained
+for these priors; control search counts unique productive junctions. These are
+different populations. Alpha priors omit junction length. The manifest names
+omitted components; a density-only run is not the complete historical scorer.
+
+``--locus paired --targets-from-sample --germline-background RAW_TABLE
+--alpha-control RAW_ALPHA_TABLE`` reproduces the original per-task cohort rank
+sum of alpha density, beta density and the combined germline prior. ``--control``
+selects the beta search background. For exact historical reproduction, the alpha
+V/J prior uses the supplied beta prior table. This command uses independent
+chain reference pools and excludes exact junctions per chain. It reports separate
+chain P-values; it does not invent a combined P-value. Missing partners and
+invalid inputs retain their original pair/chain IDs and explicit statuses.
+
+``--gapped-extension`` is an experimental single-chain ranking candidate for pooled
+or sample-declared targets. It preserves the original density and adds reference
+edges outside the equal-length five-substitution ball, at every supported length.
+Each additional edge contributes w(V) exp(-total TCRdist / tau) divided by the
+empirical CDR3 background mass, with the original 0.01 denominator floor. Here
+w(V) is 1 for the same allele-stripped V gene and 0.25 for different genes. This
+is a categorical gene prior: different genes retain the 0.25 factor even when
+their native loop templates are identical. Total distance already includes
+continuous V CDR1/CDR2/CDR2.5 differences; no additional loop-similarity multiplier
+is applied. Background counts use CDR3 distance alone.
+``--gap-radius`` defaults to 90 and ``--gap-temperature`` to 12. The output retains
+``historical_density`` and, when priors are supplied, ``historical_score``.
+Flat diagnostics report the pre-prior, pre-V-weight same-gene and cross-gene
+kernel sums and accepted-edge counts. ``gapped_density`` equals the same-gene
+sum plus 0.25 times the cross-gene sum. ``gapped_floor_density`` is the weighted
+contribution of edges whose empirical denominator is strictly below 0.01. Best
+accepted-edge total, weighted CDR3 and V-loop distances retain native TCRdist
+units, with the first source-order reference chosen on total-distance ties.
+Empty or unavailable extension outputs have zero sums/counts and null best-edge
+distances; rows that never enter scoring keep null diagnostics and their status.
+``p_enrichment`` remains the original component test; the combined ranking has
+no calibrated P-value. This option does not change production annotation defaults.
+
+``--gapped-extension --gap-geometry historical-pssm`` instead extends the original
+full-junction positional BLOSUM Gram kernel. Integer positional weights use the
+longer junction as a symmetric frame; equal-length penalties reproduce the
+original kernel exactly. The sole gap start is Cys-relative column6: six
+matched prefix residues, with the conserved Cys at index0. On junctions shorter
+than six residues the native rule uses ``min(6, shorter length)``.
+Equal-length pairs have no gap and ignore the gap prior. For length difference
+``d > 0``, the gap charge is ``2800 + (d - 1) * 1400``; at ``d = 0`` it is zero.
+The ball cutoff
+is7000, and the exponential kernel scale remains400. The estimator is
+``pssm-plus-historical-pssm-apex6-extension-v2``.
+These fixed choices apply across the length range; there is no length switch or
+hit cap. This mode retains original raw V-gene weights, including their historical
+alias handling. Controls count the same weighted full-junction geometry, with
+full exact identities excluded. Highest-contribution reference junction/V,
+penalty, control count, contribution and gap length are exported. Block placement
+is explicitly unavailable from the native scalar output. The original density,
+score and P-value remain separate; this experimental addition has no combined
+P-value. It requires positional gap-block support in the installed seqtree binary
+and rejects older implementations before loading controls. TCRdist-specific
+radius/temperature options do not apply.
+
+``--gapped-extension --gap-geometry matched-pssm`` uses the same positional
+geometry for every accepted nonexact reference neighbour, including original
+substitution-ball edges within the weighted cutoff of 7000. It computes each contribution as
+``V_weight * exp(-penalty / 400) / max(N * control_count(penalty) / M, .01)``.
+``N`` is the number of unique reference junction representatives, ``M`` the
+number of unique full control junctions, and ``control_count(penalty)`` counts
+nonexact controls under that identical weighted predicate. The same legacy
+expected-count floor is retained; this is not a finite-sample P-value.
+The score is this matched-kernel sum, rather than original density plus an
+extension. ``historical_density`` remains the unchanged original comparator;
+``gapped_density`` reports the whole matched sum in this mode. The estimator is
+``matched-positional-kernel-apex6-v1``. Original germline-prior fusion, if requested,
+remains explicit. Neither this mode nor an additive extension assigns a new
+confidence or changes the original component significance gate.
+
+``--pssm-kernel-scale`` sets the positional decay scale (default 400); it must
+be finite and positive. It changes kernel weighting, not the 7000 retrieval
+cutoff, control counts, original comparator or component significance.
+See :doc:`scoring` for the equations, statistical interpretation and limits.
+
+
+Native TCRdist3-compatible distances
+------------------------------------
+
+Experimental background enrichment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For single-chain declared-target comparisons, add ``--targets-from-sample
+--background real --control RAW_TABLE`` to ``tcrdist-neighbours``. The same
+control-table interface supports ``--background generative``; this flag declares
+its origin and does not generate sequences. ``--background vdjdb-other`` builds
+controls from other-peptide annotations in the selected species/locus reference,
+without a separate control file. Other MHC restrictions are retained in that
+background. A key annotated to both the target and another peptide remains in
+the other-peptide population through its other annotation.
+
+The control table must provide full ``junction_aa`` and V calls (legacy
+junction columns are accepted only outside AIRR). Present species/locus columns
+are filtered; without them the caller declares those properties. Reference and
+real-control counts use distinct full-junction/resolved-V-allele keys, ignoring
+abundance. Generated controls retain every eligible draw, including repeated
+keys, to preserve their empirical generative mass. Ambiguous
+V calls remain unavailable. ``--exclude-exact`` removes every full-junction
+identity from counts and population sizes on both sides.
+
+The additional ``OUT.enrichment.tsv`` exports ``n_reference``,
+``reference_population``, ``n_control``, ``control_population``,
+``reference_weight``, ``control_weight``, ``expected_count`` and
+``enrichment=reference_weight/expected_count``, where
+``expected_count=reference_population*(control_weight+0.5)/(control_population+1)``.
+With the default ``--neighbour-weighting ball``, weights equal ball counts.
+With ``--neighbour-weighting linear`` and a positive radius, each receptor
+contributes ``max(0,1-distance/radius)``. Counts and weights are reduced in
+one native traversal; boundary matches count but have zero weight.
+The manifest states the kernel and smoothing contract; ``zero_control_weight``
+distinguishes zero weighted support from ``zero_control_hits``.
+Empty populations produce null enrichment with ``empty_population`` status;
+zero control support is reported separately. This is a regularised ranking
+statistic, with no P-value or confidence calibration.
+
+Use ``--junction-ends trim3`` for symmetric end exclusion or
+``--position-weighting significance`` for the complete empirical flank/core
+profile. They cannot be combined. The profile is quantised to 0.01, with a
+minimum 0.01; it is not a gene-specific NDN boundary model. The existing candidate
+minimum distances/counts retain their unweighted comparator geometry. The
+manifest distinguishes that output from the new enrichment geometry. It also
+records control loading, count-batch wall time (including Python adapter
+preparation), and total enrichment-stage wall time; these are separate from
+the complete command wall time. Paired ``--background vdjdb-other`` is supported
+with uniform positional weights. It uses the summed alpha/beta distance to each
+linked pair, distinct full-pair/V-allele keys and exact exclusion only when both
+full junctions match. The paired enrichment IDs map through ``OUT.queries.tsv``
+to the original ``pair_id``. Real/generated paired backgrounds remain rejected;
+independent chain products are not a joint null.
+
+
+``--junction-ends trim3`` is an experimental comparison that removes three
+residues at both junction ends. The default ``--junction-ends tcrdist``
+preserves the TCRdist3 three-N/two-C trim. Both keep full-junction exact
+exclusion and V-loop distances; paired distances use the same option on both
+linked chains. The manifest records the trim and distinguishes the experimental
+geometry from the native default. No confidence calibration is added.
+
+``vdjmatch tcrdist-neighbours SAMPLE --vdjdb REFERENCE --locus TRB --threads 4
+--radius 90 --exclude-exact --output-prefix OUT`` exports minimum distance and
+neighbour counts per pMHC, plus a separate query-availability table. It reproduces
+the default TCRdist3 distance: three times the trimmed, restricted-gap CDR3
+distance, plus aligned V-gene CDR1, CDR2 and CDR2.5 distances. The bundled loop
+models and their license/provenance are under ``resources/tcrdist``. Use
+``--species human|mouse`` to choose the organism. Missing allele
+suffixes explicitly resolve to ``*01``. Model-proven co-locus aliases resolve
+uniquely without changing raw calls; ambiguous calls remain unavailable. The
+query table retains raw calls separately from resolved alleles, including chains
+with missing junctions. Unknown alleles and junctions shorter
+than eight residues remain unavailable in the query table. This command reports
+distances, not specificity probabilities.
+
+``--locus paired`` accepts linked AIRR rows with ``clone_id`` and declared
+TRA/TRB roles. It sums alpha and beta distances against the same linked database
+receptor; ``--radius`` applies to that sum. Exact exclusion removes a reference
+only when both full junctions match. Original independent marginal minima must
+be computed from separate full single-chain reference pools; they are a distinct
+baseline. Paired output retains missing partners and unavailable gene calls.
+
+``--targets-from-sample`` selects compatible declared restrictions and counts
+unique junction/V search keys within their union. Query status distinguishes
+missing references, unavailable sequence/gene inputs, and searches without
+neighbours. Explicit ``--epitope``, ``--mhc-a`` and ``--mhc-b`` selectors support
+``--mhc-match compatible``; exact selection remains the default.
+
+The existing seqtree gap-block batch kernel computes CDR3 distances; vectorized
+lookups add germline-loop distances. Single-chain distance outputs are bounded
+to 64 MiB per batch; paired matrix work uses a 32 MiB budget. These allocation
+bounds do not establish whole-process RSS. A clipped BLOSUM-derived matrix reproduces TCRdist penalties; ordinary
+seqtree BLOSUM Gram penalties are a different metric.
+
+Exhaustive TCRdist nearest reference
+------------------------------------
+
+``tcrdist-neighbours --targets-from-sample --unbounded-nearest`` reports the
+minimum native TCRdist distance over every usable, nonexcluded reference in each
+query's declared compatible pMHC union. A minimum may exceed ``--radius``;
+``n_neighbours`` continues to count only references within that radius. With
+``--exclude-exact``, exclusion compares the complete junction. In paired mode,
+only equality of both complete junctions excludes a reference pair, and distance
+is the alpha-plus-beta sum to the same linked reference pair.
+
+The command emits one candidate per available query/declared target when any
+nonexcluded reference remains. An exact-only excluded pool produces no candidate
+and keeps ``no_neighbours`` disposition. Unknown genes, invalid junctions,
+unselected species and missing partners retain their query rows and existing
+statuses. Without this flag, the original radius-ball candidate output is
+unchanged. The new flag requires ``--targets-from-sample``.
+
+This mode reduces each existing bounded native distance-matrix batch to query
+minima and radius counts; it does not materialize all query/reference hit pairs.
+The manifest records the selection mode and all CLI parameters. The resulting
+nearest distances are uncalibrated distances, suitable for separately defined
+comparator ranking; the command does not assign a specificity probability.
+
+Shared original calculations across cohorts
+-------------------------------------------
+
+``historical-density --locus paired --targets-from-sample --cohort-column cohort``
+shares the existing per-target chain searches across observations while computing
+paired rank fusion separately for each explicit cohort. The raw column must be
+nonempty, agree across linked rows, and avoid canonical input and score names.
+The option also emits original single-chain scores and separate chain statuses;
+isolated chain rows retain their identities and stay outside paired ranks.
+Without the option, existing output columns and rank cohorts are unchanged.
+The supplied prior remains the original beta background for both chains.
+No combined paired P-value or new confidence interpretation is introduced.
+
+For commands with an explicit thread budget, the CLI caps the Polars thread pool
+at that budget and honors a smaller parent ``POLARS_MAX_THREADS`` allocation.
+The native sequence engine still receives the requested ``--threads`` value.
+Malformed parent thread allocations fail before loading inputs.
