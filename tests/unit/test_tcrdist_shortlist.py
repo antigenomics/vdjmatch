@@ -43,7 +43,20 @@ def test_sparse_budget_fails_before_retrieval_and_parallel_results_equal(monkeyp
     parallel=shortlist_audit_batch(q,r,qv,rv,threads=2)
     for key in ['cdr3_shortlist_keys','post_v_radius_keys','nearest_within_shortlist_distance']:
         assert serial[key]==parallel[key]
-    monkeypatch.setattr(tcrdist.gapblock,'count_batch',lambda *a,**k:[[100_000_000]]*len(q))
-    monkeypatch.setattr(tcrdist.gapblock,'ball_batch',lambda *a,**k:pytest.fail('retrieval must not allocate over budget'))
+    from functools import wraps
+    @wraps(tcrdist.gapblock.count_batch)
+    def huge_counts(*a,**k):return [[100_000_000]]*len(q)
+    monkeypatch.setattr(tcrdist.gapblock,'count_batch',huge_counts)
+    @wraps(tcrdist.gapblock.ball_batch)
+    def forbidden_retrieval(*a,**k):pytest.fail('retrieval must not allocate over budget')
+    monkeypatch.setattr(tcrdist.gapblock,'ball_batch',forbidden_retrieval)
     with pytest.raises(MemoryError,match='no hits truncated'):
         shortlist_audit_batch(q,r,qv,rv)
+
+
+def test_shortlist_requires_actual_native_geometry(monkeypatch):
+    import pytest
+    from vdjmatch.match import tcrdist
+    monkeypatch.setattr(tcrdist.gapblock,'_gapblock_ball_batch',object())
+    with pytest.raises(RuntimeError,match='Python/native positional'):
+        shortlist_audit_batch(['CASSLGQAYEQYF'],['CASSAGQAYEQYF'],['TRBV19*01'],['TRBV7-9*01'])

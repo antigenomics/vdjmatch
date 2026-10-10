@@ -223,6 +223,13 @@ def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,spe
     This audits uniform single-chain retrieval, not annotation confidence.
     """
     import time
+    import inspect
+    for name in ['count_batch','ball_batch']:
+        required={'position_weights_by_length','group_distances'}
+        native=getattr(gapblock,'_gapblock_'+name,None)
+        if (not required <= set(inspect.signature(getattr(gapblock,name)).parameters) or
+                any(k not in (getattr(native,'__doc__',None) or '') for k in required)):
+            raise RuntimeError('shortlist audit requires Python/native positional and grouped ball/count support')
     if type(radius) is not int or radius<0:
         raise ValueError('radius must be a nonnegative integer')
     q,r,options=_total_distance_options(queries,references,query_v,reference_v,
@@ -233,6 +240,7 @@ def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,spe
     start=time.perf_counter()
     counts=gapblock.count_batch(q,r,[[200*radius]]*len(q),exclude_exact=exclude_exact,**options)
     sizes=np.asarray([row[0] for row in counts],dtype=np.int64)
+    # ponytail: conservative object estimate; caller guards actual tree RSS; stream natively if too large.
     estimate=int(sizes.sum())*256
     if estimate>24_000_000_000:
         raise MemoryError('CDR3 shortlist projected sparse payload exceeds24GB; no hits truncated')
