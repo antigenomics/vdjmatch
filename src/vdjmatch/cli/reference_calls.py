@@ -10,6 +10,8 @@ def register(subparsers):
     p.add_argument('--control', help='matching raw repertoire; human TRB has a bundled input')
     p.add_argument('--scope', default='1,0,0,1')
     p.add_argument('--threads', type=int, default=1)
+    p.add_argument('--calibration-score', choices=['E', 'p_enrichment'], default='E',
+                   help='optional recommendation statistic; never filters continuous outputs')
     p.add_argument('--min-target-records', type=int, default=30,
                    help='benchmark query targets only; the searchable reference remains complete')
     p.add_argument('--leave-epitope-out', action='store_true')
@@ -54,17 +56,17 @@ def main(args):
     _, candidates = ann._evidence(q, params, control=control,
         threads=args.threads, exclude_exact=True, exclude_epitopes=exclusions)
     calls = _append_calls(raw, q, candidates, ann.loci, 'vdjmatch_')
+    score = pl.when(pl.col('vdjmatch_status') == 'matched').then(
+        pl.col('vdjmatch_' + args.calibration_score)).otherwise(None).alias('score')
     if args.leave_epitope_out:
-        cases = calls.select('query_id', pl.when(pl.col('vdjmatch_status') == 'matched')
-            .then(pl.col('vdjmatch_p_enrichment')).otherwise(None).alias('score'),
+        cases = calls.select('query_id', score,
             pl.lit('null').alias('outcome'), pl.lit('withheld').alias('null_source'))
     else:
         truth = raw.join(valid, on=['cdr3', 'v', 'j'], nulls_equal=True, validate='1:m').select(
             'query_id', *PMHC).unique()
         predicted = calls.select('query_id', *[pl.col('vdjmatch_'+x).alias(x) for x in PMHC])
         correct = predicted.join(truth, on=['query_id', *PMHC], how='semi', nulls_equal=True)['query_id']
-        cases = calls.select('query_id', pl.when(pl.col('vdjmatch_status') == 'matched')
-            .then(pl.col('vdjmatch_p_enrichment')).otherwise(None).alias('score'),
+        cases = calls.select('query_id', score,
             pl.when(pl.col('query_id').is_in(correct.implode()) & (pl.col('vdjmatch_status') == 'matched'))
             .then(pl.lit('correct')).otherwise(pl.lit('incorrect')).alias('outcome'),
             pl.lit(None, dtype=pl.String).alias('null_source'))

@@ -71,6 +71,10 @@ def test_reference_calls_retains_truth_and_withholds_all_restrictions(tmp_path):
             *(['--leave-epitope-out'] if mode == 'withheld' else [])])
         assert reference_calls.main(args) == 0
         calls = pl.read_csv(str(prefix)+'.calls.tsv', separator='\t')
+        cases = pl.read_csv(str(prefix)+'.calibration-cases.tsv', separator='\t')
+        assert cases['score'].to_list() == calls.select(
+            pl.when(pl.col('vdjmatch_status') == 'matched').then(pl.col('vdjmatch_E'))
+            .otherwise(None))['vdjmatch_E'].to_list()
         assert calls.height == (3 if mode == 'withheld' else 2)
         truth = pl.read_csv(str(prefix)+'.truth.tsv', separator='\t')
         assert truth.height == 3
