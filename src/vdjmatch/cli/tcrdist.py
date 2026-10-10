@@ -14,6 +14,8 @@ def register(subparsers):
     p.add_argument('--mhc-match',choices=['exact','compatible'],default='exact')
     p.add_argument('--targets-from-sample',action='store_true',help='score only each row\'s declared assayed pMHC with compatible MHC resolution')
     p.add_argument('--threads',type=int,default=1)
+    p.add_argument('--junction-ends',choices=['tcrdist','trim3'],default='tcrdist',
+                   help='TCRdist3 trims 3 N/2 C residues; trim3 tests 3 residues at both ends')
     p.add_argument('--radius',type=int,default=90,help='maximum distance; paired uses the alpha+beta sum against one linked reference')
     p.add_argument('--exclude-exact',action='store_true')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
@@ -107,6 +109,7 @@ def main(a):
     if raw['query_id'].null_count() or raw['query_id'].n_unique()!=raw.height:
         raise ValueError('query_id must be non-null and unique')
     organism=_organism(a.species)
+    ctrim=2 if a.junction_ends=='tcrdist' else 3
     paired=a.locus=='paired'
     model=load_v_loops(organism)
     if paired:
@@ -169,10 +172,10 @@ def main(a):
                 qa,qb=part['cdr3a'].to_list(),part['cdr3b'].to_list()
                 ra,rb=reference_part['alpha'].to_list(),reference_part['beta'].to_list()
                 distances=paired_distance_matrix(qa,qb,ra,rb,part['_allelea'].to_list(),part['_alleleb'].to_list(),
-                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads)
+                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads,ctrim=ctrim)
             else:
                 seqs=part['cdr3'].to_list()
-                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads)
+                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim)
             keep=distances<=a.radius
             nonexact=True
             if a.exclude_exact:
@@ -252,6 +255,8 @@ def main(a):
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
         'selection':('exhaustive nearest nonexcluded reference; n_neighbours counts only within radius'
                      if a.unbounded_nearest else 'radius ball'),
-        'distance':'TCRdist3 default3*CDR3+CDR1+CDR2+CDR2.5; '+organism+' combo_xcr_2024-03-05',
+        'distance':('TCRdist3 default' if ctrim==2 else 'experimental symmetric-trim')+
+                   ' 3*CDR3+CDR1+CDR2+CDR2.5; '+organism+' combo_xcr_2024-03-05',
+        'junction_end_trim':{'n_terminal':3,'c_terminal':ctrim},
         'calibration':'none','wall_seconds':time.perf_counter()-start},indent=2)+'\n')
     return 0

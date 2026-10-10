@@ -502,6 +502,13 @@ See :doc:`scoring` for the equations, statistical interpretation and limits.
 Native TCRdist3-compatible distances
 ------------------------------------
 
+``--junction-ends trim3`` is an experimental comparison that removes three
+residues at both junction ends. The default ``--junction-ends tcrdist``
+preserves the TCRdist3 three-N/two-C trim. Both keep full-junction exact
+exclusion and V-loop distances; paired distances use the same option on both
+linked chains. The manifest records the trim and distinguishes the experimental
+geometry from the native default. No confidence calibration is added.
+
 ``vdjmatch tcrdist-neighbours SAMPLE --vdjdb REFERENCE --locus TRB --threads 4
 --radius 90 --exclude-exact --output-prefix OUT`` exports minimum distance and
 neighbour counts per pMHC, plus a separate query-availability table. It reproduces

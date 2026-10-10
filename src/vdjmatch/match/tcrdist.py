@@ -13,9 +13,17 @@ from seqtree import SubstitutionMatrix, amino_acids, gapblock
 
 
 def _gap_prior(i, gap, width):
+    return _gap_window(i, gap, width, 5)
+
+
+def _gap_prior_trim3(i, gap, width):
+    return _gap_window(i, gap, width, 6)
+
+
+def _gap_window(i, gap, width, trimmed):
     if not gap:
         return 0
-    short = width-gap+5  # restore the three N- and two C-terminal trimmed residues
+    short = width-gap+trimmed  # restore full junction coordinates
     low, high = 5, short-5
     while low > high:
         low -= 1
@@ -74,14 +82,15 @@ def _substitution_costs():
                         for c in alphabet] for a in alphabet],dtype=np.int32)
 
 
-def _cdr3_options(threads=1, costs=None):
+def _cdr3_options(threads=1, costs=None, ctrim=2):
     """Native CDR3 geometry; native scores equal2/3 of weighted TCRdist CDR3."""
     costs=_substitution_costs() if costs is None else costs
     return dict(matrix=SubstitutionMatrix.from_similarity((-costs).tolist()),
-                gap_open=8,gap_extend=8,gap_prior=_gap_prior,threads=threads)
+                gap_open=8,gap_extend=8,
+                gap_prior=_gap_prior if ctrim==2 else _gap_prior_trim3,threads=threads)
 
 
-def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False):
+def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2):
     """TCRdist3 default distances in a bounded native batch, maximum64MiB output.
 
     Exact alleles are used; a missing allele suffix explicitly means *01, as in the
@@ -91,7 +100,11 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     TCRdist3 unknown-symbol cost zero (also for stars). Human templates are28 aligned
     positions; mouse TRA templates are29. Callers handle missing calls explicitly.
     ``return_cdr3=True`` returns total and weighted CDR3 matrices separately.
+    ``ctrim=3`` tests removal of three residues at both junction ends; the default
+    remains the TCRdist3 three/two trim. Full junction identity is handled by callers.
     """
+    if isinstance(ctrim,bool) or not isinstance(ctrim,int) or ctrim not in (2,3):
+        raise ValueError('ctrim must be 2 (TCRdist3) or 3 (symmetric trim)')
     if isinstance(threads,bool) or not isinstance(threads,int) or threads<1:
         raise ValueError('threads must be positive')
     queries, references, query_v, reference_v = map(list,(queries,references,query_v,reference_v))
@@ -113,8 +126,8 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
         return (out,out.copy()) if return_cdr3 else out
     alphabet=amino_acids(); d=_substitution_costs()
     # Integer similarities -d produce exactly2*d under seqtree's Gram transform.
-    cdr3=np.array(gapblock.score_matrix([s[3:-2] for s in queries],[s[3:-2] for s in references],
-        **_cdr3_options(threads,d)),copy=True)
+    cdr3=np.array(gapblock.score_matrix([s[3:-ctrim] for s in queries],[s[3:-ctrim] for s in references],
+        **_cdr3_options(threads,d,ctrim)),copy=True)
     cdr3//=2
     cdr3*=3
     out=cdr3.copy() if return_cdr3 else cdr3
@@ -134,7 +147,7 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
 
 def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_beta,
                            query_v_alpha, query_v_beta, reference_v_alpha, reference_v_beta,
-                           *, species='human', threads=1):
+                           *, species='human', threads=1, ctrim=2):
     """Sum alpha/beta distances against the same ordered reference pairs.
 
     Each position identifies one linked receptor pair; independent marginal nearest
@@ -150,6 +163,6 @@ def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_b
     qvb,rvb=(resolve_v_alleles(v,model,locus='TRB').to_list() for v in [qvb,rvb])
     if any(v is None for v in qva+rva+qvb+rvb):
         raise ValueError('linked pair V calls must resolve uniquely to their declared alpha/beta locus')
-    out=distance_matrix(qa,ra,qva,rva,species=species,threads=threads)
-    out+=distance_matrix(qb,rb,qvb,rvb,species=species,threads=threads)
+    out=distance_matrix(qa,ra,qva,rva,species=species,threads=threads,ctrim=ctrim)
+    out+=distance_matrix(qb,rb,qvb,rvb,species=species,threads=threads,ctrim=ctrim)
     return out

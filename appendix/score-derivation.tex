@@ -1,157 +1,140 @@
 \documentclass[10pt,a4paper]{article}
 \usepackage[margin=19mm]{geometry}
-\usepackage{amsmath,amssymb,microtype}
-\usepackage{hyperref}
+\usepackage{amsmath,amssymb,microtype,hyperref}
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{5pt}
-\newcommand{\ind}{\mathbf{1}}
-\newcommand{\F}{\widehat F_q}
 \begin{document}
 \begin{center}
-{\Large A common neighbourhood geometry for reference evidence and background}\par
-{\small Implementation derivation: experimental single-chain matched-PSSM score}
+{\Large Neighbourhood enrichment: distance, background and prior}\par
+{\small Historical correspondence and proposed simpler score; single-chain contract}
 \end{center}
-\textbf{Populations.}
-A query $q$ is a full junction including conserved anchors.
-$R_X$ contains compatible reference junction representatives for epitope $X$;
-$B$ contains unique full control junctions.
-Set $N_X=|R_X|$, $M=|B|$.
-References retain the first source-order V call per junction.
-Exact junction identity is excluded symmetrically, while population denominators
-are retained; unusable references remain in $N_X$ and are reported separately.
-Controls are the declared generation/repertoire population, not other VDJdb epitopes.
-No assumption of naive-cell provenance follows from the score.
+\textbf{Question and counting units.}
+For a query receptor $q$ and epitope $X$, ask whether compatible VDJdb receptors
+are more frequent near $q$ than receptors from a declared background.
+A junction includes its conserved Cys and terminal Phe/Trp anchors.
+Let $R_X$ be the eligible reference population and $B$ the eligible control population;
+$N=|R_X|$ and $M=|B|$ are their sizes.
+The ratios below require $N>0$ and $M>0$; empty populations are unavailable,
+not zero-enrichment observations.
+Use the same observation unit, distance and exact-identity exclusion for both.
+Eligibility and exclusions must precede denominator calculation in the proposed model.
+Historical denominators are preserved separately for reproduction.
 
-\textbf{Geometry.}
-Let $s(a,b)$ be BLOSUM62 and
-$\Delta(a,b)=s(a,a)+s(b,b)-2s(a,b)$ its native nonnegative integer penalty.
-Use $w_{L,j}=\max\{1,\operatorname{round}(100\omega_{L,j})\}$, where
-$\omega$ is the shipped end-anchored empirical significance profile, mean one.
-For aligned residue columns $A(q,r)$, $L=\max(\ell_q,\ell_r)$ and
-$h=|\ell_q-\ell_r|$,
+\textbf{One additive distance.}
+For amino acids $a,b$, let $s(a,b)$ be their BLOSUM62 entry and define
+\[
+c(a,b)=\begin{cases}0,&a=b,\\ \max(0,\min(4,4-s(a,b))),&a\ne b.\end{cases}
+\]
+This is the clipped substitution cost used by TCRdist3, not the BLOSUM Gram penalty.
+Let $\ell_q,\ell_r$ denote junction lengths, $h=|\ell_q-\ell_r|$, and
+$L=\max(\ell_q,\ell_r)$.
+An allowed alignment $A$ has one contiguous length-difference block;
+$(i,j)\in A$ denotes an aligned residue pair, indexed from zero.
+With nonnegative positional weights $w_{L,k}$ and gap charge $g(h)$, use
 \begin{equation}
-d(q,r)=\sum_{(i,j)\in A(q,r)}w_{L,\max(i,j)}\Delta(q_i,r_j)+g(h),
-\quad g(0)=0,\quad g(h)=2800+1400(h-1)\ (h>0).
+\boxed{d(q,r)=d_V(q,r)+
+\min_A\left[3\sum_{(i,j)\in A}w_{L,\max(i,j)}c(q_i,r_j)+g(h)\right].}
 \end{equation}
-The single length-difference block lies after six matched prefix residues,
-clamped to the shorter junction length (Cys index zero).
-Equal lengths have no gap. This is fixed-gap, not general local alignment.
-The cutoff $D=7000$ excludes $h>4$.
-The separate historical V factor $a(q,r)$ is one for identical allele-stripped
-genes, otherwise $0.25\,\mathrm{vsim}(V_q,V_r)$.
-It is not a V-loop likelihood or a CDR1/CDR2/CDR2.5 distance.
+Here $d_V$ is the sum of aligned CDR1, CDR2 and CDR2.5 substitution costs
+from the two V-allele templates; each loop has weight one.
+Missing or unresolved V calls do not imply zero loop distance.
 
-\textbf{One score.}
-Define the nonexact empirical background ball mass and exponential kernel:
-\begin{equation}
-\F(t)=\frac{1}{M}\sum_{b\in B}\ind\{b\ne q,\ d(q,b)\le t\},
-\qquad K_\tau(t)=e^{-t/\tau}\ind\{t\le D\}.
-\end{equation}
-The implemented statistic is
-\begin{equation}\boxed{
-S_X(q;\tau)=\sum_{r\in R_X,\ r\ne q}
-\frac{a(q,r)K_\tau(d(q,r))}{\max\{N_X\F(d(q,r)),\varepsilon\}},
-\quad \varepsilon=0.01,\quad \tau=400\ \text{by default}.}
-\end{equation}
-Writing $n_X^a(t)=\sum_{r\ne q}a(q,r)\ind\{d(q,r)\le t\}$ gives the compact form
-\begin{equation}
-S_X=\int_{[0,D]}\frac{e^{-t/\tau}}{\max\{N_X\F(t),\varepsilon\}}\,dn_X^a(t).
-\end{equation}
-Thus close reference evidence is weighted by the expected unweighted count
-under the identical neighbourhood predicate. No length switch or top-$K$ cap
-is needed in this expression. A single-distance shell with unit V weights
-reduces to $e^{-t/\tau}n_X(t)/\max\{N_X\F(t),\varepsilon\}$.
+\textbf{Flanks versus the junction core.}
+TCRdist3 uses unit interior weights and excludes the first three and last two
+junction residues. The author-requested comparison excludes three at \emph{both} ends.
+Keep full strings for exact-identity exclusion even when end weights are zero:
+different junctions with the same trimmed core are still distinct receptors.
+An alternative is the shipped end-anchored empirical profile:
+\[
+u_{L,k}=1-\max\{p_V(k),p_J(L-1-k)\},\qquad
+w_{L,k}=u_{L,k}\big/\left(L^{-1}\sum_{t=0}^{L-1}u_{L,t}\right).
+\]
+Here $p_V$ and $p_J$ are measured probabilities that a one-substitution
+neighbour shares the epitope, indexed from the V and J ends; distant offsets
+use the last pooled profile value. This discounts germline-rich flanks and
+emphasises the central region. It is not an exact V/NDN/J boundary assignment.
+A separate existing gene-specific retention profile estimates germline origin;
+using it requires a symmetric query/reference weighting rule.
+The ends can still carry gene information, which is represented explicitly by $d_V$.
 
-\textbf{Derivation and statistical meaning.}
-For independent reference draws from the control distribution, a fixed-ball
-count has mean $N_XF_q(t)$ and binomial variance $N_XF_q(t)(1-F_q(t))$.
-Rare balls allow a Poisson approximation.
-This establishes the expected-count denominator, not a P-value for the sum.
-V factors occur only in the numerator: the denominator is not an expected
-V-weighted count. Finite-control uncertainty is not integrated into $S_X$.
-With known $F_q$ and unit V weights,
-\begin{equation}
-\mathbb E_0[S_X]=N_X\int_{[0,D]}
-\frac{e^{-t/\tau}}{\max\{N_XF_q(t),\varepsilon\}}\,dF_q(t)\ne 1
-\quad\text{in general}.
-\end{equation}
-Without the floor, the continuous part is
-$\int e^{-t/\tau}\,d\log F_q(t)$, potentially divergent near zero mass.
-The floor bounds each contribution by $a(q,r)/\varepsilon$.
-It is inherited regularisation, not exact finite-control calibration.
+\textbf{What does $g$ mean?}
+It is a distance penalty, not a similarity reward.
+For TCRdist3 repertoire defaults, $g(h)=12h$: the inner gap cost is four per
+residue and the entire junction distance has outer weight three.
+The gap position is optimised over the restricted central interval.
+This is neither Smith--Waterman nor general multiple-indel alignment.
+An affine alternative has $g(0)=0$ and
+$g(h)=g_{\rm open}+(h-1)g_{\rm extend}$ for $h>0$;
+linear is the special case $g_{\rm open}=g_{\rm extend}$.
+A smoothly varying alternative charge is a different model, not a TCRdist3 default.
+No discontinuous 20-residue route switch is required.
+
 \newpage
-\begin{center}{\large Historical correspondence and limiting cases}\end{center}
-\textbf{Original formula.}
-The original equal-length, at-most-five-substitution density is
+\begin{center}{\large A count ratio with an explicit background}\end{center}
+\textbf{Observed and expected neighbours.}
+Fix a radius $D$ in the units of $d$ before counting.
+It is a radius, not a diameter.
+Write $n$ for the nonexact reference count within $D$, and $m$ for the
+nonexact control count under the identical predicate.
+If background ball probability is $p_B$, a sample of $N$ independent receptors
+from that background has expected count $Np_B$.
+Thus the basic enrichment and its finite-control ranking version are
 \begin{equation}
-S_X^{\mathrm{old}}(q)=
-\sum_{\substack{r\ne q,\ \ell_r=\ell_q\\ h(q,r)\le5}}
-\frac{a(q,r)e^{-p(q,r)/400}}
-{\max\{N_X\widehat F_q^{\mathrm{edit}}(h(q,r)),0.01\}}.
+E=\frac{n/N}{m/M},\qquad
+\boxed{E_J=\frac{n}{N\widetilde p_B},\quad
+\widetilde p_B=\frac{m+1/2}{M+1}.}
 \end{equation}
-Here $p(q,r)$ is the positional BLOSUM penalty and $h(q,r)$ the substitution
-count. The denominator counts the ordinary unit-edit ball, allowing the
-declared historical insertion/deletion scope for controls.
-The numerator and denominator therefore use different geometries.
-This is deliberate reproduction of the earlier implementation.
+The second expression uses the posterior-predictive probability under a
+Jeffreys $\mathrm{Beta}(1/2,1/2)$ prior for the binary background-ball event.
+It leaves $n=0$ at zero and avoids an arbitrary expected-count floor.
+It is a regularised enrichment ranking, not a Bayes factor or a calibrated P-value.
+Always report $n,N,m,M,N\widetilde p_B$ and zero-control support.
+For $m/M>0$ and increasing $M$, $E_J$ approaches $E$;
+with no control hits, its value depends on the available control size.
+If both populations share the same distribution, their unsmoothed population
+frequency ratio is one. Searching radii or selecting the best route requires
+separate inferential calibration; a fixed-ball test cannot be reused unchanged.
 
-Matched mode uses the same positional distance in the kernel and background
-CDF and rescores every accepted nonexact neighbour within $D$.
-It does not add its score to the old density.
-The old and new scores agree only when accepted edges, penalties, V factors
-and background masses agree.
-Equal length alone does not imply this equality.
-The separate additive historical-PSSM experiment retains the old density
-and adds only edges outside the original substitution ball.
+\textbf{Three backgrounds, three questions.}
+A generative V(D)J background measures enrichment beyond recombination accessibility.
+A real control repertoire measures enrichment beyond its observed biological distribution;
+healthy does not establish naive-cell provenance.
+VDJdb excluding $X$ measures separation from other annotated specificities and
+inherits database ascertainment bias.
+They are separate named comparisons, not interchangeable estimates of the same null.
+Sequence $P_{\rm gen}(q)$ is not ball probability $p_B$;
+$P_{\rm gen}$ stratification diagnoses whether one method favours common rearrangements.
+V-loop-inclusive counts require retained V annotations in controls.
+Current historical control loading keeps only unique junctions and discards V/J.
 
-\textbf{Full output score.}
-When the original germline prior is requested, its fusion is preserved:
-\begin{equation}
-T_X(q)=\begin{cases}
-\log(S_X(q)+\eta)+G_X(q),&N_X<500,\\
-S_X(q),&N_X\ge500,
-\end{cases}\qquad\eta=10^{-6}.
-\end{equation}
-Without that option, the output is $S_X$.
-The original prior is a sum over features $f$ (V/J/length for beta,
-V/J for alpha) with category counts $c_{X,f},c_{B_G,f}$ and
-raw prior-background size $M_G$:
-\begin{equation}
-G_X(q)=\sum_f\log\left[
-\frac{(c_{X,f}(f(q))+0.5)/(N_X+30)}
-     {(c_{B_G,f}(f(q))+0.5)/(M_G+30)}\right].
-\end{equation}
-This prior population $B_G$ is separate from the unique-junction control $B$;
-raw multiplicities are retained. The constants and 500-reference switch are
-historical conventions, not consequences of the kernel derivation.
-Original alpha reproduction deliberately uses the declared original beta
-prior background. Neither that choice nor paired cohort-rank fusion defines
-a new probabilistic model.
+\textbf{A prior without double counting.}
+If a categorical V/J prior is wanted instead of embedding that information in
+$d$, let $z$ denote one declared category and $N_z,M_z$ its reference/control sizes.
+Let $n_z,m_z$ be geometric counts within those conditional populations.
+Then the exact unsmoothed factorisation is
+\[
+\frac{N_z/N}{M_z/M}\;\frac{n_z/N_z}{m_z/M_z}
+=\frac{n_z/N}{m_z/M}.
+\]
+The first factor is categorical enrichment; the second is conditional geometric
+enrichment. Multiplying an unconditioned V-loop score by another V prior counts
+related evidence twice. Empty or unavailable strata require explicit dispositions.
 
-\textbf{Limiting cases.}
-\begin{itemize}\setlength{\itemsep}{2pt}
-\item No accepted reference neighbours gives $S_X=0$.
-\item As $\tau\to0$, positive-penalty edges vanish; nonexact zero-penalty edges,
-if present, retain their contribution.
-For positive nonexact penalties, the sparse-reference output tends to
-$\log\eta+G_X$: changing $\tau$ changes density/prior balance, so better
-density ranking need not improve fused ranking.
-\item As $\tau\to\infty$, attenuation disappears within $D$: this remains a
-sum of inverse-background-mass contributions, not one ball-count ratio.
-\item Uniform position weights and forbidden gaps give weighted-BLOSUM
-Hamming geometry; unit substitution penalties give ordinary Hamming geometry.
-\item More controls at fixed distribution stabilise $\widehat F_q$; they do
-not multiply the score by $M$.
-\item Integer penalties, ties, neighbour-set changes and the cutoff remain
-discrete. Exponential weighting does not prove global smoothness.
-\end{itemize}
-\textbf{Verification boundary.}
-The shipping CLI exposes half/default/double scales $\tau=200,400,800$ while
-holding geometry, cutoff, controls and the original comparator fixed.
-These are diagnostic choices, not a fitted optimum or a superiority claim.
-The existing \texttt{p\_enrichment} is the original radius-one component test;
-it does not calibrate $S_X$ or $T_X$.
-The present derivation is single-chain. Stable paired joint scoring,
-joint calibration and integration of V-loop distances remain separate work.
-M3 is outside this derivation.
+\textbf{Historical model and status.}
+Original vdjmatch sums
+$a(q,r)e^{-p(q,r)/400}/\max\{N\widehat F_q^{\rm edit}(H(q,r)),0.01\}$
+over nonexact equal-length neighbours with at most five substitutions.
+Here $a$ is the historical V factor, $p$ the positional BLOSUM Gram penalty,
+$H$ the substitution count, and $\widehat F^{\rm edit}$ the control edit-ball mass.
+The exponential is a historical attenuation heuristic, not a statistical derivation.
+The matched-PSSM experiment substitutes the same positional geometry in that
+background mass, but retains attenuation and, when the original prior is
+requested and $N<500$, the historical
+$\log(S+10^{-6})+G$ fusion, where $S$ is the summed density and $G$ the original
+sum of marginal gene/length log-frequency ratios.
+Otherwise the output remains $S$, including when $N\ge500$.
+Its affine gap is $2800+1400(h-1)$ in different integer units; it is not $12h$.
+Neither kernel choice passed all-task nonregression.
+Equation (2) is the proposed simpler normalisation, not an accepted replacement.
+Old scores remain reproducible; paired joint calibration and M3 are outside this note.
 \end{document}

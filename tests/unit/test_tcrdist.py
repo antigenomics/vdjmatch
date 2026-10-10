@@ -4,6 +4,38 @@ import pytest
 from vdjmatch.match.tcrdist import distance_matrix, load_v_loops, paired_distance_matrix
 
 
+def test_symmetric_end_trim_preserves_full_identity_and_v_evidence(tmp_path):
+    import json
+    import polars as pl
+    from vdjmatch.cli.__main__ import main
+    q='CASSLGQAYEQYF'
+    r=q[:-3]+'W'+q[-2:]
+    genes=['TRBV19*01']*2
+    assert distance_matrix([q],[r],genes[:1],genes[:1]).tolist()==[[12]]
+    assert distance_matrix([q],[r],genes[:1],genes[:1],ctrim=3).tolist()==[[0]]
+    seqs=[q,r,'CASSLGQAPAYEQYF','CTSKGMKF']
+    a=distance_matrix(seqs,seqs,genes*2,genes*2,ctrim=3)
+    b=distance_matrix(seqs,seqs,genes*2,genes*2,ctrim=3,threads=2)
+    assert np.array_equal(a,a.T) and np.array_equal(a,b)
+    # V loops remain informative even when the trimmed junction cores agree.
+    assert distance_matrix([q],[r],genes[:1],['TRBV7-9*01'],ctrim=3)[0,0]>0
+    for invalid in (True,2.0,0,4):
+        with pytest.raises(ValueError,match='ctrim'):
+            distance_matrix([q],[r],genes[:1],genes[:1],ctrim=invalid)
+    query=tmp_path/'q.tsv';reference=tmp_path/'r.tsv';prefix=tmp_path/'out'
+    pl.DataFrame({'junction_aa':[q],'v_call':genes[:1],'locus':['TRB']}).write_csv(query,separator='\t')
+    pl.DataFrame({'cdr3':[q,r],'v':genes,'gene':['TRB']*2,'epitope':['E']*2,
+                  'species':['HomoSapiens']*2}).write_csv(reference,separator='\t')
+    assert main(['tcrdist-neighbours',str(query),'--vdjdb',str(reference),'--locus','TRB',
+                 '--junction-ends','trim3','--exclude-exact','--radius','0',
+                 '--output-prefix',str(prefix)])==0
+    out=pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t')
+    assert out['distance'].to_list()==[0] and out['n_neighbours'].to_list()==[1]
+    manifest=json.loads((tmp_path/'out.manifest.json').read_text())
+    assert manifest['junction_end_trim']=={'n_terminal':3,'c_terminal':3}
+    assert manifest['distance'].startswith('experimental symmetric-trim')
+
+
 def test_native_matches_tcrdist3_germline_and_cdr3_oracle():
     junctions=['CTSKGMKF','CPNKNINGEEPQLCF','CGNKELKNMHITGNARHAGFF','CSTNRTCCVAFAATHEDQYMWMNQTSYRWF']
     genes=['TRBV19*01','TRBV7-9*01','TRBV5-1*01','TRBV20-1*01']

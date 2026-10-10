@@ -1,14 +1,82 @@
 Neighbourhood score: formula and interpretation
 ===============================================
 
+Simpler count model under development
+-------------------------------------
+
+For a fixed distance radius :math:`D`, let :math:`n` be the number of
+eligible nonexact epitope-reference receptors in the ball, :math:`N` the
+reference population size, :math:`m` the corresponding control count and
+:math:`M` its population size. Both population sizes must be positive;
+an empty population is unavailable rather than zero evidence.
+A direct enrichment statistic is
+
+.. math::
+
+   E=\frac{n/N}{m/M},\qquad
+   E_J=\frac{n}{N\widetilde p_B},\qquad
+   \widetilde p_B=\frac{m+1/2}{M+1}.
+
+The last expression uses the Jeffreys posterior-predictive probability
+for a binary background-ball event. It keeps no-neighbour evidence
+(:math:`n=0,N>0`) at zero
+and gives a finite denominator without the historical 0.01 floor.
+It is a proposed regularised ranking statistic, not a Bayes factor,
+P-value or accepted replacement. Counts, eligible populations, exclusion
+rules and distance must agree between reference and control.
+
+An additive TCRdist-like geometry uses clipped BLOSUM costs, explicit
+positional weights, a linear gap charge and aligned V loops:
+
+.. math::
+
+   c(a,b)=\begin{cases}0,&a=b,\\
+        \max(0,\min(4,4-s(a,b))),&a\ne b,\end{cases}
+
+   d(q,r)=d_V(q,r)+\min_A\left[
+       3\sum_{(i,j)\in A}w_{L,\max(i,j)}c(q_i,r_j)+12h\right].
+
+Here :math:`s` is BLOSUM62, :math:`q,r` are full junctions,
+:math:`d_V` sums aligned CDR1/CDR2/CDR2.5 costs, :math:`A` is an allowed
+single-block alignment, :math:`h` is the length difference, :math:`L`
+the longer length and :math:`w` the positional weight. TCRdist3 uses unit
+interior weights with three N-terminal and two C-terminal residues excluded.
+The CLI's opt-in ``tcrdist-neighbours --junction-ends trim3`` excludes
+three residues at each end. Exact exclusion still compares full junctions.
+The existing empirical flank/core profile supplies a separate weighting
+alternative; it is not an exact gene-specific NDN boundary annotation.
+
+Generative controls measure recombination accessibility, real controls
+measure observed repertoire composition, and VDJdb excluding the target
+measures separation from other annotated specificities. These are different
+background questions. Healthy control metadata does not establish naive-cell
+provenance. Sequence Pgen is not the probability of an entire distance ball.
+The current historical control loader discards V/J: it cannot calibrate
+a V-loop-inclusive total distance. That count implementation remains open.
+
+V evidence already included in the distance must not be multiplied by a
+second unconditional V prior. For a separately declared categorical
+stratum :math:`z`, with population sizes :math:`N_z,M_z` and conditional
+ball counts :math:`n_z,m_z`, a coherent unsmoothed factorisation is
+
+.. math::
+
+   \frac{N_z/N}{M_z/M}\frac{n_z/N_z}{m_z/M_z}
+   =\frac{n_z/N}{m_z/M}.
+
+Read the :download:`revised derivation source <../appendix/score-derivation.tex>`
+for gap schemes, historical correspondence, symbols and limiting cases.
+The document editor compiles its current preview; the older repository PDF
+has not been re-exported for this revision.
+
+Implemented historical and matched-kernel experiments
+-----------------------------------------------------
+
 The experimental ``matched-pssm`` score uses one positional distance for both
 reference neighbours and control counts. It is a background-normalised ranking
 statistic. It has not replaced the default annotation scorer or acquired a
 calibrated P-value. These equations describe the implemented single-chain score;
 paired joint scoring remains a separate contract.
-
-Download the :download:`two-page derivation <../appendix/score-derivation.pdf>`
-or its :download:`editable LaTeX source <../appendix/score-derivation.tex>`.
 
 Populations and geometry
 ------------------------
