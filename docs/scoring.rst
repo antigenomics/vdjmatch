@@ -368,3 +368,26 @@ Original annotation remains the default; M3 remains deferred.
 The general expectation-one and conservative conversion are discussed by
 `Vovk and Wang <https://arxiv.org/abs/1912.06116>`_. The particular reciprocal-rank
 alternative and censoring construction above are this package's explicit model.
+
+Uncensored nearest-reference rank (experimental)
+------------------------------------------------
+
+``tcrdist-neighbours --nearest-rank --unbounded-nearest --background ...``
+adds a separate ``nearest_rank_score`` using uniform junction/V geometry.
+For each query, controls are counted at its exhaustive nearest target distance,
+including all distance ties. Linked receptors use the alpha+beta distance to
+one linked reference pair. This recovers distance resolution when both fixed
+radius balls are empty, without a radius scan or a fitted combination.
+
+With eligible target/control populations ``N``/``M`` and ``m_nearest`` controls
+at or below that distance, ``p_nearest_unbounded`` is the hypergeometric
+first-target tail with population ``N+M``, ``N`` target labels and draw size
+``m_nearest+1``. The ranking score is its negative; upper ties are conservative.
+Empty populations remain unavailable. Native batched counts use the same V
+costs, junction trimming, population keys and optional exact puncture as the
+nearest search. Fixed-radius outputs and the averaged rank score are preserved.
+
+This is a conditional exchangeable-label statistic, not biological confidence,
+an E-value, a selected-label calibration or a replacement deployment cutoff.
+Paired generated/real backgrounds remain undefined. Original annotation stays
+the default; promotion requires all-task and full-reference nonregression.

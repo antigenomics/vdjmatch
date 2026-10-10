@@ -30,6 +30,7 @@ def register(subparsers):
     p.add_argument('--radius',type=int,default=90,help='maximum distance; paired uses the alpha+beta sum against one linked reference')
     p.add_argument('--exclude-exact',action='store_true')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
+    p.add_argument('--nearest-rank',action='store_true',help='experimental background rank at the exhaustive nearest target distance; uniform geometry only')
     p.add_argument('--shortlist-audit',action='store_true',help='audit actual CDR3-only radius retrieval and unchanged V costs; uniform single-chain only')
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
@@ -116,6 +117,8 @@ def main(a):
     if a.threads<1 or a.radius<0:raise ValueError('positive threads and nonnegative radius required')
     if a.unbounded_nearest and not a.targets_from_sample:
         raise ValueError('--unbounded-nearest requires --targets-from-sample')
+    if a.nearest_rank and (not a.background or not a.unbounded_nearest or a.position_weighting!='uniform'):
+        raise ValueError('--nearest-rank requires a background, --unbounded-nearest and uniform geometry')
     if a.shortlist_audit and (a.locus=='paired' or not a.targets_from_sample or
                              not a.unbounded_nearest or a.position_weighting!='uniform' or a.v_loop_weight!=1):
         raise ValueError('--shortlist-audit requires uniform single-chain target/nearest mode with V weight1')
@@ -194,13 +197,14 @@ def main(a):
                      position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear,v_loop_weight=a.v_loop_weight)
         def boundaries(sequences,genes):
             return [boundary_map[(s,v)] for s,v in zip(sequences,genes)]
-        def counts(part,population):
+        def counts(part,population,thresholds=None):
             if not part.height:
                 return [],[],np.zeros((0,a.radius+1),dtype=np.uint64) if local else None
             if not population.height:
                 return [0]*part.height,[0.0]*part.height,np.zeros((part.height,a.radius+1),dtype=np.uint64) if local else None
             count_start=time.perf_counter()
-            thresholds=[list(range(0,200*a.radius+1,200))]*part.height if local else [[200*a.radius]]*part.height
+            if thresholds is None:
+                thresholds=[list(range(0,200*a.radius+1,200))]*part.height if local else [[200*a.radius]]*part.height
             if paired:
                 native=paired_total_distance_mass_batch(
                     part['cdr3a'].to_list(),part['cdr3b'].to_list(),
@@ -409,6 +413,35 @@ def main(a):
     schema={'query_id':q.schema['query_id'],**{c:pl.String for c in PMHC},'distance':pl.Int32,'n_neighbours':pl.UInt32}
     out=pl.concat(rows) if rows else pl.DataFrame(schema=schema)
     out=out.sort('query_id','distance',*PMHC,nulls_last=True)
+    if a.nearest_rank:
+        from scipy.stats import hypergeom
+        rank_start=time.perf_counter();nearest_rows=[]
+        for task,part,_ in groups:
+            unique=part.unique(query_keys,maintain_order=True)
+            nearest=unique.join(out.select('query_id','distance'),on='query_id',how='inner',validate='1:1')
+            if not nearest.height:continue
+            population=(r.filter(pl.col('epitope')!=task['epitope']).unique(search_keys,maintain_order=True)
+                        if a.background=='vdjdb-other' else controls)
+            thresholds=[[200*int(d)] for d in nearest['distance']]
+            m,_,_=counts(nearest,population,thresholds=thresholds)
+            values=nearest.select(*query_keys,'query_id').with_columns(pl.Series('nearest_rank_control_count',m,dtype=pl.UInt64))
+            nearest_rows.append(part.select('query_id',*query_keys).join(values.drop('query_id'),on=query_keys,how='inner',validate='m:1').drop(query_keys))
+        nearest_fields=(pl.concat(nearest_rows) if nearest_rows else pl.DataFrame(schema={
+            'query_id':q.schema['query_id'],'nearest_rank_control_count':pl.UInt64}))
+        for i,evidence in enumerate(enrichment_rows):
+            evidence=evidence.join(nearest_fields,on='query_id',how='left',validate='1:1')
+            usable=(evidence['reference_population']>0)&(evidence['control_population']>0)&evidence['nearest_rank_control_count'].is_not_null()
+            tail=np.full(evidence.height,np.nan)
+            if usable.any():
+                n=evidence.filter(usable);N=n['reference_population'].to_numpy();M=n['control_population'].to_numpy()
+                tail[usable.to_numpy()]=hypergeom.sf(0,N+M,N,n['nearest_rank_control_count'].to_numpy()+1)
+            enrichment_rows[i]=evidence.with_columns(pl.Series('p_nearest_unbounded',tail,nan_to_null=True)).with_columns(
+                (-pl.col('p_nearest_unbounded')).alias('nearest_rank_score'),
+                pl.when(pl.col('p_nearest_unbounded').is_not_null()).then(pl.lit('conditional_rank_model_only'))
+                .when(pl.col('enrichment_status')=='empty_population').then(pl.lit('empty_population'))
+                .otherwise(pl.lit('no_nonexcluded_reference')).alias('nearest_rank_status'))
+        background_costs['unbounded_nearest_rank']=time.perf_counter()-rank_start
+        background_costs['total']+=background_costs['unbounded_nearest_rank']
     if paired:
         status=pair_rows.select(*[c for c in ['query_id','pair_id','clone_id','query_ida','query_idb',
             'sequence_ida','sequence_idb','species',*PMHC] if c in pair_rows.columns],'available','status',
@@ -459,6 +492,11 @@ def main(a):
             enrichment=enrichment.with_columns(
                 *(pl.lit(None,dtype=pl.Float64).alias(k) for k in ['rank_bayes_factor','p_rank_bound','p_nearest_rank','posterior_rank_signal','rank_signal_prior']),
                 pl.lit(None,dtype=pl.String).alias('rank_model_status'))
+        if a.nearest_rank and not enrichment_rows:
+            enrichment=enrichment.with_columns(
+                pl.lit(None,dtype=pl.UInt64).alias('nearest_rank_control_count'),
+                *(pl.lit(None,dtype=pl.Float64).alias(k) for k in ['p_nearest_unbounded','nearest_rank_score']),
+                pl.lit(None,dtype=pl.String).alias('nearest_rank_status'))
         enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
@@ -503,5 +541,10 @@ def main(a):
             'prior':a.rank_signal_prior,'sampling_status':'exchangeability is not established by source declaration; generated draws versus distinct references may violate it',
             'selection':'fixed radius, geometry and target; no selected-route or multiple-target calibration'}}
            if a.neighbour_weighting=='local-rank' else {}),
+        **({'nearest_rank_model':{'score_column':'nearest_rank_score','formula':'-hypergeom.sf(0,N+M,N,m_nearest+1)',
+            'distance':'exhaustive nearest full CDR3+V distance to the same linked reference; controls counted at that exact distance',
+            'ties':'all control ties included; conservative first-reference tail',
+            'sampling_status':'conditional exchangeable-label model only; no biological confidence, E-value or selected-label calibration',
+            'selection':'no radius scan or fitted blend; fixed-radius fields unchanged'}} if a.nearest_rank else {}),
         'calibration':'none','wall_seconds':time.perf_counter()-start},indent=2)+'\n')
     return 0
