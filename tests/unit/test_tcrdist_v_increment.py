@@ -11,12 +11,14 @@ def test_v_increment_matches_dense_components_and_linked_counts():
     assert np.array_equal(distance_matrix(q,r,qv,rv,v_loop_weight=0),cdr3)
     limits=[0,*sorted(set((200*cdr3).ravel().tolist()+(200*full).ravel().tolist()))]
     for weight,expected in [(0,cdr3),(1,full)]:
-        count=total_distance_count_batch(q,r,qv,rv,[limits],v_loop_weight=weight)
+        count,mass=total_distance_count_batch(q,r,qv,rv,[limits],v_loop_weight=weight,linear_mass=True)
         assert count==[[(200*expected[0]<=t).sum() for t in limits]]
+        assert mass==[[np.maximum(0,t-200*expected[0]).sum() for t in limits]]
     alpha=['CAVRDSNYQLIW'];av=['TRAV12-2*01'];arv=['TRAV21*01']*2
     pair=paired_distance_matrix(alpha,q,alpha*2,r,av,qv,arv,rv,v_loop_weight=0)
-    counts,_=paired_total_distance_mass_batch(alpha,q,alpha*2,r,av,qv,arv,rv,[limits],v_loop_weight=0)
+    counts,mass=paired_total_distance_mass_batch(alpha,q,alpha*2,r,av,qv,arv,rv,[limits],v_loop_weight=0)
     assert counts==[[(200*pair[0]<=t).sum() for t in limits]]
+    assert mass==[[np.maximum(0,t-200*pair[0]).sum() for t in limits]]
     # Native exact puncturing remains full junction based, even when V differs.
     assert total_distance_count_batch(q,q,qv,rv[:1],[[0]],v_loop_weight=0,exclude_exact=True)==[[0]]
     for invalid in [True,.5,2,-1]:
