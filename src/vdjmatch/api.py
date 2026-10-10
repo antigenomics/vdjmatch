@@ -183,6 +183,7 @@ class Annotator:
         soft_v=True,
         exclude_exact=False,
         radii=None,
+        background_mass=False,
     ):
         if match_v and q.height and q["v"].null_count():
             raise ValueError("match_v requires a V call on every retained query")
@@ -252,7 +253,7 @@ class Annotator:
                     selected, self._index.records_for(gene), selected_controls,
                     control_size=len(ctrl) if ctrl is not None else None,
                     score_scale=score_scale, soft_v=soft_v,
-                    match_v=match_v, match_j=match_j,
+                    match_v=match_v, match_j=match_j, background_mass=background_mass,
                 )
                 if radius is not None:
                     c = c.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius"))
@@ -303,6 +304,21 @@ class Annotator:
             h, c = pl.concat(hs, how="diagonal_relaxed"), pl.concat(cs, how="diagonal_relaxed")
         if "radius" not in c.columns:
             c = c.with_columns(pl.lit(None, dtype=pl.UInt16).alias("radius"))
+        return (h, c) if return_hits else c
+
+    def unified_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
+                           threads=1, control=None, species=None, exclude_exact=False,
+                           sequence_convention=None, return_hits=False, distance="edit"):
+        """Experimental fixed-ball background-mass evidence for a selected distance.
+
+        Both edit and anchored BLOSUM62 gap-block distances cover all query lengths.
+        No length switch, label-dependent route or top-K cap.
+        Sequence-only controls do not provide V-conditioned or paired calibration.
+        """
+        from .match.unified import unified_evidence
+        _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
+        h, c = unified_evidence(self, q, threads=threads, control=control,
+                                species=species, exclude_exact=exclude_exact, distance=distance)
         return (h, c) if return_hits else c
 
     def ranked_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,

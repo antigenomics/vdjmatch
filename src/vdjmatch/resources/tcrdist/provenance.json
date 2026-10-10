@@ -1,0 +1,8 @@
+{
+  "source": "https://github.com/kmayerb/tcrdist3/blob/master/tcrdist/db/combo_xcr_2024-03-05.tsv",
+  "installed_distribution": "tcrdist3==0.3",
+  "source_sha256": "1d7fcac37ad6d955b3a3f693526e36623186464aef2c528cf8e0322dc89706cd",
+  "selection": "human; region V; chain A or B; first three aligned cdrs fields",
+  "alleles": 245,
+  "source_selected_rows": 348
+}

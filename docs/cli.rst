@@ -369,3 +369,67 @@ The experimental fixed-K annotation mode and ``--top-k`` option have been
 removed from the CLI and sample runner. The lower-level
 ``Annotator.ranked_candidates`` research API remains available for reproducing
 historical diagnostics; it is not the production annotation workflow.
+
+Experimental background-mass components
+---------------------------------------
+
+``match --search-mode unified --matrix none --unified-distance edit`` evaluates
+an experimental five-edit ball (at most two insertions and two deletions).
+``--unified-distance gapblock`` instead evaluates an anchored BLOSUM62
+single-gap penalty ball at every query length. There is no length switch or
+neighbour cap. These are component diagnostics, not a validated combined scorer.
+The default fixed-mode scorer is unchanged.
+
+Both components rank a pMHC by ``M/N * sum(1/(b(d)+1))`` over its distinct matched
+junctions: ``M`` is the number of unique control junctions, ``N`` the pMHC
+reference junction count, and ``b(d)`` the number of controls at distance at most
+that neighbour's distance. The existing ``ned_score`` column carries this score;
+``estimator=background-mass-v1`` distinguishes it from NED. Fixed-ball Poisson
+statistics are separate model-conditional evidence, not posterior specificity.
+The gap-block cutoff is five BLOSUM62 scale units, gap opening two units and
+extension one unit, with allowed starts 3, 4, -4 and -3. Target and control use
+the same predicate and exact-hit exclusion. Native dense distance buffers are
+bounded to 64 MiB per query batch and reduced immediately.
+
+These experimental components require unique sequence controls. Paired input,
+V/J restrictions, matrix overrides and disabling controls are rejected. They do
+not implement germline-loop calibration or establish improvements over existing
+results. Use their labelled output tables to evaluate both geometries on the
+same observations before developing a combined score.
+
+Historical PSSM density baseline
+--------------------------------
+
+``vdjmatch historical-density SAMPLE --vdjdb REFERENCE --locus TRB
+--epitope NLVPMVATV --mhc-a 'HLA-A*02:01' --threads 4 --output-prefix OUT``
+recomputes the historical single-chain density component from raw controls.
+Use ``--control TABLE`` for a supplied control (required for nonbundled loci).
+It uses positional BLOSUM62 penalties within five substitutions, soft V-loop
+weights, temperature 400 and the historical control-density floor of 0.01.
+The original unit-distance significance calculation is reported separately.
+Exact junction matches are excluded on both sides. Query identities remain
+separate even when their sequences coincide. For reproduction only, the first
+source-order V representative is used within each pMHC/junction group.
+
+This baseline omits the manuscript's sparse-reference germline prior and paired
+cohort rank fusion. Its manifest states these omissions; reproducing this
+component does not establish reproduction of the complete manuscript scorer.
+
+Native TCRdist3-compatible distances
+------------------------------------
+
+``vdjmatch tcrdist-neighbours SAMPLE --vdjdb REFERENCE --locus TRB --threads 4
+--radius 90 --exclude-exact --output-prefix OUT`` exports minimum distance and
+neighbour counts per pMHC, plus a separate query-availability table. It reproduces
+the human default TCRdist3 distance: three times the trimmed, restricted-gap CDR3
+distance, plus aligned V-gene CDR1, CDR2 and CDR2.5 distances. The bundled loop
+model and its license/provenance are under ``resources/tcrdist``. Missing allele
+suffixes explicitly resolve to ``*01``; unknown alleles and junctions shorter
+than eight residues remain unavailable in the query table. This command reports
+distances, not specificity probabilities. Paired-chain scoring is not implemented
+by this command.
+
+The existing seqtree gap-block batch kernel computes CDR3 distances; vectorized
+lookups add germline-loop distances. Distance matrices are bounded to 64 MiB per
+batch. A clipped BLOSUM-derived matrix reproduces TCRdist penalties; ordinary
+seqtree BLOSUM Gram penalties are a different metric.
