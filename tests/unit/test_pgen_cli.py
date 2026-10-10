@@ -1,5 +1,6 @@
 """Marginal full-junction CLI preserves raw rows and delegates to native Pgen."""
 import json
+from pathlib import Path
 from importlib.resources import files
 
 import numpy as np
@@ -127,3 +128,48 @@ def test_reserved_internal_column_rejected(tmp_path,model_path,capsys):
     with pytest.raises(SystemExit):
         run(tmp_path,model_path,pl.DataFrame({'junction_aa':['CAVRDSNYQLIW'],'_pgen_locus':['TRA']}))
     assert 'reserved' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('rich',[False,True])
+def test_vdjdb_zip_preserves_reference_observations(tmp_path,model_path,rich):
+    import zipfile
+    from vdjmatch import db
+    seq='CAVRDSNYQLIW'
+    if rich:
+        # Reuse the existing tiny release producer, with two alpha observations.
+        from test_releases import rich_tables
+        directory=tmp_path/'tables';rich_tables(directory)
+        chains=pl.read_csv(directory/'chains.tsv',separator='\t').with_columns(
+            pl.when(pl.col('record_id')=='R2').then(pl.lit('TRA')).otherwise(pl.col('gene')).alias('gene'),
+            pl.when(pl.col('gene')!='TRB').then(pl.lit(seq)).otherwise(pl.col('cdr3')).alias('cdr3'))
+        # The second expression sees original TRB; set its newly selected alpha explicitly.
+        chains=chains.with_columns(pl.when(pl.col('gene')=='TRA').then(pl.lit(seq)).otherwise(pl.col('cdr3')).alias('cdr3'))
+        chains.write_csv(directory/'chains.tsv',separator='\t')
+        pl.DataFrame({'record_id':['R1'],'evidence_id':['E1'],'evidence_type':['independent_study']}).write_csv(
+            directory/'evidence.tsv',separator='\t')
+        archive=tmp_path/'rich.zip'
+        with zipfile.ZipFile(archive,'w') as zf:
+            for path in directory.iterdir():zf.write(path,path.name)
+    else:
+        archive=tmp_path/'legacy.zip'
+        with zipfile.ZipFile(archive,'w') as zf:
+            zf.writestr('release/vdjdb.txt','gene\tcdr3\tv.segm\tj.segm\tspecies\tantigen.epitope\treference.id\tmethod\n'+
+                f'TRA\t{seq}\tTRAV1\tTRAJ1\tHomoSapiens\tPEP\tPMID:1\tfirst\n'+
+                f'TRA\t{seq}\tTRAV2\tTRAJ2\tHomoSapiens\tPEP\tPMID:2\tsecond\n'+
+                'TRB\tCASSF\tTRBV1\tTRBJ1\tHomoSapiens\tPEP\tPMID:3\tother\n')
+    expected=db.load(archive,species='HomoSapiens',gene='TRA')
+    prefix=tmp_path/'reference-pgen'
+    assert main(['pgen',str(archive),'--vdjdb','--model-path',model_path,'--species','human',
+                 '--locus','TRA','--output-prefix',str(prefix)])==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t',infer_schema_length=0)
+    assert out.height==expected.height==2 and out['query_id'].to_list()==['0','1']
+    assert out['junction_aa'].to_list()==[seq,seq] and out['pgen'].n_unique()==1
+    assert out['reference_id'].to_list()==expected['reference_id'].to_list()
+    assert out['v_call'].to_list()==expected['v'].to_list()
+    for column in ('record_id','clonotype_id','method_verification') if rich else ('method',):
+        assert out[column].to_list()==expected[column].cast(pl.String).to_list()
+    if rich:
+        assert json.loads(out['evidence'][0])['evidence'][0]['evidence_id']=='E1'
+    manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
+    assert manifest['input_format']=='vdjdb' and manifest['reference']['input_sha256']==db.provenance(archive)['input_sha256']
+    assert manifest['counts']['input_rows']==2

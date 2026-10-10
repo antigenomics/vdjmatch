@@ -42,3 +42,29 @@ native probabilities fail the command instead of being clipped or exported.
 ``result.manifest.json`` records the exact computation contract. Positive
 ``--threads`` caps native workers and the CLI's table-thread budget; no outer worker
 pool or computed-intermediate cache is used.
+
+VDJdb reference observations
+----------------------------------------
+
+Use ``--vdjdb`` to read a frozen local legacy or rich reference ZIP through the
+same database loader used for annotation::
+
+   vdjmatch pgen reference.zip --vdjdb --model-path /path/to/raw/model \
+       --species human --locus TRA --threads 12 --output-prefix reference-tra
+
+The loader selects the declared receptor species and locus. Every normalized
+reference observation in that selection is retained, including repeated junctions
+and its ``reference_id``, peptide, MHC and other metadata. The command projects
+internal ``cdr3/v/j/gene`` fields to ``junction_aa/v_call/j_call/locus`` without
+renaming or dropping the original columns. Legacy VDJdb ``cdr3`` is a full
+anchor-inclusive junction under the database loader's source contract.
+Nested rich metadata is exported as JSON cells using the existing flat-table
+exporter. ``query_id`` is the selected loader row ordinal when not supplied.
+
+The manifest declares ``input_format=vdjdb`` and records ``db.provenance`` together
+with the reference loader/normalizer hashes. Row counts refer to the selected
+normalized reference observations, rather than all records in the archive.
+Pgen remains marginal over the model's V/J alleles; database V/J annotations,
+epitopes and study metadata do not condition it. Local reference tables and
+release directories are also supported by the existing loader. AIRR remains the
+default when ``--vdjdb`` is absent.

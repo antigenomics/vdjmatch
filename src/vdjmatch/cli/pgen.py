@@ -4,7 +4,8 @@ from pathlib import Path
 
 def register(subparsers):
     p = subparsers.add_parser('pgen', help='marginal full-junction generation probability')
-    p.add_argument('sample', help='AIRR table containing anchor-inclusive junction_aa')
+    p.add_argument('sample', help='AIRR junction table, or a local reference with --vdjdb')
+    p.add_argument('--vdjdb', action='store_true', help='load SAMPLE as a local VDJdb reference table, ZIP or directory')
     p.add_argument('--model-path', required=True, help='explicit native vdjtools raw model directory')
     p.add_argument('--species', required=True, help='human or mouse (standard species aliases accepted)')
     p.add_argument('--locus', choices=['TRA', 'TRB'], required=True)
@@ -54,7 +55,17 @@ def main(a):
     hashes = {path.name: sha256(path) for path in sorted(paths)}
     model_hash = hashlib.sha256(''.join(f'{name}\t{digest}\n' for name, digest in hashes.items()).encode()).hexdigest()
 
-    raw = _read_table(a.sample)
+    reference = None
+    if a.vdjdb:
+        from .. import db
+        raw = db.load(a.sample, species={'human': 'HomoSapiens', 'mouse': 'MusMusculus'}[organism], gene=a.locus)
+        reference = {**db.provenance(a.sample),
+                     'loader_sha256': sha256(Path(db.load.__code__.co_filename)),
+                     'normalizer_sha256': sha256(Path(db.schema.normalize.__code__.co_filename))}
+        raw = raw.with_columns(pl.col('cdr3').alias('junction_aa'), pl.col('v').alias('v_call'),
+                               pl.col('j').alias('j_call'), pl.col('gene').alias('locus'))
+    else:
+        raw = _read_table(a.sample)
     if 'query_id' not in raw.columns:
         raw = raw.with_row_index('query_id')
     if raw['query_id'].null_count() or raw['query_id'].n_unique() != raw.height:
@@ -100,18 +111,23 @@ def main(a):
         pl.col('pgen').is_not_null().alias('available')).drop('_pgen_locus')
     prefix = Path(a.output_prefix)
     prefix.parent.mkdir(parents=True, exist_ok=True)
-    rows.write_csv(str(prefix) + '.scores.tsv', separator='\t')
+    from .__main__ import _flat_table
+    _flat_table(rows).write_csv(str(prefix) + '.scores.tsv', separator='\t')
     manifest = {
         'estimator': 'marginal-full-junction-pgen-v1',
         'probability': 'P(junction_aa), summed over all model V/J and recombination scenarios; mismatches=0',
-        'sequence_contract': 'AIRR junction_aa includes conserved anchors; no anchor fabrication',
-        'sample': {'sha256': sha256(Path(a.sample))},
+        'sequence_contract': 'full anchor-inclusive junction; AIRR junction_aa or normalized VDJdb cdr3; no anchor fabrication',
+        'input_format': 'vdjdb' if a.vdjdb else 'airr',
+        'reference': reference,
+        'sample': {'sha256': sha256(Path(a.sample))} if Path(a.sample).is_file() else reference,
         'model': {'sha256': model_hash, 'files': hashes, 'metadata': json.loads(model.manifest.to_json()),
                   'collapse_alleles': False, 'anchor_repair': 'vdjtools load_model'},
         'software': {'vdjmatch': version('vdjmatch'), 'vdjtools': version('vdjtools'),
                      'native_sha256': sha256(Path(_core.__file__)), 'cli_sha256': sha256(Path(__file__)),
-                     'model_io_sha256': sha256(Path(model_io.__file__)), 'native_bridge_sha256': sha256(Path(native.__file__))},
-        'options': {'species': organism, 'locus': a.locus, 'threads': a.threads},
+                     'model_io_sha256': sha256(Path(model_io.__file__)), 'native_bridge_sha256': sha256(Path(native.__file__)),
+                     'formatter_sha256': sha256(Path(_flat_table.__code__.co_filename))},
+        'options': {'species': organism, 'locus': a.locus, 'threads': a.threads,
+                    'model_path': str(model_path.resolve()), 'sample': str(Path(a.sample).resolve()), 'vdjdb': a.vdjdb},
         'counts': {'input_rows': raw.height, 'native_rows': selected.height,
                    'dispositions': dict(rows.group_by('status').len().iter_rows())},
         'ingestion': ingestion, 'timing_seconds': {'native_batch': native_wall, 'total': time.perf_counter() - start},
