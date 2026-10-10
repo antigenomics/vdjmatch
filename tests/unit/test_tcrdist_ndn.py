@@ -45,6 +45,8 @@ def test_boundary_annotation_preserves_identity_and_conflicts(monkeypatch):
     clean=annotate_ndn_boundaries(frame.head(2),species='human')
     assert clean['v_end'].to_list()==[4,4] and clean['j_start'].to_list()==[9,9]
     assert clean['boundary_status'].to_list()==['annotated']*2
+    equivalent=frame.head(2).with_columns(pl.Series('j',['TRBJ2-7','TRBJ2-7*01']))
+    assert annotate_ndn_boundaries(equivalent,species='human')['boundary_status'].to_list()==['annotated']*2
 
 
 def test_ndn_cli_exports_boundaries_and_retains_unavailable_queries(tmp_path):

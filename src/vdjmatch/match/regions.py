@@ -164,7 +164,10 @@ def annotate_ndn_boundaries(frame, *, species):
     keys=['cdr3','_allele']
     if 'j' not in frame.columns:
         frame=frame.with_columns(pl.lit(None,dtype=pl.String).alias('j'))
-    catalog=frame.group_by(keys,maintain_order=True).agg(pl.col('j').unique().alias('_j_calls'))
+    calls=frame.with_columns(pl.col('j').str.strip_chars().str.to_uppercase().alias('_boundary_j'))
+    calls=calls.with_columns(pl.when(pl.col('_boundary_j').str.contains(r'[,;+|*]') | (pl.col('_boundary_j')==''))
+        .then(pl.col('_boundary_j')).otherwise(pl.col('_boundary_j')+'*01').alias('_boundary_j'))
+    catalog=calls.group_by(keys,maintain_order=True).agg(pl.col('_boundary_j').unique().alias('_j_calls'))
     catalog=catalog.with_columns(
         pl.when(pl.col('_j_calls').list.len()==1).then(pl.col('_j_calls').list.first()).alias('_j'),
         pl.when(pl.col('_j_calls').list.len()!=1).then(pl.lit('conflicting_j_uniform'))
