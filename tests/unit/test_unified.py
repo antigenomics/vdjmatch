@@ -48,3 +48,78 @@ def test_duplicate_controls_rejected_and_metadata_stable():
     assert exact["query_pair_id"].to_list() == ["qp1", "qp2"]
     assert exact["sequence_id"].to_list() == ["r1", "r2"]
     assert exact["pair_id"].to_list() == ["rp1", "rp2"]
+
+
+def test_gapped_extension_preserves_original_edges_and_skips_control_search(monkeypatch):
+    from vdjmatch.match.unified import gapped_extension
+    q='CASSLGQAYEQYF'
+    queries=pl.DataFrame({'query_id':['a'],'cdr3':[q],'v':['TRBV19']})
+    refs=pl.DataFrame({'cdr3':[q,q.replace('Q','R'),q[:3]+'TTTTT'+q[8:]],'v':['TRBV19']*3})
+    def forbidden(*args,**kwargs):
+        raise AssertionError('no new edges must not trigger a control CDF search')
+    monkeypatch.setattr(gapblock,'count_batch',forbidden)
+    out=gapped_extension(queries,refs,Index.build([q]))
+    assert out['gapped_density'].to_list()==[0.0]
+    assert out['availability'].to_list()==[True]
+
+
+def test_gapped_extension_equal_length_six_substitutions_and_zero_cdf_floor():
+    from vdjmatch.match.unified import gapped_extension
+    from vdjmatch.match.tcrdist import distance_matrix
+    q='CASSLGQAYEQYF';r=q[:3]+'TTTTTT'+q[9:]
+    assert len(q)==len(r) and sum(a!=b for a,b in zip(q,r))==6
+    queries=pl.DataFrame({'query_id':['a'],'cdr3':[q],'v':['TRBV19']})
+    refs=pl.DataFrame({'cdr3':[r],'v':['TRBV19']})
+    total=distance_matrix([q],[r],['TRBV19'],['TRBV19'])[0,0]
+    assert total<=90
+    out=gapped_extension(queries,refs,Index.build([q]))
+    assert math.isclose(out['gapped_density'][0],100*math.exp(-int(total)/12))
+    missing=gapped_extension(queries.with_columns(pl.lit(None).alias('v')),refs,Index.build([q]))
+    assert missing['gapped_density'].to_list()==[0.0] and missing['availability'].to_list()==[False]
+
+
+def test_gapped_extension_full_control_puncture_and_serial_equality(monkeypatch):
+    from vdjmatch.match.unified import gapped_extension
+    from vdjmatch.match.tcrdist import distance_matrix
+    q='CASSLGQAYEQYF';r=q+'F';same_trim='CAVSLGQAYEQWF'
+    assert q[3:-2]==same_trim[3:-2] and q!=same_trim
+    queries=pl.DataFrame({'query_id':['a','repeat','unknown'],'cdr3':[q]*3,
+                          'v':['TRBV19','TRBV19','unknown']})
+    refs=pl.DataFrame({'cdr3':[r,r],'v':['TRBV19','TRBV7-9']})
+    control=Index.build([q,q,same_trim,'CAAF'])
+    calls=[];native=gapblock.count_batch
+    def observed(seqs,refs,thresholds,**kwargs):
+        calls.append((seqs,refs,thresholds,kwargs['exclude_exact']))
+        return native(seqs,refs,thresholds,**kwargs)
+    monkeypatch.setattr(gapblock,'count_batch',observed)
+    one=gapped_extension(queries,refs,control,threads=1)
+    many=gapped_extension(queries,refs,control,threads=2)
+    assert one.equals(many)
+    assert one['M_gap'].to_list()==[2]*3
+    assert one['availability'].to_list()==[True,True,False]
+    assert one['n_reference_unavailable'].to_list()==[0]*3
+    total,cdr3=distance_matrix([q],[r],['TRBV19'],['TRBV19'],return_cdr3=True)
+    expected=math.exp(-int(total[0,0])/12)/.5
+    assert all(math.isclose(s,expected) for s in one['gapped_density'][:2])
+    assert one['gapped_density'][2]==0
+    assert calls==[([q[3:-2]],[q[3:-2],q[3:-2]],[[2*int(cdr3[0,0])//3]],False)]*2
+    other=gapped_extension(queries.head(1),refs,Index.build([same_trim]))
+    assert math.isclose(other['gapped_density'][0],math.exp(-int(total[0,0])/12))
+
+
+def test_gapped_extension_uses_v_loops_but_cdr3_only_background_and_first_v():
+    from vdjmatch.match.unified import gapped_extension
+    from vdjmatch.match.tcrdist import distance_matrix
+    q='CASSLGQAYEQYF';r=q+'F'
+    queries=pl.DataFrame({'query_id':['a'],'cdr3':[q],'v':['TRBV19']})
+    refs=pl.DataFrame({'cdr3':[r],'v':['TRBV19*02']})
+    control=Index.build([q,'CAVSLGQAYEQWF'])
+    total,cdr3=distance_matrix([q],[r],['TRBV19'],['TRBV19*02'],return_cdr3=True)
+    assert total[0,0]>cdr3[0,0]
+    out=gapped_extension(queries,refs,control)
+    assert math.isclose(out['gapped_density'][0],2*math.exp(-int(total[0,0])/12))
+    unknown=pl.DataFrame({'cdr3':[r,r],'v':['unknown','TRBV19']})
+    unavailable=gapped_extension(queries,unknown,control)
+    assert unavailable['gapped_density'].to_list()==[0.0]
+    assert unavailable['availability'].to_list()==[False]
+    assert unavailable['n_reference_unavailable'].to_list()==[1]

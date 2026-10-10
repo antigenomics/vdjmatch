@@ -25,6 +25,24 @@ _VDJDB_MAP = {
     "vdjdb_score": ("vdjdb.score",),
 }
 CANONICAL = tuple(_VDJDB_MAP)
+
+
+def mhc_compatible(column: str, value: str) -> pl.Expr:
+    """Match intersecting MHC restrictions at their declared field resolution.
+
+    A family restriction and a descendant allele are compatible; distinct sibling
+    alleles are not. Optional HLA prefixes and case are comparison conventions only:
+    source labels are retained. Missing restrictions never imply compatibility.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("MHC compatibility requires a nonempty restriction")
+    selected = value.strip().upper().removeprefix("HLA-")
+    source = pl.col(column).str.strip_chars().str.to_uppercase().str.replace(r"^HLA-", "")
+    return (
+        (source == selected)
+        | source.str.starts_with(selected + ":")
+        | pl.lit(selected).str.starts_with(source + ":")
+    ).fill_null(False)
 _PAIRED = {
     "TRA": {"cdr3": "cdr3.alpha", "v": "v.alpha", "j": "j.alpha"},
     "TRB": {"cdr3": "cdr3.beta", "v": "v.beta", "j": "j.beta"},

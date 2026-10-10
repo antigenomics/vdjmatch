@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "seqtree>=1.0.2",
+    "seqtree>=1.0.3",
     "vdjtools>=5.0.0",    # format ingestion and native Pgen (lazy imports avoid overlap cycle)
     "polars>=1.41.2,<2",
     "scipy>=1.9",       # exact finite-control bounds and binomial tails for paired punctures

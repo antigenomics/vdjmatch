@@ -6,44 +6,321 @@ def register(subparsers):
     p=subparsers.add_parser('historical-density',help='reproduce the historical PSSM density component')
     p.add_argument('sample')
     p.add_argument('--vdjdb',required=True)
-    p.add_argument('--locus',choices=['TRA','TRB'],required=True)
-    p.add_argument('--epitope',action='append',required=True)
-    p.add_argument('--mhc-a',required=True)
+    p.add_argument('--locus',choices=['TRA','TRB','paired'],required=True)
+    p.add_argument('--epitope',action='append')
+    p.add_argument('--mhc-a')
+    p.add_argument('--mhc-b')
+    p.add_argument('--mhc-match',choices=['exact','compatible'],default='exact')
+    p.add_argument('--pool-reference',action='store_true',help='pool compatible restrictions per epitope before counting unique junctions')
+    p.add_argument('--targets-from-sample',action='store_true',help='score each row against its declared assayed pMHC reference union')
     p.add_argument('--species',default='HomoSapiens')
     p.add_argument('--control')
+    p.add_argument('--alpha-control',help='raw alpha junction control for original paired density')
+    p.add_argument('--germline-background',help='raw prior table; include original sparse-reference unpaired score')
+    p.add_argument('--gapped-extension',action='store_true',help='experimental density extension outside the original substitution ball; no combined P-value')
+    p.add_argument('--gap-radius',type=int,default=90)
+    p.add_argument('--gap-temperature',type=float,default=12)
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
 
 
+def assayed_targets(queries, raw, reference, species):
+    """Yield declared target, aligned query rows and compatible reference union.
+
+    Query IDs are validated before joining; search-key deduplication never defines
+    benchmark membership. Species aliases follow the existing control contract.
+    """
+    import polars as pl
+    from ..aggregate.candidates import PMHC
+    from ..db.schema import mhc_compatible
+    from ..evalue.control import _organism
+    required = ['query_id', 'species', *PMHC]
+    missing = sorted(set(required) - set(raw.columns))
+    if missing:
+        raise ValueError('sample-declared targets require columns: '+', '.join(missing))
+    if raw['query_id'].null_count() or raw['query_id'].n_unique() != raw.height:
+        raise ValueError('query_id must be unique and non-null')
+    organism = _organism(species)
+    aliases = ['human', 'homosapiens', 'homo sapiens'] if organism == 'human' else ['mouse', 'musmusculus', 'mus musculus']
+    metadata = raw.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases))
+    joined = queries.join(metadata.select(required), on='query_id', how='inner',
+                          validate='1:1', maintain_order='left')
+    for key, part in joined.group_by(PMHC, maintain_order=True):
+        task = dict(zip(PMHC, key))
+        if any(not isinstance(value, str) or not value.strip() for value in key):
+            selected = reference.head(0)
+        else:
+            selected = reference.filter(
+                (pl.col('epitope') == task['epitope']) &
+                (pl.col('mhc_class') == task['mhc_class']) &
+                mhc_compatible('mhc_a', task['mhc_a']) &
+                mhc_compatible('mhc_b', task['mhc_b']))
+        yield task, part, selected
+
+
+def _paired_scores(a, reference, beta_control, prior_background):
+    """Original independent-reference chain components and task cohort rank fusion."""
+    import polars as pl
+    from .. import io
+    from ..aggregate.candidates import PMHC
+    from ..io.airr import _read_table
+    from ..evalue.control import raw_background, _organism
+    from ..match.historical import density, germline_prior, paired_score, control_histograms
+    raw=_read_table(a.sample)
+    if 'query_id' not in raw.columns:
+        raw=raw.with_row_index('query_id')
+    link=io.columns._resolve(raw).get('pair_id')
+    if link is None:
+        raise ValueError('paired original scoring requires a pair_id or clone_id linkage')
+    required=['species',*PMHC]
+    missing=sorted(set(required)-set(raw.columns))
+    if missing:
+        raise ValueError('sample-declared targets require columns: '+', '.join(missing))
+    if raw['query_id'].null_count() or raw['query_id'].n_unique()!=raw.height:
+        raise ValueError('query_id must be unique and non-null')
+    raw=raw.with_columns(pl.col(link).cast(pl.String).alias('pair_id'))
+    if raw['pair_id'].null_count() or raw.filter(pl.col('pair_id')=='').height:
+        raise ValueError('every paired row requires a nonempty link')
+    species_aliases={s:_organism(s) for s in raw['species'].unique().to_list()}
+    metadata_columns=required+(['binder'] if 'binder' in raw.columns else [])
+    normalized=raw.with_columns(pl.col('species').replace_strict(species_aliases))
+    conflicts=normalized.group_by('pair_id').agg(pl.col(metadata_columns).n_unique())
+    if conflicts.filter(pl.any_horizontal(pl.col(metadata_columns)>1)).height:
+        raise ValueError('linked paired rows have conflicting species, target or label metadata')
+    # Taking a representative is safe only after all linked metadata agree.
+    metadata=normalized.group_by('pair_id',maintain_order=True).agg(pl.col(metadata_columns).first())
+    metadata=metadata.filter(pl.col('species')==_organism(a.species)).with_columns(
+        pl.col('pair_id').alias('query_id'))
+    # read_cell owns chain parsing and rejects ambiguous pairs; invalid amino acids
+    # remain present for explicit chain status rather than disappearing silently.
+    cells,ingestion=io.read_cell(a.sample,link=link,valid_aa=False,source='airr',return_report=True)
+    fields=['pair_id','cdr3a','va','ja','cdr3b','vb','jb','pair_status']
+    paired=metadata.select('query_id','pair_id').join(cells.select(fields),on='pair_id',how='left',
+                                                  validate='1:1',maintain_order='left')
+    paired=paired.with_columns(pl.col('pair_status').fill_null('missing_both'))
+    # Retain source chain IDs even when their missing junction was filtered by read_cell.
+    locus=io.columns._resolve(raw).get('locus')
+    if locus is None:
+        v_column=io.columns._resolve(raw).get('v')
+        if v_column is None:
+            raise ValueError('paired rows require an explicit locus or V call')
+        raw=raw.with_columns(pl.col(v_column).str.slice(0,3).str.to_uppercase().alias('_locus'))
+        locus='_locus'
+    multiplicity=raw.group_by('pair_id',locus).len()
+    if multiplicity.filter(pl.col('len')>1).height:
+        raise ValueError('ambiguous paired input: multiple raw rows for one cell/locus')
+    for chain,name in [('TRA','alpha'),('TRB','beta')]:
+        ids=raw.filter(pl.col(locus).str.to_uppercase()==chain).select(
+            'pair_id',pl.col('query_id').alias('query_id_'+name))
+        paired=paired.join(ids,on='pair_id',how='left',validate='1:1',maintain_order='left')
+    alpha_control,alpha_provenance=raw_background('TRA',a.species,a.alpha_control)
+    controls={'alpha':alpha_control,'beta':beta_control}
+    canonical=r'^[ACDEFGHIKLMNPQRSTVWY]+$'
+    parts=[]
+    for task,part,selected in assayed_targets(paired,metadata,reference,a.species):
+        out=part.drop('species',*PMHC)
+        for chain,name,suffix in [('TRA','alpha','a'),('TRB','beta','b')]:
+            ref=selected.filter(pl.col('gene')==chain)
+            queries=part.filter(pl.col('cdr3'+suffix).str.contains(canonical).fill_null(False)).select(
+                'query_id',pl.col('cdr3'+suffix).alias('cdr3'),
+                pl.col('v'+suffix).alias('v'),pl.col('j'+suffix).alias('j'))
+            if ref.height and queries.height:
+                scores=density(queries,ref,controls[name],threads=a.threads,pool_reference=True)
+                prior=germline_prior(queries,ref,prior_background,include_length=chain=='TRB')
+                scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',
+                                   validate='1:1',maintain_order='left').drop(PMHC)
+                scores=scores.rename({c:('density_score_' if c=='score' else c+'_')+name
+                                     for c in scores.columns if c!='query_id'})
+                out=out.join(scores,on='query_id',how='left',validate='1:1',maintain_order='left')
+            else:
+                out=out.with_columns(pl.lit(None,dtype=pl.Float64).alias('density_score_'+name),
+                    pl.lit(None,dtype=pl.Float64).alias('germline_lr_'+name),
+                    pl.lit(None,dtype=pl.Float64).alias('p_enrichment_'+name))
+            out=out.with_columns(pl.lit(ref.unique('cdr3').height,dtype=pl.UInt64).alias('n_reference_'+name),
+                                 pl.lit(len(controls[name]),dtype=pl.UInt64).alias('control_size_'+name))
+        out=out.with_columns(
+            pl.when(pl.col('pair_status')!='paired').then(pl.col('pair_status'))
+            .when(~pl.col('cdr3a').str.contains(canonical).fill_null(False)).then(pl.lit('invalid_alpha'))
+            .when(~pl.col('cdr3b').str.contains(canonical).fill_null(False)).then(pl.lit('invalid_beta'))
+            .when(pl.lit(any(not isinstance(v,str) or not v.strip() for v in task.values()))).then(pl.lit('invalid_target'))
+            .when(pl.col('n_reference_alpha')==0).then(pl.lit('no_reference_alpha'))
+            .when(pl.col('n_reference_beta')==0).then(pl.lit('no_reference_beta'))
+            .otherwise(pl.lit('scored')).alias('status'),
+            (pl.col('germline_lr_alpha')+pl.col('germline_lr_beta')).alias('germline_lr'))
+        valid=out.filter(pl.col('status')=='scored')
+        out=out.with_columns(pl.lit(valid.height,dtype=pl.UInt64).alias('cohort_size'))
+        if valid.height:
+            fused=valid.select('query_id').with_columns(
+                paired_score(valid['density_score_beta'],valid['density_score_alpha'],valid['germline_lr']),
+                (valid['density_score_beta'].rank('average')-1).alias('rank_density_beta'),
+                (valid['density_score_alpha'].rank('average')-1).alias('rank_density_alpha'),
+                (valid['germline_lr'].rank('average')-1).alias('rank_germline_prior'))
+            out=out.join(fused,on='query_id',how='left',validate='1:1',maintain_order='left')
+        else:
+            out=out.with_columns(*[pl.lit(None,dtype=pl.Float64).alias(c) for c in
+                                  ['score','rank_density_beta','rank_density_alpha','rank_germline_prior']])
+        parts.append(out)
+    scores=pl.concat(parts,how='diagonal_relaxed') if parts else paired.head(0)
+    out=metadata.join(scores.drop('pair_id'),on='query_id',how='left',validate='1:1',maintain_order='left')
+    out=out.with_columns(pl.lit('original-paired-cohort-rank-sum-v1').alias('estimator'))
+    return out,ingestion,alpha_provenance
+
+
 def main(a):
+    from importlib.metadata import version
     import json
     import time
     import polars as pl
     from .. import db,io
     from ..api import _prepare
     from ..db.cache import sha256
-    from ..evalue.control import raw_background
-    from ..match.historical import density
+    from ..evalue.control import raw_background, _organism
+    from ..match.historical import density,germline_prior,unpaired_score
     start=time.perf_counter()
     if a.threads<1:raise ValueError('threads must be positive')
-    q,ingestion=io.read_rearrangement(a.sample,source='airr',return_report=True)
-    _,q=_prepare(q)
-    q=q.filter(pl.col('locus')==a.locus)
-    r=db.load(a.vdjdb,species=a.species,gene=a.locus,epitope=a.epitope,mhc_a=[a.mhc_a])
+    if a.locus=='paired' and not (a.targets_from_sample and a.germline_background and a.alpha_control):
+        raise ValueError('--locus paired requires --targets-from-sample, --germline-background and --alpha-control')
+    if a.locus=='paired' and a.gapped_extension:
+        raise ValueError('experimental gapped extension currently supports single-chain scores only')
+    if a.targets_from_sample:
+        if a.epitope or a.mhc_a or a.mhc_b:
+            raise ValueError('--targets-from-sample is mutually exclusive with --epitope/--mhc-a/--mhc-b')
+    elif not a.epitope or not a.mhc_a:
+        raise ValueError('explicit selection requires --epitope and --mhc-a')
+    if a.locus!='paired':
+        q,ingestion=io.read_rearrangement(a.sample,source='airr',return_report=True)
+        _,q=_prepare(q)
+        q=q.filter(pl.col('locus')==a.locus)
+    organism=_organism(a.species)
+    reference_species={'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
+    r=db.load(a.vdjdb,species=reference_species,gene=None if a.locus=='paired' else a.locus,epitope=a.epitope,
+              mhc_a=a.mhc_a,mhc_b=a.mhc_b,mhc_match=a.mhc_match)
     r=r.filter(pl.col('reference_valid'))
-    missing=sorted(set(a.epitope)-set(r['epitope'].to_list()))
+    missing=sorted(set(a.epitope or [])-set(r['epitope'].to_list()))
     if missing:
         raise ValueError('requested epitopes absent under the selected reference restriction: '+', '.join(missing))
-    ctrl,provenance=raw_background(a.locus,a.species,a.control)
-    out=density(q,r,ctrl,threads=a.threads)
+    ctrl,provenance=raw_background('TRB' if a.locus=='paired' else a.locus,a.species,a.control)
+    def score_density(queries,reference,*,pool_reference=False):
+        scores=density(queries,reference,ctrl,threads=a.threads,pool_reference=pool_reference)
+        if a.gapped_extension:
+            if not pool_reference:
+                raise ValueError('--gapped-extension requires pooled or sample-declared targets')
+            from ..match.unified import gapped_extension
+            extension=gapped_extension(queries,reference,ctrl,species=organism,threads=a.threads,
+                                        radius=a.gap_radius,temperature=a.gap_temperature)
+            scores=scores.rename({'score':'historical_density'}).join(extension,on='query_id',
+                                    how='left',validate='1:1',maintain_order='left').with_columns(
+                (pl.col('historical_density')+pl.col('gapped_density')).alias('score'),
+                pl.lit('pssm-plus-gapped-extension-v1').alias('estimator'))
+        return scores
+    prior_background=None
+    if a.germline_background:
+        prior_background=io.read_rearrangement(a.germline_background,source='legacy')
+        if not (a.pool_reference or a.targets_from_sample):
+            raise ValueError('original unpaired scoring requires --pool-reference')
+    alpha_provenance=None
+    if a.locus=='paired':
+        out,ingestion,alpha_provenance=_paired_scores(a,r,ctrl,prior_background)
+    elif a.targets_from_sample:
+        from ..aggregate.candidates import PMHC
+        from ..io.airr import _read_table
+        raw=_read_table(a.sample)
+        if 'query_id' not in raw.columns:
+            raw=raw.with_row_index('query_id')
+        aliases=['human','homosapiens','homo sapiens'] if organism=='human' else ['mouse','musmusculus','mus musculus']
+        selected=raw.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases))
+        q=q.join(selected.select('query_id'),on='query_id',how='semi',maintain_order='left')
+        parts=[]
+        for task,querypart,referencepart in assayed_targets(q,raw,r,a.species):
+            if not referencepart.height:
+                status='invalid_target' if any(not isinstance(v,str) or not v.strip() for v in task.values()) else 'no_reference'
+                parts.append(querypart.select('query_id').with_columns(
+                    *[pl.lit(v,dtype=pl.String).alias(k) for k,v in task.items()],
+                    pl.lit(status).alias('status')))
+                continue
+            scores=score_density(querypart,referencepart,pool_reference=True)
+            if prior_background is not None:
+                prior=germline_prior(querypart,referencepart,prior_background,include_length=a.locus=='TRB')
+                scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',validate='1:1',maintain_order='left')
+                scores=scores.rename({'score':'density_score'}).with_columns(
+                    unpaired_score(scores['score'],scores['germline_lr'],int(scores['n_reference'][0])))
+                if a.gapped_extension:
+                    scores=scores.with_columns(unpaired_score(scores['historical_density'],scores['germline_lr'],
+                                               int(scores['n_reference'][0])).alias('historical_score'))
+            parts.append(scores.with_columns(
+                *[pl.lit(v,dtype=pl.String).alias(k) for k,v in task.items()],
+                pl.lit('scored').alias('status')))
+        # Raw metadata survives normalization's invalid/missing-sequence filtering.
+        if 'locus' in selected.columns:
+            declared=pl.col('locus').str.to_uppercase()
+            selected=selected.filter((declared==a.locus)|~declared.is_in(['TRA','TRB']).fill_null(False))
+        else:
+            selected=selected.filter((pl.col('v_call').str.slice(0,3).str.to_uppercase()==a.locus)
+                                     | pl.col('v_call').is_null() | (pl.col('v_call')==''))
+        identifiers=['query_id']+[c for c in ('sequence_id','clone_id','binder') if c in selected.columns]
+        out=selected.select(*identifiers,'species',*PMHC).with_row_index('_order')
+        if parts:
+            scores=pl.concat(parts,how='diagonal_relaxed').drop(PMHC)
+            out=out.join(scores,on='query_id',how='left',validate='1:1',maintain_order='left')
+        else:
+            out=out.with_columns(pl.lit(None,dtype=pl.String).alias('status'))
+        out=out.with_columns(pl.col('status').fill_null('invalid_query')).sort('_order').drop('_order')
+        score_columns={'score':pl.Float64,'p_enrichment':pl.Float64,'n_reference':pl.UInt64,
+                       'control_size':pl.UInt64,'estimator':pl.String}
+        if prior_background is not None:
+            score_columns.update(density_score=pl.Float64,germline_lr=pl.Float64)
+        if a.gapped_extension:
+            score_columns.update(historical_density=pl.Float64,gapped_density=pl.Float64,
+                                  availability=pl.Boolean,gapped_status=pl.String,M_gap=pl.UInt64)
+        out=out.with_columns(*[pl.lit(None,dtype=dtype).alias(name) for name,dtype in score_columns.items()
+                               if name not in out.columns])
+    elif a.pool_reference:
+        parts=[]
+        for _,part in r.group_by('epitope',maintain_order=True):
+            scores=score_density(q,part,pool_reference=True)
+            if prior_background is not None:
+                prior=germline_prior(q,part,prior_background,include_length=a.locus=='TRB')
+                scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',validate='1:1',maintain_order='left')
+                scores=scores.rename({'score':'density_score'}).with_columns(
+                    unpaired_score(scores['score'],scores['germline_lr'],int(scores['n_reference'][0])))
+                if a.gapped_extension:
+                    scores=scores.with_columns(unpaired_score(scores['historical_density'],scores['germline_lr'],
+                                               int(scores['n_reference'][0])).alias('historical_score'))
+            parts.append(scores)
+        out=pl.concat(parts)
+    else:
+        out=score_density(q,r)
     prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
     out.write_csv(str(prefix)+'.scores.tsv',separator='\t')
+    if a.gapped_extension:
+        from ..match.unified import gapped_extension
+        from ..match.tcrdist import distance_matrix, load_v_loops
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
+        'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
+                    'scorer_source_sha256':sha256(Path(density.__code__.co_filename)),
+                    'cli_source_sha256':sha256(Path(__file__))},
         'reference':db.provenance(a.vdjdb),'control':provenance,'ingestion':ingestion,
+        'alpha_control':alpha_provenance,
+        'gapped_extension':{'source_sha256':sha256(Path(gapped_extension.__code__.co_filename)),
+                             'distance_source_sha256':sha256(Path(distance_matrix.__code__.co_filename)),
+                             'model_sha256':sha256(Path(load_v_loops.__code__.co_filename).parent.parent/'resources/tcrdist'/f'{organism}_v_loops.tsv'),
+                             'control_geometry':'trimmed restricted-gap CDR3; unique full controls; exact full identity punctured',
+                             'formula':'original density plus only new gapped/V-loop kernel edges',
+                             'significance':'p_enrichment remains the original component test; no combined P-value'} if a.gapped_extension else None,
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
         'scope':'PSSM5 substitutions; unit controls5,2,2; significance nearest<=1; exact excluded',
-        'representative':'first source-order V per pMHC junction; baseline only',
-        'not_included':['sparse-reference germline prior','paired cohort rank fusion'],
+        'representative':('first source-order V per declared task union junction' if a.targets_from_sample
+                          else 'first source-order V per selected union junction' if a.pool_reference
+                          else 'first source-order V per pMHC junction'),
+        'germline_background':{'sha256':sha256(Path(a.germline_background)),
+                               'raw_rows':prior_background.height} if prior_background is not None else None,
+        'paired_contract':({'fusion':'task cohort average-rank sum of alpha/beta density and combined germline prior',
+                            'alpha_prior_background':'original beta raw background, V/J only',
+                            'reference':'independent per-chain reference unions; exact junction excluded per chain',
+                            'significance':'separate alpha/beta fixed P-values; no combined P-value'}
+                           if a.locus=='paired' else None),
+        'not_included':(['sparse-reference germline prior'] if prior_background is None else [])+
+                       ([] if a.locus=='paired' else ['paired cohort rank fusion']),
         'wall_seconds':time.perf_counter()-start},indent=2)+'\n')
     return 0

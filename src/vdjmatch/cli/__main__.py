@@ -149,6 +149,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "epitope",
             "mhc_a",
             "mhc_b",
+            "mhc_match",
             "reference_id",
             "exclude_reference_ids",
             "evidence_type",
@@ -524,6 +525,10 @@ def main(argv: list[str] | None = None) -> int:
             action="append",
             help="reference selector (repeatable)",
         )
+    m.add_argument(
+        "--mhc-match", choices=["exact", "compatible"], default="exact",
+        help="reference restriction matching at exact or compatible family/allele resolution",
+    )
     m.add_argument(
         "--control-species",
         choices=["human", "mouse"],

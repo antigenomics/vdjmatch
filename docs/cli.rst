@@ -411,9 +411,38 @@ Exact junction matches are excluded on both sides. Query identities remain
 separate even when their sequences coincide. For reproduction only, the first
 source-order V representative is used within each pMHC/junction group.
 
-This baseline omits the manuscript's sparse-reference germline prior and paired
-cohort rank fusion. Its manifest states these omissions; reproducing this
-component does not establish reproduction of the complete manuscript scorer.
+``--mhc-match compatible --pool-reference`` pools intersecting family and allele
+restrictions before counting unique reference junctions. Source restriction
+labels remain intact in the reference. ``--targets-from-sample`` instead selects
+each row's declared peptide, both MHC chains and class; it preserves observation
+identity and reports unavailable targets explicitly.
+
+``--germline-background RAW_TABLE`` adds the original sparse-reference unpaired
+formula: log(density + 1e-6) plus the V/J/length log likelihood ratio when the
+reference has fewer than 500 unique junctions. Background multiplicity is retained
+for these priors; control search counts unique productive junctions. These are
+different populations. Alpha priors omit junction length. The manifest names
+omitted components; a density-only run is not the complete historical scorer.
+
+``--locus paired --targets-from-sample --germline-background RAW_TABLE
+--alpha-control RAW_ALPHA_TABLE`` reproduces the original per-task cohort rank
+sum of alpha density, beta density and the combined germline prior. ``--control``
+selects the beta search background. For exact historical reproduction, the alpha
+V/J prior uses the supplied beta prior table. This command uses independent
+chain reference pools and excludes exact junctions per chain. It reports separate
+chain P-values; it does not invent a combined P-value. Missing partners and
+invalid inputs retain their original pair/chain IDs and explicit statuses.
+
+``--gapped-extension`` is an experimental single-chain ranking candidate for pooled
+or sample-declared targets. It preserves the original density and adds reference
+edges outside the equal-length five-substitution ball, at every supported length.
+Each additional edge contributes exp(-total TCRdist / 12) divided by the empirical
+CDR3 background mass, with the original 0.01 denominator floor. Total distance
+includes V CDR1/CDR2/CDR2.5; background counts use CDR3 distance alone.
+``--gap-radius`` defaults to 90 and ``--gap-temperature`` to 12. The output retains
+``historical_density`` and, when priors are supplied, ``historical_score``.
+``p_enrichment`` remains the original component test; the combined ranking has
+no calibrated P-value. This option does not change production annotation defaults.
 
 Native TCRdist3-compatible distances
 ------------------------------------
@@ -421,15 +450,29 @@ Native TCRdist3-compatible distances
 ``vdjmatch tcrdist-neighbours SAMPLE --vdjdb REFERENCE --locus TRB --threads 4
 --radius 90 --exclude-exact --output-prefix OUT`` exports minimum distance and
 neighbour counts per pMHC, plus a separate query-availability table. It reproduces
-the human default TCRdist3 distance: three times the trimmed, restricted-gap CDR3
+the default TCRdist3 distance: three times the trimmed, restricted-gap CDR3
 distance, plus aligned V-gene CDR1, CDR2 and CDR2.5 distances. The bundled loop
-model and its license/provenance are under ``resources/tcrdist``. Missing allele
+models and their license/provenance are under ``resources/tcrdist``. Use
+``--species human|mouse`` to choose the organism. Missing allele
 suffixes explicitly resolve to ``*01``; unknown alleles and junctions shorter
 than eight residues remain unavailable in the query table. This command reports
-distances, not specificity probabilities. Paired-chain scoring is not implemented
-by this command.
+distances, not specificity probabilities.
+
+``--locus paired`` accepts linked AIRR rows with ``clone_id`` and declared
+TRA/TRB roles. It sums alpha and beta distances against the same linked database
+receptor; ``--radius`` applies to that sum. Exact exclusion removes a reference
+only when both full junctions match. Original independent marginal minima must
+be computed from separate full single-chain reference pools; they are a distinct
+baseline. Paired output retains missing partners and unavailable gene calls.
+
+``--targets-from-sample`` selects compatible declared restrictions and counts
+unique junction/V search keys within their union. Query status distinguishes
+missing references, unavailable sequence/gene inputs, and searches without
+neighbours. Explicit ``--epitope``, ``--mhc-a`` and ``--mhc-b`` selectors support
+``--mhc-match compatible``; exact selection remains the default.
 
 The existing seqtree gap-block batch kernel computes CDR3 distances; vectorized
-lookups add germline-loop distances. Distance matrices are bounded to 64 MiB per
-batch. A clipped BLOSUM-derived matrix reproduces TCRdist penalties; ordinary
+lookups add germline-loop distances. Single-chain distance outputs are bounded
+to 64 MiB per batch; paired matrix work uses a 32 MiB budget. These allocation
+bounds do not establish whole-process RSS. A clipped BLOSUM-derived matrix reproduces TCRdist penalties; ordinary
 seqtree BLOSUM Gram penalties are a different metric.
