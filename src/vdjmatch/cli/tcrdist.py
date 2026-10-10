@@ -30,6 +30,7 @@ def register(subparsers):
     p.add_argument('--radius',type=int,default=90,help='maximum distance; paired uses the alpha+beta sum against one linked reference')
     p.add_argument('--exclude-exact',action='store_true')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
+    p.add_argument('--shortlist-audit',action='store_true',help='audit actual CDR3-only radius retrieval and unchanged V costs; uniform single-chain only')
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
 
@@ -115,6 +116,9 @@ def main(a):
     if a.threads<1 or a.radius<0:raise ValueError('positive threads and nonnegative radius required')
     if a.unbounded_nearest and not a.targets_from_sample:
         raise ValueError('--unbounded-nearest requires --targets-from-sample')
+    if a.shortlist_audit and (a.locus=='paired' or not a.targets_from_sample or
+                             not a.unbounded_nearest or a.position_weighting!='uniform' or a.v_loop_weight!=1):
+        raise ValueError('--shortlist-audit requires uniform single-chain target/nearest mode with V weight1')
     if a.background and not a.targets_from_sample:
         raise ValueError('--background requires --targets-from-sample')
     if a.locus=='paired' and a.background and (a.background!='vdjdb-other' or a.position_weighting not in ('uniform','ndn')):
@@ -335,6 +339,7 @@ def main(a):
                 .with_columns(*(pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC)))
         background_costs['total']=time.perf_counter()-background_start
     rows=[]
+    shortlist_rows=[];shortlist_costs=[]
     dispositions={}
     for task,query_part,reference_part in groups:
         if task is not None:
@@ -344,6 +349,16 @@ def main(a):
                                         else 'searched' if reference_part.height else 'no_reference')
         if not reference_part.height or not query_part.height:
             continue
+        if a.shortlist_audit:
+            from ..match.tcrdist import shortlist_audit_batch
+            audit=shortlist_audit_batch(query_part['cdr3'],reference_part['cdr3'],
+                query_part['_allele'],reference_part['_allele'],radius=a.radius,
+                species=organism,threads=a.threads,ctrim=ctrim,exclude_exact=a.exclude_exact)
+            shortlist_rows.append(query_part.select('query_id').with_columns(
+                pl.Series('cdr3_shortlist_keys',audit['cdr3_shortlist_keys'],dtype=pl.UInt64),
+                pl.Series('post_v_radius_keys',audit['post_v_radius_keys'],dtype=pl.UInt64),
+                pl.Series('nearest_within_shortlist_distance',audit['nearest_within_shortlist_distance'],dtype=pl.Float64)))
+            shortlist_costs.append(dict(target=task,**{k:audit[k] for k in ['stage_seconds','projected_sparse_payload_bytes']}))
         # Paired calls hold two matrices plus native/gather temporaries; bound them together.
         matrix_budget=32*1024**2 if paired else 64*1024**2
         bytes_per_pair=16 if paired else 4
@@ -423,6 +438,12 @@ def main(a):
     prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
     out.write_csv(str(prefix)+'.candidates.tsv',separator='\t')
     status.write_csv(str(prefix)+'.queries.tsv',separator='\t')
+    if a.shortlist_audit:
+        diagnostic=pl.concat(shortlist_rows) if shortlist_rows else pl.DataFrame(schema={
+            'query_id':q.schema['query_id'],'cdr3_shortlist_keys':pl.UInt64,
+            'post_v_radius_keys':pl.UInt64,'nearest_within_shortlist_distance':pl.Float64})
+        status.join(raw.select('query_id',*PMHC),on='query_id',validate='1:1').join(
+            diagnostic,on='query_id',how='left',validate='1:1').write_csv(str(prefix)+'.shortlist.tsv',separator='\t')
     if a.background:
         schema={'query_id':q.schema['query_id'],**{c:pl.String for c in PMHC},
                 **{c:pl.UInt64 for c in ['n_reference','reference_population','n_control','control_population']},
@@ -456,6 +477,7 @@ def main(a):
                     ' 3*CDR3+CDR1+CDR2+CDR2.5; ' if a.v_loop_weight else
                     'experimental CDR3-only:3*CDR3; ')+organism+' combo_xcr_2024-03-05',
         'junction_end_trim':{'n_terminal':3,'c_terminal':ctrim},
+        **({'shortlist_audit':{'stages':shortlist_costs,'scope':'CDR3 radius shortlist then unchanged nonnegative V costs; same eligibility/full-junction puncture. Original exhaustive outputs unchanged; no global K cap, biological confidence or paired claim.'}} if a.shortlist_audit else {}),
         **({'background_enrichment':{'background':background_provenance,'stage_wall_seconds':background_costs,
             'v_loop_weight':a.v_loop_weight,
             'geometry':'fixed0.1VJ/1NDN' if a.position_weighting=='ndn' else 'full-profile decay' if a.position_weighting=='significance' else f'trim3/{ctrim}',

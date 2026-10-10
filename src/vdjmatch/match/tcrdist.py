@@ -214,6 +214,47 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
         exclude_exact=exclude_exact,**({'linear_mass':True} if linear_mass else {}))
 
 
+def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,species='human',
+                          threads=1,ctrim=2,exclude_exact=False):
+    """Retrieve the actual CDR3 ball, then apply unchanged V costs to sparse hits.
+
+    Native units, eligibility and full-junction puncturing match total counts.
+    No K cap: fail before retrieval if projected sparse payload exceeds24GB.
+    This audits uniform single-chain retrieval, not annotation confidence.
+    """
+    import time
+    if type(radius) is not int or radius<0:
+        raise ValueError('radius must be a nonnegative integer')
+    q,r,options=_total_distance_options(queries,references,query_v,reference_v,
+                                      species,threads,ctrim,'uniform')
+    qgroups=np.asarray(options.pop('query_group_ids'),dtype=np.int32)
+    rgroups=np.asarray(options.pop('reference_group_ids'),dtype=np.int32)
+    offsets=np.asarray(options.pop('group_distances'),dtype=np.int32)
+    start=time.perf_counter()
+    counts=gapblock.count_batch(q,r,[[200*radius]]*len(q),exclude_exact=exclude_exact,**options)
+    sizes=np.asarray([row[0] for row in counts],dtype=np.int64)
+    estimate=int(sizes.sum())*256
+    if estimate>24_000_000_000:
+        raise MemoryError('CDR3 shortlist projected sparse payload exceeds24GB; no hits truncated')
+    counted=time.perf_counter()
+    hits=gapblock.ball_batch(q,r,[200*radius]*len(q),exclude_exact=exclude_exact,**options)
+    assert [len(row) for row in hits]==sizes.tolist(),'shortlist count/retrieval differ'
+    retrieved=time.perf_counter();n=int(sizes.sum())
+    qi=np.repeat(np.arange(len(q)),sizes)
+    ri=np.fromiter((h.ref_id for row in hits for h in row),dtype=np.int32,count=n)
+    costs=np.fromiter((h.score for row in hits for h in row),dtype=np.int64,count=n)
+    del hits
+    costs+=offsets[qgroups[qi],rgroups[ri]]
+    retained=np.bincount(qi[costs<=200*radius],minlength=len(q))
+    nearest=np.full(len(q),np.iinfo(np.int64).max,dtype=np.int64)
+    np.minimum.at(nearest,qi,costs)
+    return {'cdr3_shortlist_keys':sizes.tolist(),'post_v_radius_keys':retained.tolist(),
+            'nearest_within_shortlist_distance':[float(v)/200 if size else None for v,size in zip(nearest,sizes)],
+            'projected_sparse_payload_bytes':estimate,
+            'stage_seconds':{'preflight_count':counted-start,'native_retrieval':retrieved-counted,
+                             'vectorized_v':time.perf_counter()-retrieved}}
+
+
 def _total_distance_options(queries,references,query_v,reference_v,species,threads,ctrim,position_weighting,
                             query_boundaries=None,reference_boundaries=None,v_loop_weight=1):
     """Shared full-coordinate geometry for marginal and linked-pair reductions."""
