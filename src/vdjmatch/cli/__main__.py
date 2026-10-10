@@ -748,12 +748,16 @@ def main(argv: list[str] | None = None) -> int:
     register_tcrdist(sub)
     from .pgen import register as register_pgen
     register_pgen(sub)
+    from .calibration import register as register_calibration
+    register_calibration(sub)
+    from .reference_calls import register as register_reference_calls
+    register_reference_calls(sub)
 
     a = p.parse_args(argv)
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
-    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "pgen"}:
+    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "pgen", "reference-calls"}:
         import os
         import json
 

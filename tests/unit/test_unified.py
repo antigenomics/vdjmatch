@@ -49,7 +49,7 @@ def test_unified_routes_counts_identity_and_parallel_equality():
     distances = [(r, gapblock.gapblock_score(long, r, **kw)[0]) for r in refs if r != long]
     background = [gapblock.gapblock_score(long, r, **kw)[0] for r in ctrl if r != long]
     retained = [d for r,d in distances if d <= 5*matrix.scale()]
-    expected = len(ctrl)/len(refs) * sum(1/(1+sum(b <= d for b in background)) for d in retained)
+    expected = len(background)/len(distances) * sum(1/(1+sum(b <= d for b in background)) for d in retained)
     assert math.isclose(row["ned_score"], expected)
     assert row["n_target"] == len(retained)
     assert row["n_control"] == sum(b <= 5*matrix.scale() for b in background)

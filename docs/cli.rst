@@ -1,7 +1,7 @@
 Command-line interface
 ======================
 
-The console script provides ``update``, ``match`` and ``precursor``. Use
+The console script provides reference management, annotation and benchmark commands. Use
 ``vdjmatch match -h`` for the installed version's complete options.
 
 vdjmatch update
@@ -635,3 +635,81 @@ For commands with an explicit thread budget, the CLI caps the Polars thread pool
 at that budget and honors a smaller parent ``POLARS_MAX_THREADS`` allocation.
 The native sequence engine still receives the requested ``--threads`` value.
 Malformed parent thread allocations fail before loading inputs.
+
+vdjmatch calibrate-calls
+------------------------
+
+Reduce final query-level decisions into tie-aware empirical operating points:
+
+.. code-block:: bash
+
+   vdjmatch calibrate-calls cases.tsv --target-fpr 0.01 --output-prefix calibration
+
+The flat input has one unique ``query_id`` per query, a numeric ``score``, an
+``outcome`` (``correct``, ``incorrect`` or ``null``), and ``null_source`` for
+null queries. Correct/incorrect describe the winning label on labelled VDJdb
+queries. Resolve candidate competition and ambiguity before making this input;
+per-candidate rows would estimate a different error rate. Use null scores for
+abstention, retaining those queries in denominators. Invalid queries must have
+an explicit disposition in the upstream source record.
+
+Higher scores are stronger by default; ``--lower-is-better`` supports distances
+or P-values. Ties are indivisible. The command selects the most permissive
+cutoff for which each null source independently meets the requested empirical
+any-call rate. If none is usable, it reports ``abstain_all`` with a null cutoff.
+It writes ``.operating_points.tsv`` and ``.calibration.json`` with separate
+null counts/rates, labelled-query correct-call recall and call precision.
+Generated nulls do not enter the labelled-query precision denominator.
+
+This command computes an empirical recommendation candidate. The input hash
+is recorded; callers must also pin the producing scorer, geometry, reference,
+model/seed, identity exclusion and query populations before recommending it.
+Calibration data must match the actual winning-label sample annotation path.
+A target of 1% measured null calls is not a guarantee of 1% biological error.
+No reference-specific recommended numeric cutoff is shipped yet.
+
+Recommended P-value/probability cutoffs are optional sample-query guidance.
+Principal benchmark evaluations use all eligible values: ROC/AP use continuous
+scores, and accuracy/F1/confusion state their decision rule. Optional metrics at
+a recommendation cutoff remain separate and retain below-threshold/no-hit rows.
+The command does not change annotation defaults or enforce cutoffs on benchmarks.
+
+Single-chain ``match --exclude-exact`` also punctures the per-query target and
+control population sizes used by the fixed/graded evidence reducer. Repeated
+exact control entries are all removed. Gapped unified evidence uses the same
+population contract. The resulting calibration label is
+``fixed_ball_punctured``; runs without exact exclusion retain their prior
+population and score contract. A control population made empty by exclusion
+cannot support calibrated evidence.
+
+Exact-self exclusion is a benchmark option. Ordinary sample annotation retains
+exact VDJdb hits; recommendations for nonexact extrapolated matches should not
+screen out that direct evidence. Exact sequence identity is certain. A shared
+single-chain sequence with multiple specificity labels still requires an
+ambiguous disposition rather than a unique antigen call from identity alone.
+
+vdjmatch reference-calls
+------------------------
+
+This benchmark command queries distinct full-junction/V/J keys from peptides with
+at least 30 valid records for the selected species and chain (before self-exclusion), retains every query disposition, and excludes full-junction self hits.
+Ordinary ``match`` continues to retain exact hits. ``--leave-epitope-out`` instead
+queries each distinct key/truth-peptide appearance and removes that entire peptide
+across all MHC restrictions before candidate reduction. One native query batch
+covers all eligible folds; the result agrees with physically removing each peptide.
+The searchable reference remains complete, as in ordinary sample annotation.
+``--min-target-records`` changes benchmark target eligibility only; target support
+and retained/excluded record counts are exported.
+
+.. code-block:: bash
+
+   vdjmatch reference-calls --vdjdb reference.zip --locus TRB \
+     --threads 12 --output-prefix labelled
+   vdjmatch reference-calls --vdjdb reference.zip --locus TRB \
+     --leave-epitope-out --threads 12 --output-prefix withheld
+
+Nonbundled species/loci require a matching raw ``--control`` repertoire. Output
+includes continuous candidates, calls, full truth labels, calibration input and a
+manifest. Wrong labels and no-hit/ambiguous dispositions remain in denominators.
+Neither this command nor ``calibrate-calls`` supplies a biological posterior or
+filters principal accuracy/ranking evaluations with a recommended cutoff.

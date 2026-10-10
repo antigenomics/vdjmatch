@@ -83,6 +83,8 @@ def candidates(
     distance_column="edits",
     background_mass=False,
     control_totals=None,
+    exclude_exact=False,
+    control_sizes=None,
 ):
     """Reduce independent observations to candidate evidence for each stable query_id.
 
@@ -233,8 +235,22 @@ def candidates(
         .rename({"len": "n_reference"})
     )
     out = out.join(coverage, on=joinkeys, how="left", nulls_equal=True, validate="m:1")
+    if exclude_exact:
+        exact = r.select(*joinkeys, pl.col("db_cdr3").alias("query_cdr3")).unique()
+        out = out.join(exact.with_columns(pl.lit(1, dtype=pl.UInt32).alias("_excluded")),
+                       on=[*joinkeys, "query_cdr3"], how="left", nulls_equal=True,
+                       validate="m:1").with_columns(
+            (pl.col("n_reference") - pl.col("_excluded").fill_null(0)).alias("n_reference")
+        ).drop("_excluded")
+    if control_size is not None:
+        if control_sizes is not None:
+            out = out.join(control_sizes, on="query_id", how="left", validate="m:1")
+            if out["_control_size"].null_count():
+                raise ValueError("control sizes must cover every candidate query")
+        else:
+            out = out.with_columns(pl.lit(control_size).alias("_control_size"))
     if background_mass:
-        out = out.with_columns((pl.col("ned_score") * control_size / pl.col("n_reference")).alias("ned_score"))
+        out = out.with_columns((pl.col("ned_score") * pl.col("_control_size") / pl.col("n_reference")).alias("ned_score"))
     if control_totals is not None:
         out = out.join(control_totals, on="query_id", how="left", validate="m:1")
         if out["n_control"].null_count():
@@ -249,9 +265,9 @@ def candidates(
     # Public upstream statistics; no target re-search. One reduction per candidate.
     if control_size is not None:
         stats = [
-            evalue_result(nt, nc, nr, control_size)
-            for nt, nc, nr in out.select(
-                "n_target", "n_control", "n_reference"
+            evalue_result(nt, nc, nr, size)
+            for nt, nc, nr, size in out.select(
+                "n_target", "n_control", "n_reference", "_control_size"
             ).iter_rows()
         ]
         out = out.with_columns(
@@ -259,7 +275,7 @@ def candidates(
                 pl.Series(c, [s[c] for s in stats])
                 for c in ["E", "p_enrichment", "p_any", "rule_of_three"]
             ]
-        )
+        ).drop("_control_size")
     else:
         out = out.with_columns(
             *[
@@ -277,7 +293,8 @@ def candidates(
         pl.int_range(1, pl.len() + 1).over("query_id").cast(pl.UInt32).alias("rank"),
         pl.col("n_records").sum().over("query_id").cast(pl.UInt32).alias("n_hits"),
         pl.lit("background-mass-v1" if background_mass else ESTIMATOR).alias("estimator"),
-        pl.lit("fixed_ball" if control_size is not None else "uncalibrated").alias(
+        pl.lit(("fixed_ball_punctured" if exclude_exact else "fixed_ball")
+               if control_size is not None else "uncalibrated").alias(
             "calibration"
         ),
     )
