@@ -58,5 +58,5 @@ packages = ["src/vdjmatch"]
 # shipped automatically by hatchling — no force-include needed.
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "docs/*.rst", "docs/conf.py", "docs/notebooks", "pyproject.toml", "README.md", "LICENSE*", "setup.sh"]
+include = ["src", "tests", "docs/*.rst", "docs/conf.py", "docs/notebooks", "appendix/*.tex", "pyproject.toml", "README.md", "LICENSE*", "setup.sh"]
 exclude = ["**/*_local.md", "AGENTS.md", "**/__pycache__", "**/.ipynb_checkpoints"]
