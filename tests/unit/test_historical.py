@@ -1,5 +1,6 @@
 """PSSM density reproduces the original formula without collapsing query identity."""
 import math
+import pytest
 from pathlib import Path
 import polars as pl
 from seqtree import Index
@@ -8,6 +9,89 @@ from vdjmatch.match.historical import density, germline_prior, unpaired_score, p
 from vdjmatch.match.regions import significance_pssm
 from seqtree import SearchParams
 
+
+
+
+
+@pytest.mark.parametrize('name',['score','cdr3a','status','cohort_size','pair_id','species',
+    'v_call','junction_aa','binder','germline_lr_alpha','unpaired_score_beta','status_alpha',
+    'rank_germline_prior','n_reference_alpha','control_size_beta','estimator_alpha',
+    'query_ida','countb','_locus'])
+def test_cli_rejects_reserved_cohort_column_before_pair_parsing(tmp_path,monkeypatch,capsys,name):
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch import io,db
+    from vdjmatch.evalue import control
+    raw,sample,_,args=_paired_cli_inputs(tmp_path)
+    if name not in raw.columns:
+        raw=raw.with_columns(pl.lit('A').alias(name))
+    raw.write_csv(sample,separator='\t')
+    def forbidden(*args,**kwargs):
+        raise AssertionError('reserved cohort name must fail before pairing or scoring')
+    monkeypatch.setattr(io,'read_cell',forbidden)
+    monkeypatch.setattr(db,'load',forbidden)
+    monkeypatch.setattr(control,'raw_background',forbidden)
+    args[args.index('--vdjdb')+1]=str(tmp_path/'absent-reference.zip')
+    with pytest.raises(SystemExit) as error:
+        main(args+['--cohort-column',name])
+    assert error.value.code==2
+    assert '--cohort-column collides with a canonical input, parsed or score column' in capsys.readouterr().err
+
+
+def test_cli_cohort_sharing_preserves_independent_ranks_and_unpaired_scores(tmp_path,monkeypatch):
+    import pytest
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.match import historical
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    assert main(args)==0
+    default=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert 'unpaired_score_alpha' not in default.columns
+    raw=raw.with_columns(pl.lit('A').alias('benchmark_cohort'))
+    solo=raw.head(2).with_columns(pl.Series('query_id',['solo-a','solo-b']),
+        pl.lit('solo').alias('clone_id'),pl.lit('B').alias('benchmark_cohort'))
+    isolated=raw.head(1).with_columns(pl.lit('isolated-a').alias('query_id'),
+        pl.lit('isolated').alias('clone_id'),pl.lit('chain-view').alias('benchmark_cohort'))
+    combined=pl.concat([raw,solo,isolated]);combined.write_csv(sample,separator='\t')
+    calls=[];native=historical.density
+    def density(queries,reference,control,**kwargs):
+        calls.append(queries.height)
+        return native(queries,reference,control,**kwargs)
+    monkeypatch.setattr(historical,'density',density)
+    assert main(args+['--cohort-column','benchmark_cohort'])==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert len(calls)==2 # One shared target union calculation per chain, not per view.
+    assert out['query_id'].to_list()==['one','two','missing','invalid','solo','isolated']
+    assert out['score'].to_list()==default['score'].to_list()+[0,None]
+    assert out['cohort_size'].to_list()==[2,2,2,2,1,0]
+    assert out['benchmark_cohort'].to_list()==['A']*4+['B','chain-view']
+    assert out['status'][-1]=='missing_beta'
+    assert out['status_alpha'][-1]=='scored' and out['status_beta'][-1]=='missing_beta'
+    assert out['unpaired_score_alpha'][-1] is not None and out['unpaired_score_beta'][-1] is None
+    # The chain component equals the shipping single-chain CLI calculation exactly.
+    isolated.write_csv(sample,separator='\t')
+    alpha_control=args[args.index('--alpha-control')+1]
+    single=['historical-density',str(sample),'--vdjdb',args[args.index('--vdjdb')+1],
+        '--locus','TRA','--targets-from-sample','--control',alpha_control,
+        '--germline-background',args[args.index('--germline-background')+1],
+        '--output-prefix',str(prefix)]
+    assert main(single)==0
+    alpha=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert alpha['score'][0]==out['unpaired_score_alpha'][-1]
+    assert alpha['p_enrichment'][0]==out['p_enrichment_alpha'][-1]
+    solo.tail(1).write_csv(sample,separator='\t')
+    beta_args=single.copy();beta_args[beta_args.index('--locus')+1]='TRB'
+    beta_args[beta_args.index('--control')+1]=args[args.index('--control')+1]
+    assert main(beta_args)==0
+    beta=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert beta['score'][0]==out['unpaired_score_beta'][-2]
+    assert beta['p_enrichment'][0]==out['p_enrichment_beta'][-2]
+    # Cohort is linked metadata: conflicts or missing values are errors.
+    conflict=combined.with_columns(pl.when(pl.col('query_id')=='b1').then(pl.lit('B'))
+                                   .otherwise(pl.col('benchmark_cohort')).alias('benchmark_cohort'))
+    conflict.write_csv(sample,separator='\t')
+    with pytest.raises(SystemExit):main(args+['--cohort-column','benchmark_cohort'])
+    combined.with_columns(pl.when(pl.col('query_id')=='b1').then(pl.lit(None,dtype=pl.String))
+                          .otherwise(pl.col('benchmark_cohort')).alias('benchmark_cohort')).write_csv(sample,separator='\t')
+    with pytest.raises(SystemExit):main(args+['--cohort-column','benchmark_cohort'])
 
 
 def test_cli_single_prior_missing_genes_keep_ids_and_density_only_contract(tmp_path):

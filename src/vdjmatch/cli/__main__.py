@@ -761,7 +761,13 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
             p.error("threads must be a nonnegative integer")
         if threads > 0:
-            os.environ["POLARS_MAX_THREADS"] = str(threads)
+            try:
+                table_threads = int(previous_threads) if previous_threads is not None else threads
+            except ValueError:
+                p.error("POLARS_MAX_THREADS must be a positive integer")
+            if table_threads < 1:
+                p.error("POLARS_MAX_THREADS must be a positive integer")
+            os.environ["POLARS_MAX_THREADS"] = str(min(threads, table_threads))
     try:
         return a.func(a)
     except (ValueError, FileNotFoundError, RuntimeError) as exc:

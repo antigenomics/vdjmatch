@@ -15,6 +15,7 @@ def register(subparsers):
     p.add_argument('--targets-from-sample',action='store_true',help='score each row against its declared assayed pMHC reference union')
     p.add_argument('--species',default='HomoSapiens')
     p.add_argument('--control')
+    p.add_argument('--cohort-column',help='paired mode: isolate rank fusion by this explicit raw metadata column and emit original single-chain scores')
     p.add_argument('--alpha-control',help='raw alpha junction control for original paired density')
     p.add_argument('--germline-background',help='raw prior table; include original sparse-reference unpaired score')
     p.add_argument('--gapped-extension',action='store_true',help='experimental density extension outside the original substitution ball; no combined P-value')
@@ -59,6 +60,32 @@ def assayed_targets(queries, raw, reference, species):
         yield task, part, selected
 
 
+def _paired_columns(cohort_column):
+    """Validate an optional cohort name against the fixed paired input/output schema."""
+    import polars as pl
+    from .. import io
+    from ..aggregate.candidates import PMHC
+    fields=['pair_id','cdr3a','va','ja','cdr3b','vb','jb','pair_status']
+    score_columns={'status':pl.String,'score':pl.Float64,'germline_lr':pl.Float64,
+                   'cohort_size':pl.UInt64,'rank_density_alpha':pl.Float64,
+                   'rank_density_beta':pl.Float64,'rank_germline_prior':pl.Float64}
+    for name in ['alpha','beta']:
+        score_columns.update({c+'_'+name:dtype for c,dtype in
+            [('density_score',pl.Float64),('germline_lr',pl.Float64),('p_enrichment',pl.Float64),
+             ('n_reference',pl.UInt64),('control_size',pl.UInt64)]})
+    if cohort_column:
+        for name in ['alpha','beta']:
+            score_columns.update({'unpaired_score_'+name:pl.Float64,'status_'+name:pl.String})
+    if cohort_column:
+        reserved=set(fields)|set(score_columns)|{'query_id','sequence_id','species',*PMHC,'binder','estimator','_locus',
+            'query_id_alpha','query_id_beta','estimator_alpha','estimator_beta',
+            *[c+suffix for c in ['cdr3','v','j','count','query_id','sequence_id'] for suffix in ['a','b']]}
+        reserved.update(alias for aliases in io.columns.ALIASES.values() for alias in aliases)
+        if cohort_column.lower() in reserved:
+            raise ValueError('--cohort-column collides with a canonical input, parsed or score column')
+    return fields,score_columns
+
+
 def _paired_scores(a, reference, beta_control, prior_background):
     """Original independent-reference chain components and task cohort rank fusion."""
     import polars as pl
@@ -66,17 +93,22 @@ def _paired_scores(a, reference, beta_control, prior_background):
     from ..aggregate.candidates import PMHC
     from ..io.airr import _read_table
     from ..evalue.control import raw_background, _organism
-    from ..match.historical import density, germline_prior, paired_score, control_histograms
+    from ..match.historical import density, germline_prior, paired_score, unpaired_score, control_histograms
+    fields,score_columns=_paired_columns(a.cohort_column)
     raw=_read_table(a.sample)
     if 'query_id' not in raw.columns:
         raw=raw.with_row_index('query_id')
     link=io.columns._resolve(raw).get('pair_id')
     if link is None:
         raise ValueError('paired original scoring requires a pair_id or clone_id linkage')
-    required=['species',*PMHC]
+    required=['species',*PMHC]+([a.cohort_column] if a.cohort_column else [])
     missing=sorted(set(required)-set(raw.columns))
     if missing:
         raise ValueError('sample-declared targets require columns: '+', '.join(missing))
+    if a.cohort_column:
+        raw=raw.with_columns(pl.col(a.cohort_column).cast(pl.String))
+        if raw[a.cohort_column].null_count() or raw.filter(pl.col(a.cohort_column).str.strip_chars()=='').height:
+            raise ValueError('every paired row requires nonempty cohort metadata')
     if raw['query_id'].null_count() or raw['query_id'].n_unique()!=raw.height:
         raise ValueError('query_id must be unique and non-null')
     raw=raw.with_columns(pl.col(link).cast(pl.String).alias('pair_id'))
@@ -94,8 +126,7 @@ def _paired_scores(a, reference, beta_control, prior_background):
     # read_cell owns chain parsing and rejects ambiguous pairs; invalid amino acids
     # remain present for explicit chain status rather than disappearing silently.
     cells,ingestion=io.read_cell(a.sample,link=link,valid_aa=False,source='airr',return_report=True)
-    fields=['pair_id','cdr3a','va','ja','cdr3b','vb','jb','pair_status']
-    paired=metadata.select('query_id','pair_id').join(cells.select(fields),on='pair_id',how='left',
+    paired=metadata.select('query_id','pair_id',*([a.cohort_column] if a.cohort_column else [])).join(cells.select(fields),on='pair_id',how='left',
                                                   validate='1:1',maintain_order='left')
     paired=paired.with_columns(pl.col('pair_status').fill_null('missing_both'))
     # Retain source chain IDs even when their missing junction was filtered by read_cell.
@@ -132,6 +163,11 @@ def _paired_scores(a, reference, beta_control, prior_background):
                                      ref,prior_background,include_length=chain=='TRB')
                 scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',how='left',
                                    validate='1:1',maintain_order='left').drop(PMHC)
+                if a.cohort_column:
+                    valid=scores.filter(pl.col('germline_lr').is_not_null())
+                    original=valid.select('query_id').with_columns(unpaired_score(
+                        valid['score'],valid['germline_lr'],ref.unique('cdr3').height).alias('unpaired_score'))
+                    scores=scores.join(original,on='query_id',how='left',validate='1:1',maintain_order='left')
                 scores=scores.rename({c:('density_score_' if c=='score' else c+'_')+name
                                      for c in scores.columns if c!='query_id'})
                 out=out.join(scores,on='query_id',how='left',validate='1:1',maintain_order='left')
@@ -152,14 +188,34 @@ def _paired_scores(a, reference, beta_control, prior_background):
             .when(pl.col('n_reference_beta')==0).then(pl.lit('no_reference_beta'))
             .otherwise(pl.lit('scored')).alias('status'),
             (pl.col('germline_lr_alpha')+pl.col('germline_lr_beta')).alias('germline_lr'))
+        if a.cohort_column:
+            for name,suffix in [('alpha','a'),('beta','b')]:
+                if 'unpaired_score_'+name not in out.columns:
+                    out=out.with_columns(pl.lit(None,dtype=pl.Float64).alias('unpaired_score_'+name))
+                out=out.with_columns(
+                    pl.when(pl.col('query_id_'+name).is_null()).then(pl.lit('missing_'+name))
+                    .when(~pl.col('cdr3'+suffix).str.contains(canonical).fill_null(False)).then(pl.lit('invalid_query'))
+                    .when(pl.lit(any(not isinstance(v,str) or not v.strip() for v in task.values()))).then(pl.lit('invalid_target'))
+                    .when(~genes_present[suffix]).then(pl.lit('missing_v_or_j'))
+                    .when(pl.col('n_reference_'+name)==0).then(pl.lit('no_reference'))
+                    .otherwise(pl.lit('scored')).alias('status_'+name))
         valid=out.filter(pl.col('status')=='scored')
-        out=out.with_columns(pl.lit(valid.height,dtype=pl.UInt64).alias('cohort_size'))
+        out=out.with_columns((pl.col('status').eq('scored').sum().over(a.cohort_column)
+            if a.cohort_column else pl.lit(valid.height)).cast(pl.UInt64).alias('cohort_size'))
         if valid.height:
-            fused=valid.select('query_id').with_columns(
-                paired_score(valid['density_score_beta'],valid['density_score_alpha'],valid['germline_lr']),
-                (valid['density_score_beta'].rank('average')-1).alias('rank_density_beta'),
-                (valid['density_score_alpha'].rank('average')-1).alias('rank_density_alpha'),
-                (valid['germline_lr'].rank('average')-1).alias('rank_germline_prior'))
+            if a.cohort_column:
+                fused=valid.with_columns(
+                    (pl.col('density_score_beta').rank('average').over(a.cohort_column)-1).alias('rank_density_beta'),
+                    (pl.col('density_score_alpha').rank('average').over(a.cohort_column)-1).alias('rank_density_alpha'),
+                    (pl.col('germline_lr').rank('average').over(a.cohort_column)-1).alias('rank_germline_prior'))
+                fused=fused.select('query_id','rank_density_beta','rank_density_alpha','rank_germline_prior',
+                    (pl.col('rank_density_beta')+pl.col('rank_density_alpha')+pl.col('rank_germline_prior')).alias('score'))
+            else:
+                fused=valid.select('query_id').with_columns(
+                    paired_score(valid['density_score_beta'],valid['density_score_alpha'],valid['germline_lr']),
+                    (valid['density_score_beta'].rank('average')-1).alias('rank_density_beta'),
+                    (valid['density_score_alpha'].rank('average')-1).alias('rank_density_alpha'),
+                    (valid['germline_lr'].rank('average')-1).alias('rank_germline_prior'))
             out=out.join(fused,on='query_id',how='left',validate='1:1',maintain_order='left')
         else:
             out=out.with_columns(*[pl.lit(None,dtype=pl.Float64).alias(c) for c in
@@ -168,22 +224,18 @@ def _paired_scores(a, reference, beta_control, prior_background):
     scores=pl.concat(parts,how='diagonal_relaxed') if parts else paired.head(0)
     # Preserve every original pair and both source chain IDs, even when its
     # species is not selected for this invocation's reference and controls.
-    out=metadata.join(paired.drop('pair_id'),on='query_id',how='left',validate='1:1',maintain_order='left')
+    out=metadata.join(paired.drop('pair_id',*([a.cohort_column] if a.cohort_column else [])),on='query_id',how='left',validate='1:1',maintain_order='left')
     scoring=scores.drop([c for c in paired.columns if c!='query_id' and c in scores.columns])
     out=out.join(scoring,on='query_id',how='left',validate='1:1',maintain_order='left')
-    score_columns={'status':pl.String,'score':pl.Float64,'germline_lr':pl.Float64,
-                   'cohort_size':pl.UInt64,'rank_density_alpha':pl.Float64,
-                   'rank_density_beta':pl.Float64,'rank_germline_prior':pl.Float64}
-    for name in ['alpha','beta']:
-        score_columns.update({c+'_'+name:dtype for c,dtype in
-            [('density_score',pl.Float64),('germline_lr',pl.Float64),('p_enrichment',pl.Float64),
-             ('n_reference',pl.UInt64),('control_size',pl.UInt64)]})
     out=out.with_columns(*[pl.lit(None,dtype=dtype).alias(name) for name,dtype in score_columns.items()
                            if name not in out.columns])
     out=out.with_columns(
         pl.when(pl.col('species')!=_organism(a.species)).then(pl.lit('unselected_species'))
         .otherwise(pl.col('status').fill_null('invalid_query')).alias('status'),
         pl.lit('original-paired-cohort-rank-sum-v1').alias('estimator'))
+    if a.cohort_column:
+        out=out.with_columns(*[pl.when(pl.col('species')!=_organism(a.species)).then(pl.lit('unselected_species'))
+            .otherwise(pl.col('status_'+name).fill_null('invalid_query')).alias('status_'+name) for name in ['alpha','beta']])
     return out,ingestion,alpha_provenance
 
 
@@ -200,6 +252,10 @@ def main(a):
     from ..match.historical import density,germline_prior,unpaired_score
     start=time.perf_counter()
     if a.threads<1:raise ValueError('threads must be positive')
+    if a.cohort_column and a.locus!='paired':
+        raise ValueError('--cohort-column requires --locus paired')
+    if a.cohort_column:
+        _paired_columns(a.cohort_column)
     if a.locus=='paired' and not (a.targets_from_sample and a.germline_background and a.alpha_control):
         raise ValueError('--locus paired requires --targets-from-sample, --germline-background and --alpha-control')
     if a.locus=='paired' and a.gapped_extension:
@@ -372,6 +428,8 @@ def main(a):
         'germline_background':{'sha256':sha256(Path(a.germline_background)),
                                'raw_rows':prior_background.height} if prior_background is not None else None,
         'paired_contract':({'fusion':'task cohort average-rank sum of alpha/beta density and combined germline prior',
+                            **({'cohort_column':a.cohort_column,'rank_partition':'species + full declared PMHC + explicit cohort',
+                                'unpaired_components':'original sparse/dense alpha and beta scores; same beta raw prior background'} if a.cohort_column else {}),
                             'alpha_prior_background':'original beta raw background, V/J only',
                             'reference':'independent per-chain reference unions; exact junction excluded per chain',
                             'significance':'separate alpha/beta fixed P-values; no combined P-value'}

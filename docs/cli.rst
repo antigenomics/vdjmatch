@@ -512,3 +512,21 @@ minima and radius counts; it does not materialize all query/reference hit pairs.
 The manifest records the selection mode and all CLI parameters. The resulting
 nearest distances are uncalibrated distances, suitable for separately defined
 comparator ranking; the command does not assign a specificity probability.
+
+Shared original calculations across cohorts
+-------------------------------------------
+
+``historical-density --locus paired --targets-from-sample --cohort-column cohort``
+shares the existing per-target chain searches across observations while computing
+paired rank fusion separately for each explicit cohort. The raw column must be
+nonempty, agree across linked rows, and avoid canonical input and score names.
+The option also emits original single-chain scores and separate chain statuses;
+isolated chain rows retain their identities and stay outside paired ranks.
+Without the option, existing output columns and rank cohorts are unchanged.
+The supplied prior remains the original beta background for both chains.
+No combined paired P-value or new confidence interpretation is introduced.
+
+For commands with an explicit thread budget, the CLI caps the Polars thread pool
+at that budget and honors a smaller parent ``POLARS_MAX_THREADS`` allocation.
+The native sequence engine still receives the requested ``--threads`` value.
+Malformed parent thread allocations fail before loading inputs.
