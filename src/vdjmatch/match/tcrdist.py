@@ -12,6 +12,115 @@ import numpy as np
 from seqtree import SubstitutionMatrix, amino_acids, gapblock
 
 
+def kneedle_radius(distances):
+    """First confirmed knee of sorted nearest distances, or None.
+
+    Offline Kneedle on an increasing distance curve: unit-square normalization,
+    convex-curve difference x-y, local maxima and fixed sensitivity S=1. The
+    observed monotone curve is used without smoothing or fitted parameters.
+    Multiplying all distances by c>0 multiplies the returned radius by c.
+    Flat/linear/short curves have no boundary; endpoints cannot be knees.
+    """
+    from scipy.signal import find_peaks
+
+    values = np.asarray(distances, dtype=float)
+    if values.ndim != 1 or not np.isfinite(values).all() or np.any(values < 0):
+        raise ValueError('nearest distances must be a finite nonnegative vector')
+    if len(values) < 3 or np.ptp(values) == 0:
+        return None
+    values = np.sort(values)
+    difference = np.linspace(0, 1, len(values)) - (values-values[0])/np.ptp(values)
+    peaks = find_peaks(difference)[0]
+    minima = find_peaks(-difference)[0]
+    step = 1/(len(values)-1)
+    for peak in peaks:
+        if difference[peak] <= 8*np.finfo(float).eps:
+            continue
+        following = minima[minima > peak]
+        end = int(following[0]) if len(following) else len(values)-1
+        if np.any(difference[peak+1:end+1] < difference[peak]-step):
+            return float(values[peak])
+    return None
+
+
+def regularize_reference_radii(radii, nearest_distances, *, factor=.5):
+    """Floor knees within one species/locus/geometry; leave absent knees absent.
+
+    Use factor times the median positive knee, falling back to positive nearest
+    distances when all knees are zero. Both scales transform with distance units.
+    Without any positive scale a zero knee is unavailable, never an exact-only ball.
+    """
+    raw = np.asarray(radii, dtype=float)
+    distances = np.asarray(nearest_distances, dtype=float)
+    if (raw.ndim != 1 or distances.ndim != 1 or np.isinf(raw).any()
+            or np.isinf(distances).any() or np.any(raw < 0) or np.any(distances < 0)
+            or not np.isfinite(factor) or factor <= 0):
+        raise ValueError('nonnegative vectors and a finite positive knee floor factor required')
+    positive = raw[np.isfinite(raw) & (raw > 0)]
+    source = 'positive_knee_median'
+    if not len(positive):
+        positive = distances[np.isfinite(distances) & (distances > 0)]
+        source = 'positive_nearest_median'
+    if not len(positive):
+        return np.full_like(raw, np.nan), None, 'no_positive_scale'
+    floor = float(factor*np.median(positive))
+    if not np.isfinite(floor) or floor <= 0:
+        raise ValueError('knee floor must be finite and positive')
+    return np.maximum(raw, floor), floor, source
+
+
+def reference_nearest_distances(frame, *, paired=False, species='human', threads=1, ctrim=3):
+    """Nonexact same-population nearest distances from one native batch.
+
+    Input columns are seq0/v0, plus seq1/v1 for linked TRA/TRB. Full junctions
+    define self-exclusion; a pair excludes only the same full linked receptor.
+    NaN means no nonexact reference. No K cap or dense receptor distance matrix
+    is used. The paired reducer uses the existing sum against one reference pair.
+    """
+    import polars as pl
+
+    if not frame.height:
+        return np.empty(0, dtype=float)
+    axes = range(2 if paired else 1)
+    model = load_v_loops(species)
+    bound = 0
+    for i in axes:
+        genes = resolve_v_alleles(frame[f'v{i}'], model,
+                                 locus=('TRA', 'TRB')[i] if paired else None)
+        if genes.null_count():
+            raise ValueError('reference V calls must resolve to the selected locus')
+        width = max(len(model[g]['cdr1']+model[g]['cdr2']+model[g]['cdr25'])
+                    for g in genes.unique())
+        bound += 12*frame[f'seq{i}'].str.len_chars().max() + 4*width
+    sequence_columns = [f'seq{i}' for i in axes]
+    sizes = frame.group_by(sequence_columns).len().rename({'len': '_self_count'})
+    expected = frame.join(sizes, on=sequence_columns, how='left', validate='m:1',
+                          maintain_order='left').select(frame.height-pl.col('_self_count')).to_series().to_numpy()
+    if not paired:
+        q, r, options = _total_distance_options(frame['seq0'], frame['seq0'],
+            frame['v0'], frame['v0'], species, threads, ctrim, 'uniform')
+        _, counts, nearest = gapblock.group_audit_batch(q, r, [200*bound]*len(q),
+                                                       exclude_exact=True, **options)
+        if not np.array_equal(counts, expected):
+            raise ArithmeticError('reference nearest bound did not cover the population')
+        result = np.asarray(nearest, dtype=float)/200
+        result[expected == 0] = np.nan
+        return result
+    if frame.height*(bound+1)*8 > 256*1024**2:
+        raise ValueError('paired reference count curve exceeds256MiB; select a smaller target')
+    counts, _ = paired_total_distance_mass_batch(
+        frame['seq0'], frame['seq1'], frame['seq0'], frame['seq1'],
+        frame['v0'], frame['v1'], frame['v0'], frame['v1'],
+        [list(range(0, 200*bound+1, 200))]*frame.height,
+        species=species, threads=threads, ctrim=ctrim, exclude_exact=True)
+    curve = np.asarray(counts, dtype=np.uint64)
+    if not np.array_equal(curve[:, -1], expected):
+        raise ArithmeticError('paired reference nearest bound did not cover the population')
+    result = np.argmax(curve > 0, axis=1).astype(float)
+    result[expected == 0] = np.nan
+    return result
+
+
 def _gap_prior(i, gap, width):
     return _gap_window(i, gap, width, 5)
 

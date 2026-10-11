@@ -28,6 +28,8 @@ def register(subparsers):
     p.add_argument('--rank-signal-prior',type=float,default=.5,
                    help='prior for the local-rank model only; not biological specificity prevalence')
     p.add_argument('--radius',type=int,default=90,help='maximum distance; paired uses the alpha+beta sum against one linked reference')
+    p.add_argument('--reference-radius',action='store_true',help='reference-only Kneedle radius per compatible target; uniform nearest-rank mode')
+    p.add_argument('--knee-floor-factor',type=float,default=.5,help='positive-knee median floor within this species/locus/geometry')
     p.add_argument('--exclude-exact',action='store_true')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
     p.add_argument('--conditional-j',action='store_true',help='experimental J usage conditional on V and junction length; ranking only')
@@ -117,6 +119,12 @@ def main(a):
     from ..evalue.control import _organism
     start=time.perf_counter()
     if a.threads<1 or a.radius<0:raise ValueError('positive threads and nonnegative radius required')
+    if a.reference_radius and (not a.nearest_rank or a.background!='vdjdb-other' or
+            a.neighbour_weighting!='local-rank' or a.position_weighting!='uniform' or
+            a.v_loop_weight!=1 or a.shortlist_audit or a.conditional_j or a.epitope_rules or a.radius<=0):
+        raise ValueError('--reference-radius requires uniform nearest local-rank with V loops and vdjdb-other')
+    if not np.isfinite(a.knee_floor_factor) or a.knee_floor_factor<=0:
+        raise ValueError('knee floor factor must be finite and positive')
     if a.unbounded_nearest and not a.targets_from_sample:
         raise ValueError('--unbounded-nearest requires --targets-from-sample')
     if a.nearest_rank and (not a.background or not a.unbounded_nearest or a.position_weighting!='uniform'):
@@ -187,6 +195,40 @@ def main(a):
         groups=assayed_targets(q.drop([c for c in ['species',*PMHC] if c in q.columns]),metadata,r,a.species)
     else:
         groups=[(None,q,r)]
+    radius=a.radius
+    radius_rows=[]
+    target_radii={}
+    if a.reference_radius:
+        from ..match.tcrdist import reference_nearest_distances,kneedle_radius,regularize_reference_radii
+        radius_start=time.perf_counter()
+        groups=list(groups)
+        nearest_curves=[]
+        for task,_,reference_part in groups:
+            reference_keys=reference_part.unique(search_keys,maintain_order=True)
+            fields=[]
+            for i in range(2 if paired else 1):
+                suffix=('alpha','beta')[i]
+                fields.extend([pl.col(suffix if paired else 'cdr3').alias(f'seq{i}'),
+                    pl.col('_allele_'+suffix if paired else '_allele').alias(f'v{i}')])
+            distances=reference_nearest_distances(reference_keys.select(fields),paired=paired,
+                species=organism,threads=a.threads,ctrim=ctrim)
+            finite=distances[np.isfinite(distances)]
+            nearest_curves.append(finite)
+            knee=kneedle_radius(finite)
+            radius_rows.append({**task,'reference_keys':reference_keys.height,
+                'raw_radius':knee,'nearest_keys':len(finite)})
+        adjusted,floor,floor_source=regularize_reference_radii(
+            [row['raw_radius'] if row['raw_radius'] is not None else np.nan for row in radius_rows],
+            np.concatenate(nearest_curves) if nearest_curves else [],factor=a.knee_floor_factor)
+        for row,value in zip(radius_rows,adjusted):
+            # Integer bins round upward so the selected ball never loses its boundary.
+            selected=int(np.ceil(value)) if np.isfinite(value) else a.radius
+            row.update(radius=selected,radius_floor=floor,floor_source=floor_source,
+                radius_status='no_knee_fixed_fallback' if row['raw_radius'] is None else
+                    'degenerate_fixed_fallback' if not np.isfinite(value) else
+                    'knee_floored' if value>row['raw_radius'] else 'knee')
+            target_radii[tuple(row[c] for c in PMHC)]=selected
+        radius_seconds=time.perf_counter()-radius_start
     # Counts share one distance on references and controls; no dense control matrix.
     enrichment_rows=[]
     background_provenance=None
@@ -207,12 +249,12 @@ def main(a):
             return [boundary_map[(s,v)] for s,v in zip(sequences,genes)]
         def counts(part,population,thresholds=None):
             if not part.height:
-                return [],[],np.zeros((0,a.radius+1),dtype=np.uint64) if local else None
+                return [],[],np.zeros((0,radius+1),dtype=np.uint64) if local else None
             if not population.height:
-                return [0]*part.height,[0.0]*part.height,np.zeros((part.height,a.radius+1),dtype=np.uint64) if local else None
+                return [0]*part.height,[0.0]*part.height,np.zeros((part.height,radius+1),dtype=np.uint64) if local else None
             count_start=time.perf_counter()
             if thresholds is None:
-                thresholds=[list(range(0,200*a.radius+1,200))]*part.height if local else [[200*a.radius]]*part.height
+                thresholds=[list(range(0,200*radius+1,200))]*part.height if local else [[200*radius]]*part.height
             if paired:
                 native=paired_total_distance_mass_batch(
                     part['cdr3a'].to_list(),part['cdr3b'].to_list(),
@@ -308,6 +350,7 @@ def main(a):
                                     'distinct full junction + resolved V allele')+'; no abundance weights',
                 'restriction':'same species/locus; other epitopes may have other MHC restrictions'}
         for task,part,reference_part in groups:
+            radius=target_radii[tuple(task[c] for c in PMHC)] if a.reference_radius else a.radius
             unique=part.select(query_keys).unique(maintain_order=True)
             if not unique.height:
                 continue
@@ -327,6 +370,8 @@ def main(a):
             evidence=evidence.with_columns(pl.Series('n_reference',n,dtype=pl.UInt64),
                                           pl.Series('reference_weight',reference_weight,dtype=pl.Float64),
                                           pl.Series('reference_population',N,dtype=pl.UInt64))
+            if a.reference_radius:
+                evidence=evidence.with_columns(pl.lit(radius,dtype=pl.UInt32).alias('selected_radius'))
             evidence=evidence.rename({'_m':'n_control','_M':'control_population'})
             available=(pl.col('reference_population')>0)&(pl.col('control_population')>0)
             evidence=evidence.with_columns(
@@ -376,6 +421,7 @@ def main(a):
     shortlist_rows=[];shortlist_costs=[]
     dispositions={}
     for task,query_part,reference_part in groups:
+        radius=target_radii[tuple(task[c] for c in PMHC)] if a.reference_radius else a.radius
         if task is not None:
             reference_part=reference_part.unique(search_keys,maintain_order=True)
             for query_id in query_part['query_id']:
@@ -414,7 +460,7 @@ def main(a):
             else:
                 seqs=part['cdr3'].to_list()
                 distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight)
-            keep=distances<=a.radius
+            keep=distances<=radius
             nonexact=True
             if a.exclude_exact:
                 if paired:
@@ -514,6 +560,11 @@ def main(a):
             for query_id in status['query_id']]))
         status=status.with_columns((pl.col('available') & (pl.col('status')!='unselected_species')).alias('available'))
     prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
+    if a.reference_radius:
+        radius_schema={**{c:pl.String for c in PMHC},'reference_keys':pl.UInt64,
+            'raw_radius':pl.Float64,'nearest_keys':pl.UInt64,'radius':pl.UInt32,
+            'radius_floor':pl.Float64,'floor_source':pl.String,'radius_status':pl.String}
+        pl.DataFrame(radius_rows,schema=radius_schema).write_csv(str(prefix)+'.radii.tsv',separator='\t')
     out.write_csv(str(prefix)+'.candidates.tsv',separator='\t')
     status.write_csv(str(prefix)+'.queries.tsv',separator='\t')
     if a.shortlist_audit:
@@ -568,6 +619,12 @@ def main(a):
             'matrix_work_budget_bytes':32*1024**2,
             'independent_marginal_baseline':'not emitted; requires separate full compatible single-chain reference axes'} if paired else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
+        **({'reference_radius':{'selection':'reference-only nonexact leave-one-junction-out nearest-distance Kneedle S=1; no smoothing',
+            'floor_factor':a.knee_floor_factor,'floor':floor,'floor_source':floor_source,
+            'scope':'one species/locus/uniform geometry; compatible full-pMHC target unions',
+            'fallback_radius':a.radius,'rounding':'ceil to integer distance bins',
+            'stage_seconds':radius_seconds,'table_sha256':sha256(Path(str(prefix)+'.radii.tsv')),
+            'probability_interpretation':'none; radius selection does not transfer fixed-radius model calibration'}} if a.reference_radius else {}),
         'selection':('exhaustive nearest nonexcluded reference; n_neighbours counts only within radius'
                      if a.unbounded_nearest else 'radius ball'),
         'distance':(('TCRdist3 default' if ctrim==2 else 'experimental symmetric-trim')+

@@ -767,8 +767,38 @@ with missing V calls, or transfer calibrated recommendations between
 geometries. The manifest records the experimental geometry and weight.
 Native rival manuscript parameters remain unchanged.
 
+Reference-selected distance radii
+---------------------------------
+
+``reference-radius`` derives a distance radius from nonexact nearest neighbours
+within each reference full-pMHC group::
+
+   vdjmatch reference-radius --vdjdb REFERENCE --locus paired --threads 4 \
+      --output-prefix reference-radii
+
+Outputs ``.radii.tsv``, ``.nearest.tsv`` and a provenance manifest. Distinct full
+junction/resolved-V keys define the search population; paired mode uses genuine
+linked receptors and the summed distance to the same reference pair. Source
+observation counts and unavailable keys remain explicit.
+
+``tcrdist-neighbours --reference-radius`` applies this selection to each
+sample-declared compatible reference union. It requires uniform geometry,
+V loops, ``--nearest-rank --unbounded-nearest --targets-from-sample``,
+``--neighbour-weighting local-rank --background vdjdb-other``. Its additional
+``.radii.tsv`` records the raw knee, selected integer radius and disposition;
+``selected_radius`` accompanies each enrichment row. The exhaustive nearest
+search remains uncensored.
+
+Both commands use ``--knee-floor-factor 0.5`` times the median positive knee
+within the same species, locus and geometry. If there are no positive knees,
+the floor uses the median positive nonexact nearest distance. Missing knees
+remain missing in ``reference-radius``; the scoring command explicitly falls
+back to its positive ``--radius``. No positive scale means no inferred radius.
+Rounding upward to an integer preserves the selected distance boundary.
+These are experimental ranking radii, without transferred probability calibration.
+
 Cohort-relative paired evidence ordering
----------------------------------------
+----------------------------------------
 
 The opt-in ``paired-evidence-order`` command reduces existing fixed-radius
 TCRdist evidence; it performs no sequence search and changes no default scorer::

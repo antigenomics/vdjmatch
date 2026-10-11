@@ -860,6 +860,52 @@ it loses $-0.0391$. Both must be reported under the acceptance rule: priority im
 mean/median nonregression and review of major task losses.
 \end{remark}
 
+\subsection*{Reference-selected radius and a chain-dependent precision cutoff}
+The experimental \texttt{reference-radius} command estimates $\varepsilon$ from the
+sorted nonexact nearest-reference distances $d_0\le\cdots\le d_{n-1}$, using
+full-junction exclusion (both junctions for a linked receptor). The same search geometry
+applies to reference and background populations. Kneedle normalises the curve into the
+unit square: $x_i=i/(n-1)$ and $y_i=(d_i-d_0)/(d_{n-1}-d_0)$.
+On this increasing convex curve a local maximum of $x_i-y_i$ is confirmed if the
+following difference falls by more than $1/(n-1)$ before the next local minimum
+(fixed sensitivity $S=1$; no fitted smoothing). Endpoints, flat curves and fewer
+than three observations yield no knee. The primary method description is
+\href{https://raghavan.usc.edu/papers/kneedle-simplex11.pdf}{Kneedle, section III}.
+
+For each species, locus and geometry separately, the selected knee is floored at
+$f\,\operatorname{median}\{\varepsilon_t:\varepsilon_t>0\}$, with $f=1/2$ by default.
+Here $t$ indexes reference-defined compatible full-pMHC target unions. If no positive
+knees exist, the median positive nonexact nearest distance supplies the scale.
+No positive scale supplies no inferred radius. The raw knee, floor and adjusted radius
+are all exported. The scorer falls back explicitly to its declared positive fixed
+radius where no radius can be inferred, and rounds inferred radii upward to integer
+bins. Positive scaling of all distances scales the unrounded radius and floor equally;
+a change in relative BLOSUM/gap/V weights requires recomputation. Neither single-chain
+knees nor their floor are substituted for the linked alpha-plus-beta geometry.
+Reference-adaptive radius selection does not transfer the fixed-radius probability guarantee.
+
+A principled \emph{precision criterion}, rather than a universal $500$-reference switch,
+can depend on the chain-specific neighbourhood probability $u_c(\varepsilon;q)$.
+Here $c$ is TRA, TRB or a linked TRA/TRB receptor, $q$ is the query, and $N$ counts
+eligible distinct reference keys after full-junction puncturing. For a fixed radius
+and independent Bernoulli reference hits with probability $u_c$, the count has mean
+$Nu_c$, variance $Nu_c(1-u_c)$ and relative standard deviation
+\[
+ \mathrm{CV}=\sqrt{\frac{1-u_c}{Nu_c}},\qquad
+ N_{\mathrm{dense}}\ge\frac{1-u_c}{\delta^2u_c}.
+\]
+The declared tolerance $\delta$ is the desired relative count precision, not a fitted
+classification threshold. For illustration $\delta=0.2$ requires $N\ge475$ when
+$u_c=0.05$, but $N\ge2475$ when $u_c=0.01$. The different geometries and reference
+sizes therefore alter the boundary. For weighted kernels, replace this criterion by
+$N\ge\sigma_c^2/(\delta^2\mu_c^2)$, where $\mu_c$ and $\sigma_c^2$ are the mean and
+variance of one reference kernel contribution under the declared population.
+Linked neighbourhood probabilities must be joint probabilities, not products of
+marginal chain probabilities. Repeated observations, study dependence and an estimated,
+reference-selected radius limit the independent fixed-radius approximation.
+This criterion suggests a reference-defined route; it is not proof of the optimal
+scorer switch and does not change the source-record benchmark eligibility rule.
+
 \part*{VIII. Open obligations}
 \addcontentsline{toc}{part}{VIII. Open obligations}
 

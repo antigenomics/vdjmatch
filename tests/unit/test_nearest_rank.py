@@ -41,6 +41,17 @@ def test_cli_nearest_rank_recovers_outside_ball_without_changing_existing_fields
     assert residual['conditional_j_usage_ratio'][0]==1
     assert residual['j_conditioned_rank_score'][0]==new['conditional_rank_bayes_factor'][0]
     assert residual['conditional_j_status'][0]=='missing_query_j_neutral'
+    # No knee from two target keys uses the declared positive radius, preserving
+    # the exhaustive nearest result and recording the selected ball on each row.
+    adaptive=[v for v in args]
+    adaptive[adaptive.index('--radius')+1]='90'
+    assert main(adaptive+['--nearest-rank','--reference-radius','--output-prefix',str(tmp_path/'adaptive')])==0
+    radii=pl.read_csv(tmp_path/'adaptive.radii.tsv',separator='\t')
+    assert radii['radius'].to_list()==[90]
+    assert radii['radius_status'].to_list()==['no_knee_fixed_fallback']
+    evidence=pl.read_csv(tmp_path/'adaptive.enrichment.tsv',separator='\t')
+    assert evidence['selected_radius'].to_list()==[90]
+    assert evidence['nearest_rank_control_count'].to_list()==new['nearest_rank_control_count'].to_list()
     # Puncturing the sole target key leaves explicit empty evidence, not a call.
     pl.DataFrame([r for r in rows if r['cdr3']!=b or r['epitope']!='E']).write_csv(reference,separator='\t')
     assert main(args+['--nearest-rank','--output-prefix',str(tmp_path/'empty')])==0
