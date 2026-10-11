@@ -421,35 +421,6 @@ retains historical reproduction. It does not calibrate a combined P-value or
 establish a biological binder probability. Experimental gapped extensions are
 not supported with this option.
 
-Continuous reference likelihood (experimental)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-``composite-background --population target`` exports compatible target-annotated
-reference keys; the default ``--population other`` exports other-peptide keys.
-Both preserve full junctions and genuine linked reference pairs. These are
-annotation groups, not measured binder/nonbinder labels.
-
-``composite-evidence CASES --target-reference TARGET_SCORES --background OTHER_SCORES
---output OUT`` fits a joint Gaussian reference model of the original and conditional
-evidence. ``--paired`` uses raw alpha density, beta density, combined germline evidence
-and conditional rank, thereby retaining searches against unlinked chain references.
-Single-chain tables require ``junction_aa``; paired tables require ``junction_alpha``
-and ``junction_beta``. Every full-junction match is deleted from both fitted groups
-for each query, regardless of its gene calls or duplicated model records. Input core
-scores must also have benchmark exact exclusion. The original single score uses
-asinh; nonnegative density/conditional components use log1p; germline log evidence
-is unchanged. Missing components select the available joint coordinates.
-
-Group means and one covariance of the pooled reference features define the model.
-Correlations are retained; singular directions are projected out, rather than
-counting duplicated evidence twice. No assay labels or fitted panel coefficients
-are read. ``score`` and ``log_likelihood_ratio`` are continuous log likelihoods in
-nats. ``p_gaussian_model`` is a separate upper tail conditional on this fitted
-Gaussian background, with no biological null calibration claimed. Empty groups
-give missing evidence and explicit model status. Paired target fitting currently
-requires observed linked target examples; this experimental route is not the
-end-user default and does not establish the required fallback/calibration gates.
-
 ``--mhc-match compatible --pool-reference`` pools intersecting family and allele
 restrictions before counting unique reference junctions. Source restriction
 labels remain intact in the reference. ``--targets-from-sample`` instead selects
@@ -674,69 +645,6 @@ For commands with an explicit thread budget, the CLI caps the Polars thread pool
 at that budget and honors a smaller parent ``POLARS_MAX_THREADS`` allocation.
 The native sequence engine still receives the requested ``--threads`` value.
 Malformed parent thread allocations fail before loading inputs.
-
-vdjmatch composite-evidence
-----------------------------
-
-Produce raw other-peptide reference queries for one declared target before scoring:
-
-.. code-block:: bash
-
-   vdjmatch composite-background --vdjdb reference.zip --species human --locus paired \
-     --epitope GLCTLVAML --mhc-a 'HLA-A*02:01' --mhc-b B2M --mhc-class MHCI \
-     --output background.tsv
-
-``--locus TRA`` and ``--locus TRB`` emit distinct full-junction/V/J keys.
-``--locus paired`` emits genuine linked reference pairs as two AIRR rows per
-``clone_id``. The target peptide is excluded from this query population across
-MHC restrictions; it remains in the searchable reference. Duplicate search keys
-are collapsed, while the source reference and its independent observations remain
-unchanged. The output is raw input, with a reference/target/count manifest; no
-predictions or experimental labels are generated. Score both query populations
-against the entire valid reference, with exact-clonotype exclusion in benchmarks.
-Other-peptide annotation does not establish biological nonbinding.
-
-The experimental composite compares two scorers on a fixed background scale:
-
-.. code-block:: bash
-
-   vdjmatch composite-evidence queries.tsv --background background.tsv --output composite.tsv
-   vdjmatch composite-evidence paired-queries.tsv --background paired-background.tsv --paired --output paired-composite.tsv
-
-Each table contains unique ``query_id`` values and ``conditional_score``. The
-single-chain form additionally takes ``original_score``. The paired form instead
-takes ``original_alpha_density_score``, ``original_beta_density_score`` and
-``original_germline_lr``; it ranks these raw components against the fixed background
-and sums their inclusive ranks. It does not use the original cohort-dependent
-paired score. Scores remain unchanged when unrelated queries join the input batch.
-The original paired components use all eligible per-chain references, including
-unlinked records. Missing linked conditional evidence does not veto these marginal
-components. TRA-only and TRB-only inputs use the single-chain form; each query mode
-needs its own whole-pipeline call calibration.
-
-Use one declared target/species/locus/geometry per invocation and the identical
-frozen scoring/reference policy for both tables. Present target, species/locus and
-reference/scoring hash columns must be constant and match across both tables.
-Background scores must be produced without query assay labels. Input labels remain
-metadata; neither rule activation nor score combination uses them. Missing scores
-stay in the background denominator and do not provide query evidence.
-
-For each scorer, the upper empirical tail is ``(1 + background scores >= query
-score)/(background queries + 1)``. Ties are conservative. The composite takes
-``min(1, 2 * min(p_original, p_conditional))`` and exports its negative base-10
-logarithm as ``score``. A query lacking both scores has a null score and
-``composite_status=no_evidence``. The factor two accounts for choosing between
-scorers without assuming independence. Paired fixed-background component ranks
-give an upper bound on the corresponding pooled-query rank tail.
-This accounts for two scorers, not for searching many epitope labels; winning-label
-selection still needs the separate whole-pipeline any-call calibration.
-
-These null bounds require exchangeable background and null-query score tuples;
-VDJdb sampling and other-epitope annotation do not establish that assumption.
-The output is not a biological binder probability. No full raw-input performance
-validation or default promotion has occurred. Whole-pipeline null-call calibration
-and the existing ranking/nonregression checks are still required. The command
-reduces freshly produced evidence; it does not generate missing background scores.
 
 vdjmatch apply-call-calibration
 -------------------------------

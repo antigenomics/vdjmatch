@@ -906,97 +906,14 @@ reference-selected radius limit the independent fixed-radius approximation.
 This criterion suggests a reference-defined route; it is not proof of the optimal
 scorer switch and does not change the source-record benchmark eligibility rule.
 
-\subsection*{A fixed-background two-scorer composite}
-The experimental \texttt{composite-evidence} reduction uses the same $M>0$
-background queries for both scorers. For a higher-is-better raw score $s_j(q)$,
-where $j\in\{o,c\}$ denotes original or conditional evidence, define
-\[
- p_j(q)=\frac{1+\#\{i:s_j(b_i)\ge s_j(q)\}}{M+1},\qquad
- p_\ast(q)=\min\{1,2\min(p_o(q),p_c(q))\},\qquad
- S(q)=-\log_{10}p_\ast(q).
-\]
-Missing background scores remain in $M$ and do not exceed a finite query score.
-A missing query component receives $p_j=1$; both missing components produce a
-null exported score and no-evidence disposition. The add-one correction prevents
-zero tails, and upper ties are conservative. Under exchangeability of background
-and null-query score tuples, each $p_j$ is super-uniform. The union bound gives
-$\Pr(p_\ast\le\alpha)\le\alpha$ without independence between scorers.
-This assumption is not established by VDJdb annotations, deduplication, or
-generated controls. No biological binder-probability claim follows.
-
-The original paired cohort rank cannot be transported directly between batches.
-Instead, for each of its three raw components (alpha density, beta density and
-germline log usage), let $R_j(x)$ be the number of complete background tuples with
-component $j$ at most $x$. Define $T(q)=\sum_{j=1}^3R_j(x_j(q))$ and
-$T(b_i)=\sum_{j=1}^3R_j(x_j(b_i))$. The original empirical tail above uses $T$
-in paired mode. In the pooled background-plus-query ranking, a complete query's
-statistic becomes $T(q)+3$, while a complete background tuple's statistic becomes
-$T(b_i)+\sum_j\mathbf1\{x_j(q)\le x_j(b_i)\}\le T(b_i)+3$.
-Thus every pooled background statistic exceeding the pooled query statistic
-also has $T(b_i)\ge T(q)$. The exported tail is at least the full pooled-rank
-tail, and is conservative under the same exchangeability condition. Incomplete
-tuples have unavailable original evidence; they retain their query denominator.
-No independence of the three components is assumed. Inclusive ranks differ from
-the historical average-tie cohort ranks and require fresh performance validation.
-
-For $Q$ query rows and $M$ background rows, sorting and binary searches cost
-$O(M\log M+Q\log M)$ time and $O(M+Q)$ memory for the fixed number of components.
-There is no query-by-background distance matrix or new sequence search in this
-reduction. The scoring producer must still rebuild both evidence populations
-from raw inputs with identical frozen reference/geometry policies. The fixed
-background makes the exported score independent of unrelated query-batch rows.
-The source is experimental: no matched full raw-input superiority comparison,
-whole-pipeline open-set calibration or default promotion is established yet.
-
-\subsection*{Continuous joint reference likelihood (experimental)}
-The discrete minimum-tail composite lost paired AP in its named validation.
-A separate opt-in reference model retains continuous evidence and its correlations.
-For a single chain its coordinates are $\operatorname{asinh}(s_{\rm original})$
-and $\log(1+s_{\rm conditional})$.
-For a pair they are $\log(1+D_\alpha)$, $\log(1+D_\beta)$,
-the original combined germline log evidence, and $\log(1+s_{\rm conditional})$.
-The density coordinates search all permitted marginal references, not only linked pairs.
-Missing coordinates select the corresponding joint submodel; no marginal likelihoods
-are multiplied and no experimental positive/negative labels enter fitting.
-
-Let $\mathcal T_q$ be compatible target-annotated reference queries and
-$\mathcal B_q$ other-peptide reference queries, after removing every full-junction
-match to query $q$ from both groups. For a pair the deletion key is the two full junctions.
-Repeated model keys with different gene calls are all deleted.
-Each core input score must separately satisfy its own benchmark exact-exclusion policy.
-On the available coordinates define group means $\mu_T,\mu_B$ and the sample covariance
-$\Sigma$ of their pooled, unlabelled transformed features.
-This covariance includes between-group dispersion; it is not the within-class maximum-likelihood
-covariance. Let $P=\Sigma^+$ be its Moore--Penrose inverse and $\Delta=\mu_T-\mu_B$.
-The two fitted normal models share this covariance on its supported subspace, so their
-normalizing factors cancel and their log density ratio is
-\[
- \ell(q)=\Delta^{\mathsf T}P\left(x_q-\frac{\mu_T+\mu_B}{2}\right).
-\]
-This is the exported continuous score in nats, not a biological binder posterior.
-Duplicating a coordinate does not create an independent observation: joint covariance
-and subspace projection retain its single contribution.
-If either fitted population is empty, the score is missing; when $\Delta^{\mathsf T}P\Delta=0$
-the models are indistinguishable and the tail is one.
-
-Under the fitted background model alone, with $h=\Delta^{\mathsf T}P\Delta>0$,
-$\ell(X)\sim\mathcal N(-h/2,h)$; hence the separate conditional model tail is
-\[
- p_{\rm Gaussian}(q)=1-\Phi\left(\frac{\ell(q)+h/2}{\sqrt h}\right).
-\]
-This statement specifies a model, not the true distribution of unknown biological specificities.
-Estimated moments, database ascertainment and annotated examples do not establish
-out-of-sample null calibration or experimental binding probability.
-The complete M6 any-call calibration remains required.
-Paired fitting presently needs linked target examples; that limitation prevents this
-experimental route from becoming the general default or vetoing marginal annotation evidence.
-
-Grouped counts, sums and outer products let each query subtract its matching model rows.
-For $N$ reference/background rows, $Q$ queries and $d\leq4$ coordinates, storage is
-$O((N+Q)d^2)$ and arithmetic is $O(Nd^2+Qd^3)$, apart from grouped-key joins.
-There are at most $2^d$ feature-availability patterns, never a per-query search pool.
-Moment centering avoids cancellation from arbitrary common feature offsets.
-This experiment has no accuracy-promotion claim until its fresh comparison completes.
+\subsection*{Retired two-scorer fusion experiments}
+Two reference-only fusion experiments were evaluated and retired from the active API.
+A discrete minimum of empirical tails lost paired average precision and introduced
+coarse score ties. A continuous Gaussian reference likelihood preserved continuous
+scores, but also lost paired average precision in the named validation.
+Neither establishes a superior default or biological binder probability.
+Their source commits and complete evaluation records remain available for reproduction;
+these experiments do not alter the original or conditional-rank scorers.
 
 \subsection*{Applying a frozen open-set rejection rule}
 The composite must be allowed to return no supported database match. A nearest
