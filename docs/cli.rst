@@ -639,6 +639,24 @@ Malformed parent thread allocations fail before loading inputs.
 vdjmatch composite-evidence
 ----------------------------
 
+Produce raw other-peptide reference queries for one declared target before scoring:
+
+.. code-block:: bash
+
+   vdjmatch composite-background --vdjdb reference.zip --species human --locus paired \
+     --epitope GLCTLVAML --mhc-a 'HLA-A*02:01' --mhc-b B2M --mhc-class MHCI \
+     --output background.tsv
+
+``--locus TRA`` and ``--locus TRB`` emit distinct full-junction/V/J keys.
+``--locus paired`` emits genuine linked reference pairs as two AIRR rows per
+``clone_id``. The target peptide is excluded from this query population across
+MHC restrictions; it remains in the searchable reference. Duplicate search keys
+are collapsed, while the source reference and its independent observations remain
+unchanged. The output is raw input, with a reference/target/count manifest; no
+predictions or experimental labels are generated. Score both query populations
+against the entire valid reference, with exact-clonotype exclusion in benchmarks.
+Other-peptide annotation does not establish biological nonbinding.
+
 The experimental composite compares two scorers on a fixed background scale:
 
 .. code-block:: bash

@@ -9,6 +9,33 @@ import pytest
 from vdjmatch.cli import calibration
 
 
+def test_composite_background_preserves_reference_keys_and_real_pairs(tmp_path):
+    target = {'species': 'HomoSapiens', 'epitope': 'ONE', 'mhc_a': 'HLA-A*02:01',
+              'mhc_b': 'B2M', 'mhc_class': 'MHCI'}
+    ref = pl.DataFrame({'gene': ['TRA', 'TRB', 'TRA', 'TRB', 'TRA', 'TRA'],
+        'cdr3': ['CAVF', 'CASSF', 'CAAF', 'CATSF', 'CAAF', 'CAWF'],
+        'v': ['TRAV1']*6, 'j': ['TRAJ1']*6, 'complex_id': ['1', '1', '2', '2', '0', '0'],
+        'reference_valid': [True]*5+[False], 'epitope': ['ONE', 'ONE', 'TWO', 'TWO', 'THREE', 'FOUR'],
+        **{k: [v]*6 for k,v in target.items() if k != 'epitope'}})
+    pair = calibration.background_queries(ref, target, paired=True)
+    assert pair.height == 2 and pair['clone_id'].n_unique() == 1
+    assert pair['junction_aa'].to_list() == ['CAAF', 'CATSF']
+    assert pair['epitope'].to_list() == ['ONE', 'ONE']
+    single = calibration.background_queries(ref.filter(pl.col('gene')=='TRA'), target)
+    assert single.height == 1 and single['junction_aa'].item() == 'CAAF'
+    with pytest.raises(ValueError, match='one TRA/TRB'):
+        calibration.background_queries(ref, target)
+    with pytest.raises(ValueError, match='species'):
+        calibration.background_queries(ref, target | {'species':'MusMusculus'}, paired=True)
+    with pytest.raises(ValueError, match='complete'):
+        calibration.background_queries(ref, target | {'mhc_a':''}, paired=True)
+    # The raw AIRR export round-trips both original and native query ingestion.
+    from vdjmatch import io
+    path=tmp_path/'pairs.tsv'; pair.write_csv(path, separator='\t')
+    cells=io.read_cell(path, link='clone_id', source='airr')
+    assert cells.height == 1 and cells['cdr3a'].item() == 'CAAF' and cells['cdr3b'].item() == 'CATSF'
+
+
 def test_cli_separate_nulls_ties_and_no_hits(tmp_path):
     rows = pl.DataFrame({
         'query_id': ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],

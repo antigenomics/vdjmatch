@@ -25,7 +25,72 @@ def register(subparsers):
     composite.add_argument('--paired', action='store_true', help='rank original alpha/beta density and germline components against the fixed background')
     composite.add_argument('--output', required=True)
     composite.set_defaults(func=composite_main)
+    bg = subparsers.add_parser('composite-background', help='raw reference-derived queries for one composite target; no predictions')
+    bg.add_argument('--vdjdb', required=True)
+    bg.add_argument('--species', default='HomoSapiens')
+    bg.add_argument('--locus', choices=['TRA', 'TRB', 'paired'], required=True)
+    for field in ['epitope', 'mhc-a', 'mhc-b', 'mhc-class']:
+        bg.add_argument('--'+field, required=True)
+    bg.add_argument('--output', required=True)
+    bg.set_defaults(func=background_main)
     return parser
+
+
+def background_queries(reference, target, *, paired=False):
+    """Other-peptide raw keys; full chain identities and observed pairing only."""
+    import polars as pl
+    from ..aggregate.candidates import PMHC
+    from ..evalue.paired import build_paired_ref
+    if set(target) != {'species', *PMHC} or any(not isinstance(v, str) or not v.strip() for v in target.values()):
+        raise ValueError('one complete species/peptide/MHC target required')
+    valid = reference.filter(pl.col('reference_valid').fill_null(False))
+    if valid['species'].n_unique() != 1 or valid['species'][0] != target['species']:
+        raise ValueError('reference must contain the declared species only')
+    if paired:
+        population = build_paired_ref(valid).filter(pl.col('epitope') != target['epitope'])
+        keys = ['alpha', 'v_alpha', 'j_alpha', 'beta', 'v_beta', 'j_beta']
+        population = population.select(keys).unique().sort(keys).with_row_index('clone_id')
+        rows = [population.select('clone_id', pl.lit(locus).alias('locus'),
+            pl.col(chain).alias('junction_aa'), pl.col('v_'+chain).alias('v_call'),
+            pl.col('j_'+chain).alias('j_call')) for chain, locus in [('alpha', 'TRA'), ('beta', 'TRB')]]
+        raw = pl.concat(rows).sort('clone_id', 'locus').with_row_index('query_id')
+    else:
+        if valid['gene'].n_unique() != 1 or valid['gene'][0] not in ('TRA', 'TRB'):
+            raise ValueError('single-chain reference requires one TRA/TRB locus')
+        raw = valid.filter(pl.col('epitope') != target['epitope']).select(
+            pl.col('gene').alias('locus'), pl.col('cdr3').alias('junction_aa'),
+            pl.col('v').alias('v_call'), pl.col('j').alias('j_call'))
+        raw = raw.unique().sort(raw.columns).with_row_index('query_id')
+    return raw.with_columns(*[pl.lit(v).alias(k) for k, v in target.items()])
+
+
+def background_main(args):
+    import json
+    import time
+    from .. import db
+    from ..db.cache import sha256
+    from ..evalue.control import _organism
+    started = time.monotonic()
+    species = {'human': 'HomoSapiens', 'mouse': 'MusMusculus'}[_organism(args.species)]
+    reference = db.load(args.vdjdb, species=species, gene=None if args.locus == 'paired' else args.locus)
+    target = {key: getattr(args, key) for key in ['epitope', 'mhc_a', 'mhc_b', 'mhc_class']}
+    target['species'] = species
+    raw = background_queries(reference, target, paired=args.locus == 'paired')
+    output = Path(args.output)
+    manifest = Path(str(output)+'.manifest.json')
+    if Path(args.vdjdb).resolve() in {output.resolve(), manifest.resolve()}:
+        raise ValueError('output must not overwrite reference input')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    raw.write_csv(output, separator='\t')
+    manifest.write_text(json.dumps({'reference_sha256': sha256(Path(args.vdjdb)), 'target': target,
+        'locus': args.locus, 'source_records': reference.height,
+        'valid_source_records': reference.filter('reference_valid').height,
+        'query_rows': raw.height, 'queries': raw['clone_id'].n_unique() if args.locus == 'paired' else raw.height,
+        'query_sha256': sha256(output), 'wall_seconds': time.monotonic()-started,
+        'population': 'distinct full junction/V/J keys from other peptides; genuine linked pairs only in paired mode',
+        'predictions_computed': False, 'query_labels_used': False,
+        'policy': 'Score against the entire valid reference with benchmark exact-clonotype exclusion. This population does not establish null exchangeability or biological nonbinding.'}, indent=2)+'\n')
+    return 0
 
 
 def composite_evidence(frame, background, *, paired=False):
