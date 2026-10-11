@@ -512,6 +512,25 @@ All motif and population counts puncture identical full junctions only when
 exact reference evidence. This option leaves existing comparator/rank fields
 unchanged and does not supply a new end-user call threshold.
 
+Experimental ordered class alignment
+------------------------------------
+
+``tcrdist-neighbours --alphabet imgt`` uses the existing alignment engine with
+the IMGT classes AILV, RHK, CM, ST, DE and NQ; G, F, P, W and Y remain separate.
+The cost between two classes is the minimum original clipped BLOSUM62 cost
+between their members, with zero within a class. Ambiguous symbols retain their
+own classes. Residue order, alignment gaps and the existing positional profile
+are preserved. CDR3 and V loops use the same selected matrix; gaps, radius factors
+and distance bins derive from that matrix's units.
+
+Raw junctions remain the identity keys. Benchmark exact exclusion removes raw
+identical junctions, retaining distinct sequences with zero class distance.
+Linked-pair distances still refer to one linked reference receptor. Reference
+and background searches use identical geometry. The default ``full`` alphabet
+is unchanged. Class distances and ranks are experimental components; their
+component P-values do not calibrate a final combined score. Full raw-task
+accuracy and selected-score calibration are required before adoption.
+
 Experimental local KF4 chemistry
 --------------------------------
 

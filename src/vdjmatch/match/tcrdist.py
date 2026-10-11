@@ -91,7 +91,7 @@ def reference_structure(distances, *, radius_factor=22.5, costs=None):
     return coverage, shape
 
 
-def reference_nearest_distances(frame, *, paired=False, species='human', threads=1, ctrim=3):
+def reference_nearest_distances(frame, *, paired=False, species='human', threads=1, ctrim=3, alphabet='full'):
     """Nonexact same-population nearest distances from one native batch.
 
     Input columns are seq0/v0, plus seq1/v1 for linked TRA/TRB. Full junctions
@@ -101,11 +101,12 @@ def reference_nearest_distances(frame, *, paired=False, species='human', threads
     """
     import polars as pl
 
+    costs = _substitution_costs(alphabet)
     if not frame.height:
         return np.empty(0, dtype=float)
     axes = range(2 if paired else 1)
     model = load_v_loops(species)
-    scale,quantum=distance_units()
+    scale,quantum=distance_units(costs)
     bound = 0
     for i in axes:
         genes = resolve_v_alleles(frame[f'v{i}'], model,
@@ -121,7 +122,7 @@ def reference_nearest_distances(frame, *, paired=False, species='human', threads
                           maintain_order='left').select(frame.height-pl.col('_self_count')).to_series().to_numpy()
     if not paired:
         q, r, options = _total_distance_options(frame['seq0'], frame['seq0'],
-            frame['v0'], frame['v0'], species, threads, ctrim, 'uniform')
+            frame['v0'], frame['v0'], species, threads, ctrim, 'uniform', alphabet=alphabet)
         _, counts, nearest = gapblock.group_audit_batch(q, r, [200*bound]*len(q),
                                                        exclude_exact=True, **options)
         if not np.array_equal(counts, expected):
@@ -136,7 +137,7 @@ def reference_nearest_distances(frame, *, paired=False, species='human', threads
         frame['seq0'], frame['seq1'], frame['seq0'], frame['seq1'],
         frame['v0'], frame['v1'], frame['v0'], frame['v1'],
         [cutoffs]*frame.height,
-        species=species, threads=threads, ctrim=ctrim, exclude_exact=True)
+        species=species, threads=threads, ctrim=ctrim, exclude_exact=True, alphabet=alphabet)
     curve = np.asarray(counts, dtype=np.uint64)
     if not np.array_equal(curve[:, -1], expected):
         raise ArithmeticError('paired reference nearest bound did not cover the population')
@@ -213,10 +214,27 @@ def resolve_v_alleles(calls, model, *, locus=None):
     return values.replace_strict(unique,pl.Series(resolved,dtype=pl.String),default=None,return_dtype=pl.String)
 
 
-def _substitution_costs():
-    alphabet=amino_acids(); b=SubstitutionMatrix.blosum62()
-    return np.asarray([[0 if a==c else max(0,min(4,4-b.similarity(a,c)))
-                        for c in alphabet] for a in alphabet],dtype=np.int32)
+def _substitution_costs(alphabet='full'):
+    """Original costs or their ordered IMGT-class compatibility projection.
+
+    Keep raw sequence encodings: zero class cost does not imply raw identity.
+    The same matrix supplies CDR3, V loops, gaps and radius/bin units.
+    """
+    if alphabet not in ('full', 'imgt'):
+        raise ValueError('alphabet must be full or imgt')
+    symbols=amino_acids(); b=SubstitutionMatrix.blosum62()
+    costs=np.asarray([[0 if a==c else max(0,min(4,4-b.similarity(a,c)))
+                       for c in symbols] for a in symbols],dtype=np.int32)
+    if alphabet=='full':return costs
+    from ..evalue.epitope_rules import IMGT_CLASSES
+    groups={}
+    for i,a in enumerate(symbols):groups.setdefault(IMGT_CLASSES.get(a,a),[]).append(i)
+    result=costs.copy()
+    for a,ai in groups.items():
+        for b,bi in groups.items():
+            block=np.ix_(ai,bi)
+            result[block]=0 if a==b else costs[block].min()
+    return result
 
 
 def distance_units(costs=None):
@@ -290,7 +308,7 @@ def _v_loop_groups(genes, model, d):
     return loop_dist, indices
 
 
-def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2, v_loop_weight=1):
+def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2, v_loop_weight=1, alphabet='full'):
     """TCRdist3 default distances in a bounded native batch, maximum64MiB output.
 
     Exact alleles are used; a missing allele suffix explicitly means *01, as in the
@@ -308,10 +326,10 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
         raise ValueError("v_loop_weight must be integer0 or1")
     queries, references, model, genes = _distance_inputs(
         queries, references, query_v, reference_v, species, threads, ctrim, dense=True)
+    d=_substitution_costs(alphabet)
     if not queries or not references:
         out=np.empty((len(queries),len(references)),dtype=np.int32)
         return (out,out.copy()) if return_cdr3 else out
-    d=_substitution_costs()
     # Integer similarities -d produce exactly2*d under seqtree's Gram transform.
     cdr3=np.array(gapblock.score_matrix([s[3:-ctrim] for s in queries],[s[3:-ctrim] for s in references],
         **_cdr3_options(threads,d,ctrim)),copy=True)
@@ -327,7 +345,7 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
                                species='human', threads=1, ctrim=2,
                                position_weighting='uniform', exclude_exact=False, linear_mass=False,
                                query_boundaries=None, reference_boundaries=None, v_loop_weight=1,
-                               same_v_gene=False):
+                               same_v_gene=False, alphabet='full'):
     """Count full-junction/V-loop balls without a dense query/reference matrix.
 
     ``thresholds`` contains one integer list per query, in native units200 times
@@ -366,7 +384,7 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
     if linear_mass and 'linear_mass' not in inspect.signature(gapblock.count_batch).parameters:
         raise RuntimeError('linear mass requires seqtree gapblock linear_mass support')
     queries,references,options=_total_distance_options(queries,references,query_v,reference_v,
-        species,threads,ctrim,position_weighting,query_boundaries,reference_boundaries,v_loop_weight,same_v_gene)
+        species,threads,ctrim,position_weighting,query_boundaries,reference_boundaries,v_loop_weight,same_v_gene,alphabet)
     if same_v_gene and any(t>=2**28 for row in thresholds for t in row):
         raise ValueError('conditional V thresholds must be below the native group barrier')
     return gapblock.count_batch(queries,references,thresholds,**options,
@@ -374,7 +392,7 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
 
 
 def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,species='human',
-                          threads=1,ctrim=2,exclude_exact=False):
+                          threads=1,ctrim=2,exclude_exact=False,alphabet='full'):
     """Audit the actual CDR3 ball and unchanged V costs in one native reduction.
 
     Native units, eligibility and full-junction puncturing match total counts.
@@ -394,7 +412,7 @@ def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,spe
         raise ValueError('radius must be finite and nonnegative')
     bound=distance_cutoff(radius)
     q,r,options=_total_distance_options(queries,references,query_v,reference_v,
-                                      species,threads,ctrim,'uniform')
+        species,threads,ctrim,'uniform',alphabet=alphabet)
     if streaming:
         start=time.perf_counter()
         before,after,nearest=gapblock.group_audit_batch(q,r,[bound]*len(q),
@@ -436,7 +454,7 @@ def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,spe
 
 
 def _total_distance_options(queries,references,query_v,reference_v,species,threads,ctrim,position_weighting,
-                            query_boundaries=None,reference_boundaries=None,v_loop_weight=1,same_v_gene=False):
+                            query_boundaries=None,reference_boundaries=None,v_loop_weight=1,same_v_gene=False,alphabet='full'):
     """Shared full-coordinate geometry for marginal and linked-pair reductions."""
     if position_weighting not in ('uniform','significance','ndn'):
         raise ValueError('position_weighting must be uniform, significance or ndn')
@@ -446,7 +464,7 @@ def _total_distance_options(queries,references,query_v,reference_v,species,threa
         raise ValueError("v_loop_weight must be integer0 or1")
     queries, references, model, genes = _distance_inputs(
         queries, references, query_v, reference_v, species, threads, ctrim)
-    costs=_substitution_costs()
+    costs=_substitution_costs(alphabet)
     loop_dist, indices=_v_loop_groups(genes,model,costs)
     lengths={len(s) for s in queries+references}
     if position_weighting=='ndn':
@@ -501,7 +519,7 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
         query_v_alpha,query_v_beta,reference_v_alpha,reference_v_beta,thresholds,*,
         species='human',threads=1,ctrim=2,exclude_exact=False,position_weighting='uniform',
         query_boundaries_alpha=None,query_boundaries_beta=None,
-        reference_boundaries_alpha=None,reference_boundaries_beta=None,v_loop_weight=1,same_v_gene=False):
+        reference_boundaries_alpha=None,reference_boundaries_beta=None,v_loop_weight=1,same_v_gene=False,alphabet='full'):
     """Counts and triangular integer mass for linked alpha+beta total distances.
 
     Thresholds and masses use native units200 times ordinary TCRdist distance.
@@ -526,7 +544,7 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
         rv=resolve_v_alleles(rv,model,locus=locus).to_list()
         if any(v is None for v in qv+rv):
             raise ValueError('linked pair V calls must resolve to their alpha/beta locus')
-        q,r,kw=_total_distance_options(q,r,qv,rv,species,threads,ctrim,position_weighting,*boundaries[suffix],v_loop_weight,same_v_gene)
+        q,r,kw=_total_distance_options(q,r,qv,rv,species,threads,ctrim,position_weighting,*boundaries[suffix],v_loop_weight,same_v_gene,alphabet)
         axes.append((q,r))
         options.update({key+'_'+suffix:kw.pop(key) for key in keys})
         shared=kw
@@ -540,7 +558,7 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
 
 def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_beta,
                            query_v_alpha, query_v_beta, reference_v_alpha, reference_v_beta,
-                           *, species='human', threads=1, ctrim=2, v_loop_weight=1):
+                           *, species='human', threads=1, ctrim=2, v_loop_weight=1, alphabet='full'):
     """Sum alpha/beta distances against the same ordered reference pairs.
 
     Each position identifies one linked receptor pair; independent marginal nearest
@@ -556,6 +574,6 @@ def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_b
     qvb,rvb=(resolve_v_alleles(v,model,locus='TRB').to_list() for v in [qvb,rvb])
     if any(v is None for v in qva+rva+qvb+rvb):
         raise ValueError('linked pair V calls must resolve uniquely to their declared alpha/beta locus')
-    out=distance_matrix(qa,ra,qva,rva,species=species,threads=threads,ctrim=ctrim,v_loop_weight=v_loop_weight)
-    out+=distance_matrix(qb,rb,qvb,rvb,species=species,threads=threads,ctrim=ctrim,v_loop_weight=v_loop_weight)
+    out=distance_matrix(qa,ra,qva,rva,species=species,threads=threads,ctrim=ctrim,v_loop_weight=v_loop_weight,alphabet=alphabet)
+    out+=distance_matrix(qb,rb,qvb,rvb,species=species,threads=threads,ctrim=ctrim,v_loop_weight=v_loop_weight,alphabet=alphabet)
     return out

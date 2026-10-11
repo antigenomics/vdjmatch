@@ -10,7 +10,7 @@ def test_matrix_rescaling_includes_gaps_and_v_loops(monkeypatch):
     v=['TRBV19*01','TRBV7-9*01']
     baseline=tcrdist.distance_matrix(q,q,v,v,ctrim=3)
     matrix=tcrdist._substitution_costs()
-    monkeypatch.setattr(tcrdist,'_substitution_costs',lambda:2*matrix)
+    monkeypatch.setattr(tcrdist,'_substitution_costs',lambda alphabet='full':2*matrix)
     np.testing.assert_array_equal(tcrdist.distance_matrix(q,q,v,v,ctrim=3),2*baseline)
 
 

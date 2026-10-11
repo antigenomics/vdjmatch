@@ -140,7 +140,7 @@ def test_matrix_relative_radius_and_bins_preserve_evidence(monkeypatch,tmp_path,
         '--radius-factor',str(factor)]
     assert main(args+['--output-prefix',str(tmp_path/'base')])==0
     matrix=tcrdist._substitution_costs()
-    monkeypatch.setattr(tcrdist,'_substitution_costs',lambda:2*matrix)
+    monkeypatch.setattr(tcrdist,'_substitution_costs',lambda alphabet='full':2*matrix)
     assert main(args+['--output-prefix',str(tmp_path/'scaled')])==0
     base=pl.read_csv(tmp_path/'base.enrichment.tsv',separator='\t')
     scaled=pl.read_csv(tmp_path/'scaled.enrichment.tsv',separator='\t')

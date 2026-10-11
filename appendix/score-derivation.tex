@@ -1172,4 +1172,26 @@ from this kernel definition. Full raw-task comparisons and whole selected-score
 null calibration are required; no biological likelihood, binding probability,
 component P-value or E-value is claimed.
 
+\section{Experimental ordered class alignment}
+The opt-in \code{tcrdist-neighbours --alphabet imgt} mode retains the native
+alignment and changes its substitution matrix. Let $C(a)$ denote amino acid
+$a$'s IMGT class: AILV, RHK, CM, ST, DE, NQ, with G, F, P, W and Y each separate.
+Ambiguous symbols form singleton classes. For original clipped BLOSUM cost
+$d(a,b)$, define
+\[
+d_C(a,b)=\begin{cases}
+0,& C(a)=C(b),\\
+\min_{x\in C(a),\,y\in C(b)}d(x,y),& C(a)\ne C(b).
+\end{cases}
+\]
+This symmetric compatibility cost preserves residue order and alignment gaps.
+CDR3 and V loops use the same $d_C$; gap, radius and bin scales derive from its
+matrix units. Both reference and background use identical geometry.
+Raw full junctions remain the identity keys: zero class distance does not imply
+raw identity, and benchmark exact exclusion retains distinct zero-distance
+sequences. Paired distances sum against the same linked receptor.
+The default full-alphabet geometry is unchanged. This projection does not
+establish a biological likelihood or a calibrated final-score P/E-value;
+complete raw-task accuracy and selected-score calibration remain required.
+
 \end{document}

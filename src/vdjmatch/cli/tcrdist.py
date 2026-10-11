@@ -14,6 +14,8 @@ def register(subparsers):
     p.add_argument('--mhc-match',choices=['exact','compatible'],default='exact')
     p.add_argument('--targets-from-sample',action='store_true',help='score only each row\'s declared assayed pMHC with compatible MHC resolution')
     p.add_argument('--threads',type=int,default=1)
+    p.add_argument('--alphabet',choices=['full','imgt'],default='full',
+                   help='experimental ordered IMGT-class geometry; same projected matrix for CDR3/V loops, raw identities retained')
     p.add_argument('--junction-ends',choices=['tcrdist','trim3'],default='tcrdist',
                    help='TCRdist3 trims 3 N/2 C residues; trim3 tests 3 residues at both ends')
     p.add_argument('--v-loop-weight',type=int,choices=[0,1],default=1,
@@ -120,10 +122,13 @@ def main(a):
     from ..io.airr import _read_table
     from ..db.cache import sha256
     from seqtree import _core
-    from ..match.tcrdist import distance_matrix,paired_distance_matrix,load_v_loops,resolve_v_alleles,distance_units,distance_cutoff
+    from ..match.tcrdist import distance_matrix,paired_distance_matrix,load_v_loops,resolve_v_alleles,distance_units,distance_cutoff,_substitution_costs
     from ..evalue.control import _organism
     start=time.perf_counter()
-    matrix_scale,bin_width=distance_units()
+    a.alphabet=getattr(a,'alphabet','full')
+    matrix_scale,bin_width=distance_units(_substitution_costs(a.alphabet))
+    if a.alphabet!='full' and (a.epitope_rules or a.conditional_j or getattr(a,'chemistry',False)):
+        raise ValueError('class alignment is separate from J/epitope-rule/chemistry diagnostics')
     if a.radius_factor is not None and (not np.isfinite(a.radius_factor) or a.radius_factor<=0):
         raise ValueError('radius factor must be finite and positive')
     absolute_radius=a.radius is not None
@@ -232,7 +237,7 @@ def main(a):
                 fields.extend([pl.col(suffix if paired else 'cdr3').alias(f'seq{i}'),
                     pl.col('_allele_'+suffix if paired else '_allele').alias(f'v{i}')])
             distances=reference_nearest_distances(reference_keys.select(fields),paired=paired,
-                species=organism,threads=a.threads,ctrim=ctrim)
+                species=organism,threads=a.threads,ctrim=ctrim,alphabet=a.alphabet)
             finite=distances[np.isfinite(distances)]
             nearest_curves.append(finite)
             knee=kneedle_radius(finite)
@@ -265,7 +270,7 @@ def main(a):
         local=a.neighbour_weighting=='local-rank'
         query_keys=['cdr3a','cdr3b','_allelea','_alleleb'] if paired else ['cdr3','_allele']
         options=dict(species=organism,threads=a.threads,ctrim=ctrim,
-                     position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear,v_loop_weight=a.v_loop_weight)
+                     position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet)
         def boundaries(sequences,genes):
             return [boundary_map[(s,v)] for s,v in zip(sequences,genes)]
         def counts(part,population,thresholds=None):
@@ -287,7 +292,7 @@ def main(a):
                     part['_allelea'].to_list(),part['_alleleb'].to_list(),
                     population['_allele_alpha'].to_list(),population['_allele_beta'].to_list(),
                     thresholds,species=organism,threads=a.threads,
-                    ctrim=ctrim,exclude_exact=a.exclude_exact,position_weighting=a.position_weighting,v_loop_weight=a.v_loop_weight,
+                    ctrim=ctrim,exclude_exact=a.exclude_exact,position_weighting=a.position_weighting,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,
                     **({
                         'query_boundaries_alpha':boundaries(part['cdr3a'],part['_allelea']),
                         'query_boundaries_beta':boundaries(part['cdr3b'],part['_alleleb']),
@@ -464,7 +469,7 @@ def main(a):
             computation=query_part.unique(['cdr3','_allele'],maintain_order=True)
             audit=shortlist_audit_batch(computation['cdr3'],reference_part['cdr3'],
                 computation['_allele'],reference_part['_allele'],radius=a.radius,
-                species=organism,threads=a.threads,ctrim=ctrim,exclude_exact=a.exclude_exact)
+                species=organism,threads=a.threads,ctrim=ctrim,exclude_exact=a.exclude_exact,alphabet=a.alphabet)
             shared=computation.select('cdr3','_allele').with_columns(
                 pl.Series('cdr3_shortlist_keys',audit['cdr3_shortlist_keys'],dtype=pl.UInt64),
                 pl.Series('post_v_radius_keys',audit['post_v_radius_keys'],dtype=pl.UInt64),
@@ -486,10 +491,10 @@ def main(a):
                 qa,qb=part['cdr3a'].to_list(),part['cdr3b'].to_list()
                 ra,rb=reference_part['alpha'].to_list(),reference_part['beta'].to_list()
                 distances=paired_distance_matrix(qa,qb,ra,rb,part['_allelea'].to_list(),part['_alleleb'].to_list(),
-                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight)
+                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet)
             else:
                 seqs=part['cdr3'].to_list()
-                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight)
+                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet)
             keep=distances<=radius
             nonexact=True
             if a.exclude_exact:
@@ -663,12 +668,13 @@ def main(a):
             'scale':'population standard deviation of published vdjtools KF4 amino-acid table; same geometry in reference/control',
             'exact_exclusion':'all full-junction identities across V categories, before both conditional and V-usage denominators',
             'interpretation':'experimental local density/V ratios; no P/E-value or binding probability'}} if getattr(a,'chemistry',False) else {}),
-        'distance_scale':{'matrix_unit':matrix_scale,'radius':a.radius,'radius_factor':a.radius_factor,
+        'distance_scale':{'alphabet':a.alphabet,'matrix_unit':matrix_scale,'radius':a.radius,'radius_factor':a.radius_factor,
             'requested_radius':requested_radius,
             'radius_mode':'absolute' if absolute_radius else 'matrix_factor','bin_width':bin_width,
             'gap_cost':3*matrix_scale,'cdr3_weight':3,'v_loop_weight':a.v_loop_weight,
             'native_units_per_distance_unit':200,'native_radius':native_radius,
-            'definition':'maximum effective clipped BLOSUM62 substitution cost; shared CDR3/V-loop matrix',
+            'definition':'maximum effective clipped BLOSUM62 substitution cost; shared CDR3/V-loop matrix' if a.alphabet=='full' else
+                'zero within IMGT11 class; minimum clipped BLOSUM62 cost across classes; shared CDR3/V-loop matrix; raw unknown symbols remain singletons',
             'boundary_rounding':'floor to native integer units'},
         **({'reference_radius':{'selection':'reference-only nonexact leave-one-junction-out nearest-distance strongest confirmed Kneedle S=1 bend; no smoothing',
             'floor_factor':a.knee_floor_factor,'floor':floor,'floor_source':floor_source,
