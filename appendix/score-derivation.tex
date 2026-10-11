@@ -1108,4 +1108,68 @@ Neither formula inherits a component P-value or biological probability.
 Complete raw-input task comparisons and selected-score null calibration are
 required before any promotion.
 
+\subsection{Experimental local physicochemical mixture}
+A global reference knee does not explicitly represent many small local motif
+families. The opt-in \code{tcrdist-neighbours --chemistry} diagnostic therefore
+estimates local ordered KF4 density, retaining the original distance/rank outputs.
+It uses the published VDJtools amino-acid property table and no query-label fitting.
+
+Let $f(a)$ be amino acid $a$'s KF4 value and $\sigma_f$ its population standard
+deviation over the twenty canonical amino acids. For each full anchored junction,
+trim three residues per end, then enumerate ordered four-residue windows.
+Map a window to $x=(f(a_1),\ldots,f(a_4))/\sigma_f$. For a linked receptor pair,
+concatenate one window from each chain to an eight-dimensional vector; all
+window pairs must belong to that same reference receptor. Let $W_q$ and $W_r$
+be these multisets, retaining repeated positions, for query $q$ and reference $r$.
+With a positive user-visible bandwidth factor $h$ (default one), define
+\[
+ K_h(q,r)=\frac{1}{|W_q||W_r|}
+ \sum_{x\in W_q}\sum_{y\in W_r}
+ \exp\!\left[-\frac{\|x-y\|^2}{2h^2}\right].
+\]
+This is one correlated receptor kernel, not an independent product of motif
+observations. Its Gaussian normalising constant is identical in both populations
+and cancels in their ratio. Each receptor has unit mixture weight, so longer
+junctions do not contribute additional population observations. Within the
+query's V-gene category $g$, let $n_g,m_g$ count target and complement keys and
+let $N,M$ count their full usable populations. Keys are distinct full junction/V
+tuples (linked tuples for pairs); allele suffixes are collapsed to genes.
+The conditional chemical means are
+\[
+ A_g(q)=\frac{1}{n_g}\sum_{r\in R_g}K_h(q,r),\qquad
+ B_g(q)=\frac{1}{m_g}\sum_{r\in C_g}K_h(q,r).
+\]
+The separate V ratio uses the existing pooled pseudo-observation convention:
+$p_g=(n_g+m_g+1/2)/(N+M+K/2)$, where $K$ is the number of distinct population
+V categories plus one unseen category. The diagnostic emits
+\[
+ L_{\rm chem\mid V}=\log A_g-\log B_g,\quad
+ L_V=\log\frac{(n_g+p_g)/(N+1)}{(m_g+p_g)/(M+1)},\quad
+ S_{\rm chem}=L_{\rm chem\mid V}+L_V.
+\]
+V enters once. This score is not multiplied into another V-containing score.
+All exact full-junction matches are removed across V categories in benchmark
+mode before conditional and global denominators; both full junctions define a
+paired exact match. Their mixture contribution is subtracted analytically.
+Reference keys lacking a four-residue core window are explicitly counted as
+unavailable to this component. Query rows, including missing-window/category
+and numerical-tail cases, remain present with their dispositions. Floating
+subtraction tolerates only the stated roundoff guard $64\epsilon\max(1,n_g)$,
+where $\epsilon$ is double precision machine epsilon; a larger negative mass
+raises an error. A nonpositive remaining density is unavailable, not prior-only
+evidence. Ordinary annotation retains exact keys.
+
+Weighted native Gaussian KDE evaluates each category's query windows as a batch,
+with no approximation tolerance and no persisted calculated intermediates.
+Preparation is vectorised. With $P$ reference and $Q$ query windows in dimension
+$d\in\{4,8\}$, the exact tree evaluation has worst-case $O(PQd)$ work; tree storage
+is $O(Pd)$ and no query-by-reference density matrix is materialised. The exact
+self-kernel reduction uses at most 32 MiB of transient pairwise distances per
+block. Paired window count is the product of the two chains' window counts.
+Chemical bandwidth uses KF4 units independently of the unchanged matrix-derived
+BLOSUM/gap/V-loop distance geometry. No classification-accuracy bound follows
+from this kernel definition. Full raw-task comparisons and whole selected-score
+null calibration are required; no biological likelihood, binding probability,
+component P-value or E-value is claimed.
+
 \end{document}

@@ -103,18 +103,19 @@ def test_motif_classes_wildcards_and_short_sequences():
     assert IMGT_CLASSES['L']==IMGT_CLASSES['I'] and IMGT_CLASSES['F']!=IMGT_CLASSES['Y']
 
 
-def test_cli_rules_preserve_existing_fields_and_empty_schema(tmp_path):
+@pytest.mark.parametrize('diagnostic',['epitope-rules','chemistry'])
+def test_cli_rules_preserve_existing_fields_and_empty_schema(tmp_path,diagnostic):
     from vdjmatch.cli.__main__ import main
     meta=dict(species='human',epitope='E',mhc_a='HLA-A*02',mhc_b='B2M',mhc_class='MHCI')
     sample=tmp_path/'q.tsv';ref=tmp_path/'r.tsv'
     pl.DataFrame([dict(junction_aa='CASSLGQAYEQYF',v_call='TRBV19*01',locus='TRB',**meta)]).write_csv(sample,separator='\t')
     pl.DataFrame([dict(cdr3=s,v='TRBV19*01',gene='TRB',**(meta|dict(species='HomoSapiens',epitope=e))) for s,e in [('CASSLGRAYEQYF','E'),('CASSWGRAYEQYF','OTHER')]]).write_csv(ref,separator='\t')
     args=['tcrdist-neighbours',str(sample),'--vdjdb',str(ref),'--locus','TRB','--targets-from-sample','--unbounded-nearest','--background','vdjdb-other','--neighbour-weighting','linear']
-    for name,extra in [('old',[]),('new',['--epitope-rules']),('parallel',['--epitope-rules','--threads','2']),('empty',['--epitope-rules','--species','mouse'])]:
+    for name,extra in [('old',[]),('new',['--'+diagnostic]),('parallel',['--'+diagnostic,'--threads','2']),('empty',['--'+diagnostic,'--species','mouse'])]:
         assert main(args+extra+['--output-prefix',str(tmp_path/name)])==0
     for suffix in ['queries','candidates','enrichment']:
         old=pl.read_csv(tmp_path/f'old.{suffix}.tsv',separator='\t');new=pl.read_csv(tmp_path/f'new.{suffix}.tsv',separator='\t')
         assert old.equals(new.select(old.columns))
         assert new.equals(pl.read_csv(tmp_path/f'parallel.{suffix}.tsv',separator='\t'))
     empty=pl.read_csv(tmp_path/'empty.enrichment.tsv',separator='\t')
-    assert empty.height==0 and 'rule_mixed_imgt_wild4_score' in empty.columns
+    assert empty.height==0 and ('rule_mixed_imgt_wild4_score' if diagnostic=='epitope-rules' else 'chemistry_log_score') in empty.columns

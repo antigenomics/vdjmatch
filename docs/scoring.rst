@@ -511,3 +511,31 @@ All motif and population counts puncture identical full junctions only when
 ``--exclude-exact`` is explicitly used for benchmarks. Ordinary annotation retains
 exact reference evidence. This option leaves existing comparator/rank fields
 unchanged and does not supply a new end-user call threshold.
+
+Experimental local KF4 chemistry
+--------------------------------
+
+``tcrdist-neighbours --chemistry --background vdjdb-other`` emits a separate
+local-chemistry component, requiring the existing ``bench`` extra. It preserves
+the original distance and rank outputs. Ordered four-residue windows come from
+full anchored junctions trimmed by three residues at each end. Every reference
+receptor contributes equal total mixture weight, irrespective of window count.
+For linked pairs, eight-dimensional windows combine alpha and beta from the
+same receptor. Query-window densities are averaged; overlapping windows are
+not treated as independent observations.
+
+``--chemistry-bandwidth-factor`` defaults to one and scales the Gaussian
+bandwidth by the published VDJtools KF4 table's population standard deviation.
+Reference and background use the identical scale. This is a separate chemical
+coordinate system; it does not change BLOSUM substitution costs, gaps, V-loop
+costs or distance radii.
+
+The output keeps conditional chemical density ratios and V usage ratios
+separate. ``chemistry_log_score`` adds the once-only V log ratio to the
+conditional log-density ratio. Benchmark exact exclusion removes the entire
+full junction (both junctions for a pair) across V categories before every
+population denominator. No-window/category and numerical-tail dispositions
+remain explicit. Reference keys without local windows are counted separately.
+These are experimental ranking values, with no component P/E-value or binding
+probability. Complete raw-task accuracy and selected-score calibration remain
+required before adoption.

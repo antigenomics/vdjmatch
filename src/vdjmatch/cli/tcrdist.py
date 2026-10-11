@@ -36,6 +36,8 @@ def register(subparsers):
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
     p.add_argument('--conditional-j',action='store_true',help='experimental J usage conditional on V and junction length; ranking only')
     p.add_argument('--epitope-rules',action='store_true',help='experimental joint V usage with V-conditioned CDR3/motif kernels; ranking only')
+    p.add_argument('--chemistry',action='store_true',help='experimental V-conditioned local KF4 mixture; requires bench extra; ranking only')
+    p.add_argument('--chemistry-bandwidth-factor',type=float,default=1.0,help='Gaussian bandwidth / amino-acid-table KF4 standard deviation')
     p.add_argument('--nearest-rank',action='store_true',help='experimental background rank at the exhaustive nearest target distance; uniform geometry only')
     p.add_argument('--shortlist-audit',action='store_true',help='audit actual CDR3-only radius retrieval and unchanged V costs; uniform single-chain only')
     p.add_argument('--output-prefix',required=True)
@@ -107,6 +109,7 @@ def _paired_input(path, raw, model, organism):
 
 def main(a):
     from importlib.metadata import version
+    from importlib.resources import files
     import json
     import time
     import numpy as np
@@ -151,6 +154,8 @@ def main(a):
         raise ValueError('--epitope-rules requires vdjdb-other, uniform geometry and positive radius')
     if a.epitope_rules and a.conditional_j:
         raise ValueError('epitope rules and conditional J are separate diagnostic models')
+    if getattr(a,'chemistry',False) and (a.background!='vdjdb-other' or a.epitope_rules or a.conditional_j):
+        raise ValueError('--chemistry requires vdjdb-other and is separate from J/epitope-rule diagnostics')
     if a.shortlist_audit and (a.locus=='paired' or not a.targets_from_sample or
                              not a.unbounded_nearest or a.position_weighting!='uniform' or a.v_loop_weight!=1):
         raise ValueError('--shortlist-audit requires uniform single-chain target/nearest mode with V weight1')
@@ -413,7 +418,7 @@ def main(a):
             del nc
             expanded=part.select('query_id',*query_keys).join(evidence,
                 on=query_keys,how='left',validate='m:1',maintain_order='left').drop(query_keys)
-            if a.conditional_j or a.epitope_rules:
+            if a.conditional_j or a.epitope_rules or getattr(a,'chemistry',False):
                 def features(frame,query=False):
                     fields=[pl.col('query_id')] if query else []
                     for i in range(2 if paired else 1):
@@ -427,13 +432,18 @@ def main(a):
                     from ..evalue.germline import conditional_j_usage
                     residual=conditional_j_usage(features(part,True),features(reference_part),
                         features(r.filter(pl.col('epitope')!=task['epitope'])),paired=paired,exclude_exact=a.exclude_exact)
-                else:
+                elif a.epitope_rules:
                     from ..evalue.epitope_rules import reference_epitope_rules
                     residual=reference_epitope_rules(features(part,True),features(reference_part),
                         features(r.filter(pl.col('epitope')!=task['epitope'])),paired=paired,exclude_exact=a.exclude_exact,
                         species=organism,threads=a.threads,radius=a.radius)
+                else:
+                    from ..match.chemistry import local_chemistry_evidence
+                    residual=local_chemistry_evidence(features(part,True),features(reference_part),
+                        features(r.filter(pl.col('epitope')!=task['epitope'])),paired=paired,
+                        exclude_exact=a.exclude_exact,bandwidth_factor=a.chemistry_bandwidth_factor)
                 expanded=expanded.join(residual,on='query_id',how='left',validate='1:1',maintain_order='left')
-                field='conditional_j_usage' if a.conditional_j else 'epitope_rules'
+                field='conditional_j_usage' if a.conditional_j else 'epitope_rules' if a.epitope_rules else 'chemistry'
                 background_costs[field]=background_costs.get(field,0)+time.perf_counter()-j_start
             enrichment_rows.append(expanded.with_columns(*(pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC)))
         background_costs['total']=time.perf_counter()-background_start
@@ -623,6 +633,12 @@ def main(a):
             pop=pl.DataFrame(schema=schema)
             empty=reference_epitope_rules(pop.with_row_index('query_id'),pop,pop,paired=paired,radius=a.radius)
             enrichment=enrichment.with_columns(*[pl.Series(c,[],dtype=t) for c,t in empty.schema.items() if c!='query_id'])
+        if getattr(a,'chemistry',False) and not enrichment.height:
+            from ..match.chemistry import local_chemistry_evidence
+            pop=pl.DataFrame(schema={c+str(i):pl.String for c in ('seq','v') for i in range(2 if paired else 1)})
+            empty=local_chemistry_evidence(pop.with_row_index('query_id'),pop,pop,paired=paired,
+                bandwidth_factor=a.chemistry_bandwidth_factor)
+            enrichment=enrichment.with_columns(*[pl.Series(c,[],dtype=t) for c,t in empty.schema.items() if c!='query_id'])
         enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
@@ -639,6 +655,14 @@ def main(a):
             'matrix_work_budget_bytes':32*1024**2,
             'independent_marginal_baseline':'not emitted; requires separate full compatible single-chain reference axes'} if paired else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
+        **({'chemistry':{'source_sha256':sha256(Path(local_chemistry_evidence.__code__.co_filename)),
+            'property_table_sha256':sha256(Path(str(files('vdjtools.resources').joinpath('aa_property_table.txt')))),
+            'sklearn_version':version('scikit-learn'),
+            'definition':'equal-weight receptor mixture of ordered four-residue KF4 core windows; linked pairs use joint eight-dimensional vectors; query windows averaged',
+            'core':'full junction[3:-3]','bandwidth_factor':a.chemistry_bandwidth_factor,
+            'scale':'population standard deviation of published vdjtools KF4 amino-acid table; same geometry in reference/control',
+            'exact_exclusion':'all full-junction identities across V categories, before both conditional and V-usage denominators',
+            'interpretation':'experimental local density/V ratios; no P/E-value or binding probability'}} if getattr(a,'chemistry',False) else {}),
         'distance_scale':{'matrix_unit':matrix_scale,'radius':a.radius,'radius_factor':a.radius_factor,
             'requested_radius':requested_radius,
             'radius_mode':'absolute' if absolute_radius else 'matrix_factor','bin_width':bin_width,
