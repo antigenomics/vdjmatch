@@ -421,6 +421,35 @@ retains historical reproduction. It does not calibrate a combined P-value or
 establish a biological binder probability. Experimental gapped extensions are
 not supported with this option.
 
+Continuous reference likelihood (experimental)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``composite-background --population target`` exports compatible target-annotated
+reference keys; the default ``--population other`` exports other-peptide keys.
+Both preserve full junctions and genuine linked reference pairs. These are
+annotation groups, not measured binder/nonbinder labels.
+
+``composite-evidence CASES --target-reference TARGET_SCORES --background OTHER_SCORES
+--output OUT`` fits a joint Gaussian reference model of the original and conditional
+evidence. ``--paired`` uses raw alpha density, beta density, combined germline evidence
+and conditional rank, thereby retaining searches against unlinked chain references.
+Single-chain tables require ``junction_aa``; paired tables require ``junction_alpha``
+and ``junction_beta``. Every full-junction match is deleted from both fitted groups
+for each query, regardless of its gene calls or duplicated model records. Input core
+scores must also have benchmark exact exclusion. The original single score uses
+asinh; nonnegative density/conditional components use log1p; germline log evidence
+is unchanged. Missing components select the available joint coordinates.
+
+Group means and one covariance of the pooled reference features define the model.
+Correlations are retained; singular directions are projected out, rather than
+counting duplicated evidence twice. No assay labels or fitted panel coefficients
+are read. ``score`` and ``log_likelihood_ratio`` are continuous log likelihoods in
+nats. ``p_gaussian_model`` is a separate upper tail conditional on this fitted
+Gaussian background, with no biological null calibration claimed. Empty groups
+give missing evidence and explicit model status. Paired target fitting currently
+requires observed linked target examples; this experimental route is not the
+end-user default and does not establish the required fallback/calibration gates.
+
 ``--mhc-match compatible --pool-reference`` pools intersecting family and allele
 restrictions before counting unique reference junctions. Source restriction
 labels remain intact in the reference. ``--targets-from-sample`` instead selects

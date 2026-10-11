@@ -23,6 +23,10 @@ def test_composite_background_preserves_reference_keys_and_real_pairs(tmp_path):
     assert pair['epitope'].to_list() == ['ONE', 'ONE']
     single = calibration.background_queries(ref.filter(pl.col('gene')=='TRA'), target)
     assert single.height == 1 and single['junction_aa'].item() == 'CAAF'
+    positive = calibration.background_queries(ref, target, paired=True, population='target')
+    assert positive['junction_aa'].to_list() == ['CAVF', 'CASSF']
+    assert calibration.background_queries(ref, target | {'mhc_a':'HLA-A*01:01'}, paired=True,
+        population='target').height == 0
     with pytest.raises(ValueError, match='one TRA/TRB'):
         calibration.background_queries(ref, target)
     with pytest.raises(ValueError, match='species'):

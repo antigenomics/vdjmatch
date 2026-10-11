@@ -23,12 +23,15 @@ def register(subparsers):
     composite.add_argument('cases', help='TSV: unique query_id, original_score, conditional_score')
     composite.add_argument('--background', required=True, help='same scored background queries for both scorers, independent of cases')
     composite.add_argument('--paired', action='store_true', help='rank original alpha/beta density and germline components against the fixed background')
+    composite.add_argument('--target-reference', help='experimental continuous Gaussian likelihood: scored compatible target reference queries, with full junction identity columns')
     composite.add_argument('--output', required=True)
     composite.set_defaults(func=composite_main)
     bg = subparsers.add_parser('composite-background', help='raw reference-derived queries for one composite target; no predictions')
     bg.add_argument('--vdjdb', required=True)
     bg.add_argument('--species', default='HomoSapiens')
     bg.add_argument('--locus', choices=['TRA', 'TRB', 'paired'], required=True)
+    bg.add_argument('--population', choices=['other', 'target'], default='other',
+                    help='reference annotations defining background or compatible target examples; no assay labels')
     for field in ['epitope', 'mhc-a', 'mhc-b', 'mhc-class']:
         bg.add_argument('--'+field, required=True)
     bg.add_argument('--output', required=True)
@@ -36,18 +39,25 @@ def register(subparsers):
     return parser
 
 
-def background_queries(reference, target, *, paired=False):
-    """Other-peptide raw keys; full chain identities and observed pairing only."""
+def background_queries(reference, target, *, paired=False, population='other'):
+    """Reference raw keys; full chain identities and observed pairing only."""
     import polars as pl
     from ..aggregate.candidates import PMHC
     from ..evalue.paired import build_paired_ref
+    from ..db.schema import mhc_compatible
+    if population not in ('other', 'target'):
+        raise ValueError('population must be other or target')
     if set(target) != {'species', *PMHC} or any(not isinstance(v, str) or not v.strip() for v in target.values()):
         raise ValueError('one complete species/peptide/MHC target required')
     valid = reference.filter(pl.col('reference_valid').fill_null(False))
     if valid['species'].n_unique() != 1 or valid['species'][0] != target['species']:
         raise ValueError('reference must contain the declared species only')
+    selection = pl.col('epitope') != target['epitope']
+    if population == 'target':
+        selection = (pl.col('epitope') == target['epitope']) & pl.all_horizontal(
+            mhc_compatible(field, target[field]) for field in ['mhc_a', 'mhc_b', 'mhc_class'])
     if paired:
-        population = build_paired_ref(valid).filter(pl.col('epitope') != target['epitope'])
+        population = build_paired_ref(valid).filter(selection)
         keys = ['alpha', 'v_alpha', 'j_alpha', 'beta', 'v_beta', 'j_beta']
         population = population.select(keys).unique().sort(keys).with_row_index('clone_id')
         rows = [population.select('clone_id', pl.lit(locus).alias('locus'),
@@ -57,7 +67,7 @@ def background_queries(reference, target, *, paired=False):
     else:
         if valid['gene'].n_unique() != 1 or valid['gene'][0] not in ('TRA', 'TRB'):
             raise ValueError('single-chain reference requires one TRA/TRB locus')
-        raw = valid.filter(pl.col('epitope') != target['epitope']).select(
+        raw = valid.filter(selection).select(
             pl.col('gene').alias('locus'), pl.col('cdr3').alias('junction_aa'),
             pl.col('v').alias('v_call'), pl.col('j').alias('j_call'))
         raw = raw.unique().sort(raw.columns).with_row_index('query_id')
@@ -75,7 +85,8 @@ def background_main(args):
     reference = db.load(args.vdjdb, species=species, gene=None if args.locus == 'paired' else args.locus)
     target = {key: getattr(args, key) for key in ['epitope', 'mhc_a', 'mhc_b', 'mhc_class']}
     target['species'] = species
-    raw = background_queries(reference, target, paired=args.locus == 'paired')
+    population = getattr(args, 'population', 'other')
+    raw = background_queries(reference, target, paired=args.locus == 'paired', population=population)
     output = Path(args.output)
     manifest = Path(str(output)+'.manifest.json')
     if Path(args.vdjdb).resolve() in {output.resolve(), manifest.resolve()}:
@@ -87,7 +98,8 @@ def background_main(args):
         'valid_source_records': reference.filter('reference_valid').height,
         'query_rows': raw.height, 'queries': raw['clone_id'].n_unique() if args.locus == 'paired' else raw.height,
         'query_sha256': sha256(output), 'wall_seconds': time.monotonic()-started,
-        'population': 'distinct full junction/V/J keys from other peptides; genuine linked pairs only in paired mode',
+        'population': population,
+        'population_units': 'distinct full junction/V/J keys; genuine linked pairs only in paired mode',
         'predictions_computed': False, 'query_labels_used': False,
         'policy': 'Score against the entire valid reference with benchmark exact-clonotype exclusion. This population does not establish null exchangeability or biological nonbinding.'}, indent=2)+'\n')
     return 0
@@ -168,20 +180,33 @@ def composite_main(args):
     cases, background = _read_table(args.cases), _read_table(args.background)
     if sha256(Path(args.cases)) == sha256(Path(args.background)):
         raise ValueError('cases and background must not be the same scored table')
-    out = composite_evidence(cases, background, paired=args.paired)
+    target_reference = getattr(args, 'target_reference', None)
+    target_queries = None
+    if target_reference:
+        from ..match.reference_likelihood import reference_likelihood
+        target_queries = _read_table(target_reference)
+        out = reference_likelihood(cases, target_queries, background, paired=args.paired)
+    else:
+        out = composite_evidence(cases, background, paired=args.paired)
     target = Path(args.output)
     manifest = Path(str(target)+'.manifest.json')
-    if {target.resolve(), manifest.resolve()} & {Path(args.cases).resolve(), Path(args.background).resolve()}:
+    inputs = {Path(args.cases).resolve(), Path(args.background).resolve()}
+    if target_reference:
+        inputs.add(Path(target_reference).resolve())
+    if {target.resolve(), manifest.resolve()} & inputs:
         raise ValueError('output must not overwrite inputs')
     target.parent.mkdir(parents=True, exist_ok=True)
     out.write_csv(target, separator='\t')
     manifest.write_text(json.dumps({'input_sha256': sha256(Path(args.cases)),
         'background_sha256': sha256(Path(args.background)), 'queries': cases.height,
         'background_queries': background.height, 'query_labels_used': False,
-        'paired_original': 'sum of inclusive background component ranks; conservative compared with pooled-query/full conformal rank' if args.paired else None,
-        'formula': 'p_j=(1+number of background scores >= query score)/(background queries+1); p=min(1,2*min(p_original,p_conditional)); score=-log10(p)',
+        'paired_original': ('joint raw alpha/beta density and germline features' if target_reference else
+            'sum of inclusive background component ranks; conservative compared with pooled-query/full conformal rank') if args.paired else None,
+        'target_reference_sha256': sha256(Path(target_reference)) if target_reference else None,
+        'target_reference_queries': target_queries.height if target_queries is not None else None,
+        'formula': 'common-covariance reference Gaussian log likelihood ratio; exact full junctions removed from fitted moments per query' if target_reference else 'p_j=(1+number of background scores >= query score)/(background queries+1); p=min(1,2*min(p_original,p_conditional)); score=-log10(p)',
         'status': 'experimental_unvalidated_composite',
-        'limitations': 'One target/species/locus/geometry and identical frozen scorer/reference/selection policies for cases/background are required but not inferred from tables. Background/null-score exchangeability is unproved. Not a binder probability or default promotion.'}, indent=2)+'\n')
+        'limitations': 'One matching target/species/locus/geometry is required. Gaussian model tails are conditional on a fitted reference model, not validated biological null P-values. Background/null-score exchangeability is unproved. Not a binder probability or default promotion.'}, indent=2)+'\n')
     return 0
 
 
