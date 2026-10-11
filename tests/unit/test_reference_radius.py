@@ -59,7 +59,7 @@ def test_reference_radius_cli_keeps_unresolved_and_no_knee_dispositions(tmp_path
     pl.DataFrame({'cdr3': ['CASSLGQAYEQYF', 'CASSLGRAYEQYF', 'CASSLGQAPAYEQYF'],
                   'v': ['TRBV19', 'TRBV19', 'unknown'], 'gene': ['TRB']*3,
                   'epitope': ['PEPTIDE']*3, 'species': ['HomoSapiens']*3}).write_csv(source, separator='\t')
-    assert main(['reference-radius', '--vdjdb', str(source), '--locus', 'TRB',
+    assert main(['reference-radius', '--vdjdb', str(source), '--locus', 'TRB', '--species', 'human',
                  '--output-prefix', str(prefix)]) == 0
     out = pl.read_csv(str(prefix)+'.radii.tsv', separator='\t')
     assert out['source_observations'].to_list() == [3]

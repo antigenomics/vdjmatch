@@ -29,6 +29,20 @@ def test_reference_curation_preserves_rows_and_natural_same_peptide():
     assert idx.records_for('TRB')['epitope'].to_list() == ['SLLMWITQV', 'PEP']
 
 
+def test_paired_builder_applies_curation_to_targets_and_complement():
+    from vdjmatch.evalue.paired import build_paired_ref
+    raw=pl.concat([
+        pairs(complex_id=['artifact']*2).with_columns(pl.lit('KLGGALQAK').alias('epitope'),pl.lit(None,dtype=pl.String).alias('reference.id')),
+        pairs(complex_id=['engineered']*2).with_columns(pl.lit('SLLMWITQV').alias('epitope'),pl.Series('reference.id',['PMID:40498839','PMID:32102902'])),
+        pairs(complex_id=['natural']*2).with_columns(pl.lit('SLLMWITQV').alias('epitope'),pl.lit('PMID:32102902').alias('reference.id')),
+    ])
+    ref=schema.normalize(raw)
+    assert ref.height==6  # Keep all source observations and exclusion reasons.
+    out=build_paired_ref(ref)
+    assert out['complex_id'].to_list()==['natural']
+    assert out['epitope'].to_list()==['SLLMWITQV']
+
+
 def test_string_complex_without_record_ids_survives_index_and_joint_query():
     raw=pairs(complex_id=['self','self'])
     normalized=schema.normalize(raw)

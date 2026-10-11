@@ -34,7 +34,8 @@ def main(a):
     start = time.perf_counter()
     paired = a.locus == 'paired'
     organism = _organism(a.species)
-    raw = db.load(a.vdjdb, species=a.species, gene=None if paired else a.locus, epitope=a.epitope)
+    reference_species = {'human': 'HomoSapiens', 'mouse': 'MusMusculus'}[organism]
+    raw = db.load(a.vdjdb, species=reference_species, gene=None if paired else a.locus, epitope=a.epitope)
     source = build_paired_ref(raw.filter(pl.col('reference_valid'))) if paired else raw
     model = load_v_loops(organism)
     radii, nearest = [], []
@@ -60,7 +61,7 @@ def main(a):
             threads=a.threads, ctrim=2 if a.junction_ends == 'tcrdist' else 3)
         finite = np.isfinite(distances)
         radius = kneedle_radius(distances[finite])
-        context = {'species': a.species, 'locus': a.locus, **dict(zip(PMHC, key))}
+        context = {'species': reference_species, 'locus': a.locus, **dict(zip(PMHC, key))}
         radii.append({**context, 'source_observations': observations.height,
             'source_unit': 'linked_pair_observation' if paired else 'chain_record',
             'unavailable_observations': observations.height-retained.height,

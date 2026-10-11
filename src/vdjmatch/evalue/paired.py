@@ -26,6 +26,8 @@ def build_paired_ref(df: pl.DataFrame) -> pl.DataFrame:
     required = {"complex_id", "gene", "cdr3", "epitope"}
     if missing := required - set(df.columns):
         raise ValueError(f"paired reference requires {sorted(missing)}")
+    if 'reference_valid' in df.columns:
+        df = df.filter(pl.col('reference_valid').fill_null(False))
     nz = df.filter(
         ~pl.col("complex_id").cast(pl.String).fill_null("0").is_in(["", "0"])
     )
