@@ -30,6 +30,7 @@ def register(subparsers):
     p.add_argument('--radius',type=int,default=90,help='maximum distance; paired uses the alpha+beta sum against one linked reference')
     p.add_argument('--exclude-exact',action='store_true')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
+    p.add_argument('--conditional-j',action='store_true',help='experimental J usage conditional on V and junction length; ranking only')
     p.add_argument('--nearest-rank',action='store_true',help='experimental background rank at the exhaustive nearest target distance; uniform geometry only')
     p.add_argument('--shortlist-audit',action='store_true',help='audit actual CDR3-only radius retrieval and unchanged V costs; uniform single-chain only')
     p.add_argument('--output-prefix',required=True)
@@ -119,6 +120,8 @@ def main(a):
         raise ValueError('--unbounded-nearest requires --targets-from-sample')
     if a.nearest_rank and (not a.background or not a.unbounded_nearest or a.position_weighting!='uniform'):
         raise ValueError('--nearest-rank requires a background, --unbounded-nearest and uniform geometry')
+    if a.conditional_j and (not a.nearest_rank or a.neighbour_weighting!='local-rank' or a.background!='vdjdb-other'):
+        raise ValueError('--conditional-j requires nearest local-rank evidence and vdjdb-other background')
     if a.shortlist_audit and (a.locus=='paired' or not a.targets_from_sample or
                              not a.unbounded_nearest or a.position_weighting!='uniform' or a.v_loop_weight!=1):
         raise ValueError('--shortlist-audit requires uniform single-chain target/nearest mode with V weight1')
@@ -167,10 +170,10 @@ def main(a):
             r=r.with_columns(resolve_v_alleles(r['v_'+suffix],model,locus=locus).alias('_allele_'+suffix)).filter(
                     pl.col('_allele_'+suffix).is_in(allowed_chain) & (pl.col(suffix).str.len_chars()>=8))
         search_keys=['alpha','beta','_allele_alpha','_allele_beta']
-        r=r.unique(subset=[*search_keys,*PMHC,*(['j_alpha','j_beta'] if a.position_weighting=='ndn' else [])],maintain_order=True)
+        r=r.unique(subset=[*search_keys,*PMHC,*(['j_alpha','j_beta'] if a.position_weighting=='ndn' or a.conditional_j else [])],maintain_order=True)
     else:
         q=prepare(q.filter(pl.col('locus')==a.locus))
-        r=prepare(r.filter(pl.col('reference_valid'))).unique(subset=['cdr3','_allele',*PMHC,*(['j'] if a.position_weighting=='ndn' else [])],maintain_order=True)
+        r=prepare(r.filter(pl.col('reference_valid'))).unique(subset=['cdr3','_allele',*PMHC,*(['j'] if a.position_weighting=='ndn' or a.conditional_j else [])],maintain_order=True)
         search_keys=['cdr3','_allele']
     if a.targets_from_sample:
         if a.epitope or a.mhc_a or a.mhc_b:
@@ -338,9 +341,24 @@ def main(a):
                     pl.when(available).then(pl.col('rank_bayes_factor')).alias('rank_bayes_factor'),
                     *(pl.when(available).then(pl.col(c)).alias(c) for c in ['p_rank_bound','p_nearest_rank']))
             del nc
-            enrichment_rows.append(part.select('query_id',*query_keys).join(evidence,
+            expanded=part.select('query_id',*query_keys).join(evidence,
                 on=query_keys,how='left',validate='m:1',maintain_order='left').drop(query_keys)
-                .with_columns(*(pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC)))
+            if a.conditional_j:
+                from ..evalue.germline import conditional_j_usage
+                def features(frame,query=False):
+                    fields=[pl.col('query_id')] if query else []
+                    for i in range(2 if paired else 1):
+                        suffix=('a','b')[i] if query else ('alpha','beta')[i]
+                        fields.extend([pl.col(('cdr3'+suffix if query else suffix) if paired else 'cdr3').alias(f'seq{i}'),
+                            pl.col(('_allele'+suffix if query else '_allele_'+suffix) if paired else '_allele').alias(f'v{i}'),
+                            pl.col(('j'+suffix if query else 'j_'+suffix) if paired else 'j').alias(f'j{i}')])
+                    return frame.select(fields)
+                j_start=time.perf_counter()
+                residual=conditional_j_usage(features(part,True),features(reference_part),
+                    features(r.filter(pl.col('epitope')!=task['epitope'])),paired=paired,exclude_exact=a.exclude_exact)
+                expanded=expanded.join(residual,on='query_id',how='left',validate='1:1',maintain_order='left')
+                background_costs['conditional_j_usage']=background_costs.get('conditional_j_usage',0)+time.perf_counter()-j_start
+            enrichment_rows.append(expanded.with_columns(*(pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC)))
         background_costs['total']=time.perf_counter()-background_start
     rows=[]
     shortlist_rows=[];shortlist_costs=[]
@@ -444,6 +462,8 @@ def main(a):
                         n['rank_bayes_factor'].to_numpy(),n['n_reference'].to_numpy(),N,M,
                         n['nearest_rank_control_count'].to_numpy())
                 evidence=evidence.with_columns(pl.Series('conditional_rank_bayes_factor',conditional,nan_to_null=True))
+                if a.conditional_j:
+                    evidence=evidence.with_columns((pl.col('conditional_rank_bayes_factor')*pl.col('conditional_j_usage_ratio')).alias('j_conditioned_rank_score'))
             enrichment_rows[i]=evidence.with_columns(pl.Series('p_nearest_unbounded',tail,nan_to_null=True)).with_columns(
                 (-pl.col('p_nearest_unbounded')).alias('nearest_rank_score'),
                 pl.when(pl.col('p_nearest_unbounded').is_not_null()).then(pl.lit('conditional_rank_model_only'))
@@ -508,6 +528,9 @@ def main(a):
                 pl.lit(None,dtype=pl.String).alias('nearest_rank_status'))
             if a.neighbour_weighting=='local-rank':
                 enrichment=enrichment.with_columns(pl.lit(None,dtype=pl.Float64).alias('conditional_rank_bayes_factor'))
+                if a.conditional_j:
+                    enrichment=enrichment.with_columns(pl.lit(None,dtype=pl.Float64).alias('j_conditioned_rank_score'),
+                        pl.lit(None,dtype=pl.Float64).alias('conditional_j_usage_ratio'),pl.lit(None,dtype=pl.String).alias('conditional_j_status'))
         enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
@@ -557,6 +580,12 @@ def main(a):
             'ties':'all control ties included; conservative first-reference tail',
             'sampling_status':'conditional exchangeable-label model only; no biological confidence, E-value or selected-label calibration',
             'selection':'no radius scan or fitted blend; fixed-radius fields unchanged'}} if a.nearest_rank else {}),
+        **({'conditional_j_model':{'score_column':'j_conditioned_rank_score',
+            'formula':'conditional_rank_bayes_factor * P_ref(J|V,length)/P_control(J|V,length)',
+            'predictive':'(n_stratum_J + (n_J+.5)/(N+.5*K))/(n_stratum+1); K shared observed/query J categories',
+            'pairing':'joint linked alpha/beta V,length and J tuples, no chain independence assumption',
+            'missing':'missing query J neutral; missing/conflicting population J explicit categories',
+            'interpretation':'empirical ranking residual; no V or length marginal factor; no calibrated BF/P/E-value/posterior or biological confidence; J and retained junction may remain dependent'}} if a.conditional_j else {}),
         **({'conditional_rank_model':{'score_column':'conditional_rank_bayes_factor',
             'formula':'existing BF when n_radius>0; otherwise (M+1)/(N*H_(M+1))*[1/(k+1)+(N-1)*mean(1/r,r=k+1..M+1)]',
             'symbols':'N target population; M control population; k controls at exhaustive nearest target distance',

@@ -406,3 +406,27 @@ The usual harmonic normalization is retained. Control ties are conservative.
 This common rule preserves linked pairs and uses no fitted blend or task switch.
 It supplies conditional model evidence, without a biological probability,
 selected-label E-value or transferred probability bound.
+
+Conditional J usage diagnostic
+------------------------------
+
+``tcrdist-neighbours --conditional-j`` requires ``--nearest-rank``,
+``--neighbour-weighting local-rank`` and ``--background vdjdb-other``.
+It exports ``j_conditioned_rank_score``: the existing nearest-conditioned
+rank evidence multiplied by a target/control J-usage ratio conditional on
+resolved V gene and full junction length. Linked pairs use joint V/length
+and J tuples from the same reference pair. There is no additional V or
+length marginal multiplier and no change to distance geometry.
+
+For each population, the predictive conditional J frequency is
+``(n_stratum_J + (n_J + .5)/(N + .5*K))/(n_stratum + 1)``, with one pooled
+pseudo-observation and a common number ``K`` of observed population J categories plus one unseen category.
+This makes predictions independent of the query batch contents.
+Counts retain distinct full junction/resolved-V keys, explicitly mark conflicting
+or missing J annotations, and apply benchmark exact-query exclusion consistently.
+Missing query J yields a neutral ratio of one. Counts and status are exported.
+
+This is an experimental empirical ranking residual. J usage can remain dependent
+on the retained junction sequence; the product is not a calibrated Bayes factor,
+P-value, E-value, posterior or biological confidence. Existing rank-model
+probabilities describe their original statistic and do not transfer to this score.

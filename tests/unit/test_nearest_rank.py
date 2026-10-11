@@ -34,6 +34,13 @@ def test_cli_nearest_rank_recovers_outside_ball_without_changing_existing_fields
     assert new['nearest_rank_status'][0]=='conditional_rank_model_only' and p<1
     assert main(args+['--nearest-rank','--threads','2','--output-prefix',str(tmp_path/'parallel')])==0
     assert new.equals(pl.read_csv(tmp_path/'parallel.enrichment.tsv',separator='\t'))
+    # Opt-in residual is neutral on missing J and leaves every previous field exact.
+    assert main(args+['--nearest-rank','--conditional-j','--output-prefix',str(tmp_path/'j')])==0
+    residual=pl.read_csv(tmp_path/'j.enrichment.tsv',separator='\t')
+    assert new.equals(residual.select(new.columns))
+    assert residual['conditional_j_usage_ratio'][0]==1
+    assert residual['j_conditioned_rank_score'][0]==new['conditional_rank_bayes_factor'][0]
+    assert residual['conditional_j_status'][0]=='missing_query_j_neutral'
     # Puncturing the sole target key leaves explicit empty evidence, not a call.
     pl.DataFrame([r for r in rows if r['cdr3']!=b or r['epitope']!='E']).write_csv(reference,separator='\t')
     assert main(args+['--nearest-rank','--output-prefix',str(tmp_path/'empty')])==0
