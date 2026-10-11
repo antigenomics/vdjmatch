@@ -4,6 +4,16 @@ import pytest
 from vdjmatch.match.tcrdist import distance_matrix, load_v_loops, paired_distance_matrix
 
 
+def test_matrix_rescaling_includes_gaps_and_v_loops(monkeypatch):
+    from vdjmatch.match import tcrdist
+    q=['CASSLGQAYEQYF','CASSLGQAWAYEQYF']
+    v=['TRBV19*01','TRBV7-9*01']
+    baseline=tcrdist.distance_matrix(q,q,v,v,ctrim=3)
+    matrix=tcrdist._substitution_costs()
+    monkeypatch.setattr(tcrdist,'_substitution_costs',lambda:2*matrix)
+    np.testing.assert_array_equal(tcrdist.distance_matrix(q,q,v,v,ctrim=3),2*baseline)
+
+
 def test_symmetric_end_trim_preserves_full_identity_and_v_evidence(tmp_path):
     import json
     import polars as pl
@@ -315,6 +325,14 @@ def test_tcrdist_cli_alias_filters_keep_raw_calls_and_reject_delta_and_ambiguity
     assert status['status'].to_list()==['matched']
     assert status['v_call_alpha'].to_list()==['TRAV29']
     assert status['resolved_v_allele_alpha'].to_list()==['TRAV29/DV5*01']
+
+
+def test_fractional_native_cutoff_is_stable():
+    from vdjmatch.match.tcrdist import distance_cutoff
+    assert distance_cutoff(.145)==29
+    assert distance_cutoff(distance_cutoff(.145)/200)==29
+    assert distance_cutoff(.1449)==28
+    assert distance_cutoff(.0001)==0
 
 
 def test_previously_accepted_alleles_keep_exact_aligned_loop_templates():

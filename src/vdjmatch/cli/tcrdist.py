@@ -27,7 +27,9 @@ def register(subparsers):
                    help='ball/linear enrichment or experimental background-local rank evidence')
     p.add_argument('--rank-signal-prior',type=float,default=.5,
                    help='prior for the local-rank model only; not biological specificity prevalence')
-    p.add_argument('--radius',type=int,default=90,help='maximum distance; paired uses the alpha+beta sum against one linked reference')
+    radius=p.add_mutually_exclusive_group()
+    radius.add_argument('--radius',type=int,help='absolute maximum distance for historical reproduction; paired uses the linked alpha+beta sum')
+    radius.add_argument('--radius-factor',type=float,help='radius / maximum effective matrix substitution cost; default22.5 (radius90 with clipped BLOSUM62)')
     p.add_argument('--reference-radius',action='store_true',help='reference-only Kneedle radius per compatible target; uniform nearest-rank mode')
     p.add_argument('--knee-floor-factor',type=float,default=.5,help='positive-knee median floor within this species/locus/geometry')
     p.add_argument('--exclude-exact',action='store_true')
@@ -115,9 +117,23 @@ def main(a):
     from ..io.airr import _read_table
     from ..db.cache import sha256
     from seqtree import _core
-    from ..match.tcrdist import distance_matrix,paired_distance_matrix,load_v_loops,resolve_v_alleles
+    from ..match.tcrdist import distance_matrix,paired_distance_matrix,load_v_loops,resolve_v_alleles,distance_units,distance_cutoff
     from ..evalue.control import _organism
     start=time.perf_counter()
+    matrix_scale,bin_width=distance_units()
+    if a.radius_factor is not None and (not np.isfinite(a.radius_factor) or a.radius_factor<=0):
+        raise ValueError('radius factor must be finite and positive')
+    absolute_radius=a.radius is not None
+    if not absolute_radius:
+        a.radius_factor=22.5 if a.radius_factor is None else a.radius_factor
+        a.radius=a.radius_factor*matrix_scale
+        if a.radius.is_integer():a.radius=int(a.radius)
+    if not np.isfinite(a.radius) or a.radius*200>np.iinfo(np.int32).max:
+        raise ValueError('radius must fit finite native distance units')
+    requested_radius=a.radius
+    native_radius=distance_cutoff(a.radius)
+    a.radius=native_radius/200
+    if a.radius.is_integer():a.radius=int(a.radius)
     if a.threads<1 or a.radius<0:raise ValueError('positive threads and nonnegative radius required')
     if a.reference_radius and (not a.nearest_rank or a.background!='vdjdb-other' or
             a.neighbour_weighting!='local-rank' or a.position_weighting!='uniform' or
@@ -221,8 +237,8 @@ def main(a):
             [row['raw_radius'] if row['raw_radius'] is not None else np.nan for row in radius_rows],
             np.concatenate(nearest_curves) if nearest_curves else [],factor=a.knee_floor_factor)
         for row,value in zip(radius_rows,adjusted):
-            # Integer bins round upward so the selected ball never loses its boundary.
-            selected=int(np.ceil(value)) if np.isfinite(value) else a.radius
+            # Round in matrix units, preserving the boundary under common rescaling.
+            selected=int(np.ceil((value if np.isfinite(value) else a.radius)/bin_width))*bin_width
             row.update(radius=selected,radius_floor=floor,floor_source=floor_source,
                 radius_status='no_knee_fixed_fallback' if row['raw_radius'] is None else
                     'degenerate_fixed_fallback' if not np.isfinite(value) else
@@ -248,13 +264,17 @@ def main(a):
         def boundaries(sequences,genes):
             return [boundary_map[(s,v)] for s,v in zip(sequences,genes)]
         def counts(part,population,thresholds=None):
-            if not part.height:
-                return [],[],np.zeros((0,radius+1),dtype=np.uint64) if local else None
-            if not population.height:
-                return [0]*part.height,[0.0]*part.height,np.zeros((part.height,radius+1),dtype=np.uint64) if local else None
-            count_start=time.perf_counter()
             if thresholds is None:
-                thresholds=[list(range(0,200*radius+1,200))]*part.height if local else [[200*radius]]*part.height
+                bound=int(round(200*radius))
+                cutoffs=list(range(0,bound+1,200*bin_width))
+                if cutoffs[-1]!=bound:cutoffs.append(bound)
+                thresholds=[cutoffs]*part.height if local else [[bound]]*part.height
+            width=len(thresholds[0]) if thresholds else int(np.floor(radius/bin_width))+1
+            if not part.height:
+                return [],[],np.zeros((0,width),dtype=np.uint64) if local else None
+            if not population.height:
+                return [0]*part.height,[0.0]*part.height,np.zeros((part.height,width),dtype=np.uint64) if local else None
+            count_start=time.perf_counter()
             if paired:
                 native=paired_total_distance_mass_batch(
                     part['cdr3a'].to_list(),part['cdr3b'].to_list(),
@@ -271,7 +291,7 @@ def main(a):
                     } if a.position_weighting=='ndn' else {}))
                 curve=np.asarray(native[0],dtype=np.uint64) if local else None
                 result=[row[-1] for row in native[0]]
-                mass=[row[0]/(200*a.radius) for row in native[1]] if linear else result
+                mass=[row[0]/native_radius for row in native[1]] if linear else result
             else:
                 native=total_distance_count_batch(part['cdr3'].to_list(),population['cdr3'].to_list(),
                     part['_allele'].to_list(),population['_allele'].to_list(),
@@ -281,7 +301,7 @@ def main(a):
                     } if a.position_weighting=='ndn' else {}))
                 curve=np.asarray(native,dtype=np.uint64) if local else None
                 result=[row[-1] for row in (native[0] if linear else native)]
-                mass=[row[0]/(200*a.radius) for row in native[1]] if linear else result
+                mass=[row[0]/native_radius for row in native[1]] if linear else result
             background_costs['native_count_batches']+=time.perf_counter()-count_start
             return result,mass,curve
         def populations(part,population):
@@ -619,10 +639,17 @@ def main(a):
             'matrix_work_budget_bytes':32*1024**2,
             'independent_marginal_baseline':'not emitted; requires separate full compatible single-chain reference axes'} if paired else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
+        'distance_scale':{'matrix_unit':matrix_scale,'radius':a.radius,'radius_factor':a.radius_factor,
+            'requested_radius':requested_radius,
+            'radius_mode':'absolute' if absolute_radius else 'matrix_factor','bin_width':bin_width,
+            'gap_cost':3*matrix_scale,'cdr3_weight':3,'v_loop_weight':a.v_loop_weight,
+            'native_units_per_distance_unit':200,'native_radius':native_radius,
+            'definition':'maximum effective clipped BLOSUM62 substitution cost; shared CDR3/V-loop matrix',
+            'boundary_rounding':'floor to native integer units'},
         **({'reference_radius':{'selection':'reference-only nonexact leave-one-junction-out nearest-distance strongest confirmed Kneedle S=1 bend; no smoothing',
             'floor_factor':a.knee_floor_factor,'floor':floor,'floor_source':floor_source,
             'scope':'one species/locus/uniform geometry; compatible full-pMHC target unions',
-            'fallback_radius':a.radius,'rounding':'ceil to integer distance bins',
+            'fallback_radius':a.radius,'rounding':'ceil to matrix-quantum distance bins',
             'stage_seconds':radius_seconds,'table_sha256':sha256(Path(str(prefix)+'.radii.tsv')),
             'probability_interpretation':'none; radius selection does not transfer fixed-radius model calibration'}} if a.reference_radius else {}),
         'selection':('exhaustive nearest nonexcluded reference; n_neighbours counts only within radius'

@@ -45,8 +45,10 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
     lacks g, V is neutral and rank uses all V categories. Enriched motifs add a
     bounded correlated sequence bonus, never a calibrated independent likelihood.
     """
-    from ..match.tcrdist import total_distance_count_batch,paired_total_distance_mass_batch
+    from ..match.tcrdist import total_distance_count_batch,paired_total_distance_mass_batch,distance_cutoff
     if not 0<radius<2**28/200:raise ValueError('positive radius below native V barrier required')
+    native_radius=distance_cutoff(radius)
+    if native_radius==0:raise ValueError('positive radius in native units required')
     if queries['query_id'].null_count() or queries['query_id'].n_unique()!=queries.height:
         raise ValueError('unique non-null query IDs required')
     axes=range(2 if paired else 1);seq=[f'seq{i}' for i in axes];v=[f'v{i}' for i in axes]
@@ -81,33 +83,34 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
     def spatial(pop):
         if not pop.height or not q.height:return [0.0]*q.height
         options=dict(species=species,threads=threads,ctrim=3,exclude_exact=exclude_exact,v_loop_weight=0,same_v_gene=True)
-        cut=[[200*radius]]*q.height
+        cut=[[native_radius]]*q.height
         if paired:
             _,mass=paired_total_distance_mass_batch(q['seq0'],q['seq1'],pop['seq0'],pop['seq1'],q['_allele0'],q['_allele1'],pop['_allele0'],pop['_allele1'],cut,**options)
         else:
             _,mass=total_distance_count_batch(q['seq0'],pop['seq0'],q['_allele0'],pop['_allele0'],cut,linear_mass=True,**options)
-        return [row[0]/(200*radius) for row in mass]
+        return [row[0]/native_radius for row in mass]
     for side,pop in [('reference',r),('control',b)]:out=out.with_columns(pl.Series('rule_'+side+'_spatial_mass',spatial(pop),dtype=pl.Float64))
     def score(kind):
         rm=pl.col('rule_reference_'+kind+'_mass');bm=pl.col('rule_control_'+kind+'_mass')
         c=(rm+bm+.5)/(n+m+1)
         return pl.col('rule_v_score')*((rm+c)/(n+1))/((bm+c)/(m+1))
     out=out.with_columns(score('spatial').alias('rule_spatial_score'))
-    # Exhaustive CDR3-only rank: clipped substitutions and gaps cost at most
-    # 12 per full-junction residue per axis. Distances are multiples of three.
+    # Exhaustive CDR3-only rank uses the same matrix-derived gaps and quantum.
     # This is a finite geometry bound, not a radius/parameter scan.
     from .local_rank import local_rank_evidence
+    from ..match.tcrdist import distance_units
+    matrix_scale,quantum=distance_units();step=3*quantum
     def ranks(part, conditional):
-        bound=12*sum(max((f[f'seq{i}'].str.len_chars().max() or 0) for f in (q,r,b)) for i in axes)
-        cuts=[list(range(0,200*bound+1,600))]*part.height
+        bound=3*matrix_scale*sum(max((f[f'seq{i}'].str.len_chars().max() or 0) for f in (q,r,b)) for i in axes)
+        cuts=[list(range(0,200*bound+1,200*step))]*part.height
         curves=[]
         for pop in (r,b):
             options=dict(species=species,threads=threads,ctrim=3,exclude_exact=exclude_exact,v_loop_weight=0,same_v_gene=conditional)
-            if not pop.height or not part.height:curve=np.zeros((part.height,bound//3+1))
+            if not pop.height or not part.height:curve=np.zeros((part.height,bound//step+1))
             elif paired:
                 curve,_=paired_total_distance_mass_batch(part['seq0'],part['seq1'],pop['seq0'],pop['seq1'],part['_allele0'],part['_allele1'],pop['_allele0'],pop['_allele1'],cuts,**options)
             else:curve=total_distance_count_batch(part['seq0'],pop['seq0'],part['_allele0'],pop['_allele0'],cuts,**options)
-            curves.append(np.asarray(curve).reshape(part.height,bound//3+1))
+            curves.append(np.asarray(curve).reshape(part.height,bound//step+1))
         populations=out.filter(pl.col('_id').is_in(part['_id'].implode()))
         suffix='_v_count' if conditional else '_population'
         populations=[populations['rule_'+side+suffix].to_numpy() for side in ('reference','control')]

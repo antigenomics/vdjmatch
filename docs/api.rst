@@ -139,3 +139,9 @@ Experimental local-rank evidence
 --------------------------------
 
 .. autofunction:: vdjmatch.evalue.local_rank.local_rank_evidence
+
+Curated source replication
+--------------------------
+
+:func:`vdjmatch.db.replicated` retains source provenance and complete pMHC
+identity when selecting corroborated records.

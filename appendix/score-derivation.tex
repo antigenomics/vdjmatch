@@ -269,6 +269,40 @@ count, and $\widehat F_q^{\rm edit}$ the control edit-ball fraction. Sparse targ
 the original marginal V/J/length log-frequency ratios; historical paired output uses cohort rank
 fusion. These contracts remain reproducible and are distinct from the model below.
 
+\subsection{The original BLOSUM kernel as likelihood evidence}
+BLOSUM62 entries $s_{ab}$ are rounded log odds in half-bit units:
+$s_{ab}\simeq 2\log_2[q_{ab}/(p_ap_b)]$.
+Thus summing entries gives a scaled log likelihood ratio, and
+$2^{\frac12\sum_k s_{q_kr_k}}$ gives its likelihood ratio under the matrix model.
+The original implementation already uses this evidence, through a self-normalised
+penalty representation. Define its actual quantised positional weight
+$u_k=\max\{1,\operatorname{round}(100w_k)\}/100$ and
+\[
+ A(q,r)=\sum_k u_k s_{q_kr_k},\qquad
+ P(q,r)=100\{A(q,q)+A(r,r)-2A(q,r)\}.
+\]
+This is exactly the native BLOSUM Gram penalty for the original equal-length
+substitution-only search. Its existing kernel is therefore
+\[
+ \boxed{\ e^{-P(q,r)/400}
+ =\exp\!\left[\frac{A(q,r)-\{A(q,q)+A(r,r)\}/2}{2}\right]
+ =\left[\frac{\mathcal L(q,r)}
+ {\sqrt{\mathcal L(q,q)\mathcal L(r,r)}}\right]^{1/\ln 2},\quad
+ \mathcal L(x,y)=2^{A(x,y)/2}.\ }
+\]
+The original scale400 fixes this tempering; changing notation changes no score.
+Positional weights give weighted log odds (fractional powers of position-level ratios).
+The V factor and empirical crowding denominator remain the original reference-mixture
+weights. Their sum is the existing $S_{\rm old}$, rather than a new likelihood family.
+BLOSUM rounding is part of the matrix model; the displayed code identities are exact
+for its stored entries and quantised weights.
+
+The score's null-tail $P$-value must be evaluated for the final statistic and label
+selection. The existing radius-one enrichment $P$-value tests its own neighbourhood
+count; it is not the tail of $S_{\rm old}$ or of paired cohort-rank fusion.
+The existing \code{calibrate-calls} and \code{apply-call-calibration} commands supply
+optional whole-call thresholds while retaining all continuous ranking scores.
+
 \textbf{Benchmark baseline scope.} In the AP comparisons below, \code{original\_score} means
 the \code{historical-density} CLI output, not NED-v1 from \code{aggregate.candidates} or the
 paired API exponential sum. For fewer than 500 unique target junctions its unpaired score is
@@ -940,6 +974,20 @@ Thus $\rho=0.01$, $r=1$ and $f=0.01$ give $100/199$, approximately $50.25\%$,
 not $99\%$ precision. A null tail or a rank-model posterior is not biological
 binder probability. An exact annotated receptor remains database evidence but
 does not guarantee experimental validation.
+
+\subsection*{Matrix-relative distance units}
+Let $D$ be the maximum effective clipped BLOSUM62 substitution cost and $q$
+the greatest common divisor of its positive integer costs. The factor-defined
+radius is $22.5D$ by default, with an explicit factor or absolute-radius option.
+CDR3 gap cost is $3D$, CDR3 substitutions have weight three, and V-loop
+substitutions use the same matrix with weight one. Bins have width $q$;
+common integer matrix rescaling preserves neighbourhoods and rank evidence.
+Fractional radii are floored to native units of $1/200$, and linear mass uses
+the identical effective bound. With the current matrix, $D=4$, $q=1$,
+radius is 90 and gap cost is 12.
+The rejected count/profile likelihood diagnostics remain archived with their
+frozen source and complete raw-input comparisons; they are removed from the
+active package. Original scoring remains the foundation.
 
 \part*{VIII. Open obligations}
 \addcontentsline{toc}{part}{VIII. Open obligations}

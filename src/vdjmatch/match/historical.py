@@ -81,6 +81,10 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
             puncture_populations=False):
     """Return keyed PSSM density and original radius<=1 significance component.
 
+    The original exp(-P/400) kernel is a tempered, self-normalised BLOSUM
+    likelihood ratio: P=100*(A(q,q)+A(r,r)-2*A(q,r)), where A is the
+    weighted raw similarity sum. Keep its aggregation and count P-value distinct.
+
     Query IDs and contradictory labels remain distinct. Exact junctions are excluded
     symmetrically. Neither significance nor density is posterior specificity.
     ``pool_reference`` reproduces the original task-level reference union; the caller

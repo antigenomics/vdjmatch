@@ -427,6 +427,16 @@ labels remain intact in the reference. ``--targets-from-sample`` instead selects
 each row's declared peptide, both MHC chains and class; it preserves observation
 identity and reports unavailable targets explicitly.
 
+The original BLOSUM kernel already represents likelihood evidence. Summed BLOSUM62
+entries are log odds in half-bit units. With the actual quantised positional weights,
+let A(q,r) be their weighted similarity sum. The native penalty is
+P = 100 [A(q,q) + A(r,r) - 2 A(q,r)], so the existing exp(-P/400) equals
+exp([A(q,r) - (A(q,q)+A(r,r))/2]/2). This restates the existing tempered,
+self-normalised likelihood ratio without changing scores. Its reference aggregation
+and empirical background correction stay intact. The radius-one enrichment P-value
+remains a count test; optional final-call filtering uses ``calibrate-calls`` and
+``apply-call-calibration`` with nulls from the matching complete scorer.
+
 ``--germline-background RAW_TABLE`` adds the original sparse-reference unpaired
 formula: log(density + 1e-6) plus the V/J/length log likelihood ratio when the
 reference has fewer than 500 unique junctions. Background multiplicity is retained
@@ -584,6 +594,17 @@ query table retains raw calls separately from resolved alleles, including chains
 with missing junctions. Unknown alleles and junctions shorter
 than eight residues remain unavailable in the query table. This command reports
 distances, not specificity probabilities.
+
+The default radius is ``22.5`` times the maximum effective substitution cost
+of the shared clipped BLOSUM62 matrix (currently 4, giving radius 90).
+``--radius-factor`` changes that factor; ``--radius`` supplies an absolute
+historical distance instead. The CDR3 gap cost is three matrix units
+(currently 12); CDR3 substitutions retain weight 3 and V-loop substitutions
+weight 1. Distance bins use the positive matrix-cost greatest common divisor.
+Common integer matrix rescaling therefore rescales gaps, V-loop distances,
+bins and the factor-derived radius together. Fractional cutoffs round down
+to native units (1/200); linear weights use that same effective cutoff.
+The manifest records the requested and effective radius and matrix scale.
 
 ``--locus paired`` accepts linked AIRR rows with ``clone_id`` and declared
 TRA/TRB roles. It sums alpha and beta distances against the same linked database
@@ -886,3 +907,21 @@ Provide the complete cohort in one invocation: changing its membership can
 change ranks and the block-2 order. Scores are not comparable across batches or
 pMHC populations. Labels are never consumed, and no P-value, E-value, posterior
 or biological specificity probability transfers to this empirical ordering.
+
+Curated independent source support
+----------------------------------
+
+``reference-support`` exports distinct nonempty source-reference counts for exact
+full junction/V/J, locus, species and full pMHC. Curated excluded records never
+count. Repeated observations from one source count once. Distinct reference IDs
+do not establish independent experimental validation or guaranteed binding.
+
+.. code-block:: bash
+
+   vdjmatch reference-support --vdjdb REFERENCE --min-refs 2 --output support.tsv
+
+``--gene-level`` explicitly strips V/J allele suffixes for gene-resolution
+comparisons. The default retains source allele identities. Missing receptor
+fields do not establish replicated support. The output JSON records reference
+identity, source/valid record counts, retained keys, table hash and elapsed time.
+This is an evaluation subset tool; it never filters the searchable reference.

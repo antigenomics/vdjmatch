@@ -83,6 +83,7 @@ def reference_nearest_distances(frame, *, paired=False, species='human', threads
         return np.empty(0, dtype=float)
     axes = range(2 if paired else 1)
     model = load_v_loops(species)
+    scale,quantum=distance_units()
     bound = 0
     for i in axes:
         genes = resolve_v_alleles(frame[f'v{i}'], model,
@@ -91,7 +92,7 @@ def reference_nearest_distances(frame, *, paired=False, species='human', threads
             raise ValueError('reference V calls must resolve to the selected locus')
         width = max(len(model[g]['cdr1']+model[g]['cdr2']+model[g]['cdr25'])
                     for g in genes.unique())
-        bound += 12*frame[f'seq{i}'].str.len_chars().max() + 4*width
+        bound += scale*(3*frame[f'seq{i}'].str.len_chars().max()+width)
     sequence_columns = [f'seq{i}' for i in axes]
     sizes = frame.group_by(sequence_columns).len().rename({'len': '_self_count'})
     expected = frame.join(sizes, on=sequence_columns, how='left', validate='m:1',
@@ -106,17 +107,18 @@ def reference_nearest_distances(frame, *, paired=False, species='human', threads
         result = np.asarray(nearest, dtype=float)/200
         result[expected == 0] = np.nan
         return result
-    if frame.height*(bound+1)*8 > 256*1024**2:
+    cutoffs=list(range(0,200*bound+1,200*quantum))
+    if frame.height*len(cutoffs)*8 > 256*1024**2:
         raise ValueError('paired reference count curve exceeds256MiB; select a smaller target')
     counts, _ = paired_total_distance_mass_batch(
         frame['seq0'], frame['seq1'], frame['seq0'], frame['seq1'],
         frame['v0'], frame['v1'], frame['v0'], frame['v1'],
-        [list(range(0, 200*bound+1, 200))]*frame.height,
+        [cutoffs]*frame.height,
         species=species, threads=threads, ctrim=ctrim, exclude_exact=True)
     curve = np.asarray(counts, dtype=np.uint64)
     if not np.array_equal(curve[:, -1], expected):
         raise ArithmeticError('paired reference nearest bound did not cover the population')
-    result = np.argmax(curve > 0, axis=1).astype(float)
+    result = quantum*np.argmax(curve > 0, axis=1).astype(float)
     result[expected == 0] = np.nan
     return result
 
@@ -195,11 +197,32 @@ def _substitution_costs():
                         for c in alphabet] for a in alphabet],dtype=np.int32)
 
 
+def distance_units(costs=None):
+    """Maximum cost and integer quantum of the shared CDR3/V-loop matrix.
+
+    Radius and bin factors use this common distance unit. The default clipped
+    BLOSUM62 unit is 4; the ordinary CDR3 gap cost is three such units.
+    """
+    costs=_substitution_costs() if costs is None else costs
+    scale=np.max(costs)
+    if not np.isfinite(costs).all() or np.any(costs<0) or np.any(costs!=np.floor(costs)) or scale<=0:
+        raise ValueError('substitution matrix requires a finite positive distance scale')
+    return int(scale),int(np.gcd.reduce(costs[costs>0].astype(np.int64)))
+
+
+def distance_cutoff(radius):
+    """Floor a decimal distance to native units, without repeated float rounding."""
+    from decimal import Decimal, ROUND_FLOOR
+    if not np.isfinite(radius) or radius<0:
+        raise ValueError('radius must be finite and nonnegative')
+    return int((Decimal(str(radius))*200).to_integral_value(rounding=ROUND_FLOOR))
+
+
 def _cdr3_options(threads=1, costs=None, ctrim=2):
     """Native CDR3 geometry; native scores equal2/3 of weighted TCRdist CDR3."""
     costs=_substitution_costs() if costs is None else costs
     return dict(matrix=SubstitutionMatrix.from_similarity((-costs).tolist()),
-                gap_open=8,gap_extend=8,
+                gap_open=2*distance_units(costs)[0],gap_extend=2*distance_units(costs)[0],
                 gap_prior=_gap_prior if ctrim==2 else _gap_prior_trim3,threads=threads)
 
 
@@ -345,13 +368,14 @@ def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,spe
         if (not required <= set(inspect.signature(getattr(gapblock,name)).parameters) or
                 any(k not in (getattr(native,'__doc__',None) or '') for k in required)):
             raise RuntimeError('shortlist audit requires Python/native positional and grouped audit support')
-    if type(radius) is not int or radius<0:
-        raise ValueError('radius must be a nonnegative integer')
+    if isinstance(radius,bool) or not isinstance(radius,(int,float)) or not np.isfinite(radius) or radius<0:
+        raise ValueError('radius must be finite and nonnegative')
+    bound=distance_cutoff(radius)
     q,r,options=_total_distance_options(queries,references,query_v,reference_v,
                                       species,threads,ctrim,'uniform')
     if streaming:
         start=time.perf_counter()
-        before,after,nearest=gapblock.group_audit_batch(q,r,[200*radius]*len(q),
+        before,after,nearest=gapblock.group_audit_batch(q,r,[bound]*len(q),
             exclude_exact=exclude_exact,**options)
         reduced=time.perf_counter()
         return {'cdr3_shortlist_keys':before,'post_v_radius_keys':after,
@@ -364,14 +388,14 @@ def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,spe
     rgroups=np.asarray(options.pop('reference_group_ids'),dtype=np.int32)
     offsets=np.asarray(options.pop('group_distances'),dtype=np.int32)
     start=time.perf_counter()
-    counts=gapblock.count_batch(q,r,[[200*radius]]*len(q),exclude_exact=exclude_exact,**options)
+    counts=gapblock.count_batch(q,r,[[bound]]*len(q),exclude_exact=exclude_exact,**options)
     sizes=np.asarray([row[0] for row in counts],dtype=np.int64)
     # ponytail: conservative object estimate; caller guards actual tree RSS; stream natively if too large.
     estimate=int(sizes.sum())*256
     if estimate>24_000_000_000:
         raise MemoryError('CDR3 shortlist projected sparse payload exceeds24GB; no hits truncated')
     counted=time.perf_counter()
-    hits=gapblock.ball_batch(q,r,[200*radius]*len(q),exclude_exact=exclude_exact,**options)
+    hits=gapblock.ball_batch(q,r,[bound]*len(q),exclude_exact=exclude_exact,**options)
     assert [len(row) for row in hits]==sizes.tolist(),'shortlist count/retrieval differ'
     retrieved=time.perf_counter();n=int(sizes.sum())
     qi=np.repeat(np.arange(len(q)),sizes)
@@ -379,7 +403,7 @@ def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,spe
     costs=np.fromiter((h.score for row in hits for h in row),dtype=np.int64,count=n)
     del hits
     costs+=offsets[qgroups[qi],rgroups[ri]]
-    retained=np.bincount(qi[costs<=200*radius],minlength=len(q))
+    retained=np.bincount(qi[costs<=bound],minlength=len(q))
     nearest=np.full(len(q),np.iinfo(np.int64).max,dtype=np.int64)
     np.minimum.at(nearest,qi,costs)
     return {'cdr3_shortlist_keys':sizes.tolist(),'post_v_radius_keys':retained.tolist(),
@@ -433,7 +457,7 @@ def _total_distance_options(queries,references,query_v,reference_v,species,threa
         weights={length:[0]*3+[100]*(length-3-ctrim)+[0]*ctrim for length in lengths}
     options=dict(
         matrix=SubstitutionMatrix.from_similarity((-3*costs).tolist()),
-        gap_open=2400,gap_extend=2400,gap_prior=_full_gap_prior,
+        gap_open=600*distance_units(costs)[0],gap_extend=600*distance_units(costs)[0],gap_prior=_full_gap_prior,
         position_weights_by_length=weights,
         query_group_ids=indices[:len(queries)].tolist(),
         reference_group_ids=indices[len(queries):].tolist(),

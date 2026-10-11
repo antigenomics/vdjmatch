@@ -756,12 +756,14 @@ def main(argv: list[str] | None = None) -> int:
     register_paired_order(sub)
     from .radius import register as register_radius
     register_radius(sub)
+    from .support import register as register_support
+    register_support(sub)
 
     a = p.parse_args(argv)
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
-    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "pgen", "reference-calls", "paired-evidence-order", "reference-radius"}:
+    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support"}:
         import os
         import json
 

@@ -629,3 +629,20 @@ def test_cli_all_invalid_extension_prior_has_complete_null_schema(tmp_path):
     assert empty['status'].to_list()==['no_reference']
     assert required<=set(empty.columns)
     assert all(empty[name].to_list()==[None] for name in required)
+
+
+def test_original_blosum_kernel_is_self_normalised_likelihood():
+    from seqtree import SubstitutionMatrix
+    from vdjmatch.match.regions import significance_weights
+    q, r = 'CASSLGQAYEQYF', 'CASSLAQAYEQYF'
+    matrix = SubstitutionMatrix.blosum62()
+    weights = [max(1, round(100*w))/100 for w in significance_weights(len(q))]
+    def similarity(x, y):
+        return sum(w*matrix.similarity(a,b) for w,a,b in zip(weights,x,y))
+    params = SearchParams(max_subs=5,max_ins=0,max_dels=0,max_total_edits=5,engine='seqtm')
+    params.pos_matrix = significance_pssm(len(q))
+    hit = Index.build([r], 'aa').search_batch([q], params, 1)[0][0]
+    centred = similarity(q,r)-(similarity(q,q)+similarity(r,r))/2
+    assert hit.score == pytest.approx(-200*centred)
+    log_normalised_lr = math.log(2)*centred/2
+    assert math.exp(-hit.score/400) == pytest.approx(math.exp(log_normalised_lr/math.log(2)))

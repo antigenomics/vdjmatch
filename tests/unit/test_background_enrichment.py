@@ -121,3 +121,34 @@ def test_linear_rejects_zero_radius_or_missing_background(flags):
     with pytest.raises(SystemExit):
         main(['tcrdist-neighbours','missing','--vdjdb','missing','--locus','TRB',
               '--neighbour-weighting','linear','--output-prefix','out',*flags])
+
+
+@pytest.mark.parametrize('factor',[5,5.1])
+def test_matrix_relative_radius_and_bins_preserve_evidence(monkeypatch,tmp_path,factor):
+    from vdjmatch.match import tcrdist
+    sample=tmp_path/'sample.tsv';reference=tmp_path/'reference.tsv'
+    q='CASSLGQAYEQYF';near='CASSLGQAWAYEQYF';far='CASSLWWWWGQAYEQYF'
+    pl.DataFrame({'junction_aa':[q],'v_call':['TRBV19'],'locus':['TRB'],
+        'species':['human'],'epitope':['E'],'mhc_a':['HLA-A*02'],
+        'mhc_b':['B2M'],'mhc_class':['MHCI']}).write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':[near,far],'v':['TRBV19','TRBV7-9'],'gene':['TRB']*2,
+        'species':['HomoSapiens']*2,'epitope':['E','other'],'mhc_a':['HLA-A*02:01']*2,
+        'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(reference,separator='\t')
+    args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+        '--targets-from-sample','--background','vdjdb-other','--neighbour-weighting','local-rank',
+        '--unbounded-nearest','--nearest-rank','--junction-ends','trim3',
+        '--radius-factor',str(factor)]
+    assert main(args+['--output-prefix',str(tmp_path/'base')])==0
+    matrix=tcrdist._substitution_costs()
+    monkeypatch.setattr(tcrdist,'_substitution_costs',lambda:2*matrix)
+    assert main(args+['--output-prefix',str(tmp_path/'scaled')])==0
+    base=pl.read_csv(tmp_path/'base.enrichment.tsv',separator='\t')
+    scaled=pl.read_csv(tmp_path/'scaled.enrichment.tsv',separator='\t')
+    fields=['n_reference','n_control','reference_population','control_population',
+        'rank_bayes_factor','conditional_rank_bayes_factor']
+    assert base.select(fields).equals(scaled.select(fields))
+    a=json.loads((tmp_path/'base.manifest.json').read_text())
+    b=json.loads((tmp_path/'scaled.manifest.json').read_text())
+    assert b['distance_scale']['radius']==2*a['distance_scale']['radius']
+    assert b['distance_scale']['bin_width']==2*a['distance_scale']['bin_width']
+    assert b['distance_scale']['gap_cost']==2*a['distance_scale']['gap_cost']
