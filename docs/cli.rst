@@ -437,6 +437,15 @@ and empirical background correction stay intact. The radius-one enrichment P-val
 remains a count test; optional final-call filtering uses ``calibrate-calls`` and
 ``apply-call-calibration`` with nulls from the matching complete scorer.
 
+``--likelihood-score`` also exports ``likelihood_score`` while preserving every
+historical score/status field. Single-chain output is log(density + 1e-6), plus
+the same original germline term for sparse references. Paired output adds alpha
+and beta log densities and the original combined germline term. It uses the same
+reference/control searches, V weights and prior counts; it introduces no extra
+sequence search. The paired log score is independent of the other queries in a
+cohort. It is opt-in original-model evidence; its task regressions and missing
+linked-pair evidence still prevent promotion.
+
 ``--germline-background RAW_TABLE`` adds the original sparse-reference unpaired
 formula: log(density + 1e-6) plus the V/J/length log likelihood ratio when the
 reference has fewer than 500 unique junctions. Background multiplicity is retained
@@ -676,7 +685,7 @@ Apply a previously computed cutoff to independent query-level scores:
 
    vdjmatch apply-call-calibration queries.tsv --calibration calibration.calibration.json --output calls.tsv
 
-The input has one unique ``query_id`` and numeric ``score`` per query. The command
+The input has one unique ``query_id`` and the recipe's numeric score column per query. The command
 does not read query outcome labels or fit a threshold. It preserves all input
 columns and adds ``call_status`` (``accepted`` or ``no_supported_match``) and
 ``call_score`` (null for rejected queries). A missing score is rejected; a tie at
@@ -694,6 +703,10 @@ extreme as the query score (including ties). Then P=(k+1)/(N+1) and E=k/N.
 The output uses the largest value across sources and exports every source's k,
 N, P and E to ``calls.tsv.null-tails.tsv``. An unsupported query has P=1 and E=0.
 Input scores and the frozen cutoff decision remain unchanged.
+
+``calibrate-calls --score-column likelihood_score`` freezes that column in the
+recipe. Application and null tails then require the same column, retaining any
+historical ``score`` column as evidence. The default remains ``score``.
 
 P is a conservative rank P-value under exchangeability of query and null scores
 from the same complete selection pipeline. E is the observed expected false

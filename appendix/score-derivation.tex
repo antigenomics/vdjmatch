@@ -303,6 +303,19 @@ count; it is not the tail of $S_{\rm old}$ or of paired cohort-rank fusion.
 The existing \code{calibrate-calls} and \code{apply-call-calibration} commands supply
 optional whole-call thresholds while retaining all continuous ranking scores.
 
+The opt-in \code{historical-density --likelihood-score} command places the
+original density mixture on a common log scale. Its single-chain score is
+$\log(S_{\rm old}+10^{-6})+\mathbf 1_{\{N<500\}}G$, where $G$ is the original
+V/J[/length] log-frequency term. The paired restatement is
+$\log(S_\alpha+10^{-6})+\log(S_\beta+10^{-6})+G_{\rm paired}$, using the
+original combined germline term. Search, control correction, V weights and
+prior counts remain unchanged. Historical scalar/rank scores remain separate
+columns. The paired restatement is cohort-independent original-model evidence;
+it does not supply linked-reference association evidence or a biological
+binding probability. It remains opt-in pending all-task/priority validation.
+The calibration recipe freezes the chosen numeric score column, so tails
+for this score cannot silently use the preserved cohort-rank column.
+
 For a frozen complete selected score $T$, null source $b$ supplies $N_b$
 queries including no-hits. At an observed finite score $t$, let
 $k_b(t)=\#\{i:T_{bi}\ge t\}$ for a higher-is-better score (reverse the

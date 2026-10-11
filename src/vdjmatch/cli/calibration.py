@@ -12,6 +12,7 @@ def register(subparsers):
     parser.add_argument('cases', help='TSV: query_id, score, outcome, null_source')
     parser.add_argument('--target-fpr', type=float, required=True)
     parser.add_argument('--lower-is-better', action='store_true')
+    parser.add_argument('--score-column',default='score',help='numeric selected-score column; frozen in the recipe')
     parser.add_argument('--output-prefix', required=True)
     parser.set_defaults(func=main)
     apply = subparsers.add_parser('apply-call-calibration', help='reject independent query calls using a frozen empirical cutoff')
@@ -31,13 +32,16 @@ def apply_calibration(frame, calibration):
     proven nonbinders. The caller must use matching scorer/reference identities.
     """
     import polars as pl
-    if missing := {'query_id', 'score'} - set(frame.columns):
+    score_column=calibration.get('score_column','score')
+    if not isinstance(score_column,str) or not score_column.strip():
+        raise ValueError('score_column must name a numeric input column')
+    if missing := {'query_id', score_column} - set(frame.columns):
         raise ValueError('missing columns: ' + ', '.join(sorted(missing)))
     if {'call_score', 'call_status'} & set(frame.columns):
         raise ValueError('call output columns already exist')
     if frame['query_id'].null_count() or frame['query_id'].n_unique() != frame.height:
         raise ValueError('query_id must be unique and non-null; reduce candidate labels first')
-    scores = frame['score'].cast(pl.Float64)
+    scores = frame[score_column].cast(pl.Float64)
     if not scores.drop_nulls().is_finite().all():
         raise ValueError('non-null scores must be finite; use null for no evidence')
     action, cutoff = calibration.get('action'), calibration.get('cutoff')
@@ -60,7 +64,7 @@ def apply_calibration(frame, calibration):
 
 
 
-def null_tail_probabilities(frame, nulls, *, higher_is_better=True):
+def null_tail_probabilities(frame, nulls, *, higher_is_better=True, score_column="score"):
     """Tail of the existing selected score against each frozen null population.
 
     P=(1+number of null scores at least as extreme)/(1+all null queries),
@@ -72,14 +76,16 @@ def null_tail_probabilities(frame, nulls, *, higher_is_better=True):
     """
     import numpy as np
     import polars as pl
+    if not isinstance(score_column,str) or not score_column.strip():
+        raise ValueError('score_column must name a numeric input column')
     if {'p_null','E_null'} & set(frame.columns):
         raise ValueError('null-tail output columns already exist')
     for part in (frame, nulls):
-        if missing := {'query_id','score'} - set(part.columns):
+        if missing := {'query_id',score_column} - set(part.columns):
             raise ValueError('missing columns: '+', '.join(sorted(missing)))
         if part['query_id'].null_count() or part['query_id'].n_unique()!=part.height:
             raise ValueError('query_id must be unique and non-null; reduce candidate labels first')
-        if not part['score'].cast(pl.Float64).drop_nulls().is_finite().all():
+        if not part[score_column].cast(pl.Float64).drop_nulls().is_finite().all():
             raise ValueError('non-null scores must be finite')
     if not nulls.height or not {'outcome','null_source'} <= set(nulls.columns):
         raise ValueError('nonempty null cases require outcome and null_source')
@@ -88,12 +94,12 @@ def null_tail_probabilities(frame, nulls, *, higher_is_better=True):
     if nulls['null_source'].null_count() or nulls['null_source'].cast(pl.String).str.strip_chars().eq('').any():
         raise ValueError('every null query requires a nonempty null_source')
     sign=1 if higher_is_better else -1
-    values=sign*frame['score'].cast(pl.Float64).to_numpy()
+    values=sign*frame[score_column].cast(pl.Float64).to_numpy()
     missing=np.isnan(values)
     p=np.zeros(frame.height); e=np.zeros(frame.height); rows=[]
     for source in sorted(nulls['null_source'].unique().to_list()):
         part=nulls.filter(pl.col('null_source')==source)
-        scores=np.sort(sign*part['score'].cast(pl.Float64).drop_nulls().to_numpy())
+        scores=np.sort(sign*part[score_column].cast(pl.Float64).drop_nulls().to_numpy())
         counts=len(scores)-np.searchsorted(scores,values,side='left')
         counts[missing]=0
         tail=np.where(missing,1.,(counts+1)/(part.height+1))
@@ -119,7 +125,7 @@ def apply_main(args):
             raise ValueError('null cases must match the frozen calibration input hash')
         nulls = _read_table(null_path)
         out,tails = null_tail_probabilities(out,nulls.filter(nulls['outcome']=='null'),
-            higher_is_better=frozen['comparison']=='>=')
+            higher_is_better=frozen['comparison']=='>=',score_column=frozen.get('score_column','score'))
     target = Path(args.output)
     manifest_path = Path(str(target)+'.manifest.json')
     tail_path=Path(str(target)+'.null-tails.tsv')
@@ -133,7 +139,8 @@ def apply_main(args):
     accepted = int((out['call_status'] == 'accepted').sum())
     manifest = {'input_sha256': sha256(Path(args.cases)), 'calibration_sha256': sha256(recipe),
         'queries': out.height, 'accepted_calls': accepted, 'rejected_queries': out.height-accepted,
-        'no_score_queries': out['score'].null_count(), 'query_labels_used': False,
+        'no_score_queries': out[frozen.get('score_column','score')].null_count(), 'query_labels_used': False,
+        'score_column':frozen.get('score_column','score'),
         **({'null_cases_sha256':sha256(null_path),'null_tail_table_sha256':sha256(tail_path),
             'P_definition':'max source (k+1)/(N+1), including ties and no-hit null queries; exchangeability-conditional rank P, no-score P1',
             'E_definition':'max source k/N, observed false calls per query at the given score; no-score E0; not biological binding probability',
@@ -238,8 +245,13 @@ def main(args):
     from ..db.cache import sha256
     from ..io.airr import _read_table
 
-    result, curve = operating_points(_read_table(args.cases), args.target_fpr,
+    frame=_read_table(args.cases)
+    score_column=getattr(args,'score_column','score')
+    if score_column not in frame.columns:
+        raise ValueError('missing score column: '+score_column)
+    result, curve = operating_points(frame.with_columns(frame[score_column].alias('score')), args.target_fpr,
                                     higher_is_better=not args.lower_is_better)
+    result['score_column']=score_column
     result['input_sha256'] = sha256(Path(args.cases))
     result['limitations'] = ('Empirical rates on supplied query populations; not independent validation '
                             'or biological specificity probability. Bind source/scorer/reference identities '

@@ -18,6 +18,7 @@ def register(subparsers):
     p.add_argument('--cohort-column',help='paired mode: isolate rank fusion by this explicit raw metadata column and emit original single-chain scores')
     p.add_argument('--alpha-control',help='raw alpha junction control for original paired density')
     p.add_argument('--germline-background',help='raw prior table; include original sparse-reference unpaired score')
+    p.add_argument('--likelihood-score',action='store_true',help='also report original components on a common log scale; paired adds chain log-density and original combined germline evidence')
     p.add_argument('--puncture-populations',action='store_true',
                    help='candidate: remove exact full junctions from density and prior population sizes/counts; preserves historical defaults')
     p.add_argument('--gapped-extension',action='store_true',help='experimental gapped density mode; matched-pssm rescores all accepted edges; no combined P-value')
@@ -470,6 +471,20 @@ def main(a):
                     .then(pl.lit('missing_v_or_j'))
                     .when(pl.col('germline_lr').is_null()).then(pl.lit('no_prior_evidence')))
         out=out.with_columns(status.otherwise(pl.col('status')).alias('status'))
+    if a.likelihood_score:
+        from ..match.historical import paired_score
+        out=out.with_row_index('_likelihood_row')
+        valid=out.filter(pl.col('status')=='scored' if 'status' in out.columns else pl.col('score').is_not_null())
+        if a.locus=='paired':
+            values=paired_score(valid['density_score_beta'],valid['density_score_alpha'],
+                                valid['germline_lr'],log_scale=True)
+        elif prior_background is not None:
+            values=unpaired_score(valid['density_score'],valid['germline_lr'],
+                                  valid['n_reference'],log_scale=True)
+        else:
+            values=(valid['score']+1e-6).log()
+        out=out.join(valid.select('_likelihood_row').with_columns(values.alias('likelihood_score')),
+                     on='_likelihood_row',how='left',validate='1:1',maintain_order='left').drop('_likelihood_row')
     prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
     out.write_csv(str(prefix)+'.scores.tsv',separator='\t')
     extension_manifest=None
@@ -520,6 +535,11 @@ def main(a):
         'reference':db.provenance(a.vdjdb),'control':provenance,'ingestion':ingestion,
         'alpha_control':alpha_provenance,
         'gapped_extension':extension_manifest,
+        **({'likelihood':{'score_column':'likelihood_score',
+            'formula':'log(D_alpha+1e-6)+log(D_beta+1e-6)+original combined germline term' if a.locus=='paired' else
+                      'log(D+1e-6)+original germline term when sparse; density-only if no prior supplied',
+            'components':'original density, V weight, control correction and germline counts unchanged',
+            'cohort_dependent':False,'historical_score_preserved':True,'calibration':'requires identical complete selected-score null pipeline'}} if a.likelihood_score else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
         'scope':'PSSM5 substitutions; unit controls5,2,2; significance nearest<=1; exact excluded',
         'representative':('first source-order V per declared task union junction' if a.targets_from_sample

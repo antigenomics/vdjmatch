@@ -212,8 +212,12 @@ def _score_series(values):
     return values
 
 
-def unpaired_score(densities, priors, reference_size):
-    """Original sparse (<500 unique reference junctions) or dense unpaired score."""
+def unpaired_score(densities, priors, reference_size, *, log_scale=False):
+    """Original score; log_scale puts dense targets on the same log-density units.
+
+    Germline terms retain the original sparse-reference activation. Historical
+    defaults and sparse scores are unchanged; dense ordering is unchanged.
+    """
     density_values, prior_values = _score_series(densities), _score_series(priors)
     if isinstance(reference_size, pl.Series):
         sizes = _score_series(reference_size)
@@ -223,25 +227,31 @@ def unpaired_score(densities, priors, reference_size):
             raise ValueError('aligned components and nonnegative density are required')
         return pl.DataFrame({'density': density_values, 'prior': prior_values, 'size': sizes}).select(
             pl.when(pl.col('size') < 500).then((pl.col('density') + 1e-6).log() + pl.col('prior'))
-            .otherwise(pl.col('density')).alias('score'))['score']
+            .otherwise((pl.col('density')+1e-6).log() if log_scale else pl.col('density'))
+            .alias('score'))['score']
     if len(density_values) != len(prior_values) or reference_size < 1:
         raise ValueError('aligned components and a positive reference size are required')
     if (density_values < 0).any():
         raise ValueError('density must be nonnegative')
-    score = ((density_values + 1e-6).log() + prior_values
-             if reference_size < 500 else density_values)
+    score = (density_values+1e-6).log() if log_scale or reference_size<500 else density_values
+    if reference_size<500:
+        score=score+prior_values
     return score.rename('score')
 
 
-def paired_score(beta_densities, alpha_densities, combined_priors):
+def paired_score(beta_densities, alpha_densities, combined_priors, *, log_scale=False):
     """Original equal-weight cohort rank sum; ties receive mean zero-based rank.
 
     Inputs are aligned observations, retaining repeated junctions and pair context.
-    ``combined_priors`` is beta V/J/length plus alpha V/J, not a density product.
+    ``combined_priors`` is beta V/J/length plus alpha V/J. Optional log_scale
+    adds original chain log-densities and this same prior, without cohort ranks.
+    It is factorised original evidence, not calibrated joint binding probability.
     """
     beta, alpha, prior = map(_score_series, (beta_densities, alpha_densities, combined_priors))
     if len(beta) != len(alpha) or len(beta) != len(prior):
         raise ValueError('paired components must describe the same aligned observations')
     if (beta < 0).any() or (alpha < 0).any():
         raise ValueError('density must be nonnegative')
+    if log_scale:
+        return ((beta+1e-6).log()+(alpha+1e-6).log()+prior).rename('score')
     return (beta.rank('average') + alpha.rank('average') + prior.rank('average') - 3).rename('score')

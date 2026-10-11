@@ -167,24 +167,42 @@ def test_frozen_null_tails_keep_ties_nohits_and_sources_separate():
         calibration.null_tail_probabilities(queries.with_columns(pl.lit(float('inf')).alias('score')),nulls)
 
 
-def test_cli_null_tails_are_bound_to_frozen_calibration_input(tmp_path):
+@pytest.mark.parametrize('score_column',['score','likelihood_score'])
+def test_cli_null_tails_are_bound_to_frozen_calibration_input(tmp_path,score_column):
     parser=argparse.ArgumentParser();calibration.register(parser.add_subparsers())
     cases=tmp_path/'calibration.tsv'
-    pl.DataFrame({'query_id':['label','n1','n2','n3'],'score':[9.,8.,8.,None],
+    pl.DataFrame({'query_id':['label','n1','n2','n3'],score_column:[9.,8.,8.,None],
         'outcome':['correct','null','null','null'],
         'null_source':[None,'withheld','withheld','withheld']}).write_csv(cases,separator='\t')
     prefix=tmp_path/'recipe'
     assert calibration.main(parser.parse_args(['calibrate-calls',str(cases),
-        '--target-fpr','.7','--output-prefix',str(prefix)]))==0
+        '--score-column',score_column,'--target-fpr','.7','--output-prefix',str(prefix)]))==0
     query=tmp_path/'query.tsv';out=tmp_path/'out.tsv'
-    pl.DataFrame({'query_id':['x','y'],'score':[8.,None]}).write_csv(query,separator='\t')
+    query_frame=pl.DataFrame({'query_id':['x','y'],score_column:[8.,None]})
+    if score_column!='score':query_frame=query_frame.with_columns(pl.lit(100.).alias('score'))
+    query_frame.write_csv(query,separator='\t')
     args=parser.parse_args(['apply-call-calibration',str(query),'--calibration',
         str(prefix)+'.calibration.json','--null-cases',str(cases),'--output',str(out)])
     assert calibration.apply_main(args)==0
     result=pl.read_csv(out,separator='\t')
+    assert result.select(query_frame.columns).equals(query_frame)
     assert result['p_null'].to_list()==[.75,1.]
     assert result['E_null'].to_list()==pytest.approx([2/3,0.])
     assert pl.read_csv(str(out)+'.null-tails.tsv',separator='\t').height==2
     cases.write_text(cases.read_text()+'\n')
     with pytest.raises(ValueError,match='hash'):
         calibration.apply_main(args)
+
+
+def test_frozen_recipe_selects_likelihood_column_and_preserves_historical_score():
+    query=pl.DataFrame({'query_id':['a','b'],'score':[100.,100.],'likelihood_score':[9.,7.]})
+    recipe={'action':'apply_cutoff','cutoff':8.,'comparison':'>=','score_column':'likelihood_score'}
+    scored=calibration.apply_calibration(query,recipe)
+    assert scored['call_score'].to_list()==[9.,None]
+    assert scored.select(query.columns).equals(query)
+    nulls=pl.DataFrame({'query_id':['n1','n2'],'score':[100.,100.],
+        'likelihood_score':[8.,None],'outcome':['null']*2,'null_source':['withheld']*2})
+    out,_=calibration.null_tail_probabilities(scored,nulls,score_column='likelihood_score')
+    assert out['p_null'].to_list()==pytest.approx([1/3,2/3])
+    with pytest.raises(ValueError,match='likelihood_score'):
+        calibration.apply_calibration(query.drop('likelihood_score'),recipe)

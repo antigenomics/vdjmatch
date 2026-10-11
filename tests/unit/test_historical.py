@@ -646,3 +646,59 @@ def test_original_blosum_kernel_is_self_normalised_likelihood():
     assert hit.score == pytest.approx(-200*centred)
     log_normalised_lr = math.log(2)*centred/2
     assert math.exp(-hit.score/400) == pytest.approx(math.exp(log_normalised_lr/math.log(2)))
+
+
+def test_original_likelihood_scale_preserves_single_order_and_pair_identity():
+    density_values=[0.,2.,10.];priors=[1.,-1.,.5]
+    sparse=unpaired_score(density_values,priors,499)
+    assert unpaired_score(density_values,priors,499,log_scale=True).equals(sparse)
+    dense=unpaired_score(density_values,priors,500,log_scale=True)
+    assert dense.to_list()==pytest.approx([math.log(x+1e-6) for x in density_values])
+    assert dense.rank().equals(unpaired_score(density_values,priors,500).rank())
+    mixed=unpaired_score(density_values,priors,pl.Series([499,500,500]),log_scale=True)
+    assert mixed.to_list()==pytest.approx([sparse[0],dense[1],dense[2]])
+    pair=unpaired_score([2.,0.],[.5,-.5],499,log_scale=True)+unpaired_score([3.,1.],[0.,0.],500,log_scale=True)
+    assert pair[0]==pytest.approx(math.log(2+1e-6)+math.log(3+1e-6)+.5)
+    # Unlike a cohort rank, the same receptor's log evidence is unchanged by another query.
+    extended=unpaired_score([2.,0.,100.],[.5,-.5,10.],499,log_scale=True)+unpaired_score([3.,1.,100.],[0.,0.,0.],500,log_scale=True)
+    assert extended.head(2).equals(pair)
+
+
+def test_cli_likelihood_adds_evidence_without_changing_historical_fields(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    _,_,prefix,args=_paired_cli_inputs(tmp_path)
+    assert main(args)==0
+    original=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert main(args+['--likelihood-score'])==0
+    enriched=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert enriched.select(original.columns).equals(original)
+    valid=enriched.filter(pl.col('status')=='scored')
+    expected=paired_score(valid['density_score_beta'],valid['density_score_alpha'],
+                          valid['germline_lr'],log_scale=True)
+    assert valid['likelihood_score'].to_list()==expected.to_list()
+    assert enriched.filter(pl.col('status')!='scored')['likelihood_score'].null_count()==2
+
+
+@pytest.mark.parametrize('pooled',[False,True])
+def test_cli_likelihood_keeps_each_target_row_without_prior(tmp_path,pooled):
+    from vdjmatch.cli.__main__ import main
+    sample,reference,control,prefix=[tmp_path/n for n in ('q.tsv','r.tsv','c.tsv','out')]
+    q='CASSLGQAYEQYF'
+    pl.DataFrame({'query_id':['q'],'junction_aa':[q],'locus':['TRB'],
+                  'v_call':['TRBV19'],'j_call':['TRBJ1-1']}).write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':['CASSLGRAYEQYF','CASSLAQAYEQYF'],'gene':['TRB']*2,
+        'v':['TRBV19']*2,'j':['TRBJ1-1']*2,'species':['HomoSapiens']*2,
+        'epitope':['E','F'],'mhc_a':['HLA-A*02']*2,'mhc_b':['B2M']*2,
+        'mhc_class':['MHCI']*2}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':[q,'CASSLGRAYEQYF']}).write_csv(control,separator='\t')
+    args=['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+          '--control',str(control),'--output-prefix',str(prefix),
+          '--epitope','E','--epitope','F','--mhc-a','HLA-A*02']
+    if pooled:args+=['--pool-reference']
+    assert main(args)==0
+    original=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert main(args+['--likelihood-score'])==0
+    enriched=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert enriched.select(original.columns).equals(original)
+    assert enriched.height==2
+    assert enriched['likelihood_score'].to_list()==pytest.approx((original['score']+1e-6).log().to_list())
