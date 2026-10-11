@@ -62,5 +62,8 @@ def test_fixed_formula_dense_sparse_and_missing():
         'reference_coverage':[1.]*5,'knee_shape':[1.]*5,'knee_radius_ratio':[0.]*5,
         'original_support':[1.,0.,1.,0.,0.],'paired':[True]*5})
     actual=fixed_evidence_combination(frame)
-    np.testing.assert_allclose(actual[:4],[2.,np.log(4),np.log(4),2.])
+    np.testing.assert_allclose(actual[:4],[2.,2.+np.log(4),np.log(4),2.])
     assert np.isnan(actual[-1])
+    # At fixed reference structure the original term always retains unit weight.
+    stronger=frame.with_columns((pl.col('likelihood_score')+3).alias('likelihood_score'))
+    np.testing.assert_allclose(fixed_evidence_combination(stronger)[[0,1,3]]-actual[[0,1,3]],3.)

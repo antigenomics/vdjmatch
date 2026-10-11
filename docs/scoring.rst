@@ -512,6 +512,23 @@ All motif and population counts puncture identical full junctions only when
 exact reference evidence. This option leaves existing comparator/rank fields
 unchanged and does not supply a new end-user call threshold.
 
+Experimental original-based fixed refinement
+--------------------------------------------
+
+``combine-evidence --fixed`` reports :math:`S=L+s\log B`, where :math:`L`
+is the full original log score and :math:`B` is conditional-rank evidence.
+The shared sparse weight is :math:`s=1-uc[1-(1-k)e]`: :math:`u` is original
+chain support, :math:`c` reference neighbour coverage, :math:`k` normalized
+knee shape, and :math:`e` the knee radius divided by that radius plus the
+matrix-relative reference radius. These reference features and missing
+dispositions are exported separately. One missing score uses the available
+component; two missing scores remain unsupported.
+
+The original term retains unit weight. The additional term is an empirical
+refinement of correlated evidence, with no independence or biological
+probability claim. A fresh raw-task comparison and matching selected-score
+null calibration are required before adoption.
+
 Experimental ordered class alignment
 ------------------------------------
 

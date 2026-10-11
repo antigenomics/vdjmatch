@@ -1093,9 +1093,10 @@ Let $u$ be the fraction of query chains with positive original density (zero or
 one for a single chain, and zero, one half or one for a pair). Define
 \[
  s=1-uc\{1-(1-k)e\},\qquad
- S_{\rm fixed}=(1-s)L+sR.
+ S_{\rm fixed}=L+sR.
 \]
-This is a shared, unfitted empirical gate. One missing component uses the
+This shared, unfitted empirical refinement retains unit weight on the full
+original log term. One missing component uses the
 available score; two missing components remain unavailable. A small GLM fits
 nonnegative coefficients on $(1-s)L,sL,(1-s)R,sR$, plus a paired indicator,
 two missing-score indicators and an intercept. Weighted centering and scaling

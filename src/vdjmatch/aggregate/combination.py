@@ -36,16 +36,16 @@ def evidence_features(frame):
 
 
 def fixed_evidence_combination(frame):
-    """Original log score completed by conditional rank using one unfitted gate.
+    """Full original log score refined by conditional rank using one unfitted gate.
 
-    S=(1-s)L+s log(B), s=1-u*c*[1-(1-k)*e], where u is original
+    S=L+s log(B), s=1-u*c*[1-(1-k)*e], where u is original
     chain support, c reference radius coverage, k normalized knee shape, and
     e=epsilon/(epsilon+matrix-relative radius). Missing components use the
     available score; neither available returns NaN. This is an empirical ranking
     formula, not an independence claim or a transferred likelihood/P/E bound.
     """
     x,available=evidence_features(frame)
-    result=x[:,0]+x[:,3]
+    result=x[:,0]+x[:,1]+x[:,3]
     missing_l,missing_r=x[:,-2:].T.astype(bool)
     result[missing_l]=x[missing_l,2]+x[missing_l,3]
     result[missing_r]=x[missing_r,0]+x[missing_r,1]

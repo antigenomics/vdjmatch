@@ -76,6 +76,7 @@ def main(a):
             'evaluation_groups': groups, 'group_column': a.group_column,
             'require_heldout': a.require_heldout, 'training_group_overlap': overlap,
             'formula': 'GLM' if model else 'fixed',
+            'fixed_formula': 'L+s*log(B); retain the full original log term',
             'fixed_gate': 's=1-original_support*reference_coverage*(1-(1-knee_shape)*knee_radius_ratio)',
             'interpretation': model['interpretation'] if model else 'unfitted empirical log-score mixture; complete-pipeline P/E calibration required'}, indent=2)+'\n')
     return 0
