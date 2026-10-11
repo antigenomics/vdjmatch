@@ -297,6 +297,7 @@ def test_original_sparse_boundary_and_paired_average_rank_fusion():
     assert math.isclose(sparse[0], math.log(1e-6) + 1)
     assert math.isclose(sparse[1], math.log(2 + 1e-6) - 1)
     assert unpaired_score([0, 2], [1, -1], 500).to_list() == [0, 2]
+    assert unpaired_score([0, 2], [1, -1], pl.Series([499, 500])).to_list() == [sparse[0], 2]
     assert paired_score([0, 0, 2], [2, 0, 0], [0, 1, 2]).to_list() == [2.5, 2, 4.5]
     import pytest
     with pytest.raises(ValueError, match='finite'):
@@ -336,10 +337,11 @@ def test_candidate_density_population_puncture_matches_physical_removal():
         'cdr3': [q, q, r], 'v': ['TRBV19']*3, 'epitope': ['E']*3}))._index.records_for('TRB')
     _, queries = _prepare(pl.DataFrame({'query_id': ['a', 'b'], 'cdr3': [q, r],
         'v': ['TRBV19']*2, 'locus': ['TRB']*2}))
-    got = density(queries, reference, Index.build([q, r]), puncture_populations=True)
+    controls = [q, q, r]
+    got = density(queries, reference, Index.build(controls), puncture_populations=True)
     for i, s in enumerate([q, r]):
         expected = density(queries.slice(i, 1), reference.filter(pl.col('cdr3') != s),
-            Index.build([x for x in [q, r] if x != s]))
+            Index.build([x for x in controls if x != s]))
         assert got.drop('estimator').row(i) == expected.drop('estimator').row(0)
     empty = density(queries.head(1), reference.filter(pl.col('cdr3') == q),
         Index.build([q]), puncture_populations=True)
@@ -430,6 +432,43 @@ def _paired_cli_inputs(tmp_path):
           '--targets-from-sample','--control',str(control),'--alpha-control',str(alpha_control),
           '--germline-background',str(prior),'--output-prefix',str(prefix)]
     return raw,sample,prefix,args
+
+
+def test_cli_candidate_puncture_keeps_ids_and_reports_empty_populations(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    assert main(args)==0
+    baseline=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert main(args+['--puncture-populations'])==0
+    paired=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert paired['query_id'].to_list()==baseline['query_id'].to_list()
+    assert paired['status'].to_list()==['no_reference_alpha','no_reference_beta','missing_beta','invalid_alpha']
+    assert paired['score'].to_list()==[None]*4
+    assert paired['n_reference_alpha'].to_list()[:2]==[0,1]
+    assert paired['n_reference_beta'].to_list()[:2]==[1,0]
+    assert main(args)==0
+    assert pl.read_csv(str(prefix)+'.scores.tsv',separator='\t').equals(baseline)
+    raw.filter(pl.col('locus')=='TRB').write_csv(sample,separator='\t')
+    single=list(args)
+    single[single.index('--locus')+1]='TRB'
+    i=single.index('--alpha-control');del single[i:i+2]
+    for selection in ['sample','pooled']:
+        options=list(single)
+        if selection=='pooled':
+            options.remove('--targets-from-sample')
+            options+=['--pool-reference','--epitope','E','--mhc-a','HLA-A*02','--mhc-match','compatible']
+        assert main(options+['--puncture-populations'])==0
+        out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+        assert out['query_id'].to_list()==['b1','b2','b4']
+        assert out['status'].to_list()==['scored','no_reference','scored']
+        assert out['n_reference'].to_list()==[1,0,1]
+        assert out['score'][1] is None and out['score'][0] is not None
+    prior=Path(single[single.index('--germline-background')+1])
+    pl.read_csv(prior,separator='\t').tail(2).write_csv(prior,separator='\t')
+    assert main(single+['--puncture-populations'])==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['status'].to_list()==['no_prior_evidence','no_reference','no_prior_evidence']
+    assert out['score'].to_list()==[None]*3
 
 
 def test_cli_shared_cdf_preserves_paired_and_single_target_outputs(tmp_path, monkeypatch):

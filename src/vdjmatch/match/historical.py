@@ -6,7 +6,7 @@ source order within each pMHC/junction, as in the original per-epitope producer.
 """
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from itertools import accumulate
 import math
 
@@ -93,8 +93,8 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
     seqs = queries['cdr3'].unique(maintain_order=True).to_list()
     control_sizes = dict.fromkeys(seqs, len(control))
     if puncture_populations:
-        exact = control.edit_histogram_batch(seqs, first_hit.scope(1), threads, False)
-        control_sizes = {s:len(control)-int(row[0]) for s,row in zip(seqs,exact)}
+        exact = Counter(control.ref_seqs())
+        control_sizes = {s:len(control)-exact[s] for s in seqs}
     rows = []
     if pool_reference:
         for column in ('epitope', 'species', 'gene'):
@@ -211,6 +211,15 @@ def _score_series(values):
 def unpaired_score(densities, priors, reference_size):
     """Original sparse (<500 unique reference junctions) or dense unpaired score."""
     density_values, prior_values = _score_series(densities), _score_series(priors)
+    if isinstance(reference_size, pl.Series):
+        sizes = _score_series(reference_size)
+        if len(sizes) != len(density_values) or (sizes < 1).any() or (sizes != sizes.floor()).any():
+            raise ValueError('aligned components and a positive integer reference size are required')
+        if len(density_values) != len(prior_values) or (density_values < 0).any():
+            raise ValueError('aligned components and nonnegative density are required')
+        return pl.DataFrame({'density': density_values, 'prior': prior_values, 'size': sizes}).select(
+            pl.when(pl.col('size') < 500).then((pl.col('density') + 1e-6).log() + pl.col('prior'))
+            .otherwise(pl.col('density')).alias('score'))['score']
     if len(density_values) != len(prior_values) or reference_size < 1:
         raise ValueError('aligned components and a positive reference size are required')
     if (density_values < 0).any():

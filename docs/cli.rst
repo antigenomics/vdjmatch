@@ -411,6 +411,16 @@ Exact junction matches are excluded on both sides. Query identities remain
 separate even when their sequences coincide. For reproduction only, the first
 source-order V representative is used within each pMHC/junction group.
 
+Experimental ``--puncture-populations`` also removes exact full-junction matches
+from density population sizes and germline feature counts/population sizes for
+each query. Repeated raw prior draws are removed with their multiplicity. Empty
+remaining populations produce missing scores and explicit ``no_reference``,
+``no_control`` or ``no_prior_evidence`` dispositions; paired outputs identify the
+affected chain. This corrects candidate benchmark exclusion, while the default
+retains historical reproduction. It does not calibrate a combined P-value or
+establish a biological binder probability. Experimental gapped extensions are
+not supported with this option.
+
 ``--mhc-match compatible --pool-reference`` pools intersecting family and allele
 restrictions before counting unique reference junctions. Source restriction
 labels remain intact in the reference. ``--targets-from-sample`` instead selects

@@ -18,6 +18,8 @@ def register(subparsers):
     p.add_argument('--cohort-column',help='paired mode: isolate rank fusion by this explicit raw metadata column and emit original single-chain scores')
     p.add_argument('--alpha-control',help='raw alpha junction control for original paired density')
     p.add_argument('--germline-background',help='raw prior table; include original sparse-reference unpaired score')
+    p.add_argument('--puncture-populations',action='store_true',
+                   help='candidate: remove exact full junctions from density and prior population sizes/counts; preserves historical defaults')
     p.add_argument('--gapped-extension',action='store_true',help='experimental gapped density mode; matched-pssm rescores all accepted edges; no combined P-value')
     p.add_argument('--gap-geometry',choices=['tcrdist','historical-pssm','matched-pssm'],default='tcrdist',
                    help='tcrdist/historical-pssm add extension edges; matched-pssm uses one positional kernel and control CDF for all edges')
@@ -98,6 +100,7 @@ def _paired_scores(a, reference, beta_control, prior_background):
     from ..evalue.control import raw_background, _organism
     from ..match.historical import density, germline_prior, paired_score, unpaired_score, shared_control_histograms
     fields,score_columns=_paired_columns(a.cohort_column)
+    puncture=getattr(a,'puncture_populations',False)
     raw=_read_table(a.sample)
     if 'query_id' not in raw.columns:
         raw=raw.with_row_index('query_id')
@@ -169,15 +172,15 @@ def _paired_scores(a, reference, beta_control, prior_background):
                 pl.col('v'+suffix).alias('v'),pl.col('j'+suffix).alias('j'))
             if ref.height and queries.height:
                 scores=density(queries,ref,controls[name],threads=a.threads,pool_reference=True,
-                               control_counts=shared_counts.get(name))
+                               control_counts=shared_counts.get(name),puncture_populations=puncture)
                 prior=germline_prior(queries.filter(pl.all_horizontal(pl.col('v','j').str.strip_chars().ne('').fill_null(False))),
-                                     ref,prior_background,include_length=chain=='TRB')
+                                     ref,prior_background,include_length=chain=='TRB',exclude_exact=puncture)
                 scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',how='left',
                                    validate='1:1',maintain_order='left').drop(PMHC)
                 if a.cohort_column:
-                    valid=scores.filter(pl.col('germline_lr').is_not_null())
+                    valid=scores.filter(pl.col('germline_lr').is_not_null() & pl.col('score').is_not_null())
                     original=valid.select('query_id').with_columns(unpaired_score(
-                        valid['score'],valid['germline_lr'],ref.unique('cdr3').height).alias('unpaired_score'))
+                        valid['score'],valid['germline_lr'],valid['n_reference'] if puncture else ref.unique('cdr3').height).alias('unpaired_score'))
                     scores=scores.join(original,on='query_id',how='left',validate='1:1',maintain_order='left')
                 scores=scores.rename({c:('density_score_' if c=='score' else c+'_')+name
                                      for c in scores.columns if c!='query_id'})
@@ -186,8 +189,9 @@ def _paired_scores(a, reference, beta_control, prior_background):
                 out=out.with_columns(pl.lit(None,dtype=pl.Float64).alias('density_score_'+name),
                     pl.lit(None,dtype=pl.Float64).alias('germline_lr_'+name),
                     pl.lit(None,dtype=pl.Float64).alias('p_enrichment_'+name))
-            out=out.with_columns(pl.lit(ref.unique('cdr3').height,dtype=pl.UInt64).alias('n_reference_'+name),
-                                 pl.lit(len(controls[name]),dtype=pl.UInt64).alias('control_size_'+name))
+            if not puncture or not (ref.height and queries.height):
+                out=out.with_columns(pl.lit(ref.unique('cdr3').height,dtype=pl.UInt64).alias('n_reference_'+name),
+                                     pl.lit(len(controls[name]),dtype=pl.UInt64).alias('control_size_'+name))
         out=out.with_columns(
             pl.when(pl.col('pair_status')!='paired').then(pl.col('pair_status'))
             .when(~pl.col('cdr3a').str.contains(canonical).fill_null(False)).then(pl.lit('invalid_alpha'))
@@ -197,6 +201,9 @@ def _paired_scores(a, reference, beta_control, prior_background):
             .when(~genes_present['b']).then(pl.lit('missing_v_or_j_beta'))
             .when(pl.col('n_reference_alpha')==0).then(pl.lit('no_reference_alpha'))
             .when(pl.col('n_reference_beta')==0).then(pl.lit('no_reference_beta'))
+            .when(pl.col('control_size_alpha')==0).then(pl.lit('no_control_alpha'))
+            .when(pl.col('control_size_beta')==0).then(pl.lit('no_control_beta'))
+            .when(pl.col('germline_lr_alpha').is_null() | pl.col('germline_lr_beta').is_null()).then(pl.lit('no_prior_evidence'))
             .otherwise(pl.lit('scored')).alias('status'),
             (pl.col('germline_lr_alpha')+pl.col('germline_lr_beta')).alias('germline_lr'))
         if a.cohort_column:
@@ -209,6 +216,8 @@ def _paired_scores(a, reference, beta_control, prior_background):
                     .when(pl.lit(any(not isinstance(v,str) or not v.strip() for v in task.values()))).then(pl.lit('invalid_target'))
                     .when(~genes_present[suffix]).then(pl.lit('missing_v_or_j'))
                     .when(pl.col('n_reference_'+name)==0).then(pl.lit('no_reference'))
+                    .when(pl.col('control_size_'+name)==0).then(pl.lit('no_control'))
+                    .when(pl.col('germline_lr_'+name).is_null()).then(pl.lit('no_prior_evidence'))
                     .otherwise(pl.lit('scored')).alias('status_'+name))
         valid=out.filter(pl.col('status')=='scored')
         out=out.with_columns((pl.col('status').eq('scored').sum().over(a.cohort_column)
@@ -263,6 +272,9 @@ def main(a):
     from ..evalue.control import raw_background, _organism
     from ..match.historical import density,germline_prior,unpaired_score,shared_control_histograms
     start=time.perf_counter()
+    a.puncture_populations=getattr(a,'puncture_populations',False)
+    if a.puncture_populations and a.gapped_extension:
+        raise ValueError('--puncture-populations does not support the experimental gapped extension')
     if a.threads<1:raise ValueError('threads must be positive')
     if not math.isfinite(a.pssm_kernel_scale) or a.pssm_kernel_scale<=0:
         raise ValueError('--pssm-kernel-scale must be finite and positive')
@@ -304,7 +316,7 @@ def main(a):
     shared_counts = None
     def score_density(queries,reference,*,pool_reference=False):
         scores=density(queries,reference,ctrl,threads=a.threads,pool_reference=pool_reference,
-                       control_counts=shared_counts)
+                       control_counts=shared_counts,puncture_populations=a.puncture_populations)
         if a.gapped_extension:
             if not pool_reference:
                 raise ValueError('--gapped-extension requires pooled or sample-declared targets')
@@ -355,11 +367,14 @@ def main(a):
                 continue
             scores=score_density(querypart,referencepart,pool_reference=True)
             if prior_background is not None:
-                prior=germline_prior(querypart.filter(genes_present),referencepart,prior_background,include_length=a.locus=='TRB')
+                prior=germline_prior(querypart.filter(genes_present),referencepart,prior_background,
+                    include_length=a.locus=='TRB',exclude_exact=a.puncture_populations)
                 valid=scores.join(prior.select('query_id','germline_lr'),on='query_id',validate='1:1',maintain_order='left')
+                valid=valid.filter(pl.col('germline_lr').is_not_null() & pl.col('score').is_not_null())
                 full=valid.select('query_id','germline_lr')
                 if valid.height:
-                    full=full.with_columns(unpaired_score(valid['score'],valid['germline_lr'],int(valid['n_reference'][0])))
+                    full=full.with_columns(unpaired_score(valid['score'],valid['germline_lr'],
+                        valid['n_reference'] if a.puncture_populations else int(valid['n_reference'][0])))
                     if a.gapped_extension:
                         full=full.with_columns(unpaired_score(valid['historical_density'],valid['germline_lr'],
                                                int(valid['n_reference'][0])).alias('historical_score'))
@@ -422,11 +437,14 @@ def main(a):
         for _,part in r.group_by('epitope',maintain_order=True):
             scores=score_density(q,part,pool_reference=True)
             if prior_background is not None:
-                prior=germline_prior(q.filter(genes_present),part,prior_background,include_length=a.locus=='TRB')
+                prior=germline_prior(q.filter(genes_present),part,prior_background,
+                    include_length=a.locus=='TRB',exclude_exact=a.puncture_populations)
                 valid=scores.join(prior.select('query_id','germline_lr'),on='query_id',validate='1:1',maintain_order='left')
+                valid=valid.filter(pl.col('germline_lr').is_not_null() & pl.col('score').is_not_null())
                 full=valid.select('query_id','germline_lr')
                 if valid.height:
-                    full=full.with_columns(unpaired_score(valid['score'],valid['germline_lr'],int(valid['n_reference'][0])))
+                    full=full.with_columns(unpaired_score(valid['score'],valid['germline_lr'],
+                        valid['n_reference'] if a.puncture_populations else int(valid['n_reference'][0])))
                     if a.gapped_extension:
                         full=full.with_columns(unpaired_score(valid['historical_density'],valid['germline_lr'],
                                                int(valid['n_reference'][0])).alias('historical_score'))
@@ -442,6 +460,16 @@ def main(a):
         out=pl.concat(parts)
     else:
         out=score_density(q,r)
+    if a.puncture_populations and a.locus!='paired':
+        if 'status' not in out.columns:
+            out=out.with_columns(pl.lit('scored').alias('status'))
+        status=(pl.when(pl.col('n_reference')==0).then(pl.lit('no_reference'))
+                .when(pl.col('control_size')==0).then(pl.lit('no_control')))
+        if prior_background is not None:
+            status=(status.when(pl.col('query_id').is_in(q.filter(~genes_present)['query_id'].implode()))
+                    .then(pl.lit('missing_v_or_j'))
+                    .when(pl.col('germline_lr').is_null()).then(pl.lit('no_prior_evidence')))
+        out=out.with_columns(status.otherwise(pl.col('status')).alias('status'))
     prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
     out.write_csv(str(prefix)+'.scores.tsv',separator='\t')
     extension_manifest=None
