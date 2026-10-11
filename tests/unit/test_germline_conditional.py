@@ -35,3 +35,12 @@ def test_j_predictive_is_independent_of_other_query_categories():
     alone=conditional_j_usage(q,r,b)
     together=conditional_j_usage(pl.concat([q,extra]),r,b)
     assert alone.equals(together.head(1))
+
+
+def test_linked_j_categories_are_joint_not_independent_chain_products():
+    r=pl.DataFrame({'seq0':['CAAAAF','CAAACF'],'v0':['TRAV1*01']*2,'j0':['TRAJ1*01','TRAJ2*01'],'seq1':['CASSAF','CASSCF'],'v1':['TRBV1*01']*2,'j1':['TRBJ1-1*01','TRBJ2-1*01']})
+    b=r.with_columns(pl.Series('j1',['TRBJ2-1*01','TRBJ1-1*01']))
+    q=r.head(1).with_row_index('query_id')
+    out=conditional_j_usage(q,r,b,paired=True)
+    # Chain marginals coincide; only their same-pair J co-occurrence differs.
+    assert out['conditional_j_usage_ratio'][0]==pytest.approx(12)

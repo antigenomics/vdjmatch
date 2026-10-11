@@ -530,7 +530,9 @@ def main(a):
                 enrichment=enrichment.with_columns(pl.lit(None,dtype=pl.Float64).alias('conditional_rank_bayes_factor'))
                 if a.conditional_j:
                     enrichment=enrichment.with_columns(pl.lit(None,dtype=pl.Float64).alias('j_conditioned_rank_score'),
-                        pl.lit(None,dtype=pl.Float64).alias('conditional_j_usage_ratio'),pl.lit(None,dtype=pl.String).alias('conditional_j_status'))
+                        pl.lit(None,dtype=pl.Float64).alias('conditional_j_usage_ratio'),pl.lit(None,dtype=pl.String).alias('conditional_j_status'),
+                        *[pl.lit(None,dtype=pl.Float64).alias('j_'+side+'_probability') for side in ['reference','control']],
+                        *[pl.lit(None,dtype=pl.Int64).alias('j_'+side+'_'+field) for side in ['reference','control'] for field in ['population','stratum','joint','global']])
         enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
@@ -582,7 +584,7 @@ def main(a):
             'selection':'no radius scan or fitted blend; fixed-radius fields unchanged'}} if a.nearest_rank else {}),
         **({'conditional_j_model':{'score_column':'j_conditioned_rank_score',
             'formula':'conditional_rank_bayes_factor * P_ref(J|V,length)/P_control(J|V,length)',
-            'predictive':'(n_stratum_J + (n_J+.5)/(N+.5*K))/(n_stratum+1); K shared observed/query J categories',
+            'predictive':'(n_stratum_J + (n_J+.5)/(N+.5*K))/(n_stratum+1); K observed population J categories plus one unseen category',
             'pairing':'joint linked alpha/beta V,length and J tuples, no chain independence assumption',
             'missing':'missing query J neutral; missing/conflicting population J explicit categories',
             'interpretation':'empirical ranking residual; no V or length marginal factor; no calibrated BF/P/E-value/posterior or biological confidence; J and retained junction may remain dependent'}} if a.conditional_j else {}),

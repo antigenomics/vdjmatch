@@ -47,3 +47,14 @@ def test_cli_nearest_rank_recovers_outside_ball_without_changing_existing_fields
     empty=pl.read_csv(tmp_path/'empty.enrichment.tsv',separator='\t')
     assert empty['nearest_rank_score'][0] is None and empty['nearest_rank_status'][0]=='empty_population'
     assert empty['conditional_rank_bayes_factor'][0] is None
+
+
+def test_conditional_j_empty_output_keeps_count_schema(tmp_path):
+    sample=tmp_path/'sample.tsv';reference=tmp_path/'reference.tsv'
+    pl.DataFrame({'junction_aa':['CASSLGQAYEQYF'],'v_call':['TRBV19*01'],'locus':['TRB'],'species':['human'],'epitope':['E'],'mhc_a':['HLA-A*02'],'mhc_b':['B2M'],'mhc_class':['MHCI']}).write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':['CASSLGRAYEQYF'],'v':['TRBV19*01'],'gene':['TRB'],'species':['HomoSapiens'],'epitope':['E'],'mhc_a':['HLA-A*02'],'mhc_b':['B2M'],'mhc_class':['MHCI']}).write_csv(reference,separator='\t')
+    prefix=tmp_path/'empty'
+    assert main(['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--species','mouse','--locus','TRB','--targets-from-sample','--unbounded-nearest','--nearest-rank','--background','vdjdb-other','--neighbour-weighting','local-rank','--conditional-j','--output-prefix',str(prefix)])==0
+    out=pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t')
+    assert out.height==0
+    assert {'j_reference_population','j_control_stratum','j_reference_probability','conditional_j_status','j_conditioned_rank_score'}<=set(out.columns)
