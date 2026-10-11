@@ -161,3 +161,37 @@ def test_raw_airr_control_rejects_bare_cdr3_with_only_j_call(tmp_path):
     )
     with pytest.raises(ValueError, match="requires junction_aa"):
         raw_background("TRB", "human", path)
+
+
+@pytest.mark.parametrize("limit,expected", [("4", 4), (None, 12), ("99", 12)])
+def test_cli_preserves_parent_table_thread_cap(limit,expected):
+    import os
+    import subprocess
+    import sys
+    env=dict(os.environ)
+    if limit is None:env.pop("POLARS_MAX_THREADS",None)
+    else:env["POLARS_MAX_THREADS"]=limit
+    code="""from vdjmatch.cli import historical
+import json,os
+def probe(a):
+    import polars as pl
+    print(json.dumps({'table_threads':pl.thread_pool_size(),'native_threads':a.threads}))
+    return 0
+historical.main=probe
+from vdjmatch.cli.__main__ import main
+main(['historical-density','unused','--vdjdb','unused','--locus','TRB',
+      '--threads','12','--output-prefix','unused'])
+"""
+    output=subprocess.run([sys.executable,'-c',code],env=env,text=True,
+                          capture_output=True,check=True,timeout=15)
+    assert json.loads(output.stdout)=={'table_threads':expected,'native_threads':12}
+
+
+@pytest.mark.parametrize("limit", ["0", "invalid"])
+def test_cli_rejects_invalid_parent_table_thread_cap(monkeypatch,capsys,limit):
+    monkeypatch.setenv("POLARS_MAX_THREADS",limit)
+    with pytest.raises(SystemExit) as error:
+        cli.main(['historical-density','unused','--vdjdb','unused','--locus','TRB',
+                  '--threads','12','--output-prefix','unused'])
+    assert error.value.code==2
+    assert 'POLARS_MAX_THREADS must be a positive integer' in capsys.readouterr().err

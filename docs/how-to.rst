@@ -30,6 +30,12 @@ Reference rows with an invalid amino-acid junction are retained with
 ``reference_valid=False`` and excluded from the search index. The reference report
 states retained/excluded counts. Inspect that report when assessing reference coverage.
 
+Reference curation also excludes KLGGALQAK and the engineered phage-library study
+PMID 40498839 from search and background populations. Source rows remain available
+with ``reference_exclusion_reason``; natural SLLMWITQV observations from other
+studies remain searchable. This policy uses peptide/study identity, never a
+sequence-frequency or motif filter on natural receptors.
+
 An HF mirror is selected explicitly with ``source="hf"``; it is distinct from the
 GitHub latest/pinned release source. Reuse an ``Annotator`` to keep one explicit
 reference index across calls.

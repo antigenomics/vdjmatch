@@ -495,6 +495,7 @@ def load(
     epitope: str | list[str] | None = None,
     mhc_a: str | list[str] | None = None,
     mhc_b: str | list[str] | None = None,
+    mhc_match: str = "exact",
     reference_id: str | list[str] | None = None,
     exclude_reference_ids: str | list[str] | None = None,
     evidence_type: str | list[str] | None = None,
@@ -512,7 +513,12 @@ def load(
     each selector, AND across selectors). Evidence selects any matching observation
     attached to the record and retains all of that record's chain/evidence metadata.
     A requested evidence predicate requires a supplied evidence_type field.
+    ``mhc_match="compatible"`` matches family/allele restrictions with intersecting
+    declared resolution, retaining original restriction labels. Exact matching is
+    the default for backwards compatibility.
     """
+    if mhc_match not in {"exact", "compatible"}:
+        raise ValueError("mhc_match must be exact or compatible")
     path = (
         Path(source)
         if source is not None
@@ -568,7 +574,9 @@ def load(
             not isinstance(value, str) for value in values
         ):
             raise ValueError(f"{name} must be a string or list of strings")
-        if name == "exclude_reference_ids":
+        if name in {"mhc_a", "mhc_b"} and mhc_match == "compatible":
+            df = df.filter(pl.any_horizontal(*(schema.mhc_compatible(name, v) for v in values)) if values else pl.lit(False))
+        elif name == "exclude_reference_ids":
             df = df.filter(~pl.col("reference_id").is_in(values).fill_null(False))
         elif name == "evidence_type":
             if "evidence_type" in df.columns:

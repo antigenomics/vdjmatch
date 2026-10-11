@@ -432,3 +432,35 @@ def test_explicit_control_mappings_require_active_loci(monkeypatch):
         q = pl.DataFrame({"cdr3_alpha_aa": ["CAVVF"], "cdr3_beta_aa": ["CASSF"]})
         with pytest.raises(ValueError, match="both TRA and TRB"):
             paired.paired_candidates(q, control={"TRB": ctrl}, calibrate=calibrate)
+
+
+def test_single_chain_punctures_counts_and_population_like_physical_removal():
+    r = reference()
+    controls = ['CASSF', 'CASSF', 'CASSL', 'CWWWF']
+    query = ['CASSF']
+    actual = Annotator.from_frame(r).candidates(
+        query, scope='1', control=Index.build(controls, 'aa'), exclude_exact=True)
+    expected = Annotator.from_frame(r.filter(pl.col('cdr3') != 'CASSF')).candidates(
+        query, scope='1', control=Index.build([c for c in controls if c != 'CASSF'], 'aa'))
+    assert actual['n_reference'].to_list() == expected['n_reference'].to_list() == [1]
+    assert actual.select('ned_score', 'E', 'p_enrichment', 'p_any', 'n_control').equals(
+        expected.select('ned_score', 'E', 'p_enrichment', 'p_any', 'n_control'))
+    assert actual['calibration'].to_list() == ['fixed_ball_punctured']
+
+
+def test_batched_epitope_removal_equals_physical_removal():
+    from vdjmatch.api import _prepare
+    r = reference()
+    raw = pl.DataFrame({'cdr3': ['CASSF', 'CASSF'], 'epitope': ['ONE', 'TWO']})
+    _, q = _prepare(raw)
+    exclusions = q.select('query_id').with_columns(raw['epitope'])
+    ctrl = Index.build(['CASRF', 'CWWWF'], 'aa')
+    ann = Annotator.from_frame(r)
+    for threads in (1, 2):
+        _, actual = ann._evidence(q, search_params('1'), control=ctrl, threads=threads,
+                                 exclude_epitopes=exclusions)
+        for i, peptide in enumerate(raw['epitope']):
+            expected = Annotator.from_frame(r.filter(pl.col('epitope') != peptide)).candidates(
+                [raw['cdr3'][i]], scope=search_params('1'), control=ctrl)
+            cols = ['epitope', 'n_reference', 'ned_score', 'n_competing_clonotypes', 'E', 'p_enrichment']
+            assert actual.filter(pl.col('query_id') == i).select(cols).equals(expected.select(cols))

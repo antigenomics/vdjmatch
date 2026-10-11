@@ -30,16 +30,19 @@ def annotate_sample(
     link=None,
     exclude_exact=False,
     search_mode="fixed",
+    unified_distance="edit",
 ):
     """Return hit/candidate/call/count tables plus explicit ingestion diagnostics.
 
     Requested calibration errors propagate. Summary counts are descriptive match counts;
     sample-level statistical inference is outside this operation.
     """
-    if search_mode not in {"fixed", "ball"}:
-        raise ValueError("search_mode must be fixed or ball")
+    if search_mode not in {"fixed", "ball", "unified"}:
+        raise ValueError("search_mode must be fixed, ball or unified")
     if search_mode == "ball" and paired:
         raise ValueError("paired graded balls are not supported; use fixed mode with an explicit scope")
+    if search_mode == "unified" and (paired or match_v or match_j or not with_evalue or matrix is not None):
+        raise ValueError("unified mode requires single-chain controls and its own geometry; paired, V/J restrictions, matrix overrides and --no-evalue are unsupported")
     ann = Annotator(index)
     gap = DEFAULT_SCALE if matrix is not None else 1
     params = match.search_params(
@@ -93,6 +96,13 @@ def annotate_sample(
         sequence_convention=sequence_convention,
         return_report=True,
     )
+    if search_mode == "unified":
+        hits, c = ann.unified_candidates(queries, threads=threads, control=control,
+            species=species, exclude_exact=exclude_exact, return_hits=True, distance=unified_distance)
+        return {"hits": hits, "candidates": c,
+                "calls": _append_calls(queries, queries, c, index.genes, "vdjmatch_"),
+                "summary": aggregate.epitope_summary(hits),
+                "ingestion": pl.DataFrame([report])}
     if search_mode == "ball":
         hits, c = ann.graded_candidates(
             queries, threads=threads, matrix=matrix, control=control,

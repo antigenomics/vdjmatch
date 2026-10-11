@@ -11,6 +11,24 @@ def pairs(**extra):
                          'epitope':['PEP','PEP'],**extra})
 
 
+def test_reference_curation_preserves_rows_and_natural_same_peptide():
+    raw = pl.DataFrame({
+        'gene': ['TRB'] * 5, 'cdr3': ['CASSF'] * 5,
+        'epitope': ['KLGGALQAK', 'SLLMWITQV', 'SLLMWITQV', 'SLLMWITQV', 'PEP'],
+        'reference.id': [None, 'PMID:40498839', 'PMID:32102902',
+                         '["https://pubmed.ncbi.nlm.nih.gov/40498839/"]', 'PMID:140498839'],
+    })
+    normalized = schema.normalize(raw)
+    assert normalized.height == raw.height
+    assert normalized['reference_valid'].to_list() == [False, False, True, False, True]
+    assert normalized['reference_exclusion_reason'].to_list() == [
+        'KLGGALQAK_artifact', 'engineered_phage_library_PMID40498839', None,
+        'engineered_phage_library_PMID40498839', None]
+    assert schema.normalize(normalized).equals(normalized)
+    idx = VdjdbIndex.build(raw)
+    assert idx.records_for('TRB')['epitope'].to_list() == ['SLLMWITQV', 'PEP']
+
+
 def test_string_complex_without_record_ids_survives_index_and_joint_query():
     raw=pairs(complex_id=['self','self'])
     normalized=schema.normalize(raw)

@@ -9,7 +9,7 @@ from vdjmatch.runner.multisample import annotate_sample
 
 
 def test_retired_ranked_runner_rejected():
-    with pytest.raises(ValueError, match="search_mode must be fixed or ball"):
+    with pytest.raises(ValueError, match="search_mode must be fixed, ball or unified"):
         annotate_sample(None, "unused", search_mode="ranked")
 
 

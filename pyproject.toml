@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "seqtree>=1.0.2",
+    "seqtree>=1.0.3",
     "vdjtools>=5.0.0",    # format ingestion and native Pgen (lazy imports avoid overlap cycle)
     "polars>=1.41.2,<2",
     "scipy>=1.9",       # exact finite-control bounds and binomial tails for paired punctures
@@ -32,6 +32,7 @@ precursor = ["numpy"]
 test = ["pytest>=7.4", "hypothesis"]
 bench = ["psutil", "huggingface_hub", "matplotlib", "seaborn", "scikit-learn", "rapidfuzz"]  # HF benchmark; matplotlib/seaborn: boxplots; scikit-learn/rapidfuzz: AUC0.1 + clustering internal metrics
 control = ["seqtree[control]", "huggingface_hub"]  # TRA/mouse controls beyond bundled human TRB
+ndn = ["arda-mapper>=2.36.0"]       # opt-in fixed V/J versus NDN geometry
 ods = ["ezodf"]                   # read ImmuneWatch DETECT golden .ods in tests
 # `marimo edit docs/notebooks/precursor_compendium.py` -- the interactive walkthrough of
 # prediction against measured naive precursor frequency. matplotlib draws its figures.
@@ -58,5 +59,5 @@ packages = ["src/vdjmatch"]
 # shipped automatically by hatchling — no force-include needed.
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "docs/*.rst", "docs/conf.py", "docs/notebooks", "pyproject.toml", "README.md", "LICENSE*", "setup.sh"]
+include = ["src", "tests", "docs/*.rst", "docs/conf.py", "docs/notebooks", "appendix/*.tex", "pyproject.toml", "README.md", "LICENSE*", "setup.sh"]
 exclude = ["**/*_local.md", "AGENTS.md", "**/__pycache__", "**/.ipynb_checkpoints"]
