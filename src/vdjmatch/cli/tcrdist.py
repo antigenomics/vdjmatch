@@ -575,6 +575,7 @@ def main(a):
                     'experimental CDR3-only:3*CDR3; ')+organism+' combo_xcr_2024-03-05',
         'junction_end_trim':{'n_terminal':3,'c_terminal':ctrim},
         **({'epitope_rules':{'germline':'joint V-gene predictive probabilities; one shared pooled pseudo-observation; no J/length marginal or added V-loop distance',
+            'source_sha256':sha256(Path(reference_epitope_rules.__code__.co_filename)),
             'sequence':'3/3-trimmed CDR3 triangular kernel conditional on exact V gene(s); length remains in CDR3 distance; same linked reference pair',
             'motifs':'exact3, IMGT11-class3, internal-wildcard4, IMGT11-class internal-wildcard4; unique per-receptor tokens; paired overlap fractions multiplied within the same reference pair',
             'combination':'equal mixture of spatial/motif kernels before conditional prediction; no independent motif likelihood multiplication',
