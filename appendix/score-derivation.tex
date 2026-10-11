@@ -1,186 +1,895 @@
 \documentclass[10pt,a4paper]{article}
 \usepackage[margin=19mm]{geometry}
-\usepackage{amsmath,amssymb,microtype,hyperref}
+\usepackage{amsmath,amssymb,amsthm,microtype,hyperref,booktabs,array}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,shapes.misc}
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{5pt}
+\newtheorem{proposition}{Proposition}
+\theoremstyle{definition}
+\newtheorem{remark}{Remark}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\title{\vspace{-12mm}Distance-local receptor evidence in \texttt{vdjmatch}}
+\author{Algorithm appendix --- shipped default, opt-in routes, bounds and observations}
+\date{Revised 2026-10-11}
+
 \begin{document}
-\begin{center}
-{\Large Distance-local receptor evidence}\par
-{\small Historical correspondence, finite ranks and an explicit probability model}
+\maketitle
+\vspace{-6mm}
+
+\begin{abstract}\noindent\small
+\texttt{vdjmatch} annotates T-cell receptors with peptide--MHC specificity by searching a labelled
+reference (VDJdb) and calibrating every count against a matched background. This appendix is the
+reviewable account of the algorithm as it stands. Part~I gives the intuition, the stage-by-stage
+flow and a map to the implementation. Part~II specifies the shipped default. Part~III specifies the
+opt-in distance-local rank model, its null bound, its Bayesian reading and --- newly ---
+the regime in which it degenerates. Part~IV covers reference-defined germline rules.
+Part~V states the parameters and why each takes its value. Parts~VI and~VII derive time, space and
+accuracy bounds and compare them with recorded observations. Part~VIII lists what remains unproved.
+Exact guarantees, conditional results and heuristics are kept apart throughout. The default annotation scorer is unchanged; no experimental route below is a promoted replacement, and no quantity
+here is a calibrated biological probability of a true specificity.
+\end{abstract}
+
+\part*{I. Intuition and flow}
+\addcontentsline{toc}{part}{I. Intuition and flow}
+
+\section{The problem, in one paragraph}
+A T-cell receptor recognises a peptide--MHC complex (pMHC) mainly through its CDR3 loops, and
+receptors recognising the same pMHC converge onto similar loops. So: given a query receptor, find
+its near neighbours among receptors of \emph{known} specificity, and decide whether that
+neighbourhood is more crowded than chance would produce. The second half is the whole difficulty.
+Immune repertoires are enormously redundant and some junctions are generically ``popular'';
+a raw neighbour count therefore says as much about how ordinary a sequence is as about what it
+binds. Every statistic below is a different answer to \emph{crowded relative to what}.
+
+\textbf{Inputs.} A query $q$: a TRA receptor, a TRB receptor, or a genuine linked TRA--TRB pair,
+each carrying an anchor-inclusive junction (the Cys104$\ldots$Phe118 string, \emph{not} the
+anchor-free IMGT CDR3) and, where available, V and J gene calls. A reference set of VDJdb source
+records, each a (junction, V, J, peptide, MHC, study) observation. A background control population:
+either generated draws from a recombination model (OLGA) or a real repertoire.
+
+\textbf{Outputs.} Per (query, pMHC target) a ranked candidate row carrying an evidence score, the
+supporting counts, a control-calibrated enrichment $p$-value, and the population sizes that produced
+them; per query a top-1 call with an explicit status (\code{matched}, \code{ambiguous},
+\code{no\_hit}, \code{no\_reference}, \code{invalid\_query}). Distance, database confidence, rank
+evidence, $E$-value, conditional model probability and empirical error rate are separate columns and
+are never silently fused.
+
+\section{Stages}
+\begin{enumerate}\setlength{\itemsep}{1pt}
+\item \textbf{Normalise and validate.} Resolve locus, check the junction alphabet, resolve V alleles
+  against the bundled templates, apply reference eligibility and any requested exclusions. Query
+  identity, locus, V/J and pairing survive every join.
+\item \textbf{Index.} Build one \texttt{seqtree} trie per locus over the \emph{distinct} reference
+  junctions. Observation multiplicity is retained separately; it must not multiply a search key.
+\item \textbf{Search.} One native batch per locus over the distinct query junctions, within a fixed
+  edit budget $\theta$. The same batch runs against the control index, giving the cumulative control
+  neighbour count $n_c(s)$ at every attained score $s$.
+\item \textbf{Score.} Reduce hits to one row per (query, pMHC), weighting each neighbour by its
+  similarity and dividing by the local background crowding.
+\item \textbf{Calibrate.} Compare the reference neighbour count with the count the background
+  predicts, as a Poisson tail.
+\item \textbf{Call.} Rank candidates; the top one is the call, exact ties abstain.
+\end{enumerate}
+
+\noindent Steps 3--5 have opt-in alternatives (Part~III) that replace the edit ball with a TCRdist
+geometry and the density with a rank statistic. They are \emph{not} the default.
+
+\begin{figure}[htbp]\centering
+\scriptsize
+\begin{tikzpicture}[
+  node distance=4.5mm and 7mm,
+  box/.style={draw, rounded corners=2pt, align=center, inner sep=3pt, font=\scriptsize,
+              minimum height=7mm, text width=48mm},
+  inp/.style={box, fill=blue!7},
+  def/.style={box, fill=green!10, very thick},
+  opt/.style={box, fill=black!4, dashed},
+  note/.style={box, fill=yellow!14},
+  bad/.style={box, fill=red!12},
+  ar/.style={-{Latex[length=1.6mm]}, thick},
+  aro/.style={-{Latex[length=1.6mm]}, dashed},
+  ard/.style={-{Latex[length=1.6mm]}, densely dotted, black!60},
+]
+\node[inp] (q) {query receptors\\TRA / TRB / linked pair\\junction $+$ V/J};
+\node[inp, right=of q] (ref) {VDJdb reference\\valid source records\\$\to$ distinct junction keys};
+\node[inp, right=of ref] (ctl) {background control\\generated (OLGA) or real\\draw multiplicity / real keys};
+\node[box, below=6mm of ref] (norm) {normalise \& validate\\locus, alphabet, V calls, eligibility};
+\node[box, below=of norm] (idx) {index per locus\\\texttt{seqtree} trie over distinct junctions\\$O((N_{\mathrm{seq}}{+}M)L)$};
+
+\node[def, below left=8mm and 5mm of idx] (srch) {\textbf{one native batch / locus}\\bounded-edit search, $\theta=(1,0,0,1)$\\VDJAM matrix; matched control search};
+\node[def, below=of srch] (ned) {\textbf{NED-v1} per (query, pMHC)\\$S=\sum_r w_V(r)\,e^{-s(q,r)/400}/(n_c(s){+}1)$\\one vote per search key};
+\node[def, below=of ned] (ev) {control-calibrated enrichment\\$E=(N/M)\,n_C$,\quad $p=\Pr\{\mathrm{Pois}(E)\ge n_D\}$};
+
+\node[opt, below right=8mm and 5mm of idx] (geo) {TCRdist geometry (opt-in)\\$d=d_V+\min_A\{3\textstyle\sum w\,c+12h\}$};
+\node[opt, below=of geo] (cnt) {cumulative ball counts\\reference $n(d)$, control $m(d)$, cutoffs $0..D$};
+\node[opt, below=of cnt] (bx) {distance-local rank evidence\\$B_X=\frac1N\sum_i h_M(R_i)$, far refs imputed};
+\node[opt, below=of bx] (sg) {separate optional ranking routes\\nearest-conditioned score, or V/motif rule\\no transferred posterior};
+\node[bad, below=of sg] (deg) {$n_D=0\Rightarrow B_X$ depends on $m_D$ \emph{alone}\\(Prop.~\ref{prop:degen})};
+\node[opt, below=16mm of deg] (evidence) {candidate / evidence tables\\no annotation promotion\\winning-label integration remains open};
+\node[note, below=of deg] (pb) {$p_{\rm bound}=\min(1,B_X^{-1})$, $\E_0B_X=1$\\(Prop.~\ref{prop:null}); posterior at $\pi=\frac12$};
+
+\node[opt, below=38mm of ev] (s8) {S8: identified complete cohort/pMHC\\original chain/paired scores + support\\common pair / chain only / neither\\tie-safe ranks; population-relative output};
+\node[def, below=22mm of ev] (call) {rank candidates $\to$ top-1 call\\tie $\Rightarrow$ ambiguous; empty $\Rightarrow$ no\_hit};
+
+\draw[ar] (q) -- (norm); \draw[ar] (ref) -- (norm); \draw[ar] (ctl) -- (norm);
+\draw[ar] (norm) -- (idx);
+\draw[ar] (idx) -- node[pos=0.6,above left,font=\tiny,inner sep=1pt]{default} (srch);
+\draw[aro] (idx) -- node[pos=0.6,above right,font=\tiny,inner sep=1pt]{opt-in} (geo);
+\draw[ar] (srch) -- (ned); \draw[ar] (ned) -- (ev);
+\draw[ar] (ned.west) -- ++(-4mm,0) |- (call.west);
+\draw[ard] (ev) -- node[midway,right,font=\tiny,inner sep=1pt]{reported, not fused} (call);
+\draw[aro] (geo) -- (cnt); \draw[aro] (cnt) -- (bx); \draw[aro] (bx) -- (sg);
+\draw[aro] (geo.east) -- ++(8mm,0) |- (sg.east);
+\draw[ard] (bx.east) -- ++(4mm,0) |- (deg.east);
+\draw[ard] (bx.east) -- ++(4mm,0) |- (pb.east);
+\draw[aro] (bx.west) -- ++(-7mm,0) |- (s8.east);
+\draw[aro] (sg.east) -- ++(12mm,0) |- (evidence.east);
+\end{tikzpicture}
+\caption{Algorithm flow. \textbf{Solid, bold} is the shipped default route; \textbf{dashed} is
+opt-in and not promoted; \textbf{dotted} is evidence reported alongside the ranking and never fused
+into it. The V/motif route recomputes conditional CDR3 evidence rather than multiplying the plotted
+fixed-radius score. Experimental TCRdist routes terminate in candidate/evidence tables; their winning-label
+integration remains open. S8 is a separate cohort ordering, not a top-1 call or probability. Expanded topology source: \code{figures/algorithm\_flow.dot}.}
+\label{fig:flow}
+\end{figure}
+
+\section{Map to the implementation}
+\begin{center}\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Stage & Module & Entry point\\
+\midrule
+normalise / validate & \code{io.columns}, \code{api} & \code{normalize\_query}, \code{\_prepare}\\
+index + search & \code{match.engine} & \code{VdjdbIndex.build}, \code{.annotate}\\
+scope parsing & \code{match.scope} & \code{parse\_scope}, \code{search\_params}\\
+substitution matrix & \code{match.scoring} & \code{load\_vdjam}\\
+positional weights & \code{match.regions} & \code{significance\_weights}, \code{position\_weights}\\
+NED-v1 reduction & \code{aggregate.candidates} & \code{candidates}\\
+enrichment & \code{evalue.single}, \code{seqtree.evalue} & \code{evalue\_result}\\
+first-hit (adaptive) & \code{evalue.first\_hit} & \code{scan}, \code{pvalue}\\
+paired evidence & \code{evalue.paired}, \code{api} & \code{paired\_candidates}\\
+TCRdist geometry & \code{match.tcrdist} & \code{distance\_matrix}, \code{total\_distance\_count\_batch}\\
+rank evidence & \code{evalue.local\_rank} & \code{local\_rank\_evidence}, \code{nearest\_conditioned\_rank}\\
+S8 cohort order & \code{aggregate.paired\_order} & \code{paired\_evidence\_order}\\
+V rules, motifs & \code{evalue.epitope\_rules} & \code{reference\_epitope\_rules}\\
+\bottomrule
+\end{tabular}
 \end{center}
-\textbf{Receptors, targets and populations.}
-The query $q$ is a TRA, TRB or linked TRA--TRB receptor. Target $X$ includes
-peptide and MHC restriction. Its eligible reference set has size $N$;
-the declared background has size $M$. A junction includes both conserved anchors.
-Full-junction identity exclusion and metadata eligibility precede every count.
-References/real controls use distinct junction/V keys; generated controls retain draws.
-Those different sampling units do not establish a common null distribution.
 
-\textbf{One additive distance.}
-For residues $a,b$, let $s(a,b)$ be BLOSUM62 and set
-$c(a,a)=0$, $c(a,b)=\max(0,\min(4,4-s(a,b)))$ for $a\ne b$.
-Let $h$ be the junction-length difference, $L$ the longer length,
-and $A$ an allowed alignment with one central block of $h$ gaps.
-The TCRdist-like distance is
+\part*{II. The shipped default}
+\addcontentsline{toc}{part}{II. The shipped default}
+
+\section{Receptors, targets and populations}
+The query $q$ is a TRA, TRB or linked TRA--TRB receptor. Target $X$ includes peptide and MHC
+restriction. Its eligible reference set has size $N$; the declared background has size $M$. A
+junction includes both conserved anchors. Reference curation precedes every count. Full-junction identity exclusion is benchmark-only;
+ordinary annotation retains exact evidence and conflicting labels. The benchmark target gate
+requires at least 30 valid source records before puncturing and is not an annotation filter. References and real controls use distinct junction/V keys; generated controls
+retain draws. Those different sampling units do not establish a common null distribution.
+
+\section{Search and the NED-v1 density}
+Let $\theta=(s_{\max},i_{\max},d_{\max},t_{\max})$ be the edit budget (default $(1,0,0,1)$) and
+$B_\theta(q)=\{x:\mathrm{edit}(q,x)\preceq\theta\}$ the ball it defines. For each reference
+neighbour $r\in B_\theta(q)$ the engine returns an alignment score $s(q,r)$ under the bundled VDJAM
+substitution matrix (integer scale $100$). Let $n_c(s)$ be the number of \emph{control} junctions
+within alignment score $s$ of $q$ --- the cumulative control count at that score, obtained from the
+same batched search. With $w_V(r)\in\{1\}\cup[0,0.25]$ the soft V-gene weight (Sec.~\ref{sec:par}),
+the default per-target evidence is
 \[
-d(q,r)=d_V(q,r)+\min_A\left\{3\sum_{(i,j)\in A}
-w_{L,\max(i,j)}c(q_i,r_j)+12h\right\}.
+\boxed{\;S_{\mathrm{NED}}(q,X)=\sum_{r\in B_\theta(q)\cap X}
+\frac{w_V(r)\,e^{-s(q,r)/\lambda}}{n_c(s(q,r))+1},\qquad \lambda=400.\;}
 \]
-Here $d_V$ sums aligned V-template CDR1/CDR2/CDR2.5 distances, each with weight one;
-$i,j$ are zero-based positions in the full junctions. TCRdist3 uses unit interior
-weights, trimming three N-terminal and two C-terminal residues. The symmetric
-comparison trims three at both ends. Alternatively the shipped empirical profile
-uses $u_{L,k}=1-\max\{p_V(k),p_J(L-1-k)\}$ and
-$w_{L,k}=u_{L,k}/(L^{-1}\sum_t u_{L,t})$. The profiles $p_V,p_J$ are measured
-same-epitope retention probabilities indexed from each end, not exact NDN boundaries.
-Native weights have 0.01 resolution/minimum; they weight substitutions.
+The sum runs over distinct voting keys (junction, V, J), so publication multiplicity never
+multiplies a vote; record, clonotype, study and cell counts are reported separately.
+Reading it: the numerator is similarity, decaying exponentially in alignment cost; the denominator
+is how crowded the background is at that same distance, so a neighbour reached only in a region
+where the background is also dense is discounted. The $+1$ is a pseudocount making the statistic
+finite for a private neighbour, and it is what makes an exact match
+\emph{counted rather than automatically accepted}.
 
-The term $12h$ is a \emph{linear} gap penalty, not an affine opening/extension
-scheme or Smith--Waterman alignment. An affine alternative would be
-$g(0)=0$, $g(h)=g_{\rm open}+(h-1)g_{\rm extend}$ for $h>0$; it is a different model.
-For linked receptors sum the two chain distances to the \emph{same} reference pair.
-Do not infer a joint null from independent marginal control chains.
+Implementation: \code{aggregate.candidates.candidates}. Its \code{background\_mass=True} variant
+replaces $w_Ve^{-s/\lambda}$ by one vote per distinct junction and rescales by $M/N$; the
+historical variant of \code{match.unified} instead divides by $\max\{N\widehat F^{\rm edit}_q(H),0.01\}$.
+All three exist; \textbf{the shipped default is the boxed form above}.
 
-\textbf{Historical score and the broad-kernel experiment.}
+\section{Control-calibrated enrichment}
+Let $n_D$ be the number of distinct reference neighbours and $n_C$ the number of distinct control
+neighbours in the same ball. Under an exchangeable background the expected number of reference
+neighbours is $E=(N/M)\,n_C$ and
+\[
+p_{\mathrm{enrich}}=\Pr\{\mathrm{Poisson}(E)\ge n_D\}.
+\]
+The Poisson/Chen--Stein justification, the punctured (self-excluding) null and the choice of $M$ are
+derived in the companion \texttt{seqtree} appendix. The quantity is significant only when a receptor
+has \emph{more} labelled neighbours than the generative background predicts --- the signature of
+antigen-driven convergence rather than of a merely common sequence. It is reported alongside the
+ranking and never multiplied into it.
+
+\textbf{First-hit (adaptive) scope.} Rather than fix the radius, \code{evalue.first\_hit} widens to
+each query's \emph{nearest} reference hit, up to five total edits with at most two insertions and
+two deletions, and evaluates $E$ at that first-hit radius $r^\ast$: $E=(N/M)n_C(r^\ast)$,
+$p=\Pr\{\mathrm{Poisson}(E)\ge n_D(r^\ast)\}$. Because the background count grows faster with radius
+than the target count (measured in Sec.~\ref{sec:accobs}), the calibration adapts per query with no
+hand-tuned scope.
+
+\textbf{Linked pairs.} A paired candidate requires both chains to match the \emph{same} reference
+complex. Under the explicitly assumed independent-chain background law, the joint
+null factorises, $E_{\alpha\beta}=N\pi_0^\alpha\pi_0^\beta$, while antigen-driven selection makes
+the two chains dependent \emph{conditional on an epitope} --- which is exactly the excess the joint
+test detects. Exact-pair puncturing removes only the exact/exact corner. The finite-control bound
+uses four simultaneous one-sided Clopper--Pearson category bounds with total failure budget
+$\delta=10^{-6}$ (\code{evalue.paired.\_joint\_punctured\_results}); $\delta$ is added to the
+reported tail, so the result is a bound, not an exact tail. Deduplicated controls do not establish
+the IID assumption the bound conditions on.
+
+\textbf{Paired API versus paired benchmark geometry.} The public \code{paired\_candidates}
+API searches each chain with its own bounded-edit scope, intersects hits on the same complex and
+pMHC, and ranks distinct junction pairs by
+$\sum_{(r_\alpha,r_\beta)}\exp[-(s_\alpha+s_\beta)/400]$.
+It does not use the summed TCRdist radius below, nor the single-chain control denominator in that
+paired similarity sum. Its independent-chain calibration concerns expected counts of common
+reference complexes; it does not replace the common-complex support requirement with two unrelated
+chain hits. The CLI geometry experiment instead requires $d_\alpha+d_\beta\le D$ to one linked
+reference pair. Statements about radius-90 coverage in this appendix concern that experiment.
+
+\part*{III. Distance-local rank evidence (opt-in)}
+\addcontentsline{toc}{part}{III. Distance-local rank evidence}
+
+\section{One additive distance}
+For residues $a,b$, let $s(a,b)$ be BLOSUM62 and set $c(a,a)=0$,
+$c(a,b)=\max(0,\min(4,4-s(a,b)))$ for $a\ne b$. Let $h$ be the junction-length difference, $L$ the
+longer length, and $A$ an allowed alignment with one central block of $h$ gaps. The TCRdist-like
+distance is
+\[
+d(q,r)=d_V(q,r)+\min_A\Big\{3\sum_{(i,j)\in A}w_{L,\max(i,j)}\,c(q_i,r_j)+12h\Big\}.
+\]
+Here $d_V$ sums aligned V-template CDR1/CDR2/CDR2.5 distances, each with weight one; $i,j$ are
+zero-based positions in the full junctions. TCRdist3 uses unit interior weights, trimming three
+N-terminal and two C-terminal residues. The symmetric comparison trims three at both ends.
+Alternatively the shipped empirical profile uses $u_{L,k}=1-\max\{p_V(k),p_J(L-1-k)\}$ and
+$w_{L,k}=u_{L,k}/(L^{-1}\sum_t u_{L,t})$. The profiles $p_V,p_J$ are measured same-epitope retention
+probabilities indexed from each end, not exact NDN boundaries. Native weights have $0.01$
+resolution/minimum; they weight substitutions.
+
+The term $12h$ is a \emph{linear} gap penalty, not an affine opening/extension scheme or a
+Smith--Waterman alignment. An affine alternative would be $g(0)=0$,
+$g(h)=g_{\rm open}+(h-1)g_{\rm extend}$ for $h>0$; it is a different model. For linked receptors sum
+the two chain distances to the \emph{same} reference pair. Do not infer a joint null from
+independent marginal control chains.
+
+\section{Historical score and the broad-kernel experiment}
 Original vdjmatch sums, over nonexact equal-length neighbours within five substitutions,
 \[
-S_{\rm old}=\sum_r
-\frac{a(q,r)e^{-P(q,r)/400}}
-{\max\{N\widehat F_q^{\rm edit}(H(q,r)),0.01\}}.
+S_{\rm old}=\sum_r\frac{a(q,r)e^{-P(q,r)/400}}{\max\{N\widehat F_q^{\rm edit}(H(q,r)),0.01\}}.
 \]
-Here $a$ is the historical V factor, $P$ the positional BLOSUM Gram penalty,
-$H$ the substitution count, and $\widehat F_q^{\rm edit}$ the control edit-ball
-fraction. Sparse targets additionally use the original marginal V/J/length
-log-frequency ratios; historical paired output uses cohort rank fusion.
-These contracts remain reproducible and are distinct from the model below.
+Here $a$ is the historical V factor, $P$ the positional BLOSUM Gram penalty, $H$ the substitution
+count, and $\widehat F_q^{\rm edit}$ the control edit-ball fraction. Sparse targets additionally use
+the original marginal V/J/length log-frequency ratios; historical paired output uses cohort rank
+fusion. These contracts remain reproducible and are distinct from the model below.
 
-The preceding experimental score was
-$S_{\rm linear}=(W_X/N)/[(W_B+1/2)/(M+1)]$, where
-$W_X=\sum_r K_D(d(q,r))$, $W_B=\sum_b K_D(d(q,b))$ and
-$K_D(t)=\max(0,1-t/D)$ at fixed radius $D$ (not diameter).
-It compares broad average proximity. A very close match may still be diluted.
-The new construction restores distance-local normalization; neither experiment
-is an accepted replacement default or an established biological TP probability.
+\textbf{Benchmark baseline scope.} In the AP comparisons below, \code{original\_score} means
+the \code{historical-density} CLI output, not NED-v1 from \code{aggregate.candidates} or the
+paired API exponential sum. For fewer than 500 unique target junctions its unpaired score is
+$\log(S_{\rm old}+10^{-6})$ plus the germline log-ratio; otherwise it is $S_{\rm old}$.
+Its paired score sums average cohort ranks of alpha density, beta density and the combined
+germline prior, using zero-based ranks. This distinction also applies to the original component
+inputs of S8. Historical benchmark AP values therefore do not measure the default match API.
 
-\textbf{Background identity matters.}
-Generative draws measure recombination accessibility; real controls include
-biological selection; VDJdb excluding $X$ reflects other annotated specificities
-and ascertainment. Keep these questions separate. Point probability
-$P_{\rm gen}(q)$ is not neighbourhood probability. Preserve full junctions for
-identity/Pgen even if terminal matching weights are zero.
-\newpage
-\begin{center}{\large A normalized reciprocal-rank score}\end{center}
-\textbf{Rank and ties.}
-For reference $r_i$, let $R_i$ be its distance rank among $M$ controls plus itself.
-Let $H_k=\sum_{j=1}^k1/j$ and $H_0=0$. Define
+The preceding experimental score was $S_{\rm linear}=(W_X/N)/[(W_B+1/2)/(M+1)]$, where
+$W_X=\sum_rK_D(d(q,r))$, $W_B=\sum_bK_D(d(q,b))$ and $K_D(t)=\max(0,1-t/D)$ at fixed radius $D$
+(not diameter). It compares broad average proximity. A very close match may still be diluted.
+The construction below restores distance-local normalisation; neither experiment is an accepted
+replacement default or an established biological TP probability.
+
+\textbf{Background identity matters.} Generative draws measure recombination accessibility; real
+controls include biological selection; VDJdb excluding $X$ reflects other annotated specificities
+and ascertainment. Keep these questions separate. Point probability $P_{\rm gen}(q)$ is not
+neighbourhood probability. Preserve full junctions for identity/Pgen even if terminal matching
+weights are zero.
+
+\section{A normalised reciprocal-rank score}
+\textbf{Rank and ties.} For reference $r_i$, let $R_i$ be its distance rank among the $M$ controls
+plus itself, so $R_i\in\{1,\dots,M+1\}$. Let $H_k=\sum_{j=1}^k1/j$ and $H_0=0$. Define
 \[
-\boxed{B_X(q)=\frac1N\sum_{i=1}^N h_M(R_i),\qquad
-h_M(r)=\frac{M+1}{H_{M+1}r}.}
+\boxed{B_X(q)=\frac1N\sum_{i=1}^Nh_M(R_i),\qquad h_M(r)=\frac{M+1}{H_{M+1}\,r}.}
 \]
-This is inverse local background mass with its finite harmonic normalization,
-not an exponential kernel with a fitted scale. In the CLI both populations use
-integer bins $\lceil d_{\rm native}/200\rceil$. For $l$ controls in lower bins
-and $t$ controls in the same bin, average over the possible tied ranks:
+This is inverse local background mass with its finite harmonic normalisation, not an exponential
+kernel with a fitted scale. In the CLI both populations use integer bins
+$\lceil d_{\rm native}/200\rceil$. For $l$ controls in lower bins and $t$ controls in the same bin,
+average over the possible tied ranks:
 \[
-\overline h_{l,t}=\frac{M+1}{H_{M+1}}
-\frac{H_{l+t+1}-H_l}{t+1}.
+\bar h_{l,t}=\frac{M+1}{H_{M+1}}\cdot\frac{H_{l+t+1}-H_l}{t+1}.
 \]
 Do not break ties using target labels or input order.
 
-\textbf{Censoring far evidence.}
-The fixed radius $D$ determines computation, not a chosen target-dependent gate.
-Let $n_D,m_D$ be reference/control counts inside it.
-Far references contribute their conditional null mean
+\textbf{Censoring far evidence.} The fixed radius $D$ determines computation, not a chosen
+target-dependent gate. Let $n_D,m_D$ be the reference/control counts inside it. Far references
+contribute their conditional null mean
 \[
-\overline h_{\rm far}=\frac{M+1}{H_{M+1}}
-\frac{H_{M+1}-H_{m_D}}{M-m_D+1},\qquad
-B_X=\frac{\sum_{i:d_i\le D}\overline h_i+(N-n_D)\overline h_{\rm far}}N.
+\bar h_{\rm far}=\frac{M+1}{H_{M+1}}\cdot\frac{H_{M+1}-H_{m_D}}{M-m_D+1},\qquad
+B_X=\frac{\sum_{i:d_i\le D}\bar h_i+(N-n_D)\bar h_{\rm far}}N .
 \]
-No far ordering enters this statistic. No near evidence on either side gives
-$B_X=1$. A singleton target is valid. Empty populations are explicitly unavailable;
-the model posterior then remains its prior. No clustering minimum, K cap or
-20-residue switch is required.
+No far ordering enters this statistic. No near evidence on either side gives $B_X=1$. A singleton
+target is valid. Empty populations are explicitly unavailable; the model posterior then remains its
+prior. No clustering minimum, $K$ cap or 20-residue switch is required.
 
-\textbf{Null bound and Bayesian derivation.}
-Under $H_0$, distance labels are exchangeable conditional on the pooled distances
-and fixed population sizes. A randomized reference rank is uniform on
-$1,\ldots,M+1$, so $\mathbb E_0 h_M(R_i)=1$ and $\mathbb E_0B_X=1$.
-Shared controls require no independence between these contributions.
-Tie averaging and genuinely censored far ranks preserve this equality by
-conditional expectation. Consequently
-\[
-\boxed{p_{\rm bound}=\min(1,B_X^{-1}),\qquad
-\Pr_0(p_{\rm bound}\le\alpha)\le\alpha\quad(0<\alpha<1).}
-\]
-This Markov bound is conservative, not the exact tail distribution of $B_X$.
-A separate nearest-reference test has
-$p_{\rm nearest}=\Pr\{K\ge1\}$ for
-$K\sim\mathrm{Hypergeom}(N+M,N,m_*+1)$, where $m_*$ counts controls at or below
-the nearest reference bin. Upper-bin ties are conservative; censored no-hits
-receive one. It is not combined with the full-score bound.
+\begin{remark}[numerical form]
+$H_{M+1}=\psi(M+2)+\gamma$ and $\bar h$ over an inclusive integer interval $[\ell,u]$ is
+$(\psi(u+1)-\psi(\ell))/(u-\ell+1)$; \code{local\_rank.\_harmonic\_interval} evaluates widths
+$\le8$ by exact summation instead, because the digamma difference cancels catastrophically for
+large, closely spaced ranks. The explicit assignment $B_X\!=\!1$ when $n_D=m_D=0$ is algebraically
+redundant --- the general formula already yields $1$ --- and is a float-safety guard.
+\end{remark}
 
-For the \emph{specified rank-tilted alternative} $H_1$, define
-$dP_1=B_X\,dP_0$. Its mass is one, so $B_X$ is its Bayes factor.
-With declared prior $\pi=\Pr(H_1)$,
+\section{Null bound and Bayesian derivation}
+\begin{proposition}[expectation-one null]\label{prop:null}
+Under $H_0$ --- distance labels exchangeable conditional on the pooled distances and fixed
+population sizes --- a randomised reference rank is uniform on $\{1,\dots,M+1\}$, so
+$\E_0h_M(R_i)=\frac{M+1}{H_{M+1}}\cdot\frac{1}{M+1}\sum_{r=1}^{M+1}\frac1r=1$ and hence
+$\E_0B_X=1$. Shared controls require no independence between contributions; tie averaging and
+genuinely censored far ranks preserve the equality by conditional expectation.
+Specifically, condition on the target/control counts in every fixed distance bin. A labelled target
+in a bin with $l$ earlier controls and $t$ tied controls has uniform relative rank on
+$[l+1,l+t+1]$ after a label-blind tie permutation. Treat the censored suffix as one final bin;
+its ranks range from $m_D+1$ to $M+1$. The implemented statistic is the conditional expectation
+of the full reciprocal-rank mean given these bin counts, so its unconditional null mean remains one.
+No selection on $n_D>0$ is made in this argument. Consequently
 \[
-\boxed{\Pr(H_1\mid\text{rank evidence})=
-\frac{\pi B_X}{1-\pi+\pi B_X}.}
+\boxed{p_{\rm bound}=\min(1,B_X^{-1}),\qquad \Pr\nolimits_0(p_{\rm bound}\le\alpha)\le\alpha\quad(0<\alpha<1).}
 \]
-The CLI default $\pi=1/2$ means equal model odds, not biological specificity
-prevalence. This alternative is explicitly chosen; its normalization is not
-proof that it describes receptor recognition. Deduplication, generated-draw
-multiplicity and ascertainment may violate exchangeability. Outputs therefore
-remain conditional model quantities until sampling and biological calibration
-are validated. P-values are not probability FP, and model posteriors are not
-automatically probability TP. Target/route selection requires its own calibration.
-General expectation-one evidence: Vovk and Wang, Ann.
-Statist.
-49:1736--1754 (2021), \href{https://doi.org/10.1214/20-AOS2020}{doi:10.1214/20-AOS2020}.
-Original scoring remains default; M3 stays deferred.
-\section*{Reference-supported V rules and exhaustive CDR3 rank}
-This opt-in ranking diagnostic keeps germline usage separate from sequence
-geometry.
-Let $g$ be the query V gene, or its linked alpha/beta V-gene tuple.
-Let $N,M$ be the target and other-peptide population sizes, and $n_g,m_g$
-their counts in category $g$, after benchmark-only full-junction puncturing.
-Populations retain distinct full-junction/resolved-V-allele keys.
-Let $K$ be the number of observed population V categories plus one unseen category.
-Define
+\end{proposition}
+This Markov bound is conservative, not the exact tail distribution of $B_X$. A separate
+nearest-reference test has $p_{\rm nearest}=\Pr\{K\ge1\}$ for
+$K\sim\mathrm{Hypergeom}(N+M,N,m_*+1)$, where $m_*$ counts controls at or below the nearest
+reference bin. Upper-bin ties are conservative; censored no-hits receive one. It is not combined
+with the full-score bound.
+
+For the \emph{specified rank-tilted alternative} $H_1$, define $dP_1=B_X\,dP_0$. Its mass is one by
+Proposition~\ref{prop:null}, so $B_X$ is its Bayes factor. With declared prior $\pi=\Pr(H_1)$,
 \[
-p_g=\frac{n_g+m_g+1/2}{N+M+K/2},\qquad
-L_g=\begin{cases}
-\displaystyle\frac{(n_g+p_g)/(N+1)}{(m_g+p_g)/(M+1)},&n_gm_g>0,\\
-1,&n_gm_g=0.
+\boxed{\Pr(H_1\mid\text{rank evidence})=\frac{\pi B_X}{1-\pi+\pi B_X}.}
+\]
+The CLI default $\pi=1/2$ means equal model odds, not biological specificity prevalence. This
+alternative is explicitly chosen; its normalisation is not proof that it describes receptor
+recognition. Deduplication, generated-draw multiplicity and ascertainment may violate
+exchangeability. Outputs therefore remain conditional model quantities until sampling and
+biological calibration are validated. $P$-values are not probability FP, and model posteriors are
+not automatically probability TP. Target/route selection requires its own calibration. General
+expectation-one evidence: Vovk and Wang, Ann.\ Statist.\ 49:1736--1754 (2021),
+\href{https://doi.org/10.1214/20-AOS2020}{doi:10.1214/20-AOS2020}.
+
+\section{The unsupported-query degeneracy}\label{sec:degen}
+The censoring rule is unbiased (Proposition~\ref{prop:null}) but it is not \emph{informative}, and
+that distinction decides the statistic's behaviour on sparse targets.
+
+\begin{proposition}[degeneracy at zero support]\label{prop:degen}
+If $n_D=0$ --- no reference of target $X$ lies within the radius of $q$ --- then
+\[
+B_X(q)=\frac{(M+1)\,(H_{M+1}-H_{m_D})}{(M-m_D+1)\,H_{M+1}},
+\]
+a strictly decreasing function of the control count $m_D$ \emph{alone}. At fixed $M,m_D$ it does not depend on $N$ or any further target-reference distance.
+The event $n_D=0$ itself is observed target evidence; a target-specific complement may also change
+$M$ and $m_D$. Thus this is loss of within-suffix target ordering, not absence of all target information.
+\end{proposition}
+\begin{proof}
+With $n_D=0$ the near sum is empty and all $N$ references take $\bar h_{\rm far}$, so
+$B_X=\bar h_{\rm far}$, which is the displayed expression. Monotonicity in $m_D$ follows because
+$(H_{M+1}-H_{m})/(M-m+1)$ is the mean of $1/r$ over $[m+1,M+1]$, a mean over a shrinking
+upper interval.
+\end{proof}
+
+\begin{remark}[both propositions checked numerically]
+Against the shipped \code{local\_rank\_evidence} itself, not a reimplementation.
+Proposition~\ref{prop:null}: over $4{,}000$ exchangeable draws at $N=40$, $M=5{,}000$ and $30$ shared
+distance bins, $\widehat{\E_0 B_X}=1.00385\pm0.00828$ (s.e.), i.e.\ $0.47$ standard errors from one.
+Proposition~\ref{prop:degen}: with $n_D=0$ the code reproduces the closed form to a relative
+$10^{-12}$ over five values of $m_D$ spanning $0$ to $M-1$, and is bit-identical across four $N$
+at fixed $m_D$: the claimed independence of $N$ is exact, not approximate.
+\end{remark}
+
+\begin{remark}[S8: historical three-block diagnostic, superseded by a corrected trial]\label{rem:threeblock}
+A proposed paired route orders three dispositions: a common linked reference inside the radius;
+no common reference but at least one supported chain; neither. The saved diagnostic assigns
+$77.6\%$ of linked-pair queries and $67.3\%$ of priority queries to the middle block; its reported
+$97.4\%$ per-chain-evidence statistic has its own historical denominator.
+The implementation sums the two single-chain ranks computed over the \emph{whole task}, then
+ranks that sum within the middle block. It does not sum within-block chain ranks.
+Its \code{rank01} uses two stable \code{argsort} calls, assigning different ranks to equal scores
+according to input order. Consequently the saved changes are historical output, not verified gains:
+mean/median AP $0.8205\to0.8285$/$0.8410\to0.8476$ over 625 tasks;
+mean AP $0.8201\to0.8297$ over 70 priority tasks, $0.8175\to0.8678$ over 99 paired tasks,
+and $0.8261\to0.8738$ over 14 priority paired tasks (76 paired wins, 23 losses).
+The recorded one-chain increment is $0.0241$, versus $0.0504$ for the two-chain diagnostic.
+These historical figures are not results of the corrected tie-preserving implementation.
+Its fresh curated-reference trial is reported in Section~\ref{sec:s8} and supersedes them for evaluating S8.
+\end{remark}
+
+\section{S8: implemented cohort-relative paired ordering}\label{sec:s8}
+The opt-in \code{paired-evidence-order} CLI implements the corrected reduction in
+\code{aggregate.paired\_order.paired\_evidence\_order}. It performs no sequence search and does
+not change the default scorer. The intended input uses common-pair and marginal support counts
+from the same fixed-radius geometry ($D=90$), the fixed-radius paired rank score, and original
+paired/alpha/beta scores. The reduction validates their shape and values; it does not establish
+the provenance or radius of an externally supplied table.
+
+Let $g$ identify the complete cohort, species and full pMHC (peptide, both MHC fields and MHC
+class). Each query identifier is unique within $g$; absent MHC fields remain null categories.
+Rows carry explicit identifiers: pairing and cross-file linkage must be established by those
+identities, never by row position. For query $q$, let $a_q$ indicate that both query chains are
+present and valid, and let $c_{qP},c_{q\alpha},c_{q\beta}$ be nonnegative integer neighbour counts.
+Unavailable counts are null, treated as zero only for routing and retained as null in output.
+Define its block
+\[
+b_q=\begin{cases}
+1,&a_q\text{ and }c_{qP}>0,\\
+2,&a_q\text{ and }c_{qP}=0\text{ and }(c_{q\alpha}>0\text{ or }c_{q\beta}>0),\\
+3,&\text{otherwise}.
 \end{cases}
 \]
-Missing category support on either side contributes no V evidence.
-For supported categories, calculate the multi-reference statistic $B_X$ above
-using only same-category target/control CDR3 distances and populations $n_g,m_g$.
-Otherwise use CDR3 distances across all categories with populations $N,M$.
-Both routes have zero V-loop cost and trim three full-junction residues at each end.
-Linked distances compare both query chains with the same reference pair.
-No reference is censored: distances are multiples of three and are bounded by
-twelve times the sum of maximum full-junction lengths over the chain axes.
-The final distance-bin counts must equal the punctured population counts.
-Write this exhaustive rank statistic as $B_g$; the ranking score is $S_g=L_gB_g$.
+Block 1 counts a \emph{common linked reference pair}, not two independent chain hits.
+Missing/invalid pairs always enter block 3, with status \code{paired\_evidence\_unavailable};
+valid pairs without support have status \code{no\_reference\_neighbour}.
 
-For a motif family, let $T_q$ contain distinct query tokens; linked queries use
-token tuples from their two chains.
-Let $a_t,b_t$ count same-category target/control receptors containing token $t$,
-with paired presence required within the same linked receptor.
-For a supported category and nonempty $T_q$, define
+For a finite multiset $A$ of scores define the ascending average rank
 \[
-e_q=\frac{1}{|T_q|}\sum_{t\in T_q}
-\max\left(0,\frac{a_t}{n_g}-\frac{b_t}{m_g}\right),\qquad
-S_{g,T}=S_g(1+e_q),\quad 0\le e_q\le1.
+\mathcal R_A(x)=\#\{y\in A:y<x\}+\frac{\#\{y\in A:y=x\}+1}{2}.
 \]
-Otherwise set $e_q=0$.
-Exact three-residue, IMGT-class three-residue, internal-wildcard four-residue
-and class-wildcard families are separate predefined diagnostics.
-Reference populations define enrichment; query tokens only look up those rules.
-The bounded motif factor is correlated sequence evidence, not an independent
-likelihood.
-V is counted once, and no J or length marginal likelihood is multiplied in.
-Neither $S_g$ nor $S_{g,T}$ inherits the rank model's null bound or posterior.
-Biological call calibration and selected-label error remain separate tasks.
+Thus larger scores have larger ranks and ties share exactly one rank. Write $P_q$ for the
+fixed-radius paired rank score, $F_q$ for original paired fallback evidence, and
+$A_q,B_q$ for original alpha/beta evidence. Null scores behave as $-\infty$, tying below all
+finite scores; numeric infinities and NaNs are rejected. Common-pair support requires finite
+$P_q$. An observed chain with no hit remains available even when its score is null.
+Within each $(g,b)$ population form
+\[
+T_q=\begin{cases}
+P_q,&b_q=1,\\
+\mathcal R_{\{A_u:u\in(g,2)\}}(A_q)+
+\mathcal R_{\{B_u:u\in(g,2)\}}(B_q),&b_q=2,\\
+F_q,&b_q=3.
+\end{cases}
+\]
+With $n_{gb}$ its block size and $r_q=\mathcal R_{\{T_u:u\in(g,b)\}}(T_q)$, output
+\[
+S_q=3-b_q+\frac{r_q}{n_{gb_q}+1}.
+\]
+Since $1\le r_q\le n_{gb_q}$, the score lies strictly in $(2,3)$, $(1,2)$ or $(0,1)$ for
+blocks 1, 2 or 3. This proves strict block separation without arbitrary large offsets.
+Equal component scores and equal rank sums remain tied; permuting input rows only permutes outputs.
+The implementation preserves input columns and row order, normalises count columns to nullable
+UInt32, and appends the block, status, within-block rank and evidence score.
+
+Ranks use the \emph{complete} declared population, not independently processed chunks. Changing
+cohort membership can change the middle-block order. These are empirical cohort/full-pMHC-relative
+scores, not comparable across populations; they are not a winning-label confidence, P-value,
+E-value, posterior or biological specificity probability. The algorithm consumes no outcome labels.
+A constant number of grouped sorts gives $O(\sum_g n_g\log n_g)$ time and $O(Q)$ extra space,
+where $n_g$ is the number of rows in population $g$ and $Q=\sum_g n_g$; no distance matrix is built.
+\textbf{Fresh curated-reference result (2026-10-11).} Rebuilding all 20 raw views took
+$1208.494641$ seconds and $4.273143808$ GB sampled peak process-tree RSS
+($4{,}273{,}143{,}808$ bytes). The 615,224 raw appearances yielded 620 eligible tasks and
+485,970 evaluated appearances. All 19,677,866 checked baseline cells were exact; all 522
+single-chain tasks (412,529 appearances) retained their original scores.
+Across 620 tasks, mean AP rose from $0.821989$ for the historical-density baseline to $0.829362$
+for S8; median AP rose from $0.843176$ to $0.851827$. Over 98 paired tasks (73,441 appearances),
+S8 mean/median AP was $0.865949/0.890249$, versus $0.819304/0.860469$ for the historical baseline
+and $0.825800/0.857693$ for conditional rank. S8 won/lost 79/19 paired tasks against the
+historical baseline and 65/33 against conditional rank, with no ties in either comparison.
+The priority summary, treating equivalent HLA spellings as aliases, includes all eight requested
+targets and 14 paired tasks (35,190 appearances). Mean/median AP is $0.868660/0.875889$ for the
+historical baseline, $0.895001/0.927630$ for conditional rank and $0.872779/0.881820$ for S8.
+Thus S8 improves the historical baseline but does not retain the conditional-rank priority gain.
+These aggregate gains do not establish nonregression: in the full-reference peptide-level NLV
+paired task (20,034 appearances, 10,137 positive and 9,897 negative), AP fell from conditional
+rank's $0.729757$ to S8's $0.622556$ (historical baseline $0.609151$).
+S8 is therefore not promoted; the default annotation API and the prior conditional-rank route
+remain unchanged. The fresh result establishes the corrected algorithm's measured behaviour,
+not the historical prototype's claims or the complete manuscript-workflow resource gate.
+
+\begin{remark}[scope of the tested reformulations]\label{rem:exhausted}
+Three recorded reformulations did not establish an accepted improvement. Dropping the
+far-imputation term from the ranking is mathematically well motivated --- a synthetic sweep of the
+far background moves $B_X$ by $0.215$ while the near mass is invariant to $1.4\times10^{-14}$ ---
+yet it changes pooled average precision by $+0.0001$. Averaging over supported references instead of
+all of them is worse by $0.0316$ pooled. Tie-breaking is vacuous: $B_X$ already resolves to $1.00$
+distinct values per query at $N=30$. Routing remains a mechanism to test; input-order tie breaking in the saved routing scripts
+prevents interpreting their AP changes as validated improvements.
+\end{remark}
+
+\begin{remark}[what this costs]\label{rem:degencost}
+Within a one-versus-all task, every query with $n_D=0$ is therefore ranked purely by how crowded its
+\emph{background} neighbourhood is --- a background-crowding summary with no further ordering of the censored target distances. The damage scales with the fraction of such queries. Measured on the
+recorded all-task complement run, the median supported fraction is $0.817$ for single chains but
+only $0.173$ for linked pairs, because the paired route applies the same numeric radius to the
+\emph{sum} $d_\alpha+d_\beta$, which is a roughly twofold tighter per-chain constraint. The
+consequences are quantified in Sec.~\ref{sec:accobs}. This is a property of the censoring
+imputation, not a defect of the rank construction, and it is an open design question
+(Part~VIII), not a fixed parameter choice.
+\end{remark}
+
+\begin{remark}[the paired ball is right, and tightness is why]\label{rem:ball}
+Linked-pair support requires a \emph{common} reference pair inside the radius: $d_\alpha+d_\beta\le
+D$ to the same pair. The natural loosening --- asking only that each chain independently have some
+reference neighbour, a diagnostic relaxation, not the support rule of \code{paired\_candidates} ---
+provides little separation in this recorded comparison. At the same $D=90$, measured over the fourteen priority linked-pair tasks, the
+common-pair criterion covers $0.593$ of positives against $0.054$ of negatives (a $11.1\times$
+purity ratio) while the independent criterion covers $0.974$ against $0.954$ ($1.0\times$); over all
+ninety-nine linked-pair tasks, $32.8\times$ against $1.2\times$. The tightness of the summed
+constraint is therefore not an accident of implementation --- it supplies substantial discrimination in this diagnostic, and the low coverage it causes is better read as a shortage of linked
+reference pairs than as a radius that needs widening.
+\end{remark}
+
+\begin{remark}[the repair is the disposition, not the statistic]\label{rem:disposition}
+Two corrections are easily confused. Removing unsupported \emph{queries} from a comparison is not
+the same operation as removing censored \emph{references} from the statistic, and only the first is
+beneficial. Measured over the recorded all-task run: leaving $B_X$ unchanged and merely ranking
+$n_D=0$ queries below every supported query --- ordering them among themselves by the existing
+density --- raises mean average precision from $0.8179$ to $0.8460$ over all $99$ linked-pair tasks
+($69$ wins, $23$ losses, $7$ ties) and from $0.8272$ to $0.8776$ over the $14$ priority linked-pair
+tasks ($12$/$2$). Recomputing $B_X$ over supported references only, with the same block order,
+instead \emph{loses} $0.0316$ mean average precision pooled and $0.0694$ on priority single chains,
+because it discards censored far-reference mass that is genuinely informative once most references
+are far. The ablation attributes the gain to the block order, not to conditioning the statistic.
+Both are historical diagnostics, not promoted gains: their ordinal rank transforms also split
+score ties by input order and require tie-safe revalidation.
+\end{remark}
+
+\section{Nearest-conditioned rank}\label{sec:ncr}
+\code{local\_rank.nearest\_conditioned\_rank} refines exactly the $n_D=0$ branch. Let $k$ be the
+number of controls at or below the nearest reference distance. The nearest reference then has
+control rank exactly $k+1$; the remaining $N-1$ references have ranks in $[k+1,M+1]$, and the
+refinement assigns each the mean reciprocal rank over that interval:
+\[
+B_X^{\rm cond}=\frac{M+1}{N\,H_{M+1}}\left[\frac1{k+1}+(N-1)\cdot\frac{H_{M+1}-H_{k}}{M-k+1}\right].
+\]
+References with radius support are untouched. Counting all control ties at the nearest distance is
+conservative.
+
+\begin{remark}[nearest-rank null and output ownership]\label{rem:ncrobligation}
+Write $K$ for the number of controls before the first target in a label-blind random tie ordering.
+Conditional on $K=k$, the suffix is a uniform permutation of $N-1$ target labels and $M-k$
+control labels. Each remaining \emph{labelled} target therefore has uniform relative rank on
+$[k+1,M+1]$, although the ordered target ranks are dependent. This proves the displayed
+conditional mean; dependence does not invalidate linearity of expectation.
+With fixed pooled distances, the event of no target inside the fixed radius is measurable from
+$K$ and the pooled radius-prefix size. Combining the original supported branch with this
+conditional mean on the unsupported branch preserves null expectation one without ties.
+The implemented upper-tie count $k$ is at least $K$. Both reciprocal terms decrease in $k$,
+so the tied refinement has null expectation at most one and admits a conservative reciprocal
+Markov bound under the same exchangeability model. A subunit-mean tied statistic is not a
+normalised likelihood ratio without further normalisation.
+The CLI writes this score to \code{conditional\_rank\_bayes\_factor}; it leaves
+\code{rank\_bayes\_factor}, \code{p\_rank\_bound} and \code{posterior\_rank\_signal} attached to
+the original fixed-radius statistic. It does not publish a transferred bound or posterior for the
+refinement. The earlier review's objection based on dependence of ordered ranks was incorrect.
+\end{remark}
+
+\part*{IV. Reference-supported V rules and exhaustive CDR3 rank}
+\addcontentsline{toc}{part}{IV. Reference-supported V rules}
+
+This opt-in ranking diagnostic keeps germline usage separate from sequence geometry. Let $g$ be the
+query V gene, or its linked alpha/beta V-gene tuple. Let $N,M$ be the target and other-peptide
+population sizes, and $n_g,m_g$ their counts in category $g$, after benchmark-only full-junction
+puncturing. Populations retain distinct full-junction/resolved-V-allele keys. Let $K$ be the number
+of observed population V categories plus one unseen category. Define
+\[
+p_g=\frac{n_g+m_g+1/2}{N+M+K/2},\qquad
+L_g=\begin{cases}\dfrac{(n_g+p_g)/(N+1)}{(m_g+p_g)/(M+1)},&n_gm_g>0,\\[4pt] 1,&n_gm_g=0.\end{cases}
+\]
+Missing category support on either side contributes no V evidence. For supported categories,
+calculate the multi-reference statistic $B_X$ using only same-category target/control CDR3 distances
+and populations $n_g,m_g$; otherwise use CDR3 distances across all categories with populations
+$N,M$. Both routes have zero V-loop cost and trim three full-junction residues at each end. Linked
+distances compare both query chains with the same reference pair. No reference is censored:
+distances are multiples of three and are bounded by twelve times the sum of maximum full-junction
+lengths over the chain axes. The final distance-bin counts must equal the punctured population
+counts. Write this exhaustive rank statistic as $B_g$; the ranking score is $S_g=L_gB_g$.
+
+For a motif family, let $T_q$ contain distinct query tokens; linked queries use token tuples from
+their two chains. Let $a_t,b_t$ count same-category target/control receptors containing token $t$,
+with paired presence required within the same linked receptor. For a supported category and nonempty
+$T_q$,
+\[
+e_q=\frac1{|T_q|}\sum_{t\in T_q}\max\!\left(0,\frac{a_t}{n_g}-\frac{b_t}{m_g}\right),\qquad
+S_{g,T}=S_g(1+e_q),\quad 0\le e_q\le1;
+\]
+otherwise $e_q=0$. Exact three-residue, IMGT-class three-residue, internal-wildcard four-residue and
+class-wildcard four-residue families are separate predefined diagnostics. Reference populations
+define enrichment; query tokens only look up those rules. The bounded motif factor is correlated
+sequence evidence, not an independent likelihood. V is counted once, and no J or length marginal
+likelihood is multiplied in. Neither $S_g$ nor $S_{g,T}$ inherits the rank model's null bound or
+posterior. Biological call calibration and selected-label error remain separate tasks.
+
+\begin{remark}[prior-only categories]
+If $n_g=m_g=0$ the shared prior still yields $L_g\to(M+1)/(N+1)$ under unequal population sizes even
+though no germline rule was observed. That is a model-prior artefact, not evidence, and
+reference-defined activation must not credit it.
+\end{remark}
+
+\part*{V. Parameters and why they take these values}
+\addcontentsline{toc}{part}{V. Parameters}
+\label{sec:par}
+
+\begin{center}\small
+\begin{tabular}{@{}llp{86mm}@{}}
+\toprule
+Symbol / flag & Default & Role, admissible range and basis for the value\\
+\midrule
+$\theta$ \code{--scope} & $(1,0,0,1)$ &
+Edit budget. Fixed, not fitted. Distance-1 neighbours are the measured signal:noise optimum (macro
+purity $0.49,0.24,0.15,0.10,0.07$ at edits $1..5$). Any $\theta$ is admissible; cost grows sharply
+(Sec.~\ref{sec:perf}).\\
+$\lambda$ \code{score\_scale} & $400$ &
+Exponential temperature on the VDJAM alignment score, in matrix units ($\times100$). Inherited from
+the historical scorer, not re-fitted. Larger $\lambda$ flattens the ranking toward a plain
+neighbour count.\\
+matrix & VDJAM & Bundled TCR substitution table at integer scale $100$; \code{none} gives unit edit
+cost. On held-out-epitope retrieval no amino-acid alphabet clearly beats BLOSUM62 and a genetic-code
+null ties it; \emph{position} is the lever, not the alphabet.\\
+$w_V$ \code{soft\_v} & on, $0.25$ &
+Same V family $\to1$; different family $\to0.25\times$ germline CDR1+CDR2 similarity; unknown $\to1$
+(neutral). A V match is a measured ${\sim}7\times$ co-specificity prior, but continuous loop
+similarity does not recover it, so the cross-family weight is deliberately a small fixed discount
+rather than a fitted function.\\
+$+1$ pseudocount & fixed & Control denominator $n_c+1$: finite, and makes an exact
+hit counted rather than auto-accepted.\\
+$D$ \code{--radius} & $90$ &
+Radius of the opt-in geometry route, in ordinary TCRdist units (native $=200\times$). Determines
+computation, not a target-dependent gate. \textbf{Applied to $d_\alpha+d_\beta$ for linked pairs},
+so the same numeral is a tighter per-chain constraint there (Remark~\ref{rem:degencost}).\\
+bin width & $200$ native & Distance bins $\lceil d_{\rm native}/200\rceil$; both populations share
+the grid so ties are tied identically on both sides.\\
+$\pi$ & $1/2$ & Prior for the rank-tilted posterior: equal \emph{model} odds, explicitly not a
+biological prevalence.\\
+$\delta$ & $10^{-6}$ & Total failure budget across four simultaneous Clopper--Pearson category
+bounds in the punctured paired calibration; added to the reported tail.\\
+gap cost & $12$/residue & Linear, not affine; $3\times$ CDR3 and unit V-loop weights reproduce the
+TCRdist3 default geometry exactly.\\
+\code{--threads} & $1$ & Serial by default. The only parallel layer is the single native search
+batch; there is no worker pool around it.\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Every entry above is a \emph{fixed default}, not a data-derived or fitted quantity. The
+data-derived objects include the bundled VDJAM table, empirical same-epitope positional
+significance profiles, distinct OLGA-derived germline-retention profiles (via \texttt{mirpy}),
+and the V-template loops --- all
+versioned input artifacts, loaded, never re-fitted at run time.
+
+\section{Reconstruction, invariants and termination}
+\begin{enumerate}\setlength{\itemsep}{1pt}
+\item Preserve source records and reasons for exclusion; derive eligible search/voting keys.
+      Validate anchors, locus and pairing before constructing the index.
+\item Batch all distinct queries for each locus under the declared geometry; apply the same
+      geometry and bin cutoffs to reference and background. Restore every query identity after search.
+\item For each target form cumulative integer counts $n_j,m_j$ at increasing cutoffs $d_j$.
+      Require $0\le n_j\le N$, $0\le m_j\le M$ and monotonicity. Query puncturing, when requested,
+      modifies both counts and populations, using full-junction identity.
+\item Difference cumulative counts to obtain disjoint shells; multiply each target shell count
+      by its tie-averaged harmonic contribution. Add the far-shell contribution and divide by $N$.
+      For the optional nearest refinement update only the separate conditional-score column.
+\item Retain unavailable populations and no hits explicitly. Rank within the declared query/target
+      task, preserving exact score ties; report calibration columns with their owning statistic.
+\end{enumerate}
+Each record and finite search state is consumed a bounded number of times. The edit budget and
+finite trie bound traversal; the geometry route has finitely many reference pairs and admissible
+single-gap positions. These facts establish termination. Shells partition all $N$ references,
+including the far shell, proving equivalence between the batched reduction and the stated sum.
+This is algorithmic correctness conditional on the native geometry/search contract, not a theorem
+that distance identifies antigen recognition. Whole-population permutation tests of ties and query
+identity are required before any proposed cohort-rank route becomes an implementation.
+
+\textbf{Methodological sources.} Knuth, \emph{The Art of Computer Programming}, Volume 3,
+\emph{Sorting and Searching}, second edition (1998), is the reference for separating search cost
+from sorting/reduction cost; publication details are verified on
+\href{https://www-cs-faculty.stanford.edu/~knuth/taocp.html}{the author's volume catalogue}.
+Heng Li's \emph{Minimap2: versatile pairwise alignment for nucleotide sequences},
+\href{https://arxiv.org/html/1708.01492v3}{arXiv:1708.01492v3 (2017)},
+Sections 6.1.1 and 6.2.3, separates the chaining objective from bounded-search and Z-drop
+heuristics. The relevant lesson here is to state a computational shortcut and its completeness
+limits separately from the score. No minimap2 nucleotide model or accuracy result is transferred
+to TCR matching; these are methodological references, not proofs of vdjmatch's null model.
+
+\part*{VI. Performance bounds}
+\addcontentsline{toc}{part}{VI. Performance bounds}
+\label{sec:perf}
+
+\textbf{Model and sizes.} Unit-cost word RAM. $Q$ distinct query junctions; $N_{\rm seq}$ distinct
+reference junctions and $N_{\rm rec}\ge N_{\rm seq}$ reference observation records for the locus;
+$M$ control junctions; $L$ the maximum junction length; $|\Sigma|=20$; edit budget $t=t_{\max}$;
+$R_D,R_C$ the numbers of returned reference and control hits (the \emph{output} sizes).
+
+\textbf{Indexing.} Trie construction over distinct junctions is $O((N_{\rm seq}+M)L)$ time and
+space. It is paid once per reference/control, not per query.
+
+\textbf{Search.} Bounded-edit trie traversal enumerates the $t$-neighbourhood of the query rather
+than scanning the reference. The number of distinct strings within edit distance $t$ of a length-$L$
+string is $O\!\big((L|\Sigma|)^t\big)$, and each is resolved by an $O(L)$ walk, so per query the
+work is
+\[
+O\!\big(L^{\,t+1}|\Sigma|^{t}\big)+O(\text{hits}),\qquad\text{independent of } N_{\rm seq}\text{ and } M .
+\]
+\emph{This is the central performance property:} at the default $t=1$ the search cost does not grow
+with the size of VDJdb. The whole-batch bound is
+$O\!\big(Q\,L^{t+1}|\Sigma|^{t}+R_D+R_C\big)$. The enumeration bound is worst-case and loose --- the
+trie prunes --- so the \emph{measured} growth factor per extra edit is the operative number
+(Table~\ref{tab:perf}).
+
+\textbf{Reduction.} Hits expand from search keys to observation records with factor
+$\rho=N_{\rm rec}/N_{\rm seq}$ (measured: $1.50$ TRB, $1.58$ TRA on the 2026-06-11 human release),
+then group by (query, pMHC): $O(|H|\log|H|)$ with $|H|=\sum_{h\in H_{\rm search}}m(h)$, where $m(h)$ is the matched key's record multiplicity.
+
+\textbf{Space.} $O((N_{\rm seq}+M)L)$ for indices plus $O(|H|)$ for the hit table. The hit table,
+not the index, is the memory risk, and it is bounded by the output size, which is why a wide scope
+is a memory decision and not only a time decision.
+
+\textbf{Geometry route.} \code{distance\_matrix} is dense $\Theta(QN_{\rm seq})$ int32 and is
+explicitly capped at 64\,MiB per output array. Oversized calls raise an error; callers must batch at most
+$\lfloor 64\,\text{MiB}/(4N_{\rm seq})\rfloor$ queries. The counting route
+(\code{total\_distance\_count\_batch}) avoids the dense matrix: a conservative exhaustive bound is
+$O(QN_{\rm seq}L^2)$ when up to $O(L)$ allowed gap positions each inspect $O(L)$ residues but output is only $O(Q\cdot|\text{cutoffs}|)$. The rank route is therefore
+\emph{linear in reference size per query}, unlike the default search --- this is the dominant cost
+asymmetry between the two routes and the reason the geometry arms need a resource gate.
+
+\textbf{Parallelism.} One layer only: the single native search batch, threaded internally. No outer
+pool, no worker per query.
+
+\subsection*{Measured, and whether it agrees}
+Human VDJdb 2026-06-11 (TRB $N_{\rm seq}=70{,}575$, $N_{\rm rec}=105{,}677$; TRA $43{,}227/68{,}206$),
+control $M=250{,}000$, 4{,}000 distinct TRB queries, one thread, Apple M-series:
+
+\begin{center}\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Scope $\theta$ & target q/s & $\times$ cost & reference hits & control q/s & control hits\\
+\midrule
+$1,0,0,1$ & 102{,}538 & 1.0 & 9{,}732 & 70{,}939 & 1{,}342\\
+$2,0,0,2$ & 12{,}600 & 8.1 & 60{,}290 & 4{,}924 & 29{,}593\\
+$2,1,1,2$ & 3{,}457 & 29.7 & 104{,}820 & 1{,}756 & 60{,}474\\
+$3,0,0,3$ & 3{,}154 & 32.5 & 324{,}218 & 881 & 319{,}946\\
+\bottomrule
+\end{tabular}
+\end{center}
+\label{tab:perf}
+
+Index build $0.53$\,s for both loci; control load $0.02$\,s; full default evidence (both searches
+plus the whole polars reduction) $0.15$\,s for 4{,}000 queries, i.e.\ $\mathbf{26{,}724}$
+\textbf{queries/s single-threaded}, peak RSS $0.97$\,GB.
+
+\emph{Agreement.} This measurement establishes throughput at one reference size, not size independence: $70{,}575$ reference
+junctions are searched at $10^5$ q/s. The predicted sharp growth in $t$ holds in direction, and the
+measured factors ($8.1\times$ then $4.0\times$ for the target; $14.4\times$ then $5.6\times$ for the
+control) are far below the worst-case enumeration factor $L|\Sigma|\approx600$ --- the trie prunes
+by roughly two orders of magnitude, so the loose enumeration model alone is insufficient for capacity planning. The reduction is $\approx37\%$ of default wall time, so neither search nor
+reduction is negligible and the practical bottleneck shifts to the reduction only as $\rho$ or the
+candidate count grows. Thread scaling of the single native batch at scope $2,1,1,2$ over
+$20{,}000$ queries: $1\to5.62$\,s, $2\to2.89$\,s ($1.95\times$), $4\to1.44$\,s ($3.90\times$),
+$8\to0.75$\,s ($7.53\times$) --- efficiency $0.94$--$0.98$, so the declared single parallel layer is
+real and not overhead. Recorded full-benchmark costs are consistent in order of magnitude with the
+geometry route's linear-in-$N_{\rm seq}$ behaviour: the curated all-task rebuild took
+$776.6$\,s/$4.47$\,GB (original/native), $407.2$\,s/$3.21$\,GB (prior rank) and $977.9$\,s/$7.94$\,GB
+(current arm) over $615{,}224$ case appearances.
+
+\part*{VII. Accuracy: what can be bounded, and what is observed}
+\addcontentsline{toc}{part}{VII. Accuracy bounds and observations}
+\label{sec:accobs}
+
+\textbf{What is exactly guaranteed.} The principal fixed-radius guarantee is:
+Proposition~\ref{prop:null} gives $\Pr_0(p_{\rm bound}\le\alpha)\le\alpha$, a valid but conservative
+type-I bound for the fixed-radius statistic over the full exchangeable population. Conditioning the
+population on observed support requires another argument; the theorem does not assert it. The nearest-refinement result in
+Remark~\ref{rem:ncrobligation} has the same sampling assumption; neither bounds biological accuracy.
+
+\textbf{What is conditional.} The Poisson enrichment tail is valid to Chen--Stein error under the
+background model; the punctured paired bound is valid up to its declared $\delta=10^{-6}$ under IID
+category sampling and independent background chains. Both assumptions are stated, neither is
+verified by the data: deduplicated controls and generated-draw multiplicity do not establish
+exchangeability, and this is the appendix's principal unverified premise.
+
+\textbf{Why no useful distribution-free top-1 bound follows.} Distance does not determine a
+specificity label. A useful prediction bound needs assumptions linking the labelled reference and
+future queries, beyond completeness of the search. The measured macro neighbour purity (mean over
+epitopes, human TRB) is $0.49,0.24,0.15,0.10,0.07$ at edit distances $1..5$, with reported
+$56\times\!\to\!2.5\times$ enrichment over chance. These are descriptive pairwise proportions,
+not a Bayes ceiling on an arbitrary neighbourhood classifier: multiple neighbours, their labels,
+germline features and cohort structure can carry information absent from a random neighbour.
+The result motivates local background correction but does not bound attainable AP or top-1 accuracy.
+
+\textbf{A derived consequence, and its measurement.} The first-hit calibration rests on the claim
+that the background ball fills faster than the target ball. That is checkable. At $N/M=0.282$ the
+measured enrichment $n_D/E$ falls from $25.7\times$ at $t=1$ ($9{,}732$ reference vs $1{,}342$
+control hits) to $3.6\times$ at $t=3$ ($324{,}218$ vs $319{,}946$): the control count grows
+$238\times$ while the reference count grows $33\times$. The mechanism the adaptive scope relies on
+is therefore real and quantified.
+
+\textbf{The degeneracy, measured.} Proposition~\ref{prop:degen} predicts that queries with $n_D=0$
+are ranked by background crowding alone, so accuracy should degrade with target support. It does,
+monotonically, and for \emph{every} geometry arm including the unmodified native TCRdist3
+comparator. Mean AP difference against the historical-density benchmark baseline over 620 curated tasks, by the number of
+positives in the task:
+
+\begin{center}\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Arm & $[30,100)$ & $[100,300)$ & $[300,1000)$ & $\ge1000$\\
+ & (328 tasks) & (145) & (95) & (48)\\
+\midrule
+distance-local rank (conditional) & $-0.0636$ & $-0.0244$ & $+0.0065$ & $+0.0104$\\
+uncensored nearest rank & $-0.0673$ & $-0.0302$ & $+0.0004$ & $+0.0253$\\
+native TCRdist3 default & $-0.0749$ & $-0.0399$ & $-0.0054$ & $-0.0007$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Case-level confirmation at radius $D=90$, $M\approx1.1\times10^5$ (human TRB): for ALWALPHAA
+($N=30$) the median query has one reference inside $D$ and $12/31$ positives and $15/31$ negatives
+have none; the Bayes-factor medians are $0.4112$ (positives) and $0.4174$ (negatives) --- closely spaced descriptive medians (no test claimed), AP $0.8841\to0.4893$, i.e.\ chance for a balanced task. For CINGVCWTV ($N=386$)
+the medians are $1.4397$ vs $0.5612$; for GILGFVFTL ($N=6{,}686$), $2.8178$ vs $0.7514$.
+Restricting each task to its supported subpopulation ($n_D\ge1$, the support boundary of the
+statistic, not a fitted threshold) removes about half the deficit at low support, flips the sign at
+$\ge300$ positives, and removes the \emph{entire} linked-pair deficit ($-0.1408\to+0.0005$ over 86
+paired tasks). Prediction and observation agree; the agreement is not itself proof of the
+mechanism, and does not exclude other mechanisms such as geometry, reference ascertainment or task composition.
+
+\textbf{Where the linked-pair metric is actually decided.} On the eight priority targets, when a
+linked reference pair lies inside the radius both the historical-density benchmark baseline and the rank arm reach AP
+$0.9984$--$1.0000$ on eleven of fourteen tasks. The metric is therefore decided on the $52$--$92\%$
+of queries that have no supported linked reference. For linked-pair annotation of well-populated
+targets the binding constraint is \textbf{coverage, not the score}. Support is also an unusually
+pure indicator in itself: over the fourteen priority linked-pair tasks at $D=90$ a linked reference
+pair lies inside the radius for $0.593$ of positives against $0.057$ of negatives, a $10.4\times$
+ratio of support proportions. This motivates the support-first routing hypothesis
+(Remark~\ref{rem:disposition}); the historical routing diagnostic split score ties by input order,
+so its apparent gains are not validated gains of the corrected implementation. The median
+single-chain supported fraction is $0.993$. The corrected S8 trial in Section~\ref{sec:s8} reports aggregate gains with remaining major task losses; no promotion follows. Widening the radius trades that purity for reach monotonically: $0.725$ against $0.173$
+($4.2\times$) at $D=120$, $0.850$ against $0.425$ ($2.0\times$) at $D=150$, and by $D=240$ both
+populations are fully covered and the indicator carries nothing. The separation is broad and nearly
+flat from $D=90$ to $D=150$ while the ratio falls steeply, so this is a genuine trade-off, not an
+optimum to be read off. (The supported subpopulation is
+easier by construction, so these are not deployable AP values; the decomposition --- which
+population decides the metric --- is the result.)
+
+\begin{remark}[acceptance geometry]
+Because the per-task delta is monotone in support and the eight priority targets all lie above the
+crossover, a pooled all-task mean and a priority-target mean can disagree in \emph{sign} for the
+same arm. They do: over the 70 priority tasks the conditional-rank arm gains $+0.0213$ mean AP
+($+0.0697$ on the 14 linked-pair tasks, worst-case AP $0.5082\to0.7298$), while over all 620 tasks
+it loses $-0.0391$. Both must be reported under the acceptance rule: priority improvements do not override
+mean/median nonregression and review of major task losses.
+\end{remark}
+
+\part*{VIII. Open obligations}
+\addcontentsline{toc}{part}{VIII. Open obligations}
+
+\begin{enumerate}\setlength{\itemsep}{1pt}
+\item \textbf{Exchangeability is assumed, not shown.} Reference deduplication, generated-draw
+  multiplicity and study ascertainment all threaten it. Every $p$-value and posterior here is
+  conditional on it.
+\item \textbf{Nearest-conditioned score ownership.} Its exchangeable null is derived in
+  Remark~\ref{rem:ncrobligation}; the existing bound/posterior columns still refer to the original
+  statistic. Neither result transfers through further germline multiplication or route selection.
+\item \textbf{Validate routing of the $n_D=0$ branch.} Proposition~\ref{prop:degen} establishes
+  loss of within-suffix target-distance ordering at fixed background counts, not absence of all
+  target information. Restricting the statistic to supported references changes its normalisation
+  and does not inherit Proposition~\ref{prop:null}. The historical routing and supported-only
+  diagnostics are retained in Remark~\ref{rem:disposition}, with their tie-splitting limitation.
+  The corrected S8 routing hypothesis is implemented (Section~\ref{sec:s8}); its fresh curated
+  evaluation improves aggregate AP but retains major task losses, so it is not promoted. Its population-relative ordering has no transferred null guarantee.
+\item \textbf{The paired radius and the single-chain radius are not the same quantity} and currently
+  share a numeral (Remark~\ref{rem:degencost}).
+\item \textbf{No biological calibration.} $p_{\rm bound}$ is not $\Pr(\text{FP})$ and the posterior
+  is not $\Pr(\text{TP})$. The empirical any-call operating point is a separate deployment artifact.
+\item \textbf{The low-support regime is unexplained.} Below roughly $100$ positives every
+  geometry arm tested, including the unmodified native TCRdist3 comparator, stays behind the
+  original density scorer, and three rounds of reformulating the rank statistic did not move it.
+  That it is common to every geometry suggests a property of the regime rather than of any one
+  construction, but no mechanism has been established and none should be asserted.
+\item \textbf{Occam.} Twelve scoring routes are maintained in parallel and every candidate has been
+  rejected for promotion; the default is unchanged. Each should be promoted or retired behind its
+  recorded run artifacts.
+\end{enumerate}
+
+\noindent Default annotation and the historical benchmark baseline remain unchanged; M3 stays deferred.
 \end{document}

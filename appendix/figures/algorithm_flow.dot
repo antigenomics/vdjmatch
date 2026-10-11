@@ -1,0 +1,66 @@
+// 2026-10-11 vdjmatch algorithm topology. Editable source for the TikZ figure in
+// score-derivation.tex. Solid = shipped default route; dashed = opt-in experimental
+// routes; dotted = evidence reported alongside but never fused into the ranking.
+digraph vdjmatch {
+  rankdir=TB; splines=polyline; nodesep=0.35; ranksep=0.42;
+  node [shape=box, style="rounded,filled", fillcolor="#f5f5f5",
+        fontname="Helvetica", fontsize=10, margin="0.12,0.07"];
+  edge [fontname="Helvetica", fontsize=8];
+
+  subgraph cluster_in {
+    label="inputs"; style=dashed; color="#999999"; fontsize=9;
+    q   [label="query receptors\nTRA / TRB / linked pair\nanchor-inclusive junction + V/J", fillcolor="#e8f0fb"];
+    ref [label="VDJdb reference\nvalid source records\n→ unique junction search keys", fillcolor="#e8f0fb"];
+    ctl [label="background control\ngenerated (OLGA) or real\ndraw multiplicity / real keys", fillcolor="#e8f0fb"];
+  }
+
+  norm [label="normalise + validate\nlocus, junction alphabet, V/J resolution\neligibility and exclusions"];
+  idx  [label="build index per locus\nseqtree trie over unique junctions\nO((N_seq+M)·L)"];
+
+  // default route
+  srch [label="ONE native batch per locus\nbounded-edit search, scope θ=(1,0,0,1)\nVDJAM matrix, distinct keys only", fillcolor="#dff0d8"];
+  csrch[label="matched control batch\n→ cumulative counts n_c(s)", fillcolor="#dff0d8"];
+  ned  [label="NED-v1 per (query, pMHC)\nS = sum_r w_V(r)*exp(-s/400) / (n_c(s)+1)\none vote per search key", fillcolor="#dff0d8"];
+  ev   [label="control-calibrated enrichment\nE=(N/M)·n_C,  p=P(Pois(E) ≥ n_D)", fillcolor="#dff0d8"];
+  call [label="rank candidates → top-1 call\ntie ⇒ ambiguous; empty ⇒ no_hit", fillcolor="#dff0d8"];
+
+  // experimental geometry route
+  geo  [label="TCRdist geometry (opt-in)\nd = d_V + min over A: 3 sum(w*c) + 12h\nnative gap-block, one batch"];
+  cnt  [label="cumulative ball counts\nreference n(d), control m(d)\nshared cutoffs 0..D"];
+  bx   [label="distance-local rank evidence\nB_X = (M+1)(sum(h_i) + (N-n_D)*h_far) / (N·H_{M+1})"];
+  deg  [label="n_D = 0 ⇒ B_X depends on m_D alone\n(no far-target ordering)", shape=note, fillcolor="#fde2e2"];
+  ncr  [label="nearest-conditioned rank\ncondition all-censored mean on first-reference rank"];
+  vr   [label="reference-defined V rule L_g\nand bounded motif factor (1+e_q)"];
+  sg   [label="ranking score S_g = L_g·B_g\n(no null bound, no posterior)"];
+
+  cohort [label="complete cohort / species / full pMHC\nexplicit query identities; no row-position linkage", fillcolor="#e8f0fb"];
+  orig [label="original alpha / beta / paired scores\nidentified marginal and common-pair counts"];
+  s8 [label="S8 opt-in paired-evidence-order\ncommon pair > chain only > neither\naverage tied ranks within each block"];
+  s8out [label="population-relative evidence_score\n(3-block) + rank/(block size+1)\ncurated trial complete; not promoted"];
+
+  evidence [label="candidate / evidence tables\nno annotation promotion\nwinning-label integration remains open"];
+
+  // reported-alongside evidence
+  pb   [label="p_bound = min(1, 1/B_X)\nMarkov bound, E₀B_X = 1", shape=note, fillcolor="#fff7e6"];
+  post [label="posterior = pi*B_X/(1-pi+pi*B_X)\npi=1/2, model odds only", shape=note, fillcolor="#fff7e6"];
+  pn   [label="p_nearest = P(K≥1),\nK~Hypergeom(N+M, N, m*+1)", shape=note, fillcolor="#fff7e6"];
+
+  q -> norm; ref -> norm; ctl -> norm;
+  norm -> idx;
+  idx -> srch [label="default"]; idx -> csrch;
+  srch -> ned; csrch -> ned; srch -> ev; csrch -> ev;
+  ned -> call; ev -> call [style=dotted, label="reported, not fused"];
+
+  idx -> geo [style=dashed, label="opt-in"];
+  geo -> cnt; cnt -> bx;
+  bx -> deg [style=dotted];
+  bx -> ncr [style=dashed, label="n_D=0; separate column"];
+  geo -> vr [style=dashed, label="conditional CDR3 recomputation"]; vr -> sg [style=dashed];
+  ncr -> evidence [style=dashed, label="separate ranking column"];
+  bx -> evidence [style=dashed];
+  bx -> pb [style=dotted]; bx -> post [style=dotted]; cnt -> pn [style=dotted];
+  cohort -> s8 [style=dashed]; orig -> s8 [style=dashed];
+  bx -> s8 [style=dashed, label="fixed-radius paired score"];
+  s8 -> s8out [style=dashed];
+  sg -> evidence [style=dashed];
+}

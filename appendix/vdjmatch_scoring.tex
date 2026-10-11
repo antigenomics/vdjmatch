@@ -587,6 +587,58 @@ V--J usage must match the query repertoire's or the null is mis-specified --- wh
 V--J usage (at the risk of erasing genuine V-gene bias) is an open question to settle on held-out
 epitopes.
 
+\paragraph{Support, not the score, decides the linked-pair metric.} In this paragraph the original scorer is the
+\texttt{historical-density} benchmark baseline: sparse-reference density plus germline evidence
+for single chains and density/germline cohort-rank fusion for pairs. It is distinct from the
+default match API's NED-v1 score and the paired API's exponential similarity sum.
+ The opt-in TCRdist benchmark route (not the public bounded-edit paired API) uses the distance-local rank
+statistic of the companion appendix (\texttt{score-derivation}), which averages a normalised reciprocal
+background rank over all $N$ references of a target, imputing references outside the computed radius
+at their null-conditional mean under exchangeability. When \emph{no}
+reference lies inside the radius the statistic reduces to a function of the control count alone,
+carrying no further ordering of censored target distances at fixed control population. The practical consequence is a clean monotone dependence
+on target support: measured over $620$ benchmark tasks, the mean average-precision difference
+against the original scorer is $-0.064$ for targets with $30$--$100$ positives, $-0.024$ at
+$100$--$300$, $+0.007$ at $300$--$1000$ and $+0.010$ above $1000$, and the same monotone pattern
+holds for \emph{every} distance-geometry arm we tested, including the unmodified native TCRdist3
+comparator. Restricting each task to the queries that do have multi-reference support removes about
+half the low-support deficit, reverses the sign above $300$ positives, and removes the entire
+linked-pair deficit ($-0.141\to+0.001$ over $86$ paired tasks). The effect is largest for linked
+pairs because the paired route applies the same numeric radius to the \emph{sum} of the two chain
+distances --- a roughly twofold tighter per-chain constraint --- so the median fraction of queries
+with a supported linked reference is $0.17$, against $0.82$ for single chains. On well-populated
+targets, when a linked reference pair \emph{is} inside the radius, both the original scorer and the
+rank statistic reach average precision $0.998$--$1.000$. The open work is therefore to raise paired
+coverage and to give the zero-support case an explicit ``no multi-reference evidence'' disposition
+rather than a number, not to tune the score; and to separate the linked-pair radius from the
+single-chain radius, which are different quantities that currently share a numeral. The historical two-block disposition diagnostic, whose rank transform split ties by input order,
+reported mean average precision $0.818\to0.846$ over all $99$ linked-pair tasks
+($69$ wins, $23$ losses, $7$ ties), while its supported-reference-only variant lost ground.
+These saved values do not establish a gain or its mechanism for the corrected routing algorithm. Support is itself a sharp indicator here --- on
+well-populated targets a linked reference pair lies within the current radius for $0.59$ of
+positives against $0.06$ of negatives --- motivating support-first routing for pairs,
+whereas single-chain support is near-universal. That specificity comes
+from requiring a \emph{common} reference pair: asking only that each chain independently have some
+reference neighbour covers $0.97$ of positives and $0.95$ of negatives, a purity ratio of $1.0$
+against $11.1$, so the tight summed constraint is the source of paired discrimination rather than an
+obstacle to it. The remaining lever is then routing rather than scoring. Most linked-pair queries
+--- $78\%$ overall --- have no common reference pair but do have per-chain neighbours; ordering
+those by a scale-free fusion of both chains' single-chain evidence is the S8 proposal.
+The historical diagnostic reported mean AP $0.821\to0.829$ and median $0.841\to0.848$ over 625
+tasks, with paired mean AP $0.818\to0.868$. These are not validated gains: chain ranks were
+computed across the whole task and stable double-argsort split equal values by input order.
+The earlier two-block disposition diagnostics use the same tie-breaking operation.
+The opt-in tie-safe \texttt{paired-evidence-order} implementation now ranks both chains
+within the middle block and preserves ties. Its fresh curated-reference trial evaluates 620 tasks
+(485,970 appearances): mean/median AP is $0.829362/0.851827$, versus the historical-density
+baseline's $0.821989/0.843176$. All 522 single-chain tasks remain unchanged. Among 98 paired tasks
+(73,441 appearances), S8 wins 79 and loses 19 against the historical baseline, and wins 65 and
+loses 33 against conditional rank. Across the 14 priority paired tasks (35,190 appearances),
+with equivalent HLA spellings included, S8 mean AP is $0.872779$, versus $0.868660$ for the
+historical baseline and $0.895001$ for conditional rank. Full-reference peptide-level NLV paired AP falls from
+conditional rank's $0.729757$ to $0.622556$ over 20,034 appearances; the earlier conditional-rank
+result is preserved, and S8 is not promoted. The default annotation API is unchanged. The companion algorithm appendix records the original numbers and precise scope.
+
 A further direction is to predict, \emph{a priori}, which epitopes are intrinsically easy versus hard
 to annotate --- the wide spread of per-epitope PR-AUC in our experiments (e.g.\ the convergent,
 ``featured'' influenza GIL vs the diffuse, ``featureless'' CMV NLV) is not noise but biology. A pMHC
