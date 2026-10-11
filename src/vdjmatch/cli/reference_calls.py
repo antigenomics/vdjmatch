@@ -28,7 +28,6 @@ def main(args):
     from .. import db
     from ..api import Annotator, _prepare, _append_calls
     from ..aggregate.candidates import PMHC
-    from ..db.cache import sha256
     from ..evalue.control import raw_background
     from ..match.scope import search_params
     from ..match.scoring import load_vdjam, DEFAULT_SCALE
@@ -79,7 +78,9 @@ def main(args):
         str(prefix)+'.target-support.tsv', separator='\t')
     raw.join(valid, on=keys, nulls_equal=True, validate='1:m').select('query_id', *PMHC).unique().write_csv(
         str(prefix)+'.truth.tsv', separator='\t')
-    manifest = {'reference_sha256': sha256(Path(args.vdjdb)), 'control': control_provenance,
+    provenance = db.provenance(args.vdjdb)
+    manifest = {'reference': provenance, 'reference_sha256': provenance.get('input_sha256'),
+        'control': control_provenance,
         'software': {x: importlib.metadata.version(x) for x in ['vdjmatch', 'seqtree', 'vdjtools']},
         'options': vars(args) | {'func': 'reference-calls'}, 'source_records': reference.height,
         'valid_reference_records': valid.height, 'invalid_reference_records': reference.height-valid.height,

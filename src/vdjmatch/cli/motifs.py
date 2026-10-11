@@ -65,7 +65,9 @@ def main(a):
         .then(pl.col('motif_score').fill_null(0)).otherwise(None).alias('motif_score')).drop('_valid','_has_reference')
     prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
     q.write_csv(str(prefix)+'.scores.tsv',separator='\t')
-    report={'sample_sha256':sha256(Path(a.sample)),'reference_sha256':sha256(Path(a.vdjdb)),
+    provenance=db.provenance(a.vdjdb)
+    report={'sample_sha256':sha256(Path(a.sample)),'reference':provenance,
+        'reference_sha256':provenance.get('input_sha256'),
         'species':organism,'locus':a.locus,'exclude_exact':a.exclude_exact,'queries':q.height,
         'ingestion':ingestion,'counts':q.group_by('status').len().to_dicts(),
         'parameters':{'k':4,'masks':[0,1,2,3],'minimum_length_v_target':2,'minimum_v_target':3,'minimum_target':5},

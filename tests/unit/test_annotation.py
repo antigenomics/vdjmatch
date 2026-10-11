@@ -448,6 +448,16 @@ def test_single_chain_punctures_counts_and_population_like_physical_removal():
     assert actual['calibration'].to_list() == ['fixed_ball_punctured']
 
 
+def test_exact_exclusion_retains_evidence_when_control_population_becomes_empty():
+    actual=Annotator.from_frame(reference()).candidates(['CASSF'],scope='1',
+        control=Index.build(['CASSF','CASSF'],'aa'),exclude_exact=True)
+    assert actual.height==1 and actual['n_target'].to_list()==[1]
+    assert actual['n_control'].to_list()==[0]
+    assert actual['calibration'].to_list()==['unavailable_empty_control']
+    for field in ('E','p_enrichment','p_any'):assert actual[field].null_count()==1
+    assert actual['rule_of_three'].to_list()==[False]
+
+
 def test_batched_epitope_removal_equals_physical_removal():
     from vdjmatch.api import _prepare
     r = reference()

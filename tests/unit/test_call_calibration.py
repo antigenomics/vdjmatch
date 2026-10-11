@@ -55,9 +55,12 @@ def test_cli_separate_nulls_ties_and_no_hits(tmp_path):
         calibration.operating_points(rows.drop('null_source'), .01)
 
 
-def test_reference_calls_retains_truth_and_withholds_all_restrictions(tmp_path):
+@pytest.mark.parametrize('directory',[False,True])
+def test_reference_calls_retains_truth_and_withholds_all_restrictions(tmp_path,directory):
     from vdjmatch.cli import reference_calls
     ref = tmp_path / 'ref.tsv'
+    if directory:
+        release=tmp_path/'release';release.mkdir();ref=release/'vdjdb.txt'
     control = tmp_path / 'control.tsv'
     pl.DataFrame({'gene': ['TRB']*3, 'cdr3': ['CASSF', 'CASSF', 'CATSF'],
         'v': ['TRBV1']*3, 'j': ['TRBJ1']*3, 'species': ['HomoSapiens']*3,
@@ -67,7 +70,7 @@ def test_reference_calls_retains_truth_and_withholds_all_restrictions(tmp_path):
     reference_calls.register(parser.add_subparsers())
     for mode in ('labelled', 'withheld'):
         prefix = tmp_path / mode
-        args = parser.parse_args(['reference-calls', '--vdjdb', str(ref), '--locus', 'TRB',
+        args = parser.parse_args(['reference-calls', '--vdjdb', str(ref.parent if directory else ref), '--locus', 'TRB',
             '--min-target-records', '1',
             '--control', str(control), '--output-prefix', str(prefix),
             *(['--leave-epitope-out'] if mode == 'withheld' else [])])
@@ -89,7 +92,7 @@ def test_reference_calls_retains_truth_and_withholds_all_restrictions(tmp_path):
         'v': ['TRBV1']*59, 'j': ['TRBJ1']*59, 'species': ['HomoSapiens']*59,
         'epitope': ['ONE']*30+['TWO']*29, 'reference_id': [f'study{i}' for i in range(59)]}).write_csv(ref, separator='\t')
     prefix = tmp_path / 'min30'
-    args = parser.parse_args(['reference-calls', '--vdjdb', str(ref), '--locus', 'TRB',
+    args = parser.parse_args(['reference-calls', '--vdjdb', str(ref.parent if directory else ref), '--locus', 'TRB',
         '--control', str(control), '--leave-epitope-out', '--output-prefix', str(prefix)])
     assert reference_calls.main(args) == 0
     calls = pl.read_csv(str(prefix)+'.calls.tsv', separator='\t')

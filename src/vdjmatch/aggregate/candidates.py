@@ -249,6 +249,8 @@ def candidates(
                 raise ValueError("control sizes must cover every candidate query")
         else:
             out = out.with_columns(pl.lit(control_size).alias("_control_size"))
+        if (out["_control_size"] < 0).any():
+            raise ValueError("control population sizes must be nonnegative")
     if background_mass:
         out = out.with_columns((pl.col("ned_score") * pl.col("_control_size") / pl.col("n_reference")).alias("ned_score"))
     if control_totals is not None:
@@ -265,7 +267,8 @@ def candidates(
     # Public upstream statistics; no target re-search. One reduction per candidate.
     if control_size is not None:
         stats = [
-            evalue_result(nt, nc, nr, size)
+            evalue_result(nt, nc, nr, size) if size > 0 else
+            {"E": None, "p_enrichment": None, "p_any": None, "rule_of_three": False}
             for nt, nc, nr, size in out.select(
                 "n_target", "n_control", "n_reference", "_control_size"
             ).iter_rows()
@@ -274,7 +277,10 @@ def candidates(
             *[
                 pl.Series(c, [s[c] for s in stats])
                 for c in ["E", "p_enrichment", "p_any", "rule_of_three"]
-            ]
+            ],
+            pl.when(pl.col("_control_size") == 0).then(pl.lit("unavailable_empty_control"))
+            .otherwise(pl.lit("fixed_ball_punctured" if exclude_exact else "fixed_ball"))
+            .alias("calibration"),
         ).drop("_control_size")
     else:
         out = out.with_columns(
@@ -283,6 +289,7 @@ def candidates(
                 for c in ["E", "p_enrichment", "p_any"]
             ],
             pl.lit(False).alias("rule_of_three"),
+            pl.lit("uncalibrated").alias("calibration"),
         )
     out = out.sort(
         ["query_id", "ned_score", "nearest_score", *PMHC],
@@ -293,10 +300,6 @@ def candidates(
         pl.int_range(1, pl.len() + 1).over("query_id").cast(pl.UInt32).alias("rank"),
         pl.col("n_records").sum().over("query_id").cast(pl.UInt32).alias("n_hits"),
         pl.lit("background-mass-v1" if background_mass else ESTIMATOR).alias("estimator"),
-        pl.lit(("fixed_ball_punctured" if exclude_exact else "fixed_ball")
-               if control_size is not None else "uncalibrated").alias(
-            "calibration"
-        ),
     )
     # Best alternative to each candidate; margin can be negative for non-top candidates.
     best = out.group_by("query_id").agg(

@@ -36,6 +36,14 @@ def test_cli_fresh_raw_control_and_exact_exclusion(tmp_path):
     manifest = json.loads((tmp_path / "ball.query.manifest.json").read_text())
     assert manifest["radii"] == [1, 2, 3, 4, 5]
     assert "ranked_model" not in manifest and "top_k" not in manifest
+    unified=tmp_path/'unified'
+    assert cli.main(arguments+['--search-mode','unified','-o',str(unified)])==0
+    assert json.loads((tmp_path/'unified.params.json').read_text())['matrix']=='none'
+    with pytest.raises(SystemExit):
+        cli.main(arguments+['--search-mode','unified','--matrix','vdjam'])
+    config=tmp_path/'matrix.json';config.write_text(json.dumps({'matrix':'vdjam'}))
+    with pytest.raises(SystemExit):
+        cli.main(arguments+['--search-mode','unified','--config',str(config)])
 
 
 def test_cli_graded_hard_v_filters_and_remains_uncalibrated(tmp_path):

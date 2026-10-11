@@ -105,6 +105,13 @@ def _cmd_match(a: argparse.Namespace) -> int:
     annotate_sample = __getattr__("annotate_sample")
     p = _resolve_params(a)
     search_mode = getattr(a, "search_mode", "fixed")
+    if search_mode == "unified":
+        requested_matrix = getattr(a, "matrix", None)
+        if requested_matrix is None and a.config:
+            requested_matrix = json.loads(Path(a.config).read_text()).get("matrix")
+        if requested_matrix not in {None, "none"}:
+            raise ValueError("unified mode defines its own geometry; explicit matrix overrides are unsupported")
+        p.matrix = "none"
     if getattr(a, "unified_distance", None) is not None and search_mode != "unified":
         raise ValueError("--unified-distance requires --search-mode unified")
     paired = getattr(a, "paired", False)

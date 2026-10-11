@@ -47,7 +47,8 @@ def test_vdjbet_counts_masks_and_full_junction_puncture():
         vdjbet_motif_scores(pl.concat([q,q]),r)
 
 
-def test_motif_cli_compatible_union_and_repeated_queries(tmp_path,monkeypatch):
+@pytest.mark.parametrize('directory',[False,True])
+def test_motif_cli_compatible_union_and_repeated_queries(tmp_path,monkeypatch,directory):
     from argparse import Namespace
     from vdjmatch import db
     from vdjmatch.cli.motifs import main
@@ -56,7 +57,10 @@ def test_motif_cli_compatible_union_and_repeated_queries(tmp_path,monkeypatch):
         'epitope':['NLV']*7,'mhc_a':['HLA-A*02:01']*3+['HLA-A*02:02']*4,
         'mhc_b':['B2M']*7,'mhc_class':['MHCI']*7,'reference_valid':[True]*7})
     monkeypatch.setattr(db,'load',lambda *a,**kw:r)
-    sample=tmp_path/'queries.tsv';reference=tmp_path/'reference.zip';reference.write_text('fixture')
+    sample=tmp_path/'queries.tsv';reference=tmp_path/'reference.tsv'
+    if directory:
+        reference.mkdir();(reference/'vdjdb.txt').write_text('fixture')
+    else:reference.write_text('fixture')
     pl.DataFrame({'junction_aa':[sequences[0],sequences[0],None,'BADX'],'v_call':['TRBV1']*4,'j_call':['TRBJ1-1']*4,
         'locus':['TRB']*4,'species':['human']*4,'epitope':['NLV']*4,'mhc_a':['HLA-A*02']*4,
         'mhc_b':['B2M']*4,'mhc_class':['MHCI']*4,'query_id':['a','b','missing','invalid']}).write_csv(sample,separator='\t')
