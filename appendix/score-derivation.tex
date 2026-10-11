@@ -137,4 +137,50 @@ General expectation-one evidence: Vovk and Wang, Ann.
 Statist.
 49:1736--1754 (2021), \href{https://doi.org/10.1214/20-AOS2020}{doi:10.1214/20-AOS2020}.
 Original scoring remains default; M3 stays deferred.
+\section*{Reference-supported V rules and exhaustive CDR3 rank}
+This opt-in ranking diagnostic keeps germline usage separate from sequence
+geometry.
+Let $g$ be the query V gene, or its linked alpha/beta V-gene tuple.
+Let $N,M$ be the target and other-peptide population sizes, and $n_g,m_g$
+their counts in category $g$, after benchmark-only full-junction puncturing.
+Populations retain distinct full-junction/resolved-V-allele keys.
+Let $K$ be the number of observed population V categories plus one unseen category.
+Define
+\[
+p_g=\frac{n_g+m_g+1/2}{N+M+K/2},\qquad
+L_g=\begin{cases}
+\displaystyle\frac{(n_g+p_g)/(N+1)}{(m_g+p_g)/(M+1)},&n_gm_g>0,\\
+1,&n_gm_g=0.
+\end{cases}
+\]
+Missing category support on either side contributes no V evidence.
+For supported categories, calculate the multi-reference statistic $B_X$ above
+using only same-category target/control CDR3 distances and populations $n_g,m_g$.
+Otherwise use CDR3 distances across all categories with populations $N,M$.
+Both routes have zero V-loop cost and trim three full-junction residues at each end.
+Linked distances compare both query chains with the same reference pair.
+No reference is censored: distances are multiples of three and are bounded by
+twelve times the sum of maximum full-junction lengths over the chain axes.
+The final distance-bin counts must equal the punctured population counts.
+Write this exhaustive rank statistic as $B_g$; the ranking score is $S_g=L_gB_g$.
+
+For a motif family, let $T_q$ contain distinct query tokens; linked queries use
+token tuples from their two chains.
+Let $a_t,b_t$ count same-category target/control receptors containing token $t$,
+with paired presence required within the same linked receptor.
+For a supported category and nonempty $T_q$, define
+\[
+e_q=\frac{1}{|T_q|}\sum_{t\in T_q}
+\max\left(0,\frac{a_t}{n_g}-\frac{b_t}{m_g}\right),\qquad
+S_{g,T}=S_g(1+e_q),\quad 0\le e_q\le1.
+\]
+Otherwise set $e_q=0$.
+Exact three-residue, IMGT-class three-residue, internal-wildcard four-residue
+and class-wildcard families are separate predefined diagnostics.
+Reference populations define enrichment; query tokens only look up those rules.
+The bounded motif factor is correlated sequence evidence, not an independent
+likelihood.
+V is counted once, and no J or length marginal likelihood is multiplied in.
+Neither $S_g$ nor $S_{g,T}$ inherits the rank model's null bound or posterior.
+Biological call calibration and selected-label error remain separate tasks.
 \end{document}
