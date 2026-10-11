@@ -69,6 +69,28 @@ def regularize_reference_radii(radii, nearest_distances, *, factor=.5):
     return np.maximum(raw, floor), floor, source
 
 
+def reference_structure(distances, *, radius_factor=22.5, costs=None):
+    """Reference neighbour coverage and normalized convex bend, without labels.
+
+    Coverage counts all reference keys, including keys without a nonexact
+    neighbour. The radius is a factor of the shared substitution-matrix scale.
+    The bend is max(x-y) of the sorted finite distances normalized to a unit
+    square; flat/short curves have zero bend. Both features lie in [0,1].
+    """
+    values = np.asarray(distances, dtype=float)
+    if values.ndim != 1 or np.isinf(values).any() or np.any(values < 0):
+        raise ValueError('nonnegative nearest distances or NaN required')
+    if not np.isfinite(radius_factor) or radius_factor <= 0:
+        raise ValueError('positive finite matrix-relative radius factor required')
+    radius = radius_factor*distance_units(costs)[0]
+    coverage = float(np.count_nonzero(values <= radius)/len(values)) if len(values) else 0.
+    finite = np.sort(values[np.isfinite(values)])
+    shape = 0.
+    if len(finite) >= 3 and np.ptp(finite) > 0:
+        shape = float(np.max(np.linspace(0, 1, len(finite))-(finite-finite[0])/np.ptp(finite)))
+    return coverage, shape
+
+
 def reference_nearest_distances(frame, *, paired=False, species='human', threads=1, ctrim=3):
     """Nonexact same-population nearest distances from one native batch.
 

@@ -1081,4 +1081,31 @@ correlated. This score, and any paired sum of its marginal components, is not a
 calibrated likelihood, P-value, joint binding probability or validated switching
 rule. Accuracy and sparse-mode activation require separate validation.
 
+\subsection{Experimental shared two-score completion}
+Let $L$ be the preserved original log score and $R=\log B$ the existing
+conditional-rank evidence. For each full-pMHC reference population, let $c$ be
+the fraction of reference keys with a nonexact neighbour within $\rho=22.5D$,
+where $D$ is the maximum effective substitution-matrix cost. Let $k\in[0,1]$
+be its normalized convex nearest-distance bend, and let
+$e=\epsilon/(\epsilon+\rho)$ use the existing regularized Kneedle radius.
+When no knee is available, set $e=0$ and retain its explicit status.
+Let $u$ be the fraction of query chains with positive original density (zero or
+one for a single chain, and zero, one half or one for a pair). Define
+\[
+ s=1-uc\{1-(1-k)e\},\qquad
+ S_{\rm fixed}=(1-s)L+sR.
+\]
+This is a shared, unfitted empirical gate. One missing component uses the
+available score; two missing components remain unavailable. A small GLM fits
+nonnegative coefficients on $(1-s)L,sL,(1-s)R,sR$, plus a paired indicator,
+two missing-score indicators and an intercept. Weighted centering and scaling
+are frozen with the model. Evaluation holds out entire peptide groups and
+removes training junctions shared with those evaluation groups; independent
+assay panels supply no training labels. Both paired and single-chain modes
+receive equal aggregate training weight, with class/task balancing within mode.
+Standalone motif evidence remains a comparator, rather than a third GLM score.
+Neither formula inherits a component P-value or biological probability.
+Complete raw-input task comparisons and selected-score null calibration are
+required before any promotion.
+
 \end{document}

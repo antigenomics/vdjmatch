@@ -969,3 +969,43 @@ Zero supported motifs, invalid queries and absent references have explicit statu
 This command supplies a candidate component, not a switched scorer, joint paired
 likelihood, P-value or specificity probability. Pairing remains in the output IDs;
 run both loci and join by the original linkage to compare genuine paired queries.
+
+Global evidence combination
+---------------------------
+
+``fit-evidence TABLE --model MODEL`` fits one experimental logistic formula from
+``likelihood_score``, ``conditional_rank_score``, ``reference_coverage``,
+``knee_shape``, ``knee_radius_ratio``, ``original_support`` and ``paired`` columns. Labels default to
+``label``; ``--weight-column`` supplies explicit population weights. Shared
+nonnegative evidence coefficients preserve monotonicity at fixed structure.
+Missing evidence receives an indicator; unsupported training rows require an
+explicit disposition before fitting. Model JSON records coefficients, scaling,
+training groups and input hash.
+
+The two scores are the preserved original log score and log conditional rank.
+For reference coverage ``c``, normalized bend ``k``, radius ratio ``e`` and
+original chain support ``u``, the shared sparsity gate is
+``s = 1-u*c*(1-(1-k)*e)``. Single-chain support is zero or one; paired support
+is the fraction of chains with positive original density. The GLM fits four
+nonnegative dense/sparse score coefficients, plus mode and missing indicators.
+Standalone VDJbet motifs remain a separate comparator.
+
+``combine-evidence TABLE --model MODEL --output SCORES`` preserves every row and
+exports a linear ranking margin with an unsupported status when all components
+are absent. ``--require-heldout`` rejects overlap with training epitope groups
+for benchmark evaluation. This experimental margin has no transferred component
+P-value and is not a calibrated probability of binding.
+
+``combine-evidence TABLE --fixed --output SCORES`` applies the unfitted formula
+``(1-s)*likelihood_score+s*log(conditional_rank_score)``. If only one component
+is available it uses that component; if neither is available it retains an
+unsupported row. Fitted applications also export this formula as ``fixed_score``
+for matched comparisons. Both require calibration of the complete selected score.
+
+``reference-radius --targets-from-sample SAMPLE`` profiles the compatible pMHC
+reference unions declared by a sample. Its output also includes neighbour
+coverage and normalized convex bend. ``--coverage-radius-factor`` defaults to
+22.5 times the shared substitution-matrix scale; the bend uses unit-square
+normalization. These describe the reference without changing search radii.
+The radius ratio is regularized epsilon divided by epsilon plus the
+matrix-relative coverage radius; no knee is encoded as zero with its status retained.
