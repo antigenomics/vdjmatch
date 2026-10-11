@@ -49,6 +49,23 @@ def test_boundary_annotation_preserves_identity_and_conflicts(monkeypatch):
     assert annotate_ndn_boundaries(equivalent,species='human')['boundary_status'].to_list()==['annotated']*2
 
 
+@pytest.mark.parametrize('v_end,j_start', [(None, 9), (4, None), (None, None)])
+def test_null_boundaries_use_uniform_fallback(monkeypatch, v_end, j_start):
+    from vdjmatch.match.regions import annotate_ndn_boundaries
+    arda = pytest.importorskip('arda.cdr3fix')
+    frame = pl.DataFrame({'cdr3': ['CASSLGQAYEQYF'], '_allele': ['TRBV19*01'],
+                          'j': ['TRBJ2-7*01']})
+    def markup(rows, **kwargs):
+        return rows.select(pl.col('cdr3').alias('cdr3_repaired'),
+                           pl.col('_allele').alias('v_call'), pl.col('_j').alias('j_call')) \
+            .with_columns(pl.lit(v_end, dtype=pl.Int64).alias('v_end'),
+                          pl.lit(j_start, dtype=pl.Int64).alias('j_start'))
+    monkeypatch.setattr(arda, 'markup_batch', markup)
+    result = annotate_ndn_boundaries(frame, species='human')
+    assert result['boundary_status'].to_list() == ['unavailable_uniform']
+    assert result['v_end'].to_list() == result['j_start'].to_list() == [None]
+
+
 def test_ndn_cli_exports_boundaries_and_retains_unavailable_queries(tmp_path):
     import json
     pytest.importorskip("arda.cdr3fix")

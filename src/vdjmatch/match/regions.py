@@ -189,7 +189,8 @@ def annotate_ndn_boundaries(frame, *, species):
             .when((pl.col('_markup_v')!=pl.col('_allele')) |
                   (pl.col('_markup_j')!=pl.when(pl.col('_j').str.contains(r'\*')).then(pl.col('_j')).otherwise(pl.col('_j')+'*01')))
             .then(pl.lit('gene_changed_uniform'))
-            .when((pl.col('v_end')<0) | (pl.col('j_start')<pl.col('v_end')) |
+            .when(pl.col('v_end').is_null() | pl.col('j_start').is_null() |
+                  (pl.col('v_end')<0) | (pl.col('j_start')<pl.col('v_end')) |
                   (pl.col('j_start')>pl.col('cdr3').str.len_chars()))
             .then(pl.lit('unavailable_uniform')).otherwise(pl.lit('annotated')).alias('boundary_status'))
         catalog=catalog.join(supported.select(*keys,'v_end','j_start',pl.col('boundary_status').alias('_status')),
