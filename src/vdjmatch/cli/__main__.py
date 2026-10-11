@@ -752,12 +752,14 @@ def main(argv: list[str] | None = None) -> int:
     register_calibration(sub)
     from .reference_calls import register as register_reference_calls
     register_reference_calls(sub)
+    from .paired_order import register as register_paired_order
+    register_paired_order(sub)
 
     a = p.parse_args(argv)
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
-    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "pgen", "reference-calls"}:
+    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "pgen", "reference-calls", "paired-evidence-order"}:
         import os
         import json
 

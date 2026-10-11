@@ -766,3 +766,50 @@ it does not establish a recall-preserving CDR3 shortlist, recover queries
 with missing V calls, or transfer calibrated recommendations between
 geometries. The manifest records the experimental geometry and weight.
 Native rival manuscript parameters remain unchanged.
+
+Cohort-relative paired evidence ordering
+---------------------------------------
+
+The opt-in ``paired-evidence-order`` command reduces existing fixed-radius
+TCRdist evidence; it performs no sequence search and changes no default scorer::
+
+   vdjmatch paired-evidence-order evidence.tsv --output ordered.tsv --threads 1
+
+Supply one row per linked query, cohort, species and full pMHC. Required columns:
+
+* ``query_id``, ``cohort``, ``species``, ``epitope``, ``mhc_a``, ``mhc_b``,
+  ``mhc_class`` identify the observation and ranking population. Unspecified MHC fields may be null; query, cohort, species and epitope must
+  be non-null and nonempty. Duplicate identities within a population are rejected.
+* ``paired_score`` is the fixed-radius paired rank Bayes-factor statistic at
+  distance 90; ``fallback_score`` is the original paired score.
+  ``alpha_score`` and ``beta_score`` are the original single-chain scores.
+  Higher values mean stronger evidence. These fields must be finite numbers or
+  null; null scores tie below finite values. Convert unavailable infinite scores
+  to null before invoking the command.
+* ``n_reference_pair``, ``n_reference_alpha``, ``n_reference_beta`` are
+  nonnegative UInt32 integer neighbour counts from the same fixed-radius geometry.
+  Pair support counts common linked reference pairs, not independent chain hits.
+  Null counts mean unavailable support and are treated as zero for routing.
+* ``paired_available`` is a non-null Boolean indicating that both query chains
+  are present and valid. A missing chain makes it false; an observed chain with
+  no reference hits remains available even if its score is null.
+
+Block 1 requires common-pair support and orders by ``paired_score``. Block 2
+requires no common-pair support and at least one supported chain; it sums the
+average ranks of alpha and beta scores computed separately within block 2.
+Block 3 orders the remaining queries by ``fallback_score``. Unavailable pairs
+always enter block 3. Equal statistics and equal rank sums remain tied.
+
+Input fields and row order are preserved, with counts normalized to nullable
+UInt32. Output adds ``evidence_block``
+(UInt8, 1/2/3), ``evidence_status`` (``common_reference_pair``,
+``single_chain_only``, ``no_reference_neighbour`` or
+``paired_evidence_unavailable``), ``within_block_rank`` and ``evidence_score``.
+Within each cohort/species/full-pMHC block, average ranks run from 1 to the
+block size n. The score is ``(3 - evidence_block) + within_block_rank / (n + 1)``;
+higher is better, and blocks have strictly disjoint score ranges.
+
+Provide the complete cohort in one invocation: changing its membership can
+change ranks and the block-2 order. Scores are not comparable across batches or
+pMHC populations. Labels are never consumed, and no P-value, E-value, posterior
+or biological specificity probability transfers to this empirical ordering.

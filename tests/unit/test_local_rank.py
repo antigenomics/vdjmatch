@@ -1,10 +1,34 @@
 """Finite exchangeability oracle for ties, censoring and sparse rank evidence."""
-from itertools import combinations
+from itertools import combinations, combinations_with_replacement
 
 import numpy as np
 import pytest
 
 from vdjmatch.evalue.local_rank import local_rank_evidence
+
+
+def test_all_small_binnings_preserve_null_with_data_dependent_far_branch():
+    from vdjmatch.evalue.local_rank import nearest_conditioned_rank
+
+    # Exhaust all tied pooled geometries, label assignments and population sizes.
+    # Bins 2 and 3 are censored: the branch is selected by the observed labels.
+    strict = False
+    for distances in combinations_with_replacement(range(4), 5):
+        for n in range(1, 5):
+            refs, controls, nearest = [], [], []
+            for target in combinations(range(5), n):
+                background = set(range(5)).difference(target)
+                refs.append([sum(distances[i] <= t for i in target) for t in (0, 1)])
+                controls.append([sum(distances[i] <= t for i in background) for t in (0, 1)])
+                first = min(distances[i] for i in target)
+                nearest.append(sum(distances[i] <= first for i in background))
+            N, M = np.full(len(refs), n), np.full(len(refs), 5-n)
+            original = local_rank_evidence(refs, controls, N, M)['rank_bayes_factor']
+            refined = nearest_conditioned_rank(original, np.array(refs)[:, -1], N, M, nearest)
+            assert np.mean(original) == pytest.approx(1, abs=2e-14)
+            assert np.mean(refined) <= 1 + 2e-14
+            strict |= np.mean(refined) < 1 - 2e-14
+    assert strict  # Upper ties can destroy equality, but not the e-value bound.
 
 
 @pytest.mark.parametrize('distances', [(0, 1, 2, 3, 4), (0, 0, 1, 1, 3), (3, 3, 3, 3, 3)])

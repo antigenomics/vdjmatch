@@ -15,11 +15,14 @@ def nearest_conditioned_rank(score, near_count, reference_population,
                              control_population, nearest_control_count):
     """Refine the all-censored mean using the observed first-reference rank.
 
-    If no target occurs in the radius, the first target has control rank k+1.
-    The remaining N-1 targets have null-conditional mean reciprocal rank over
-    [k+1,M+1]. Existing multi-reference evidence with radius support is unchanged.
-    Counting all control ties at the nearest distance is conservative. This is
-    conditional rank-model evidence, not calibrated specificity confidence.
+    With no ties, conditional on k controls preceding the first target, each
+    remaining labelled target has uniform marginal rank over [k+1,M+1]; their
+    ordered ranks need not be uniform or independent. Existing evidence with
+    radius support is unchanged. For fixed pooled distances and cutoffs under
+    exchangeable labels, this refinement preserves null expectation one.
+    Counting all control ties at the nearest distance can only lower the score,
+    giving expectation at most one, not a normalized Bayes factor in general.
+    This is conditional model evidence, not calibrated specificity confidence.
     """
     bf, n, N, M, k = [np.asarray(x, dtype=float) for x in
                      (score, near_count, reference_population,
