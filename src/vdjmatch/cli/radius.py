@@ -8,9 +8,12 @@ def register(subparsers):
     p.add_argument('--species', default='HomoSapiens')
     p.add_argument('--locus', choices=['TRA', 'TRB', 'paired'], required=True)
     p.add_argument('--epitope', action='append')
+    p.add_argument('--targets-from-sample', help='profile compatible pMHC unions declared by this AIRR sample')
     p.add_argument('--junction-ends', choices=['tcrdist', 'trim3'], default='trim3')
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--knee-floor-factor', type=float, default=.5)
+    p.add_argument('--coverage-radius-factor', type=float, default=22.5,
+                   help='coverage radius in shared substitution-matrix scale units')
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
 
@@ -25,7 +28,8 @@ def main(a):
     from ..evalue.control import _organism
     from ..evalue.paired import build_paired_ref
     from ..match.tcrdist import (load_v_loops, resolve_v_alleles, reference_nearest_distances,
-                                kneedle_radius, regularize_reference_radii)
+                                kneedle_radius, regularize_reference_radii, reference_structure,
+                                distance_units)
 
     if a.threads < 1:
         raise ValueError('positive threads required')
@@ -39,7 +43,17 @@ def main(a):
     source = build_paired_ref(raw.filter(pl.col('reference_valid'))) if paired else raw
     model = load_v_loops(organism)
     radii, nearest = [], []
-    for key, observations in source.group_by(PMHC, maintain_order=True):
+    if a.targets_from_sample:
+        from ..io.airr import _read_table
+        from .historical import assayed_targets
+        targets = _read_table(a.targets_from_sample)
+        if 'query_id' not in targets.columns:
+            targets = targets.with_row_index('query_id')
+        groups = ((tuple(task[c] for c in PMHC), selected) for task, _, selected in
+            assayed_targets(targets.select('query_id'), targets, source, a.species))
+    else:
+        groups = source.group_by(PMHC, maintain_order=True)
+    for key, observations in groups:
         fields = []
         for i in range(2 if paired else 1):
             suffix = ('alpha', 'beta')[i]
@@ -61,12 +75,14 @@ def main(a):
             threads=a.threads, ctrim=2 if a.junction_ends == 'tcrdist' else 3)
         finite = np.isfinite(distances)
         radius = kneedle_radius(distances[finite])
+        coverage, shape = reference_structure(distances, radius_factor=a.coverage_radius_factor)
         context = {'species': reference_species, 'locus': a.locus, **dict(zip(PMHC, key))}
         radii.append({**context, 'source_observations': observations.height,
             'source_unit': 'linked_pair_observation' if paired else 'chain_record',
             'unavailable_observations': observations.height-retained.height,
             'reference_keys': frame.height, 'nearest_keys': int(finite.sum()),
             'no_nonexact_neighbour_keys': int((~finite).sum()), 'raw_radius': radius,
+            'reference_coverage': coverage, 'knee_shape': shape,
             'radius_status': 'knee' if radius is not None else 'no_knee'})
         nearest.append(frame.with_row_index('reference_key_id').with_columns(
             pl.Series('nearest_distance', distances, nan_to_null=True),
@@ -88,7 +104,8 @@ def main(a):
     radius_schema = {**context_schema, 'source_observations': pl.UInt64, 'source_unit': pl.String,
         **{c: pl.UInt64 for c in ['unavailable_observations', 'reference_keys', 'nearest_keys',
                                   'no_nonexact_neighbour_keys']},
-        **{c: pl.Float64 for c in ['raw_radius', 'radius', 'radius_floor']},
+        **{c: pl.Float64 for c in ['raw_radius', 'radius', 'radius_floor',
+                                  'reference_coverage', 'knee_shape']},
         'floor_source': pl.String, 'radius_status': pl.String}
     pl.DataFrame(radii, schema=radius_schema).write_csv(str(prefix)+'.radii.tsv', separator='\t')
     if nearest:
@@ -96,6 +113,10 @@ def main(a):
     manifest = {'reference': db.provenance(a.vdjdb), 'options': vars(a) | {'func': 'reference-radius'},
         'source_chain_records': raw.height, 'valid_source_chain_records': int(raw['reference_valid'].sum()),
         'radius_selection': 'reference-only nonexact nearest distances; strongest confirmed offline Kneedle S=1 bend, convex sorted curve, no smoothing',
+        'structure_features': {'coverage_radius_factor': a.coverage_radius_factor,
+            'matrix_scale': distance_units()[0],
+            'coverage_denominator': 'all distinct full-junction/resolved-V reference keys',
+            'knee_shape': 'maximum normalized convex bend; zero for flat/short curves'},
         'degenerate_knee_guard': {'factor': a.knee_floor_factor, 'floor': floor,
             'source': floor_source, 'scope': 'same species, locus and junction geometry',
             'raised_knees': sum(r['radius_status'] == 'knee_floored' for r in radii)},
