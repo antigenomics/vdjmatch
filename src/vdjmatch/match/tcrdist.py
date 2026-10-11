@@ -13,7 +13,7 @@ from seqtree import SubstitutionMatrix, amino_acids, gapblock
 
 
 def kneedle_radius(distances):
-    """First confirmed knee of sorted nearest distances, or None.
+    """Strongest confirmed knee of sorted nearest distances, or None.
 
     Offline Kneedle on an increasing distance curve: unit-square normalization,
     convex-curve difference x-y, local maxima and fixed sensitivity S=1. The
@@ -33,7 +33,7 @@ def kneedle_radius(distances):
     peaks = find_peaks(difference)[0]
     minima = find_peaks(-difference)[0]
     step = 1/(len(values)-1)
-    for peak in peaks:
+    for peak in sorted(peaks, key=lambda i: difference[i], reverse=True):
         if difference[peak] <= 8*np.finfo(float).eps:
             continue
         following = minima[minima > peak]

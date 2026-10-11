@@ -619,7 +619,7 @@ def main(a):
             'matrix_work_budget_bytes':32*1024**2,
             'independent_marginal_baseline':'not emitted; requires separate full compatible single-chain reference axes'} if paired else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
-        **({'reference_radius':{'selection':'reference-only nonexact leave-one-junction-out nearest-distance Kneedle S=1; no smoothing',
+        **({'reference_radius':{'selection':'reference-only nonexact leave-one-junction-out nearest-distance strongest confirmed Kneedle S=1 bend; no smoothing',
             'floor_factor':a.knee_floor_factor,'floor':floor,'floor_source':floor_source,
             'scope':'one species/locus/uniform geometry; compatible full-pMHC target unions',
             'fallback_radius':a.radius,'rounding':'ceil to integer distance bins',

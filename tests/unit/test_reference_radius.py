@@ -18,6 +18,12 @@ def test_kneedle_scale_ties_and_no_knee():
             tcrdist.kneedle_radius(values)
 
 
+def test_kneedle_uses_strongest_confirmed_bend_not_minor_leading_bump():
+    curve=[0]*5+[15,15]+list(range(16,36))+[70,100,140]
+    assert tcrdist.kneedle_radius(curve)==35
+    assert tcrdist.kneedle_radius(np.array(curve)*200)==7000
+
+
 def test_degenerate_knee_floor_is_scale_equivariant_and_geometry_local():
     raw = np.array([0, .01, 10, 20, np.nan])
     got, floor, source = tcrdist.regularize_reference_radii(raw, [1, 2, 3])

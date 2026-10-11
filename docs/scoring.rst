@@ -419,6 +419,8 @@ indices. For this increasing convex curve, Kneedle considers local maxima of
 than :math:`1/(n-1)` before the following local minimum. Sensitivity is fixed
 at one; the observed monotone curve is used without smoothing. Endpoints,
 flat curves and curves shorter than three observations supply no knee.
+Among confirmed candidates, the largest normalized difference wins; a minor
+leading bump cannot override a stronger later bend. Ties select the earlier bend.
 See `Kneedle, section III <https://raghavan.usc.edu/papers/kneedle-simplex11.pdf>`_.
 
 A zero or near-zero knee is floored at half the median positive knee within

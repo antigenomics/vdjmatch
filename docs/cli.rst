@@ -776,7 +776,8 @@ within each reference full-pMHC group::
    vdjmatch reference-radius --vdjdb REFERENCE --locus paired --threads 4 \
       --output-prefix reference-radii
 
-Outputs ``.radii.tsv``, ``.nearest.tsv`` and a provenance manifest. Distinct full
+The strongest confirmed normalized Kneedle bend wins. Outputs ``.radii.tsv``,
+``.nearest.tsv`` and a provenance manifest. Distinct full
 junction/resolved-V keys define the search population; paired mode uses genuine
 linked receptors and the summed distance to the same reference pair. Source
 observation counts and unavailable keys remain explicit.

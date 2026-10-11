@@ -95,7 +95,7 @@ def main(a):
         pl.concat(nearest).write_csv(str(prefix)+'.nearest.tsv', separator='\t')
     manifest = {'reference': db.provenance(a.vdjdb), 'options': vars(a) | {'func': 'reference-radius'},
         'source_chain_records': raw.height, 'valid_source_chain_records': int(raw['reference_valid'].sum()),
-        'radius_selection': 'reference-only nonexact nearest distances; offline Kneedle S=1, convex sorted curve, no smoothing',
+        'radius_selection': 'reference-only nonexact nearest distances; strongest confirmed offline Kneedle S=1 bend, convex sorted curve, no smoothing',
         'degenerate_knee_guard': {'factor': a.knee_floor_factor, 'floor': floor,
             'source': floor_source, 'scope': 'same species, locus and junction geometry',
             'raised_knees': sum(r['radius_status'] == 'knee_floored' for r in radii)},

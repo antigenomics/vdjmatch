@@ -868,7 +868,7 @@ applies to reference and background populations. Kneedle normalises the curve in
 unit square: $x_i=i/(n-1)$ and $y_i=(d_i-d_0)/(d_{n-1}-d_0)$.
 On this increasing convex curve a local maximum of $x_i-y_i$ is confirmed if the
 following difference falls by more than $1/(n-1)$ before the next local minimum
-(fixed sensitivity $S=1$; no fitted smoothing). Endpoints, flat curves and fewer
+(fixed sensitivity $S=1$; no fitted smoothing). Among confirmed candidates the largest normalised difference wins, with earlier candidates resolving ties. A minor leading bump cannot override a stronger later bend. Endpoints, flat curves and fewer
 than three observations yield no knee. The primary method description is
 \href{https://raghavan.usc.edu/papers/kneedle-simplex11.pdf}{Kneedle, section III}.
 
