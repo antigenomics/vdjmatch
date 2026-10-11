@@ -78,7 +78,7 @@ def shared_control_histograms(control, batches, *, threads=1):
 
 
 def density(queries, reference, control, *, threads=1, pool_reference=False, control_counts=None,
-            puncture_populations=False, return_edges=False):
+            puncture_populations=False):
     """Return keyed PSSM density and original radius<=1 significance component.
 
     The original exp(-P/400) kernel is a tempered, self-normalised BLOSUM
@@ -91,8 +91,6 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
     selects compatible MHC records first. Heterogeneous MHC output fields are null.
     Candidate ``puncture_populations`` also removes exact matches from population
     sizes. An empty remaining population yields missing score/significance.
-    ``return_edges`` additionally returns existing raw kernel/control hits, including
-    identity for full-pair puncturing. It performs no additional sequence search.
     """
     if threads < 1 or not len(control):
         raise ValueError("positive threads and a nonempty control are required")
@@ -101,7 +99,7 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
     if puncture_populations:
         exact = Counter(control.ref_seqs())
         control_sizes = {s:len(control)-exact[s] for s in seqs}
-    rows = []; edges = []
+    rows = []
     if pool_reference:
         for column in ('epitope', 'species', 'gene'):
             if column in reference.columns and reference[column].n_unique() > 1:
@@ -132,20 +130,13 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
             s, v = query['cdr3'], query['v']
             nr, nc_population = reference_sizes[s], control_sizes[s]
             total = 0.0 if nr and nc_population else None
-            for hit in hits[s] if total is not None or return_edges else []:
-                kernel=math.exp(-hit.score/400.0)
-                if return_edges:
-                    edges.append({'query_id':query['query_id'],**dict(zip(PMHC,key)),
-                        'reference_junction':rs[hit.ref_id],'kernel':kernel,
-                        'n_control':counts[s][hit.n_subs],'control_size':nc_population})
-                if total is None:
-                    continue
+            for hit in hits[s] if total is not None else []:
                 if rs[hit.ref_id] == s:
                     continue
                 ref_v = rv[hit.ref_id]
                 weight = 1.0 if gene_family(v) == gene_family(ref_v) else .25*vsim(v,ref_v)
                 nc = counts[s][hit.n_subs]
-                total += weight*kernel/max(nr/nc_population*nc,.01)
+                total += weight*math.exp(-hit.score/400.0)/max(nr/nc_population*nc,.01)
             rows.append({'query_id':query['query_id'], **dict(zip(PMHC,key)),
                          'score':total, 'p_enrichment':significance[s],
                          'n_reference':nr,'control_size':nc_population,
@@ -153,70 +144,7 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
     schema={'query_id':queries.schema['query_id'], **{c:pl.String for c in PMHC},
             'score':pl.Float64,'p_enrichment':pl.Float64,'n_reference':pl.UInt64,
             'control_size':pl.UInt64,'estimator':pl.String}
-    scored=pl.DataFrame(rows,schema=schema)
-    if return_edges:
-        edge_schema={'query_id':queries.schema['query_id'],**{c:pl.String for c in PMHC},
-            'reference_junction':pl.String,'kernel':pl.Float64,'n_control':pl.UInt64,'control_size':pl.UInt64}
-        return scored,pl.DataFrame(edges,schema=edge_schema)
-    return scored
-
-
-def linked_density(queries, reference, alpha_edges, beta_edges, *, exclude_exact=True):
-    """Original kernels against the same linked reference receptor, without searches.
-
-    Sum K_alpha*K_beta with original V weights, dividing each pair's contribution
-    by max(N*C_alpha/M_alpha*C_beta/M_beta,.01). N counts distinct full junction
-    pairs after optional full-pair puncturing. The control product is an explicit
-    independent-chain model, not a calibrated joint P-value or binding probability.
-    Missing linked references yield null, leaving marginal evidence available.
-    Inputs belong to one already-selected target/species, as in pooled density.
-    """
-    from ..evalue.paired import build_paired_ref
-    if queries['query_id'].null_count() or queries['query_id'].n_unique()!=queries.height:
-        raise ValueError('linked density requires unique non-null query_id')
-    for c in ('species','epitope'):
-        if c in reference.columns and reference[c].n_unique()>1:
-            raise ValueError('linked density requires one '+c)
-    order=reference.select('complex_id').unique(maintain_order=True).with_row_index('_source_order')
-    ref=(build_paired_ref(reference).join(order,on='complex_id',validate='1:1').sort('_source_order')
-         .unique(['alpha','beta'],keep='first',maintain_order=True))
-    base=queries.select('query_id','cdr3a','cdr3b','va','vb')
-    own=ref.select(pl.col('alpha').alias('cdr3a'),pl.col('beta').alias('cdr3b')).with_columns(
-        pl.lit(1,dtype=pl.UInt64).alias('_own'))
-    base=base.join(own,on=['cdr3a','cdr3b'],how='left',validate='m:1',maintain_order='left').with_columns(
-        (pl.lit(ref.height,dtype=pl.UInt64)-
-         (pl.col('_own').fill_null(0) if exclude_exact else pl.lit(0,dtype=pl.UInt64))).alias('n_linked_reference'))
-    hits=ref.select('complex_id','alpha','beta','v_alpha','v_beta')
-    for name,column,edge,query_v in [('alpha','alpha',alpha_edges,'va'),('beta','beta',beta_edges,'vb')]:
-        keys=['query_id','reference_junction']
-        if edge.select(keys).unique().height!=edge.height:
-            raise ValueError('linked density requires one edge per query and reference junction')
-        selected=edge.select('query_id',pl.col('reference_junction').alias(column),
-            *[pl.col(c).alias(c+'_'+name) for c in ('kernel','n_control','control_size')])
-        hits=hits.join(selected,on=column,how='inner') if name=='alpha' else hits.join(
-            selected,on=['query_id',column],how='inner')
-    hits=hits.join(base,on='query_id',how='inner',validate='m:1')
-    if exclude_exact:
-        hits=hits.filter(~((pl.col('alpha')==pl.col('cdr3a'))&(pl.col('beta')==pl.col('cdr3b'))))
-    hits=hits.filter((pl.col('control_size_alpha')>0)&(pl.col('control_size_beta')>0)&
-                     (pl.col('n_linked_reference')>0))
-    for name,query_v in [('alpha','va'),('beta','vb')]:
-        ref_v='v_'+name
-        genes=hits.select(query_v,ref_v).unique(maintain_order=True)
-        weights=[1. if gene_family(q)==gene_family(r) else .25*vsim(q,r)
-                 for q,r in genes.iter_rows()]
-        genes=genes.with_columns(pl.Series('_weight_'+name,weights,dtype=pl.Float64))
-        hits=hits.join(genes,on=[query_v,ref_v],how='left',validate='m:1')
-    masses=hits.with_columns((pl.col('kernel_alpha')*pl.col('kernel_beta')*
-        pl.col('_weight_alpha')*pl.col('_weight_beta')/
-        (pl.col('n_linked_reference')*(pl.col('n_control_alpha')/pl.col('control_size_alpha'))*
-         (pl.col('n_control_beta')/pl.col('control_size_beta'))).clip(lower_bound=.01)).alias('_mass'))
-    total=masses.group_by('query_id').agg(pl.col('_mass').sum().alias('linked_density'),
-                                         pl.len().cast(pl.UInt64).alias('linked_hit_count'))
-    return base.select('query_id','n_linked_reference').join(total,on='query_id',how='left',
-        validate='1:1',maintain_order='left').with_columns(
-            pl.when(pl.col('n_linked_reference')>0).then(pl.col('linked_density').fill_null(0))
-            .otherwise(None).alias('linked_density'),pl.col('linked_hit_count').fill_null(0))
+    return pl.DataFrame(rows,schema=schema)
 
 
 def germline_prior(queries, reference, background, *, include_length=True, exclude_exact=False):
