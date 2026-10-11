@@ -144,13 +144,22 @@ def normalize(df: pl.DataFrame) -> pl.DataFrame:
             .otherwise(None)
             .alias("vdjdb_score")
         )
-    df = df.with_columns(
-        (
-            pl.col("cdr3").is_not_null()
-            & pl.col("cdr3").cast(pl.String).str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$")
-        )
-        .fill_null(False)
-        .alias("reference_valid")
+    junction_valid = (
+        pl.col("cdr3").is_not_null()
+        & pl.col("cdr3").cast(pl.String).str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$")
+    ).fill_null(False)
+    # Source-defined curation, never a motif/length screen on natural receptors.
+    # Retain excluded observations for provenance; all matching routes use this flag.
+    reason = (
+        pl.when(pl.col("epitope").str.strip_chars().str.to_uppercase() == "KLGGALQAK")
+        .then(pl.lit("KLGGALQAK_artifact"))
+        .when(pl.col("reference_id").cast(pl.String).str.contains(r"(?:^|[^0-9])40498839(?:[^0-9]|$)").fill_null(False))
+        .then(pl.lit("engineered_phage_library_PMID40498839"))
+        .when(~junction_valid).then(pl.lit("invalid_junction"))
+        .otherwise(pl.lit(None, dtype=pl.String))
+    )
+    df = df.with_columns(reason.alias("reference_exclusion_reason")).with_columns(
+        pl.col("reference_exclusion_reason").is_null().alias("reference_valid")
     )
     df = df.with_columns(
         pl.col("mhc_class").replace({"MHC-I": "MHCI", "MHC-II": "MHCII"})
