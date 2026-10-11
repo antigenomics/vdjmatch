@@ -19,7 +19,105 @@ def register(subparsers):
     apply.add_argument('--calibration', required=True, help='matching scorer/reference calibrate-calls JSON')
     apply.add_argument('--output', required=True)
     apply.set_defaults(func=apply_main)
+    composite = subparsers.add_parser('composite-evidence', help='experimental two-scorer evidence on a fixed empirical background scale')
+    composite.add_argument('cases', help='TSV: unique query_id, original_score, conditional_score')
+    composite.add_argument('--background', required=True, help='same scored background queries for both scorers, independent of cases')
+    composite.add_argument('--paired', action='store_true', help='rank original alpha/beta density and germline components against the fixed background')
+    composite.add_argument('--output', required=True)
+    composite.set_defaults(func=composite_main)
     return parser
+
+
+def composite_evidence(frame, background, *, paired=False):
+    """Bonferroni minimum of two upper empirical tails on a fixed background.
+
+    One target/species/locus/geometry per call. Background rows retain draw
+    multiplicity and no-score queries. Only scores/IDs are read, never labels.
+    Exchangeability of background and null test scores is required for a null
+    bound; it is not established by these tables or by database annotations.
+    """
+    import numpy as np
+    import polars as pl
+    components = ['original_alpha_density_score', 'original_beta_density_score', 'original_germline_lr']
+    fields = [*(components if paired else ['original_score']), 'conditional_score']
+    outputs = ['p_original_empirical', 'p_conditional_empirical', 'p_composite_empirical', 'score', 'composite_status']
+    if set(outputs) & set(frame.columns):
+        raise ValueError('composite output columns already exist')
+    for name, table in [('cases', frame), ('background', background)]:
+        if missing := {'query_id', *fields} - set(table.columns):
+            raise ValueError(name+' missing columns: '+', '.join(sorted(missing)))
+        if table['query_id'].null_count() or table['query_id'].n_unique() != table.height:
+            raise ValueError(name+' query_id must be unique and non-null')
+        for field in fields:
+            if not table[field].cast(pl.Float64).drop_nulls().is_finite().all():
+                raise ValueError(name+' non-null scores must be finite; use null for no evidence')
+    for field in ['species', 'locus', 'epitope', 'mhc_a', 'mhc_b', 'mhc_class', 'reference_sha256', 'scoring_sha256']:
+        if field in frame.columns or field in background.columns:
+            if field not in frame.columns or field not in background.columns:
+                raise ValueError('context column required in both tables: '+field)
+            values = background[field].unique().to_list()
+            if len(values) != 1 or any(v != values[0] for v in frame[field].unique().to_list()):
+                raise ValueError('one matching target/scorer context required: '+field)
+    if not background.height:
+        raise ValueError('nonempty background required')
+    if paired:
+        raw_query = frame.select(pl.col(components).cast(pl.Float64)).to_numpy()
+        raw_control = background.select(pl.col(components).cast(pl.Float64)).to_numpy()
+        valid_query = np.isfinite(raw_query).all(axis=1)
+        valid_control = np.isfinite(raw_control).all(axis=1)
+        query_rank = np.zeros(frame.height)
+        control_rank = np.zeros(background.height)
+        for i in range(3):
+            axis = np.sort(raw_control[valid_control, i])
+            query_rank += np.searchsorted(axis, raw_query[:, i], side='right')
+            control_rank += np.searchsorted(axis, raw_control[:, i], side='right')
+        original_query = np.where(valid_query, query_rank, np.nan)
+        original_control = control_rank[valid_control]
+    else:
+        original_query = frame['original_score'].cast(pl.Float64).to_numpy()
+        original_control = background['original_score'].cast(pl.Float64).drop_nulls().to_numpy()
+    pairs = [(original_query, original_control),
+        (frame['conditional_score'].cast(pl.Float64).to_numpy(),
+         background['conditional_score'].cast(pl.Float64).drop_nulls().to_numpy())]
+    tails, available = [], []
+    for scores, values in pairs:
+        controls = np.sort(values)
+        present = np.isfinite(scores)
+        tail = np.ones(frame.height)
+        tail[present] = (1+len(controls)-np.searchsorted(controls, scores[present], side='left'))/(background.height+1)
+        tails.append(tail)
+        available.append(present)
+    combined = np.minimum(1., 2*np.minimum(*tails))
+    observed = available[0] | available[1]
+    return frame.with_columns(
+        pl.Series(outputs[0], tails[0]), pl.Series(outputs[1], tails[1]), pl.Series(outputs[2], combined),
+        pl.Series('score', np.where(observed, -np.log10(combined), np.nan), nan_to_null=True),
+        pl.Series('composite_status', np.where(~observed, 'no_evidence',
+            np.where(available[0] & available[1], 'available', 'single_scorer'))))
+
+
+def composite_main(args):
+    import json
+    from ..db.cache import sha256
+    from ..io.airr import _read_table
+    cases, background = _read_table(args.cases), _read_table(args.background)
+    if sha256(Path(args.cases)) == sha256(Path(args.background)):
+        raise ValueError('cases and background must not be the same scored table')
+    out = composite_evidence(cases, background, paired=args.paired)
+    target = Path(args.output)
+    manifest = Path(str(target)+'.manifest.json')
+    if {target.resolve(), manifest.resolve()} & {Path(args.cases).resolve(), Path(args.background).resolve()}:
+        raise ValueError('output must not overwrite inputs')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    out.write_csv(target, separator='\t')
+    manifest.write_text(json.dumps({'input_sha256': sha256(Path(args.cases)),
+        'background_sha256': sha256(Path(args.background)), 'queries': cases.height,
+        'background_queries': background.height, 'query_labels_used': False,
+        'paired_original': 'sum of inclusive background component ranks; conservative compared with pooled-query/full conformal rank' if args.paired else None,
+        'formula': 'p_j=(1+number of background scores >= query score)/(background queries+1); p=min(1,2*min(p_original,p_conditional)); score=-log10(p)',
+        'status': 'experimental_unvalidated_composite',
+        'limitations': 'One target/species/locus/geometry and identical frozen scorer/reference/selection policies for cases/background are required but not inferred from tables. Background/null-score exchangeability is unproved. Not a binder probability or default promotion.'}, indent=2)+'\n')
+    return 0
 
 
 def apply_calibration(frame, calibration):

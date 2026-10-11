@@ -636,6 +636,51 @@ at that budget and honors a smaller parent ``POLARS_MAX_THREADS`` allocation.
 The native sequence engine still receives the requested ``--threads`` value.
 Malformed parent thread allocations fail before loading inputs.
 
+vdjmatch composite-evidence
+----------------------------
+
+The experimental composite compares two scorers on a fixed background scale:
+
+.. code-block:: bash
+
+   vdjmatch composite-evidence queries.tsv --background background.tsv --output composite.tsv
+   vdjmatch composite-evidence paired-queries.tsv --background paired-background.tsv --paired --output paired-composite.tsv
+
+Each table contains unique ``query_id`` values and ``conditional_score``. The
+single-chain form additionally takes ``original_score``. The paired form instead
+takes ``original_alpha_density_score``, ``original_beta_density_score`` and
+``original_germline_lr``; it ranks these raw components against the fixed background
+and sums their inclusive ranks. It does not use the original cohort-dependent
+paired score. Scores remain unchanged when unrelated queries join the input batch.
+The original paired components use all eligible per-chain references, including
+unlinked records. Missing linked conditional evidence does not veto these marginal
+components. TRA-only and TRB-only inputs use the single-chain form; each query mode
+needs its own whole-pipeline call calibration.
+
+Use one declared target/species/locus/geometry per invocation and the identical
+frozen scoring/reference policy for both tables. Present target, species/locus and
+reference/scoring hash columns must be constant and match across both tables.
+Background scores must be produced without query assay labels. Input labels remain
+metadata; neither rule activation nor score combination uses them. Missing scores
+stay in the background denominator and do not provide query evidence.
+
+For each scorer, the upper empirical tail is ``(1 + background scores >= query
+score)/(background queries + 1)``. Ties are conservative. The composite takes
+``min(1, 2 * min(p_original, p_conditional))`` and exports its negative base-10
+logarithm as ``score``. A query lacking both scores has a null score and
+``composite_status=no_evidence``. The factor two accounts for choosing between
+scorers without assuming independence. Paired fixed-background component ranks
+give an upper bound on the corresponding pooled-query rank tail.
+This accounts for two scorers, not for searching many epitope labels; winning-label
+selection still needs the separate whole-pipeline any-call calibration.
+
+These null bounds require exchangeable background and null-query score tuples;
+VDJdb sampling and other-epitope annotation do not establish that assumption.
+The output is not a biological binder probability. No full raw-input performance
+validation or default promotion has occurred. Whole-pipeline null-call calibration
+and the existing ranking/nonregression checks are still required. The command
+reduces freshly produced evidence; it does not generate missing background scores.
+
 vdjmatch apply-call-calibration
 -------------------------------
 
