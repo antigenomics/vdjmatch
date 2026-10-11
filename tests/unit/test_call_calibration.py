@@ -142,3 +142,49 @@ def test_apply_frozen_calibration_rejects_without_using_query_outcomes(tmp_path)
     Path(args.calibration).write_text(json.dumps(frozen))
     with pytest.raises(ValueError, match='overwrite'):
         calibration.apply_main(args)
+
+
+def test_frozen_null_tails_keep_ties_nohits_and_sources_separate():
+    queries = pl.DataFrame({'query_id':['x','y','z'], 'score':[8.,11.,None],
+                            'outcome':['incorrect']*3})
+    nulls = pl.DataFrame({'query_id':['a','b','c','d','e'],
+        'score':[8.,8.,None,10.,None], 'outcome':['null']*5,
+        'null_source':['withheld']*3+['generated']*2})
+    scored, tails = calibration.null_tail_probabilities(queries, nulls)
+    assert scored.select(queries.columns).equals(queries)
+    assert scored['p_null'].to_list() == pytest.approx([.75,1/3,1.])
+    assert scored['E_null'].to_list() == pytest.approx([2/3,0.,0.])
+    withheld = tails.filter(pl.col('null_source')=='withheld')
+    assert withheld['null_queries'].to_list() == [3]*3
+    assert withheld['null_tail_count'].to_list() == [2,0,0]
+    lower_queries = queries.with_columns((-pl.col('score')).alias('score'))
+    lower_nulls = nulls.with_columns((-pl.col('score')).alias('score'))
+    lower, _ = calibration.null_tail_probabilities(lower_queries,lower_nulls,higher_is_better=False)
+    assert lower.select('p_null','E_null').equals(scored.select('p_null','E_null'))
+    with pytest.raises(ValueError,match='null'):
+        calibration.null_tail_probabilities(queries,nulls.with_columns(pl.lit('correct').alias('outcome')))
+    with pytest.raises(ValueError,match='finite'):
+        calibration.null_tail_probabilities(queries.with_columns(pl.lit(float('inf')).alias('score')),nulls)
+
+
+def test_cli_null_tails_are_bound_to_frozen_calibration_input(tmp_path):
+    parser=argparse.ArgumentParser();calibration.register(parser.add_subparsers())
+    cases=tmp_path/'calibration.tsv'
+    pl.DataFrame({'query_id':['label','n1','n2','n3'],'score':[9.,8.,8.,None],
+        'outcome':['correct','null','null','null'],
+        'null_source':[None,'withheld','withheld','withheld']}).write_csv(cases,separator='\t')
+    prefix=tmp_path/'recipe'
+    assert calibration.main(parser.parse_args(['calibrate-calls',str(cases),
+        '--target-fpr','.7','--output-prefix',str(prefix)]))==0
+    query=tmp_path/'query.tsv';out=tmp_path/'out.tsv'
+    pl.DataFrame({'query_id':['x','y'],'score':[8.,None]}).write_csv(query,separator='\t')
+    args=parser.parse_args(['apply-call-calibration',str(query),'--calibration',
+        str(prefix)+'.calibration.json','--null-cases',str(cases),'--output',str(out)])
+    assert calibration.apply_main(args)==0
+    result=pl.read_csv(out,separator='\t')
+    assert result['p_null'].to_list()==[.75,1.]
+    assert result['E_null'].to_list()==pytest.approx([2/3,0.])
+    assert pl.read_csv(str(out)+'.null-tails.tsv',separator='\t').height==2
+    cases.write_text(cases.read_text()+'\n')
+    with pytest.raises(ValueError,match='hash'):
+        calibration.apply_main(args)

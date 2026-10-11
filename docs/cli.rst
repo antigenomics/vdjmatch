@@ -685,6 +685,22 @@ The manifest records both input hashes and exact accepted/rejected/no-score coun
 Input label columns, if present, remain metadata or candidate evidence; they are
 not accepted predictions when ``call_status`` is ``no_supported_match``.
 
+Add ``--null-cases calibration-input.tsv`` to report per-query ``p_null`` and
+``E_null`` from the frozen null scores. This must be the original combined
+``calibrate-calls`` input: its SHA-256 must match the saved recipe. Only rows
+with ``outcome=null`` define tails. For each source, let N be all null queries
+(including no-hits), and k the number whose selected scores are at least as
+extreme as the query score (including ties). Then P=(k+1)/(N+1) and E=k/N.
+The output uses the largest value across sources and exports every source's k,
+N, P and E to ``calls.tsv.null-tails.tsv``. An unsupported query has P=1 and E=0.
+Input scores and the frozen cutoff decision remain unchanged.
+
+P is a conservative rank P-value under exchangeability of query and null scores
+from the same complete selection pipeline. E is the observed expected false
+calls per query at that fixed score threshold; it is not a confidence bound.
+These tails do not establish biological binding probability or independence of
+peptide-withheld observations. Query outcome labels do not enter this calculation.
+
 Use a calibration produced by the same entire scorer, reference, geometry and
 winning-label selection pipeline. This command does not automatically bind those
 identities or change the annotation API's default decisions. It supplies the

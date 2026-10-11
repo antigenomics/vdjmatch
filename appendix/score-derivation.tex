@@ -303,6 +303,23 @@ count; it is not the tail of $S_{\rm old}$ or of paired cohort-rank fusion.
 The existing \code{calibrate-calls} and \code{apply-call-calibration} commands supply
 optional whole-call thresholds while retaining all continuous ranking scores.
 
+For a frozen complete selected score $T$, null source $b$ supplies $N_b$
+queries including no-hits. At an observed finite score $t$, let
+$k_b(t)=\#\{i:T_{bi}\ge t\}$ for a higher-is-better score (reverse the
+inequality for lower-is-better scores). The shipping calibration application reports
+\[
+ p_{\rm null}(t)=\max_b\frac{k_b(t)+1}{N_b+1},\qquad
+ E_{\rm null}(t)=\max_b\frac{k_b(t)}{N_b}.
+\]
+Equality ties are included. The first is a conservative rank tail under
+exchangeability with the represented null source; the second is an empirical
+false-call expectation per query at the fixed score threshold, not a confidence
+bound. No-hit nulls remain in $N_b$; unsupported query scores receive $p=1,E=0$.
+The original score and frozen cutoff decision are preserved. The command requires
+the original calibration-input hash and exports source-specific counts and tails.
+The same full scoring/label-selection pipeline is required; no new scoring model
+or biological binding-probability claim is introduced.
+
 \textbf{Benchmark baseline scope.} In the AP comparisons below, \code{original\_score} means
 the \code{historical-density} CLI output, not NED-v1 from \code{aggregate.candidates} or the
 paired API exponential sum. For fewer than 500 unique target junctions its unpaired score is

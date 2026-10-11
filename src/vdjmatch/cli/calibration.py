@@ -17,6 +17,7 @@ def register(subparsers):
     apply = subparsers.add_parser('apply-call-calibration', help='reject independent query calls using a frozen empirical cutoff')
     apply.add_argument('cases', help='TSV: unique query_id and score; other columns are preserved evidence')
     apply.add_argument('--calibration', required=True, help='matching scorer/reference calibrate-calls JSON')
+    apply.add_argument('--null-cases', help='original calibrate-calls input, hash-bound to the frozen recipe; add per-query null tails')
     apply.add_argument('--output', required=True)
     apply.set_defaults(func=apply_main)
     return parser
@@ -58,22 +59,85 @@ def apply_calibration(frame, calibration):
         pl.when(accepted).then(pl.lit('accepted')).otherwise(pl.lit('no_supported_match')).alias('call_status'))
 
 
+
+def null_tail_probabilities(frame, nulls, *, higher_is_better=True):
+    """Tail of the existing selected score against each frozen null population.
+
+    P=(1+number of null scores at least as extreme)/(1+all null queries),
+    retaining ties and no-hits. It is a conservative rank P-value if query and
+    null scores are exchangeable under the same complete pipeline. E=k/N is
+    the observed expected false calls per query at that score threshold, not a
+    confidence bound. Maxima retain the most conservative represented source.
+    Unsupported queries have P=1/E=0 because they make no call.
+    """
+    import numpy as np
+    import polars as pl
+    if {'p_null','E_null'} & set(frame.columns):
+        raise ValueError('null-tail output columns already exist')
+    for part in (frame, nulls):
+        if missing := {'query_id','score'} - set(part.columns):
+            raise ValueError('missing columns: '+', '.join(sorted(missing)))
+        if part['query_id'].null_count() or part['query_id'].n_unique()!=part.height:
+            raise ValueError('query_id must be unique and non-null; reduce candidate labels first')
+        if not part['score'].cast(pl.Float64).drop_nulls().is_finite().all():
+            raise ValueError('non-null scores must be finite')
+    if not nulls.height or not {'outcome','null_source'} <= set(nulls.columns):
+        raise ValueError('nonempty null cases require outcome and null_source')
+    if nulls['outcome'].null_count() or not nulls['outcome'].eq('null').all():
+        raise ValueError('only null outcomes define null tails')
+    if nulls['null_source'].null_count() or nulls['null_source'].cast(pl.String).str.strip_chars().eq('').any():
+        raise ValueError('every null query requires a nonempty null_source')
+    sign=1 if higher_is_better else -1
+    values=sign*frame['score'].cast(pl.Float64).to_numpy()
+    missing=np.isnan(values)
+    p=np.zeros(frame.height); e=np.zeros(frame.height); rows=[]
+    for source in sorted(nulls['null_source'].unique().to_list()):
+        part=nulls.filter(pl.col('null_source')==source)
+        scores=np.sort(sign*part['score'].cast(pl.Float64).drop_nulls().to_numpy())
+        counts=len(scores)-np.searchsorted(scores,values,side='left')
+        counts[missing]=0
+        tail=np.where(missing,1.,(counts+1)/(part.height+1))
+        rate=counts/part.height
+        p=np.maximum(p,tail); e=np.maximum(e,rate)
+        rows.append(frame.select('query_id').with_columns(
+            pl.lit(source).alias('null_source'), pl.lit(part.height).alias('null_queries'),
+            pl.Series('null_tail_count',counts),pl.Series('p_null',tail),pl.Series('E_null',rate)))
+    return frame.with_columns(pl.Series('p_null',p),pl.Series('E_null',e)),pl.concat(rows)
+
+
 def apply_main(args):
     import json
     from ..db.cache import sha256
     from ..io.airr import _read_table
     recipe = Path(args.calibration)
-    out = apply_calibration(_read_table(args.cases), json.loads(recipe.read_text()))
+    frozen = json.loads(recipe.read_text())
+    out = apply_calibration(_read_table(args.cases), frozen)
+    null_path = Path(args.null_cases) if getattr(args,'null_cases',None) else None
+    tails = None
+    if null_path is not None:
+        if sha256(null_path) != frozen.get('input_sha256'):
+            raise ValueError('null cases must match the frozen calibration input hash')
+        nulls = _read_table(null_path)
+        out,tails = null_tail_probabilities(out,nulls.filter(nulls['outcome']=='null'),
+            higher_is_better=frozen['comparison']=='>=')
     target = Path(args.output)
     manifest_path = Path(str(target)+'.manifest.json')
-    if {target.resolve(), manifest_path.resolve()} & {Path(args.cases).resolve(), recipe.resolve()}:
+    tail_path=Path(str(target)+'.null-tails.tsv')
+    inputs={Path(args.cases).resolve(),recipe.resolve()} | ({null_path.resolve()} if null_path else set())
+    if {target.resolve(),manifest_path.resolve(),tail_path.resolve()} & inputs:
         raise ValueError('output must not overwrite inputs')
     target.parent.mkdir(parents=True, exist_ok=True)
     out.write_csv(target, separator='\t')
+    if tails is not None:
+        tails.write_csv(tail_path,separator='\t')
     accepted = int((out['call_status'] == 'accepted').sum())
     manifest = {'input_sha256': sha256(Path(args.cases)), 'calibration_sha256': sha256(recipe),
         'queries': out.height, 'accepted_calls': accepted, 'rejected_queries': out.height-accepted,
         'no_score_queries': out['score'].null_count(), 'query_labels_used': False,
+        **({'null_cases_sha256':sha256(null_path),'null_tail_table_sha256':sha256(tail_path),
+            'P_definition':'max source (k+1)/(N+1), including ties and no-hit null queries; exchangeability-conditional rank P, no-score P1',
+            'E_definition':'max source k/N, observed false calls per query at the given score; no-score E0; not biological binding probability',
+            'tail_selection':'same frozen score and winning-label pipeline required; source-specific tails exported separately'} if tails is not None else {}),
         'interpretation': 'Rejected evidence means no supported VDJdb match, not biological nonbinding. Input scores and metadata remain evidence, not accepted calls.',
         'limitations': 'The frozen cutoff must match the entire scorer/reference/geometry/selection pipeline. No biological probability or out-of-sample null-rate guarantee.'}
     manifest_path.write_text(json.dumps(manifest, indent=2, allow_nan=False)+'\n')
