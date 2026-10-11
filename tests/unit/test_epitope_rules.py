@@ -32,7 +32,7 @@ def test_rules_dense_oracle_and_puncture(paired):
         else:d=distance_matrix(q['seq0'],[row['seq0'] for row in same],q['v0'],[row['v0'] for row in same],ctrim=3,v_loop_weight=0)[0]
         mass=sum(max(0,1-x/90) for x in d)
         assert out['rule_'+side+'_spatial_mass'][0]==pytest.approx(mass)
-        oracle[side]={'spatial':mass}
+        oracle[side]={'spatial':mass,'distances':d,'same':same}
         for mode in MOTIFS:
             mass=0
             for row in same:
@@ -50,9 +50,47 @@ def test_rules_dense_oracle_and_puncture(paired):
         expected=out['rule_v_score'][0]*(rm+prior)/(n+1)/((bm+prior)/(m+1))
         assert out['rule_'+kind+'_score'][0]==pytest.approx(expected)
     neutral=reference_epitope_rules(q,r,r,paired=paired)
-    assert all(neutral[c][0]==pytest.approx(1) for c in neutral.columns if c.endswith('_score'))
+    assert all(neutral[c][0]==pytest.approx(1) for c in neutral.columns if c.endswith('_score') and c!='rule_rank_score' and not c.startswith('rule_enriched_'))
+    rd=oracle['reference']['distances'];bd=oracle['control']['distances']
+    reciprocal=[sum(1/k for k in range(1+sum(bd<x),2+sum(bd<=x)))/(1+sum(bd<=x)-sum(bd<x)) for x in rd]
+    expected=sum(reciprocal)/len(rd)*(len(bd)+1)/sum(1/k for k in range(1,len(bd)+2))
+    assert out['rule_cdr3_rank'][0]==pytest.approx(expected)
+    assert out['rule_rank_score'][0]==pytest.approx(expected*out['rule_v_score'][0])
+    for mode in MOTIFS:
+        import itertools
+        qt=set(itertools.product(*[tokens(q[f'seq{i}'][0],mode) for i in axes]))
+        presence={side:[set(itertools.product(*[tokens(row[f'seq{i}'],mode) for i in axes])) for row in oracle[side]['same']] for side in ('reference','control')}
+        enrichment=sum(max(0,sum(t in s for s in presence['reference'])/n-sum(t in s for s in presence['control'])/m) for t in qt)/len(qt)
+        assert out['rule_'+mode+'_enrichment'][0]==pytest.approx(enrichment)
+        assert out['rule_enriched_'+mode+'_score'][0]==pytest.approx(out['rule_rank_score'][0]*(1+enrichment))
+        assert neutral['rule_'+mode+'_enrichment'][0]==0
     extra=q.with_columns(pl.lit(9).cast(pl.UInt32).alias('query_id'),pl.lit('TRBV20-1*01').alias('v1' if paired else 'v0'))
     assert out.equals(reference_epitope_rules(pl.concat([q,extra]),r,b,paired=paired,exclude_exact=True).head(1))
+
+
+def test_unsupported_v_is_neutral_and_keeps_global_multireference_rank():
+    r=pl.DataFrame({'seq0':['CASSLGRAYEQYF','CASSWGRAYEQYF'],'v0':['TRBV19*01']*2})
+    b=pl.concat([r,r.with_columns(pl.lit('TRBV20-1*01').alias('v0'))])
+    q=r.head(1).with_columns(pl.lit('CASSLGQAYEQYF').alias('seq0'),pl.lit('TRBV7-9*01').alias('v0')).with_row_index('query_id')
+    out=reference_epitope_rules(q,r,b)
+    assert not out['rule_v_supported'][0] and out['rule_v_score'][0]==1
+    supported=reference_epitope_rules(q.with_columns(pl.lit('TRBV19*01').alias('v0')),r,b)
+    assert out['rule_cdr3_rank'][0]>0
+    assert all(out['rule_enriched_'+mode+'_score'][0]==out['rule_rank_score'][0] for mode in MOTIFS)
+    # Changing the unseen V label changes neither fallback nor motif evidence.
+    changed=reference_epitope_rules(q.with_columns(pl.lit('TRBV6-5*01').alias('v0')),r,b)
+    assert out.equals(changed)
+    assert supported['rule_v_supported'][0]
+
+
+def test_rank_keeps_multiple_references_beyond_local_radius():
+    q=pl.DataFrame({'query_id':[0],'seq0':['CAS'+'A'*20+'QYF'],'v0':['TRBV19*01']})
+    r=pl.DataFrame({'seq0':['CAS'+'W'*20+'QYF','CAS'+'Y'*20+'QYF'],'v0':['TRBV19*01']*2})
+    b=pl.DataFrame({'seq0':['CAS'+'A'*19+'WQYF','CAS'+'A'*18+'WWQYF'],'v0':['TRBV19*01']*2})
+    out=reference_epitope_rules(q,r,b)
+    assert out['rule_reference_spatial_mass'][0]==0
+    # Both distant references follow both controls, tied at background rank3.
+    assert out['rule_cdr3_rank'][0]==pytest.approx(1/(1+1/2+1/3))
 
 
 def test_motif_classes_wildcards_and_short_sequences():
