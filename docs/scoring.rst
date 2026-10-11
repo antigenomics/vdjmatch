@@ -430,3 +430,42 @@ This is an experimental empirical ranking residual. J usage can remain dependent
 on the retained junction sequence; the product is not a calibrated Bayes factor,
 P-value, E-value, posterior or biological confidence. Existing rank-model
 probabilities describe their original statistic and do not transfer to this score.
+
+Reference-defined epitope rules (experimental)
+---------------------------------------------
+
+``tcrdist-neighbours --epitope-rules --background vdjdb-other`` emits
+``rule_v_score``, ``rule_spatial_score`` and four motif/mixture alternatives.
+The V rule is estimated separately for each assayed target from distinct full
+junction/resolved-V-allele keys. Linked pairs use a joint alpha/beta V category.
+There is no benchmark-label fitting, hard-coded epitope exception, J likelihood
+multiplier or length likelihood multiplier.
+
+Each score factors predictive V usage and a sequence-kernel mean conditional on
+that exact gene category. The native conditional search has **zero V-loop cost**:
+V evidence enters once. Length differences remain in the CDR3 distance. With
+query-punctured target/control totals N/M, same-V counts n/m and kernel masses
+r/b, define p=(n+m+0.5)/(N+M+0.5K), where K is the union of population V categories
+plus one unseen category. V probabilities are (n+p)/(N+1) and (m+p)/(M+1).
+The shared conditional pseudo-observation is c=(r+b+0.5)/(n+m+1); conditional
+kernel means are (r+c)/(n+1) and (b+c)/(m+1). The score is the ratio of their
+products. These are empirical predictive ranking scores, not calibrated
+P-values, E-values, specificity posteriors or independence claims.
+
+Sequence kernels use full junction coordinates with three residues trimmed at
+both ends. The spatial kernel is max(0,1-CDR3_distance/radius). Motif kernels use
+exact 3-mers, 3-mers in the eleven `IMGT physicochemical classes
+<https://www.imgt.org/IMGTeducation/Aide-memoire/_UK/aminoacids/IMGTclasses.html>`_,
+internal-wildcard 4-mers (AXAA/AAXA), and reduced-class wildcard 4-mers.
+For each chain, the kernel is the fraction of its distinct query tokens present
+in a reference receptor. For linked pairs these fractions are multiplied **within
+the same reference pair**, then summed over distinct reference keys. Repeated
+or overlapping motifs are averaged, never multiplied as independent likelihoods.
+Each mixture averages the spatial and motif kernels with fixed equal weights
+before conditional prediction; weights are not tuned on tasks. When a query is
+too short for that motif, its mixed score retains the spatial kernel.
+
+All motif and population counts puncture identical full junctions only when
+``--exclude-exact`` is explicitly used for benchmarks. Ordinary annotation retains
+exact reference evidence. This option leaves existing comparator/rank fields
+unchanged and does not supply a new end-user call threshold.

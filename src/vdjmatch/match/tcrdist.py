@@ -172,7 +172,8 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
 def total_distance_count_batch(queries, references, query_v, reference_v, thresholds, *,
                                species='human', threads=1, ctrim=2,
                                position_weighting='uniform', exclude_exact=False, linear_mass=False,
-                               query_boundaries=None, reference_boundaries=None, v_loop_weight=1):
+                               query_boundaries=None, reference_boundaries=None, v_loop_weight=1,
+                               same_v_gene=False):
     """Count full-junction/V-loop balls without a dense query/reference matrix.
 
     ``thresholds`` contains one integer list per query, in native units200 times
@@ -196,6 +197,8 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
     geometry, not a background population, calibrated P-value or paired count.
     ``v_loop_weight=0`` removes only V-loop cost, retaining identical V eligibility,
     reference/control identity units, CDR3 geometry and exact puncturing. No fitted weight.
+    ``same_v_gene=True`` instead conditions on exact resolved V gene identity;
+    it requires zero V-loop cost and thresholds below the native group barrier.
 
     With ``linear_mass=True``, return ``(counts, masses)`` in one native traversal;
     mass is the integer sum ``max(0, threshold-distance)``. Divide by a positive
@@ -209,7 +212,9 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
     if linear_mass and 'linear_mass' not in inspect.signature(gapblock.count_batch).parameters:
         raise RuntimeError('linear mass requires seqtree gapblock linear_mass support')
     queries,references,options=_total_distance_options(queries,references,query_v,reference_v,
-        species,threads,ctrim,position_weighting,query_boundaries,reference_boundaries,v_loop_weight)
+        species,threads,ctrim,position_weighting,query_boundaries,reference_boundaries,v_loop_weight,same_v_gene)
+    if same_v_gene and any(t>=2**28 for row in thresholds for t in row):
+        raise ValueError('conditional V thresholds must be below the native group barrier')
     return gapblock.count_batch(queries,references,thresholds,**options,
         exclude_exact=exclude_exact,**({'linear_mass':True} if linear_mass else {}))
 
@@ -276,7 +281,7 @@ def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,spe
 
 
 def _total_distance_options(queries,references,query_v,reference_v,species,threads,ctrim,position_weighting,
-                            query_boundaries=None,reference_boundaries=None,v_loop_weight=1):
+                            query_boundaries=None,reference_boundaries=None,v_loop_weight=1,same_v_gene=False):
     """Shared full-coordinate geometry for marginal and linked-pair reductions."""
     if position_weighting not in ('uniform','significance','ndn'):
         raise ValueError('position_weighting must be uniform, significance or ndn')
@@ -324,6 +329,15 @@ def _total_distance_options(queries,references,query_v,reference_v,species,threa
         query_group_ids=indices[:len(queries)].tolist(),
         reference_group_ids=indices[len(queries):].tolist(),
         group_distances=(200*v_loop_weight*loop_dist).tolist(),threads=threads)
+    if same_v_gene:
+        if v_loop_weight!=0:
+            raise ValueError('same V conditioning requires zero V-loop weight')
+        # Gene identity is conditioning, not another distance or V likelihood.
+        labels=[g.split('*')[0] for g in genes]
+        categories=list(dict.fromkeys(labels));ids={g:i for i,g in enumerate(categories)}
+        options.update(query_group_ids=[ids[g] for g in labels[:len(queries)]],
+            reference_group_ids=[ids[g] for g in labels[len(queries):]],
+            group_distances=[[0 if a==b else 2**28 for b in categories] for a in categories])
     if position_weighting=='ndn':options.update(sequence_weights)
     return queries,references,options
 
@@ -332,13 +346,15 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
         query_v_alpha,query_v_beta,reference_v_alpha,reference_v_beta,thresholds,*,
         species='human',threads=1,ctrim=2,exclude_exact=False,position_weighting='uniform',
         query_boundaries_alpha=None,query_boundaries_beta=None,
-        reference_boundaries_alpha=None,reference_boundaries_beta=None,v_loop_weight=1):
+        reference_boundaries_alpha=None,reference_boundaries_beta=None,v_loop_weight=1,same_v_gene=False):
     """Counts and triangular integer mass for linked alpha+beta total distances.
 
     Thresholds and masses use native units200 times ordinary TCRdist distance.
     Exact exclusion requires both full junctions equal, irrespective of V calls.
     Uniform full-coordinate trim weights reproduce paired_distance_matrix; no
     dense matrix, independent marginal matching or paired control model is added.
+    ``same_v_gene`` requires matching alpha and beta V genes in that same pair,
+    with zero V-loop cost; it does not infer joint support from chain marginals.
     """
     if not hasattr(gapblock,'paired_sum_count_batch'):
         raise RuntimeError('linked mass requires seqtree paired_sum_count_batch support')
@@ -355,12 +371,14 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
         rv=resolve_v_alleles(rv,model,locus=locus).to_list()
         if any(v is None for v in qv+rv):
             raise ValueError('linked pair V calls must resolve to their alpha/beta locus')
-        q,r,kw=_total_distance_options(q,r,qv,rv,species,threads,ctrim,position_weighting,*boundaries[suffix],v_loop_weight)
+        q,r,kw=_total_distance_options(q,r,qv,rv,species,threads,ctrim,position_weighting,*boundaries[suffix],v_loop_weight,same_v_gene)
         axes.append((q,r))
         options.update({key+'_'+suffix:kw.pop(key) for key in keys})
         shared=kw
     if len(axes[0][0])!=len(axes[1][0]) or len(axes[0][1])!=len(axes[1][1]):
         raise ValueError('each linked pair requires both junctions')
+    if same_v_gene and any(t>=2**28 for row in thresholds for t in row):
+        raise ValueError('conditional V thresholds must be below the native group barrier')
     return gapblock.paired_sum_count_batch(axes[0][0],axes[1][0],axes[0][1],axes[1][1],thresholds,
         **shared,**options,exclude_exact=exclude_exact)
 

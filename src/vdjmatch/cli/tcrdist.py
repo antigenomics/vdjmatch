@@ -31,6 +31,7 @@ def register(subparsers):
     p.add_argument('--exclude-exact',action='store_true')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
     p.add_argument('--conditional-j',action='store_true',help='experimental J usage conditional on V and junction length; ranking only')
+    p.add_argument('--epitope-rules',action='store_true',help='experimental joint V usage with V-conditioned CDR3/motif kernels; ranking only')
     p.add_argument('--nearest-rank',action='store_true',help='experimental background rank at the exhaustive nearest target distance; uniform geometry only')
     p.add_argument('--shortlist-audit',action='store_true',help='audit actual CDR3-only radius retrieval and unchanged V costs; uniform single-chain only')
     p.add_argument('--output-prefix',required=True)
@@ -122,6 +123,10 @@ def main(a):
         raise ValueError('--nearest-rank requires a background, --unbounded-nearest and uniform geometry')
     if a.conditional_j and (not a.nearest_rank or a.neighbour_weighting!='local-rank' or a.background!='vdjdb-other'):
         raise ValueError('--conditional-j requires nearest local-rank evidence and vdjdb-other background')
+    if a.epitope_rules and (a.background!='vdjdb-other' or a.position_weighting!='uniform' or a.radius<=0):
+        raise ValueError('--epitope-rules requires vdjdb-other, uniform geometry and positive radius')
+    if a.epitope_rules and a.conditional_j:
+        raise ValueError('epitope rules and conditional J are separate diagnostic models')
     if a.shortlist_audit and (a.locus=='paired' or not a.targets_from_sample or
                              not a.unbounded_nearest or a.position_weighting!='uniform' or a.v_loop_weight!=1):
         raise ValueError('--shortlist-audit requires uniform single-chain target/nearest mode with V weight1')
@@ -343,8 +348,7 @@ def main(a):
             del nc
             expanded=part.select('query_id',*query_keys).join(evidence,
                 on=query_keys,how='left',validate='m:1',maintain_order='left').drop(query_keys)
-            if a.conditional_j:
-                from ..evalue.germline import conditional_j_usage
+            if a.conditional_j or a.epitope_rules:
                 def features(frame,query=False):
                     fields=[pl.col('query_id')] if query else []
                     for i in range(2 if paired else 1):
@@ -354,10 +358,18 @@ def main(a):
                             pl.col(('j'+suffix if query else 'j_'+suffix) if paired else 'j').alias(f'j{i}')])
                     return frame.select(fields)
                 j_start=time.perf_counter()
-                residual=conditional_j_usage(features(part,True),features(reference_part),
-                    features(r.filter(pl.col('epitope')!=task['epitope'])),paired=paired,exclude_exact=a.exclude_exact)
+                if a.conditional_j:
+                    from ..evalue.germline import conditional_j_usage
+                    residual=conditional_j_usage(features(part,True),features(reference_part),
+                        features(r.filter(pl.col('epitope')!=task['epitope'])),paired=paired,exclude_exact=a.exclude_exact)
+                else:
+                    from ..evalue.epitope_rules import reference_epitope_rules
+                    residual=reference_epitope_rules(features(part,True),features(reference_part),
+                        features(r.filter(pl.col('epitope')!=task['epitope'])),paired=paired,exclude_exact=a.exclude_exact,
+                        species=organism,threads=a.threads,radius=a.radius)
                 expanded=expanded.join(residual,on='query_id',how='left',validate='1:1',maintain_order='left')
-                background_costs['conditional_j_usage']=background_costs.get('conditional_j_usage',0)+time.perf_counter()-j_start
+                field='conditional_j_usage' if a.conditional_j else 'epitope_rules'
+                background_costs[field]=background_costs.get(field,0)+time.perf_counter()-j_start
             enrichment_rows.append(expanded.with_columns(*(pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC)))
         background_costs['total']=time.perf_counter()-background_start
     rows=[]
@@ -533,6 +545,13 @@ def main(a):
                         pl.lit(None,dtype=pl.Float64).alias('conditional_j_usage_ratio'),pl.lit(None,dtype=pl.String).alias('conditional_j_status'),
                         *[pl.lit(None,dtype=pl.Float64).alias('j_'+side+'_probability') for side in ['reference','control']],
                         *[pl.lit(None,dtype=pl.Int64).alias('j_'+side+'_'+field) for side in ['reference','control'] for field in ['population','stratum','joint','global']])
+        if a.epitope_rules and not enrichment.height:
+            from ..evalue.epitope_rules import reference_epitope_rules
+            schema={'seq'+str(i):pl.String for i in range(2 if paired else 1)}
+            schema.update({'v'+str(i):pl.String for i in range(2 if paired else 1)})
+            pop=pl.DataFrame(schema=schema)
+            empty=reference_epitope_rules(pop.with_row_index('query_id'),pop,pop,paired=paired,radius=a.radius)
+            enrichment=enrichment.with_columns(*[pl.Series(c,[],dtype=t) for c,t in empty.schema.items() if c!='query_id'])
         enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
@@ -555,6 +574,13 @@ def main(a):
                     ' 3*CDR3+CDR1+CDR2+CDR2.5; ' if a.v_loop_weight else
                     'experimental CDR3-only:3*CDR3; ')+organism+' combo_xcr_2024-03-05',
         'junction_end_trim':{'n_terminal':3,'c_terminal':ctrim},
+        **({'epitope_rules':{'germline':'joint V-gene predictive probabilities; one shared pooled pseudo-observation; no J/length marginal or added V-loop distance',
+            'sequence':'3/3-trimmed CDR3 triangular kernel conditional on exact V gene(s); length remains in CDR3 distance; same linked reference pair',
+            'motifs':'exact3, IMGT11-class3, internal-wildcard4, IMGT11-class internal-wildcard4; unique per-receptor tokens; paired overlap fractions multiplied within the same reference pair',
+            'combination':'equal mixture of spatial/motif kernels before conditional prediction; no independent motif likelihood multiplication',
+            'prior':'p_g=(n_g+m_g+.5)/(N+M+.5K), K population joint V categories plus one; conditional kernel pseudo-observation c=(mass_ref+mass_bg+.5)/(n_g+m_g+1)',
+            'source':'https://www.imgt.org/IMGTeducation/Aide-memoire/_UK/aminoacids/IMGTclasses.html',
+            'interpretation':'empirical predictive ranking only; no P/E-value, biological posterior or benchmark-label fitting'}} if a.epitope_rules else {}),
         **({'shortlist_audit':{'stages':shortlist_costs,'scope':'CDR3 radius shortlist then unchanged nonnegative V costs; same eligibility/full-junction puncture. Original exhaustive outputs unchanged; no global K cap, biological confidence or paired claim.'}} if a.shortlist_audit else {}),
         **({'background_enrichment':{'background':background_provenance,'stage_wall_seconds':background_costs,
             'v_loop_weight':a.v_loop_weight,
