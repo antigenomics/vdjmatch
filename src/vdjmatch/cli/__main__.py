@@ -744,6 +744,8 @@ def main(argv: list[str] | None = None) -> int:
     register_search(sub)
     from .historical import register as register_historical
     register_historical(sub)
+    from .motifs import register as register_motifs
+    register_motifs(sub)
     from .tcrdist import register as register_tcrdist
     register_tcrdist(sub)
     from .pgen import register as register_pgen

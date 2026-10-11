@@ -37,7 +37,37 @@ def test_vdjbet_counts_masks_and_full_junction_puncture():
             assert row['motif_score']==pytest.approx(sum(values)/len(rows[0]['cdr3']))
             assert row['supported_motifs']==len(values)
         assert out['epitope'].to_list()==sorted({e for e,t in expected})
+        targeted=vdjbet_motif_scores(q.with_columns(pl.lit('NLV').alias('epitope'),
+            pl.lit('A').alias('mhc_a'),pl.lit('B').alias('mhc_b'),pl.lit('I').alias('mhc_class')),
+            r,exclude_exact=exclude,target_reference=r.filter(pl.col('epitope')=='NLV'))
+        assert targeted.sort('epitope').equals(out.filter(pl.col('epitope')=='NLV').sort('epitope'))
     # A target with five instances loses its support gate after exact puncture.
     assert vdjbet_motif_scores(q,r.head(5),exclude_exact=True).height==0
     with pytest.raises(ValueError,match='unique'):
         vdjbet_motif_scores(pl.concat([q,q]),r)
+
+
+def test_motif_cli_compatible_union_and_repeated_queries(tmp_path,monkeypatch):
+    from argparse import Namespace
+    from vdjmatch import db
+    from vdjmatch.cli.motifs import main
+    sequences=['CASSAAAA'+a+'F' for a in 'AILVDEN']
+    r=pl.DataFrame({'cdr3':sequences,'v':['TRBV1']*7,'gene':['TRB']*7,
+        'epitope':['NLV']*7,'mhc_a':['HLA-A*02:01']*3+['HLA-A*02:02']*4,
+        'mhc_b':['B2M']*7,'mhc_class':['MHCI']*7,'reference_valid':[True]*7})
+    monkeypatch.setattr(db,'load',lambda *a,**kw:r)
+    sample=tmp_path/'queries.tsv';reference=tmp_path/'reference.zip';reference.write_text('fixture')
+    pl.DataFrame({'junction_aa':[sequences[0],sequences[0],None,'BADX'],'v_call':['TRBV1']*4,'j_call':['TRBJ1-1']*4,
+        'locus':['TRB']*4,'species':['human']*4,'epitope':['NLV']*4,'mhc_a':['HLA-A*02']*4,
+        'mhc_b':['B2M']*4,'mhc_class':['MHCI']*4,'query_id':['a','b','missing','invalid']}).write_csv(sample,separator='\t')
+    prefix=tmp_path/'result'
+    main(Namespace(sample=str(sample),vdjdb=str(reference),locus='TRB',species='human',exclude_exact=True,output_prefix=str(prefix)))
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert set(out['query_id'])=={'a','b','missing','invalid'}
+    valid=out.filter(pl.col('query_id').is_in(['a','b']))
+    assert valid['status'].to_list()==['scored','scored']
+    assert valid['supported_motifs'].min()>0
+    assert valid['motif_score'][0]==valid['motif_score'][1]
+    invalid=out.filter(pl.col('query_id').is_in(['missing','invalid']))
+    assert invalid['status'].to_list()==['invalid_query','invalid_query']
+    assert invalid['motif_score'].null_count()==2

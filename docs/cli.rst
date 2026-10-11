@@ -954,3 +954,18 @@ comparisons. The default retains source allele identities. Missing receptor
 fields do not establish replicated support. The output JSON records reference
 identity, source/valid record counts, retained keys, table hash and elapsed time.
 This is an evaluation subset tool; it never filters the searchable reference.
+V-conditioned motif evidence
+----------------------------
+
+``vdjmatch motif-evidence SAMPLE --vdjdb REFERENCE --locus TRA|TRB
+--species human|mouse --output-prefix RESULT`` computes experimental VDJbet
+MF×IKF evidence for the sample's declared full pMHC. It uses the union of compatible
+reference restrictions for target motif counts and all valid same-species/locus
+references for global motif frequency. Full junctions, all four wildcard positions,
+IMGT amino-acid classes and the original 2/3/5 motif support gates are retained.
+``--exclude-exact`` is benchmark-only and punctures every full-junction occurrence
+before evaluating support and frequency. Repeated query identities remain separate.
+Zero supported motifs, invalid queries and absent references have explicit statuses.
+This command supplies a candidate component, not a switched scorer, joint paired
+likelihood, P-value or specificity probability. Pairing remains in the output IDs;
+run both loci and join by the original linkage to compare genuine paired queries.

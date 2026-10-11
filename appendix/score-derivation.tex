@@ -1051,4 +1051,34 @@ active package. Original scoring remains the foundation.
 \end{enumerate}
 
 \noindent Default annotation and the historical benchmark baseline remain unchanged; M3 stays deferred.
+\subsection{Experimental V-conditioned motif evidence}
+The \code{motif-evidence} CLI reproduces the VDJbet MF--IKF recipe as an
+experimental component, with no change to the original scorer. For each full
+junction, map residues to the eleven IMGT physicochemical classes and collect
+distinct four-residue tokens with each of the four positions masked in turn.
+Let $x_{l,v,X,t}$ count distinct junctions of length $l$, V gene $v$ and full-pMHC
+target $X$ containing token $t$. Write $x_{v,X,t}=\sum_l x_{l,v,X,t}$ and
+$x_{X,t}=\sum_v x_{v,X,t}$. Let $x_t$ count token presence across the entire valid
+same-species, same-locus reference population, and $N$ count its distinct
+junction/V/full-pMHC records. Repeated source observations do not inflate these
+presence counts; contradictory annotations remain distinct reference strata.
+For query $q$ with V gene $v_q$, retain token/length strata satisfying
+$x_{l,v_q,X,t}\ge2$, $x_{v_q,X,t}\ge3$, and $x_{X,t}\ge5$, then compute
+\[
+ S_{\rm motif}(q,X)=\frac{1}{|q|}\sum_{t\in T(q)}
+ \max_{l\text{ retained}}\left\{\frac{x_{v_q,X,t}}{x_t}
+ \log\frac{N}{x_t}\right\}.
+\]
+An empty maximum contributes zero. The 2/3/5 support gates are reproduced source
+parameters, not newly fitted optimal thresholds. Compatible MHC restrictions are
+pooled for the declared target without changing the global reference population.
+Benchmark exclusion subtracts every exact full-junction occurrence from all
+target and global counts before applying the gates; ordinary annotation retains
+them. Invalid queries and absent references remain explicitly unavailable.
+Token generation and count/join reductions are columnar; the token table has at
+most $4\sum_r\max(0,|r|-3)$ rows before deduplication. Overlapping motifs are
+correlated. This score, and any paired sum of its marginal components, is not a
+calibrated likelihood, P-value, joint binding probability or validated switching
+rule. Accuracy and sparse-mode activation require separate validation.
+
 \end{document}
