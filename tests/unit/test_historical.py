@@ -209,6 +209,33 @@ def test_target_first_controls_equal_full_cdf_and_skip_unsupported_queries():
     assert control.calls==[([q],1)]
 
 
+def test_shared_control_cdf_preserves_target_scores_and_batches_overlap():
+    from vdjmatch.match.historical import shared_control_histograms
+    q='CASSLGQAYEQYF'; r1='CASSLGRAYEQYF'; r2='CASSLGKAYEQHF'
+    reference=Annotator.from_frame(pl.DataFrame({'gene':['TRB']*2,'cdr3':[r1,r2],
+        'v':['TRBV19']*2,'epitope':['ONE','TWO']}))._index.records_for('TRB')
+    _,queries=_prepare(pl.DataFrame({'query_id':['a','b'],'cdr3':[q,q],
+                                    'v':['TRBV19']*2,'locus':['TRB']*2}))
+    index=Index.build([q,r1,r2])
+    class ObservedControl:
+        def __init__(self): self.calls=[]
+        def __len__(self): return len(index)
+        def edit_histogram_batch(self,sequences,params,threads,exclude_exact):
+            self.calls.append((list(sequences),params.max_total_edits))
+            return index.edit_histogram_batch(sequences,params,threads,exclude_exact)
+    batches=[(queries,reference.filter(pl.col('epitope')==ep)) for ep in ['ONE','TWO']]
+    control=ObservedControl()
+    shared=shared_control_histograms(control,batches)
+    assert control.calls==[([q],2)]
+    expected=pl.concat([density(queries,ref,index,pool_reference=True) for _,ref in batches])
+    got=pl.concat([density(queries,ref,control,pool_reference=True,control_counts=shared) for _,ref in batches])
+    assert got.equals(expected) and len(control.calls)==1
+    # The general multi-target API takes the same shared path without a CLI adapter.
+    observed=ObservedControl()
+    assert density(queries,reference,observed).sort('epitope','query_id').equals(expected.sort('epitope','query_id'))
+    assert observed.calls==[([q],2)]
+
+
 def test_cli_rejects_missing_target_before_control_loading(tmp_path, capsys):
     import pytest
     from vdjmatch.cli.__main__ import main
@@ -361,6 +388,36 @@ def _paired_cli_inputs(tmp_path):
           '--targets-from-sample','--control',str(control),'--alpha-control',str(alpha_control),
           '--germline-background',str(prior),'--output-prefix',str(prefix)]
     return raw,sample,prefix,args
+
+
+def test_cli_shared_cdf_preserves_paired_and_single_target_outputs(tmp_path, monkeypatch):
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.match import historical
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    copied=raw.with_columns((pl.lit('other-')+pl.col('query_id')).alias('query_id'),
+        (pl.lit('other-')+pl.col('clone_id')).alias('clone_id'),pl.lit('F').alias('epitope'))
+    pl.concat([raw,copied]).write_csv(sample,separator='\t')
+    reference=Path(args[args.index('--vdjdb')+1])
+    ref=pl.read_csv(reference,separator='\t')
+    pl.concat([ref,ref.with_columns(pl.lit('F').alias('epitope'))]).write_csv(reference,separator='\t')
+    native=historical.shared_control_histograms
+    for locus in ['paired','TRA']:
+        options=list(args)
+        if locus=='TRA':
+            options[options.index('--locus')+1]='TRA'
+            options[options.index('--control')+1]=options[options.index('--alpha-control')+1]
+        monkeypatch.setattr(historical,'shared_control_histograms',lambda *a,**k:None)
+        assert main(options)==0
+        expected=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t',infer_schema_length=0)
+        calls=[]
+        def observed(*a,**k):
+            calls.append(1)
+            return native(*a,**k)
+        monkeypatch.setattr(historical,'shared_control_histograms',observed)
+        assert main(options)==0
+        actual=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t',infer_schema_length=0)
+        assert actual.equals(expected)
+        assert len(calls)==(2 if locus=='paired' else 1)
 
 
 def test_cli_original_paired_rank_ties_independent_exact_exclusion_and_missing(tmp_path):

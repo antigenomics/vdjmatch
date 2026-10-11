@@ -42,6 +42,41 @@ def control_histograms(control, sequences, *, threads=1, radii=None):
     return out
 
 
+def _density_neighbours(seqs, rs, threads):
+    idx = Index.build(rs, 'aa')
+    by_length = defaultdict(list)
+    for s in seqs:
+        by_length[len(s)].append(s)
+    hits = {}
+    for length, batch in by_length.items():
+        p = SearchParams(max_subs=5, max_ins=0, max_dels=0, max_total_edits=5, engine='seqtm')
+        p.pos_matrix = significance_pssm(length)
+        hits.update(zip(batch, idx.search_batch(batch, p, threads)))
+    unit = idx.edit_histogram_batch(seqs, first_hit.scope(1,1,1), threads, True)
+    radii = {s:max([1 if hs[1] else 0]+[h.n_subs for h in hits[s] if rs[h.ref_id]!=s])
+             for s,hs in zip(seqs,unit)}
+    return hits, unit, radii
+
+
+def shared_control_histograms(control, batches, *, threads=1):
+    """One transient control CDF per junction at its largest needed target radius.
+
+    Reference searches are repeated during scoring so no cross-target neighbour
+    graph is retained. Counts below the largest radius are exactly unchanged.
+    """
+    if threads < 1 or not len(control):
+        raise ValueError('positive threads and a nonempty control are required')
+    radii = {}
+    for queries, reference in batches:
+        if not queries.height or not reference.height:
+            continue
+        seqs = queries['cdr3'].unique(maintain_order=True).to_list()
+        _, _, needed = _density_neighbours(seqs, reference.unique('cdr3', keep='first', maintain_order=True)['cdr3'].to_list(), threads)
+        for s, radius in needed.items():
+            radii[s] = max(radii.get(s, 0), radius)
+    return control_histograms(control, radii, threads=threads, radii=radii)
+
+
 def density(queries, reference, control, *, threads=1, pool_reference=False, control_counts=None):
     """Return keyed PSSM density and original radius<=1 significance component.
 
@@ -53,9 +88,6 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
     if threads < 1 or not len(control):
         raise ValueError("positive threads and a nonempty control are required")
     seqs = queries['cdr3'].unique(maintain_order=True).to_list()
-    by_length = defaultdict(list)
-    for s in seqs:
-        by_length[len(s)].append(s)
     rows = []
     if pool_reference:
         for column in ('epitope', 'species', 'gene'):
@@ -66,23 +98,17 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
         groups = [(key, reference)] if reference.height else []
     else:
         groups = reference.group_by(PMHC, maintain_order=True)
+        if control_counts is None and reference.select(PMHC).unique().height > 1:
+            control_counts = shared_control_histograms(control,
+                ((queries, obs) for _, obs in groups), threads=threads)
     for key, obs in groups:
         # Reproduce the original per-epitope reference representative rule explicitly.
         ref = obs.unique('cdr3', keep='first', maintain_order=True)
         rs, rv = ref['cdr3'].to_list(), ref['v'].to_list()
-        idx = Index.build(rs, 'aa')
-        hits = {}
-        for length, batch in by_length.items():
-            p = SearchParams(max_subs=5, max_ins=0, max_dels=0, max_total_edits=5,
-                             engine='seqtm')
-            p.pos_matrix = significance_pssm(length)
-            hits.update(zip(batch, idx.search_batch(batch, p, threads)))
+        hits, unit, radii = _density_neighbours(seqs, rs, threads)
         # Original significance used the nearest nonexact target radius, capped at one.
-        unit = idx.edit_histogram_batch(seqs,first_hit.scope(1,1,1),threads,True)
         # Only target-supported radii enter the original formula. Narrower control
         # balls have the identical CDF at those radii; unsupported queries need none.
-        radii={s:max([1 if hs[1] else 0]+[h.n_subs for h in hits[s] if rs[h.ref_id]!=s])
-               for s,hs in zip(seqs,unit)}
         counts = control_histograms(control,seqs,threads=threads,radii=radii) if control_counts is None else control_counts
         significance = {s: evalue_result(hs[1],counts[s][1],len(rs),len(control))['p_enrichment']
                         if hs[1] else 1.0 for s,hs in zip(seqs,unit)}

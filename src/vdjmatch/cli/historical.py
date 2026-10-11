@@ -96,7 +96,7 @@ def _paired_scores(a, reference, beta_control, prior_background):
     from ..aggregate.candidates import PMHC
     from ..io.airr import _read_table
     from ..evalue.control import raw_background, _organism
-    from ..match.historical import density, germline_prior, paired_score, unpaired_score, control_histograms
+    from ..match.historical import density, germline_prior, paired_score, unpaired_score, shared_control_histograms
     fields,score_columns=_paired_columns(a.cohort_column)
     raw=_read_table(a.sample)
     if 'query_id' not in raw.columns:
@@ -152,6 +152,13 @@ def _paired_scores(a, reference, beta_control, prior_background):
     canonical=r'^[ACDEFGHIKLMNPQRSTVWY]+$'
     genes_present={suffix:pl.all_horizontal(pl.col('v'+suffix,'j'+suffix).str.strip_chars().ne('').fill_null(False))
                    for suffix in ['a','b']}
+    shared_counts = {}
+    if metadata.select(PMHC).unique().height > 1:
+        for chain,name,suffix in [('TRA','alpha','a'),('TRB','beta','b')]:
+            batches = ((part.filter(pl.col('cdr3'+suffix).str.contains(canonical).fill_null(False))
+                .select(pl.col('cdr3'+suffix).alias('cdr3')), selected.filter(pl.col('gene')==chain))
+                for _,part,selected in assayed_targets(paired,metadata,reference,a.species))
+            shared_counts[name] = shared_control_histograms(controls[name], batches, threads=a.threads)
     parts=[]
     for task,part,selected in assayed_targets(paired,metadata,reference,a.species):
         out=part.drop('species',*PMHC)
@@ -161,7 +168,8 @@ def _paired_scores(a, reference, beta_control, prior_background):
                 'query_id',pl.col('cdr3'+suffix).alias('cdr3'),
                 pl.col('v'+suffix).alias('v'),pl.col('j'+suffix).alias('j'))
             if ref.height and queries.height:
-                scores=density(queries,ref,controls[name],threads=a.threads,pool_reference=True)
+                scores=density(queries,ref,controls[name],threads=a.threads,pool_reference=True,
+                               control_counts=shared_counts.get(name))
                 prior=germline_prior(queries.filter(pl.all_horizontal(pl.col('v','j').str.strip_chars().ne('').fill_null(False))),
                                      ref,prior_background,include_length=chain=='TRB')
                 scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',how='left',
@@ -253,7 +261,7 @@ def main(a):
     from ..db.cache import sha256
     from seqtree import _core
     from ..evalue.control import raw_background, _organism
-    from ..match.historical import density,germline_prior,unpaired_score
+    from ..match.historical import density,germline_prior,unpaired_score,shared_control_histograms
     start=time.perf_counter()
     if a.threads<1:raise ValueError('threads must be positive')
     if not math.isfinite(a.pssm_kernel_scale) or a.pssm_kernel_scale<=0:
@@ -293,8 +301,10 @@ def main(a):
     if missing:
         raise ValueError('requested epitopes absent under the selected reference restriction: '+', '.join(missing))
     ctrl,provenance=raw_background('TRB' if a.locus=='paired' else a.locus,a.species,a.control)
+    shared_counts = None
     def score_density(queries,reference,*,pool_reference=False):
-        scores=density(queries,reference,ctrl,threads=a.threads,pool_reference=pool_reference)
+        scores=density(queries,reference,ctrl,threads=a.threads,pool_reference=pool_reference,
+                       control_counts=shared_counts)
         if a.gapped_extension:
             if not pool_reference:
                 raise ValueError('--gapped-extension requires pooled or sample-declared targets')
@@ -332,6 +342,9 @@ def main(a):
         species_selected=pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases).fill_null(False)
         q=q.join(raw.filter(species_selected).select('query_id'),on='query_id',how='semi',maintain_order='left')
         selected=raw
+        if raw.filter(species_selected).select(PMHC).unique().height > 1:
+            shared_counts = shared_control_histograms(ctrl,
+                ((part, ref) for _,part,ref in assayed_targets(q,raw,r,a.species)), threads=a.threads)
         parts=[]
         for task,querypart,referencepart in assayed_targets(q,raw,r,a.species):
             if not referencepart.height:
