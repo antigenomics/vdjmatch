@@ -436,6 +436,14 @@ def main(a):
                 # SciPy support arithmetic must not underflow on unsigned counts.
                 n=evidence.filter(usable);N=n['reference_population'].cast(pl.Float64).to_numpy();M=n['control_population'].cast(pl.Float64).to_numpy()
                 tail[usable.to_numpy()]=hypergeom.sf(0,N+M,N,n['nearest_rank_control_count'].cast(pl.Float64).to_numpy()+1)
+            if a.neighbour_weighting=='local-rank':
+                from ..evalue.local_rank import nearest_conditioned_rank
+                conditional=np.full(evidence.height,np.nan)
+                if usable.any():
+                    conditional[usable.to_numpy()]=nearest_conditioned_rank(
+                        n['rank_bayes_factor'].to_numpy(),n['n_reference'].to_numpy(),N,M,
+                        n['nearest_rank_control_count'].to_numpy())
+                evidence=evidence.with_columns(pl.Series('conditional_rank_bayes_factor',conditional,nan_to_null=True))
             enrichment_rows[i]=evidence.with_columns(pl.Series('p_nearest_unbounded',tail,nan_to_null=True)).with_columns(
                 (-pl.col('p_nearest_unbounded')).alias('nearest_rank_score'),
                 pl.when(pl.col('p_nearest_unbounded').is_not_null()).then(pl.lit('conditional_rank_model_only'))
@@ -498,6 +506,8 @@ def main(a):
                 pl.lit(None,dtype=pl.UInt64).alias('nearest_rank_control_count'),
                 *(pl.lit(None,dtype=pl.Float64).alias(k) for k in ['p_nearest_unbounded','nearest_rank_score']),
                 pl.lit(None,dtype=pl.String).alias('nearest_rank_status'))
+            if a.neighbour_weighting=='local-rank':
+                enrichment=enrichment.with_columns(pl.lit(None,dtype=pl.Float64).alias('conditional_rank_bayes_factor'))
         enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
@@ -547,5 +557,11 @@ def main(a):
             'ties':'all control ties included; conservative first-reference tail',
             'sampling_status':'conditional exchangeable-label model only; no biological confidence, E-value or selected-label calibration',
             'selection':'no radius scan or fitted blend; fixed-radius fields unchanged'}} if a.nearest_rank else {}),
+        **({'conditional_rank_model':{'score_column':'conditional_rank_bayes_factor',
+            'formula':'existing BF when n_radius>0; otherwise (M+1)/(N*H_(M+1))*[1/(k+1)+(N-1)*mean(1/r,r=k+1..M+1)]',
+            'symbols':'N target population; M control population; k controls at exhaustive nearest target distance',
+            'interpretation':'conditional all-reference rank mean with refined all-censored imputation; control ties conservative; no biological confidence or transferred P/E-value',
+            'selection':'identical rule for every task; no fitted weights or task routing'}}
+           if a.nearest_rank and a.neighbour_weighting=='local-rank' else {}),
         'calibration':'none','wall_seconds':time.perf_counter()-start},indent=2)+'\n')
     return 0

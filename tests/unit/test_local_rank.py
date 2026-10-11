@@ -10,7 +10,7 @@ from vdjmatch.evalue.local_rank import local_rank_evidence
 @pytest.mark.parametrize('distances', [(0, 1, 2, 3, 4), (0, 0, 1, 1, 3), (3, 3, 3, 3, 3)])
 @pytest.mark.parametrize('n', [1, 2, 3])
 def test_finite_label_null_and_bound(distances, n):
-    scores, pvalues, nearest_pvalues = [], [], []
+    scores, pvalues, nearest_pvalues, conditional_scores = [], [], [], []
     for target in combinations(range(5), n):
         ref = np.array([sum(distances[i] <= t for i in target) for t in range(3)])
         control = np.array([sum(distances[i] <= t for i in range(5) if i not in target) for t in range(3)])
@@ -19,7 +19,12 @@ def test_finite_label_null_and_bound(distances, n):
         assert posterior == pytest.approx(.2*score/(.8+.2*score))
         scores.append(score); pvalues.append(pvalue)
         nearest_pvalues.append(result['p_nearest_rank'][0])
+        from vdjmatch.evalue.local_rank import nearest_conditioned_rank
+        first_distance = min(distances[i] for i in target)
+        k = sum(distances[i] <= first_distance for i in range(5) if i not in target)
+        conditional_scores.append(nearest_conditioned_rank([score], [ref[-1]], [n], [5-n], [k])[0])
     assert np.mean(scores) == pytest.approx(1, abs=2e-14)
+    assert np.mean(conditional_scores) <= 1 + 2e-14
     for alpha in set(pvalues):
         assert np.mean(np.array(pvalues) <= alpha) <= alpha + 1e-14
     for alpha in set(nearest_pvalues):
@@ -46,3 +51,20 @@ def test_large_population_singleton_near_evidence_is_finite():
     expected = 17_954_001 / (digamma(17_954_002) + np.euler_gamma)
     assert result['rank_bayes_factor'][0] == pytest.approx(expected)
     assert result['p_nearest_rank'][0] == pytest.approx(1/17_954_001)
+
+
+def test_nearest_conditioned_far_mean_matches_finite_oracle():
+    from vdjmatch.evalue.local_rank import nearest_conditioned_rank
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for target in combinations(range(7), 3):
+        ranks = [1 + sum(i not in target for i in range(j)) for j in target]
+        groups[ranks[0]-1].append(np.mean([1/r for r in ranks]))
+    harmonic = sum(1/r for r in range(1, 6))
+    for first, values in groups.items():
+        result = nearest_conditioned_rank([1.], [0], [3], [4], [first])
+        assert result[0] == pytest.approx(5*np.mean(values)/harmonic)
+    # Existing multi-reference evidence remains exact whenever radius support exists.
+    np.testing.assert_array_equal(nearest_conditioned_rank([2., 3.], [1, 2], [3, 4], [5, 6], [0, 0]), [2., 3.])
+    with pytest.raises(ValueError):
+        nearest_conditioned_rank([1.], [0], [1], [3], [4])

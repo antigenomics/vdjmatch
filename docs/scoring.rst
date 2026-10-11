@@ -391,3 +391,18 @@ This is a conditional exchangeable-label statistic, not biological confidence,
 an E-value, a selected-label calibration or a replacement deployment cutoff.
 Paired generated/real backgrounds remain undefined. Original annotation stays
 the default; promotion requires all-task and full-reference nonregression.
+
+Nearest-conditioned censored rank (experimental)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+With ``--nearest-rank --neighbour-weighting local-rank``, the CLI also exports
+``conditional_rank_bayes_factor``. Existing multi-reference evidence is retained
+exactly when any target reference lies within the fixed radius. If all target
+references are outside it, the exhaustive nearest reference refines their
+null-conditional mean: the first target has reciprocal control rank ``1/(k+1)``,
+and the remaining ``N-1`` targets contribute the mean over ranks ``k+1..M+1``.
+Here ``N`` and ``M`` are the punctured target and control populations, and ``k``
+is the number of controls at or nearer than the exhaustive nearest target.
+The usual harmonic normalization is retained. Control ties are conservative.
+This common rule preserves linked pairs and uses no fitted blend or task switch.
+It supplies conditional model evidence, without a biological probability,
+selected-label E-value or transferred probability bound.

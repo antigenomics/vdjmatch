@@ -30,6 +30,7 @@ def test_cli_nearest_rank_recovers_outside_ball_without_changing_existing_fields
     assert new['nearest_rank_control_count'][0]==m
     assert new['p_nearest_unbounded'][0]==pytest.approx(p)
     assert new['nearest_rank_score'][0]==pytest.approx(-p)
+    assert new['conditional_rank_bayes_factor'][0]==pytest.approx(4/(sum(1/i for i in range(1,5))*(m+1)))
     assert new['nearest_rank_status'][0]=='conditional_rank_model_only' and p<1
     assert main(args+['--nearest-rank','--threads','2','--output-prefix',str(tmp_path/'parallel')])==0
     assert new.equals(pl.read_csv(tmp_path/'parallel.enrichment.tsv',separator='\t'))
@@ -38,3 +39,4 @@ def test_cli_nearest_rank_recovers_outside_ball_without_changing_existing_fields
     assert main(args+['--nearest-rank','--output-prefix',str(tmp_path/'empty')])==0
     empty=pl.read_csv(tmp_path/'empty.enrichment.tsv',separator='\t')
     assert empty['nearest_rank_score'][0] is None and empty['nearest_rank_status'][0]=='empty_population'
+    assert empty['conditional_rank_bayes_factor'][0] is None
