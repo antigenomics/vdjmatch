@@ -51,7 +51,7 @@ def test_rules_dense_oracle_and_puncture(paired):
         assert out['rule_'+kind+'_score'][0]==pytest.approx(expected)
     neutral=reference_epitope_rules(q,r,r,paired=paired)
     assert all(neutral[c][0]==pytest.approx(1) for c in neutral.columns if c.endswith('_score'))
-    extra=q.with_columns(pl.lit(9).cast(pl.UInt32).alias('query_id'))
+    extra=q.with_columns(pl.lit(9).cast(pl.UInt32).alias('query_id'),pl.lit('TRBV20-1*01').alias('v1' if paired else 'v0'))
     assert out.equals(reference_epitope_rules(pl.concat([q,extra]),r,b,paired=paired,exclude_exact=True).head(1))
 
 

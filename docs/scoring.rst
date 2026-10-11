@@ -432,7 +432,7 @@ P-value, E-value, posterior or biological confidence. Existing rank-model
 probabilities describe their original statistic and do not transfer to this score.
 
 Reference-defined epitope rules (experimental)
----------------------------------------------
+----------------------------------------------
 
 ``tcrdist-neighbours --epitope-rules --background vdjdb-other`` emits
 ``rule_v_score``, ``rule_spatial_score`` and four motif/mixture alternatives.
