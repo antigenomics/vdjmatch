@@ -98,3 +98,47 @@ def test_reference_calls_retains_truth_and_withholds_all_restrictions(tmp_path):
     manifest = json.loads(Path(str(prefix)+'.manifest.json').read_text())
     assert manifest['eligible_benchmark_records'] == 30
     assert manifest['ineligible_benchmark_records'] == 29
+
+
+def test_apply_frozen_calibration_rejects_without_using_query_outcomes(tmp_path):
+    frozen = {'action': 'apply_cutoff', 'cutoff': 8., 'comparison': '>='}
+    queries = pl.DataFrame({'query_id': ['a', 'b', 'c', 'd'],
+        'score': [9., 8., 7., None], 'outcome': ['incorrect'] * 4})
+    out = calibration.apply_calibration(queries, frozen)
+    assert out['call_status'].to_list() == ['accepted', 'accepted', 'no_supported_match', 'no_supported_match']
+    assert out['call_score'].to_list() == [9., 8., None, None]
+    assert out.select(queries.columns).equals(queries)
+    assert out.select('call_status', 'call_score').equals(
+        calibration.apply_calibration(queries.drop('outcome'), frozen).select('call_status', 'call_score'))
+    lower = queries.with_columns((-pl.col('score')).alias('score'))
+    assert calibration.apply_calibration(lower, frozen | {'cutoff': -8., 'comparison': '<='})['call_status'].equals(out['call_status'])
+    assert calibration.apply_calibration(queries, frozen | {'action': 'abstain_all', 'cutoff': None})['call_score'].null_count() == 4
+    assert calibration.apply_calibration(queries.head(0), frozen)['call_status'].dtype == pl.String
+    with pytest.raises(ValueError, match='finite'):
+        calibration.apply_calibration(queries.with_columns(pl.lit(float('nan')).alias('score')), frozen)
+    with pytest.raises(ValueError, match='unique'):
+        calibration.apply_calibration(pl.concat([queries, queries.head(1)]), frozen)
+    with pytest.raises(ValueError, match='cutoff'):
+        calibration.apply_calibration(queries, frozen | {'cutoff': None})
+    with pytest.raises(ValueError, match='comparison'):
+        calibration.apply_calibration(queries, frozen | {'comparison': '>'})
+    with pytest.raises(ValueError, match='output'):
+        calibration.apply_calibration(out, frozen)
+    path = tmp_path / 'queries.tsv'
+    queries.write_csv(path, separator='\t')
+    recipe = tmp_path / 'frozen.json'
+    recipe.write_text(json.dumps(frozen))
+    parser = argparse.ArgumentParser()
+    calibration.register(parser.add_subparsers())
+    target = tmp_path / 'applied.tsv'
+    args = parser.parse_args(['apply-call-calibration', str(path), '--calibration', str(recipe), '--output', str(target)])
+    assert calibration.apply_main(args) == 0
+    assert pl.read_csv(target, separator='\t')['call_status'].to_list() == out['call_status'].to_list()
+    manifest = json.loads(Path(str(target) + '.manifest.json').read_text())
+    assert manifest['queries'] == 4 and manifest['accepted_calls'] == 2
+    assert manifest['rejected_queries'] == 2 and manifest['no_score_queries'] == 1
+    args.output = str(tmp_path / 'frozen')
+    args.calibration = args.output + '.manifest.json'
+    Path(args.calibration).write_text(json.dumps(frozen))
+    with pytest.raises(ValueError, match='overwrite'):
+        calibration.apply_main(args)

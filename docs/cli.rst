@@ -636,6 +636,38 @@ at that budget and honors a smaller parent ``POLARS_MAX_THREADS`` allocation.
 The native sequence engine still receives the requested ``--threads`` value.
 Malformed parent thread allocations fail before loading inputs.
 
+vdjmatch apply-call-calibration
+-------------------------------
+
+Apply a previously computed cutoff to independent query-level scores:
+
+.. code-block:: bash
+
+   vdjmatch apply-call-calibration queries.tsv --calibration calibration.calibration.json --output calls.tsv
+
+The input has one unique ``query_id`` and numeric ``score`` per query. The command
+does not read query outcome labels or fit a threshold. It preserves all input
+columns and adds ``call_status`` (``accepted`` or ``no_supported_match``) and
+``call_score`` (null for rejected queries). A missing score is rejected; a tie at
+the frozen cutoff is accepted. An ``abstain_all`` calibration rejects every query.
+The manifest records both input hashes and exact accepted/rejected/no-score counts.
+Input label columns, if present, remain metadata or candidate evidence; they are
+not accepted predictions when ``call_status`` is ``no_supported_match``.
+
+Use a calibration produced by the same entire scorer, reference, geometry and
+winning-label selection pipeline. This command does not automatically bind those
+identities or change the annotation API's default decisions. It supplies the
+rejection step; the composite scorer and its matched open-set calibration remain
+development requirements. Retained exact-reference evidence is not proof of
+biological binding. Rejection means insufficient support for a VDJdb assignment,
+not proof that a receptor cannot bind anything.
+
+Open-set performance depends on repertoire composition. For illustration, among
+10,000 queries with 99% unknown specificity, 1% false calls among the 9,900 unknown
+queries give 99 false calls. Even perfect recall of the 100 covered queries then
+gives only 100/199 accepted-call precision. The empirical null-call rate and the
+biological binder probability are different quantities.
+
 vdjmatch calibrate-calls
 ------------------------
 

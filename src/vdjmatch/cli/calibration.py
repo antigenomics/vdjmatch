@@ -14,7 +14,70 @@ def register(subparsers):
     parser.add_argument('--lower-is-better', action='store_true')
     parser.add_argument('--output-prefix', required=True)
     parser.set_defaults(func=main)
+    apply = subparsers.add_parser('apply-call-calibration', help='reject independent query calls using a frozen empirical cutoff')
+    apply.add_argument('cases', help='TSV: unique query_id and score; other columns are preserved evidence')
+    apply.add_argument('--calibration', required=True, help='matching scorer/reference calibrate-calls JSON')
+    apply.add_argument('--output', required=True)
+    apply.set_defaults(func=apply_main)
     return parser
+
+
+def apply_calibration(frame, calibration):
+    """Apply a frozen cutoff without reading query labels or refitting it.
+
+    Input scores remain ranking evidence; only call_score represents an accepted
+    call. No-score queries and rejected candidates are no_supported_match, not
+    proven nonbinders. The caller must use matching scorer/reference identities.
+    """
+    import polars as pl
+    if missing := {'query_id', 'score'} - set(frame.columns):
+        raise ValueError('missing columns: ' + ', '.join(sorted(missing)))
+    if {'call_score', 'call_status'} & set(frame.columns):
+        raise ValueError('call output columns already exist')
+    if frame['query_id'].null_count() or frame['query_id'].n_unique() != frame.height:
+        raise ValueError('query_id must be unique and non-null; reduce candidate labels first')
+    scores = frame['score'].cast(pl.Float64)
+    if not scores.drop_nulls().is_finite().all():
+        raise ValueError('non-null scores must be finite; use null for no evidence')
+    action, cutoff = calibration.get('action'), calibration.get('cutoff')
+    comparison = calibration.get('comparison')
+    if comparison not in ('>=', '<='):
+        raise ValueError('calibration comparison must be >= or <=')
+    if action == 'abstain_all':
+        if cutoff is not None:
+            raise ValueError('abstain_all requires a null cutoff')
+        accepted = pl.Series('accepted', [False] * frame.height, dtype=pl.Boolean)
+    elif action == 'apply_cutoff':
+        if isinstance(cutoff, bool) or not isinstance(cutoff, (int, float)) or not math.isfinite(cutoff):
+            raise ValueError('apply_cutoff requires a finite numeric cutoff')
+        accepted = (scores >= cutoff if comparison == '>=' else scores <= cutoff).fill_null(False)
+    else:
+        raise ValueError('calibration action must be apply_cutoff or abstain_all')
+    return frame.with_columns(
+        pl.when(accepted).then(scores).otherwise(None).alias('call_score'),
+        pl.when(accepted).then(pl.lit('accepted')).otherwise(pl.lit('no_supported_match')).alias('call_status'))
+
+
+def apply_main(args):
+    import json
+    from ..db.cache import sha256
+    from ..io.airr import _read_table
+    recipe = Path(args.calibration)
+    out = apply_calibration(_read_table(args.cases), json.loads(recipe.read_text()))
+    target = Path(args.output)
+    manifest_path = Path(str(target)+'.manifest.json')
+    if {target.resolve(), manifest_path.resolve()} & {Path(args.cases).resolve(), recipe.resolve()}:
+        raise ValueError('output must not overwrite inputs')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    out.write_csv(target, separator='\t')
+    accepted = int((out['call_status'] == 'accepted').sum())
+    manifest = {'input_sha256': sha256(Path(args.cases)), 'calibration_sha256': sha256(recipe),
+        'queries': out.height, 'accepted_calls': accepted, 'rejected_queries': out.height-accepted,
+        'no_score_queries': out['score'].null_count(), 'query_labels_used': False,
+        'interpretation': 'Rejected evidence means no supported VDJdb match, not biological nonbinding. Input scores and metadata remain evidence, not accepted calls.',
+        'limitations': 'The frozen cutoff must match the entire scorer/reference/geometry/selection pipeline. No biological probability or out-of-sample null-rate guarantee.'}
+    manifest_path.write_text(json.dumps(manifest, indent=2, allow_nan=False)+'\n')
+    return 0
 
 
 def operating_points(frame, target_fpr, *, higher_is_better=True):

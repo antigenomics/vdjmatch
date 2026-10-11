@@ -906,6 +906,32 @@ reference-selected radius limit the independent fixed-radius approximation.
 This criterion suggests a reference-defined route; it is not proof of the optimal
 scorer switch and does not change the source-record benchmark eligibility rule.
 
+\subsection*{Applying a frozen open-set rejection rule}
+The composite must be allowed to return no supported database match. A nearest
+known label is a candidate, not sufficient evidence of database coverage.
+The implemented \texttt{apply-call-calibration} command accepts a frozen cutoff
+$t$, its direction, and one score $s_q$ per query. It accepts $s_q\ge t$ (or
+$s_q\le t$ for a lower-is-better statistic), including cutoff ties. Missing
+scores and an abstain-all calibration are rejected. Query outcome labels are
+never read; raw evidence is preserved and rejected call scores are null.
+This is a decision reduction, not a new scorer or an out-of-sample calibration
+guarantee. The complete scorer, reference, geometry and winning-label procedure
+must match the calibration producer. Current default annotation does not apply
+this gate automatically; matched composite calibration remains an open obligation.
+
+Let $\rho$ be the fraction of queries with a represented specificity, $r$ the
+correct-call recall in that fraction, and $f$ the any-call rate among unrepresented
+queries. If represented queries make no incorrect calls, the accepted-call
+precision is
+\[
+ \frac{\rho r}{\rho r+(1-\rho)f}.
+\]
+Incorrect calls within represented queries can only lower this precision.
+Thus $\rho=0.01$, $r=1$ and $f=0.01$ give $100/199$, approximately $50.25\%$,
+not $99\%$ precision. A null tail or a rank-model posterior is not biological
+binder probability. An exact annotated receptor remains database evidence but
+does not guarantee experimental validation.
+
 \part*{VIII. Open obligations}
 \addcontentsline{toc}{part}{VIII. Open obligations}
 
