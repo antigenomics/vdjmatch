@@ -16,7 +16,7 @@ from seqtree import SearchParams
 @pytest.mark.parametrize('name',['score','cdr3a','status','cohort_size','pair_id','species',
     'v_call','junction_aa','binder','germline_lr_alpha','unpaired_score_beta','status_alpha',
     'rank_germline_prior','n_reference_alpha','control_size_beta','estimator_alpha',
-    'query_ida','countb','_locus'])
+    'query_ida','countb','_locus','likelihood_score','linked_density','n_linked_reference','linked_hit_count'])
 def test_cli_rejects_reserved_cohort_column_before_pair_parsing(tmp_path,monkeypatch,capsys,name):
     from vdjmatch.cli.__main__ import main
     from vdjmatch import io,db
@@ -667,6 +667,8 @@ def test_original_likelihood_scale_preserves_single_order_and_pair_identity():
 def test_cli_likelihood_adds_evidence_without_changing_historical_fields(tmp_path):
     from vdjmatch.cli.__main__ import main
     _,_,prefix,args=_paired_cli_inputs(tmp_path)
+    reference=Path(args[args.index('--vdjdb')+1])
+    pl.read_csv(reference,separator='\t').with_columns(pl.lit(1).alias('complex_id')).write_csv(reference,separator='\t')
     assert main(args)==0
     original=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
     assert main(args+['--likelihood-score'])==0
@@ -676,7 +678,10 @@ def test_cli_likelihood_adds_evidence_without_changing_historical_fields(tmp_pat
     expected=paired_score(valid['density_score_beta'],valid['density_score_alpha'],
                           valid['germline_lr'],log_scale=True)
     assert valid['likelihood_score'].to_list()==expected.to_list()
+    assert valid['linked_density'].min()>0
+    assert valid['linked_hit_count'].to_list()==[1,1]
     assert enriched.filter(pl.col('status')!='scored')['likelihood_score'].null_count()==2
+    assert enriched.filter(pl.col('status')!='scored')['linked_density'].null_count()==2
 
 
 @pytest.mark.parametrize('pooled',[False,True])
@@ -702,3 +707,56 @@ def test_cli_likelihood_keeps_each_target_row_without_prior(tmp_path,pooled):
     assert enriched.select(original.columns).equals(original)
     assert enriched.height==2
     assert enriched['likelihood_score'].to_list()==pytest.approx((original['score']+1e-6).log().to_list())
+
+
+def test_original_density_edges_reuse_search_and_retain_partial_identity(monkeypatch):
+    from vdjmatch.match import historical
+    q='CASSLGQAYEQYF';r='CASSLGRAYEQYF'
+    reference=Annotator.from_frame(pl.DataFrame({'gene':['TRB']*2,'cdr3':[q,r],
+        'v':['TRBV19','TRBV19'],'epitope':['E']*2}))._index.records_for('TRB')
+    _,queries=_prepare(pl.DataFrame({'query_id':['a'],'cdr3':[q],'v':['TRBV19'],'locus':['TRB']}))
+    control=Index.build([q,r],'aa')
+    expected=density(queries,reference,control,pool_reference=True)
+    calls=[];native=historical._density_neighbours
+    def search(*args):
+        calls.append(1)
+        return native(*args)
+    monkeypatch.setattr(historical,'_density_neighbours',search)
+    scored,edges=density(queries,reference,control,pool_reference=True,return_edges=True)
+    assert scored.equals(expected) and len(calls)==1
+    assert set(edges['reference_junction'])=={q,r}
+    nonexact=edges.filter(pl.col('reference_junction')!=q)
+    mass=nonexact.select(pl.col('kernel')/(scored['n_reference'][0]/pl.col('control_size')*
+                         pl.col('n_control')).clip(lower_bound=.01))
+    assert mass.to_series().sum()==pytest.approx(scored['score'][0])
+    assert edges.filter(pl.col('reference_junction')==q)['kernel'][0]==1.
+
+
+def test_linked_original_density_requires_same_pair_and_punctures_full_identity():
+    from vdjmatch.match.historical import linked_density
+    qa,qb='CAVRDSNYQLIW','CASSLGQAYEQYF'
+    ra,rb='CAVRDSNFQLIW','CASSLGRAYEQYF'
+    ref=pl.DataFrame({'complex_id':['1','1','2','2'],'gene':['TRA','TRB']*2,
+        'cdr3':[qa,rb,ra,qb],'v':['TRAV12-2','TRBV19']*2,'epitope':['E']*4})
+    query=pl.DataFrame({'query_id':['q'],'cdr3a':[qa],'cdr3b':[qb],
+                        'va':['TRAV12-2'],'vb':['TRBV19']})
+    def edges(junction):
+        return pl.DataFrame({'query_id':['q'],'reference_junction':[junction],
+            'kernel':[1.],'n_control':[1],'control_size':[100]})
+    # Hits to unrelated chains cannot fabricate a common receptor.
+    empty=linked_density(query,ref,edges(qa),edges(qb))
+    assert empty['linked_density'][0]==0. and empty['linked_hit_count'][0]==0
+    # One chain may match exactly; exclude only identity of the whole receptor.
+    partial=linked_density(query,ref,edges(qa),edges(rb))
+    assert partial['linked_density'][0]==100. and partial['linked_hit_count'][0]==1
+    exact=query.with_columns(pl.lit(rb).alias('cdr3b'))
+    punctured=linked_density(exact,ref,edges(qa),edges(rb))
+    assert punctured['linked_density'][0]==0. and punctured['n_linked_reference'][0]==1
+    retained=linked_density(exact,ref,edges(qa),edges(rb),exclude_exact=False)
+    assert retained['linked_hit_count'][0]==1 and retained['n_linked_reference'][0]==2
+    missing=linked_density(query,ref.head(1),edges(qa),edges(qb))
+    assert missing['linked_density'][0] is None
+    first=ref.head(2).with_columns(pl.lit('9').alias('complex_id'))
+    later=first.with_columns(pl.lit('1').alias('complex_id'),pl.Series('v',['TRAV2','TRBV20-1']))
+    duplicated=linked_density(query,pl.concat([first,later]),edges(qa),edges(rb))
+    assert duplicated['linked_density'][0]==100. # Source order, not smallest complex ID.

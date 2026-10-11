@@ -316,6 +316,24 @@ binding probability. It remains opt-in pending all-task/priority validation.
 The calibration recipe freezes the chosen numeric score column, so tails
 for this score cannot silently use the preserved cohort-rank column.
 
+The same optional paired output separately exposes original-kernel evidence from
+linked reference receptors. For distinct full-junction reference pairs $r\in R_e$,
+let $K_c(q_c,r_c)=\exp(-P_c/400)$ be the original chain kernel, $w_c$ its
+original V weight, $C_c$ the original control count at that edge's substitution
+radius, and $M_c$ the chain control population size. With $N_e=|R_e|$ after
+full-receptor identity exclusion, the diagnostic component is
+\[
+D_{e,\mathrm{linked}}(q)=\sum_{r\in R_e}
+\frac{w_\alpha w_\beta K_\alpha K_\beta}
+{\max\{N_e(C_\alpha/M_\alpha)(C_\beta/M_\beta),\,0.01\}}.
+\]
+Both chains must refer to the same linked observation. Partial exact hits remain;
+duplicate full-junction pairs use their first source-order V representative.
+The control product explicitly assumes independent chains. It supplies no joint
+$P$-value, and this component is not multiplied by the marginal score or its
+germline term. Missing linked references yield a missing component rather than
+vetoing marginal evidence. Existing reference hits are reused without another search.
+
 For a frozen complete selected score $T$, null source $b$ supplies $N_b$
 queries including no-hits. At an observed finite score $t$, let
 $k_b(t)=\#\{i:T_{bi}\ge t\}$ for a higher-is-better score (reverse the

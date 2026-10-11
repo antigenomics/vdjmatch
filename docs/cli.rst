@@ -443,8 +443,15 @@ the same original germline term for sparse references. Paired output adds alpha
 and beta log densities and the original combined germline term. It uses the same
 reference/control searches, V weights and prior counts; it introduces no extra
 sequence search. The paired log score is independent of the other queries in a
-cohort. It is opt-in original-model evidence; its task regressions and missing
-linked-pair evidence still prevent promotion.
+cohort. It is opt-in original-model evidence; its task regressions prevent promotion.
+Paired output additionally reports ``linked_density``, ``linked_hit_count`` and
+``n_linked_reference``. This separate component multiplies the original BLOSUM
+kernels for chains from the same reference complex and applies the original V
+weights and 0.01 control floor. Only full receptor identity is excluded; partial
+exact chain hits remain. Its control denominator uses the product of the original
+chain edit CDFs, an explicit independent-chain model. Missing linked references
+yield a null component, preserving the marginal evidence. This component has no
+transferred joint P-value and is not yet combined with the marginal score.
 
 ``--germline-background RAW_TABLE`` adds the original sparse-reference unpaired
 formula: log(density + 1e-6) plus the V/J/length log likelihood ratio when the

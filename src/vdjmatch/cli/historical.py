@@ -84,6 +84,7 @@ def _paired_columns(cohort_column):
             score_columns.update({'unpaired_score_'+name:pl.Float64,'status_'+name:pl.String})
     if cohort_column:
         reserved=set(fields)|set(score_columns)|{'query_id','sequence_id','species',*PMHC,'binder','estimator','_locus',
+            'likelihood_score','linked_density','n_linked_reference','linked_hit_count',
             'query_id_alpha','query_id_beta','estimator_alpha','estimator_beta',
             *[c+suffix for c in ['cdr3','v','j','count','query_id','sequence_id'] for suffix in ['a','b']]}
         reserved.update(alias for aliases in io.columns.ALIASES.values() for alias in aliases)
@@ -99,7 +100,7 @@ def _paired_scores(a, reference, beta_control, prior_background):
     from ..aggregate.candidates import PMHC
     from ..io.airr import _read_table
     from ..evalue.control import raw_background, _organism
-    from ..match.historical import density, germline_prior, paired_score, unpaired_score, shared_control_histograms
+    from ..match.historical import density, germline_prior, paired_score, unpaired_score, shared_control_histograms, linked_density
     fields,score_columns=_paired_columns(a.cohort_column)
     puncture=getattr(a,'puncture_populations',False)
     raw=_read_table(a.sample)
@@ -166,6 +167,7 @@ def _paired_scores(a, reference, beta_control, prior_background):
     parts=[]
     for task,part,selected in assayed_targets(paired,metadata,reference,a.species):
         out=part.drop('species',*PMHC)
+        edges={}
         for chain,name,suffix in [('TRA','alpha','a'),('TRB','beta','b')]:
             ref=selected.filter(pl.col('gene')==chain)
             queries=part.filter(pl.col('cdr3'+suffix).str.contains(canonical).fill_null(False)).select(
@@ -173,7 +175,10 @@ def _paired_scores(a, reference, beta_control, prior_background):
                 pl.col('v'+suffix).alias('v'),pl.col('j'+suffix).alias('j'))
             if ref.height and queries.height:
                 scores=density(queries,ref,controls[name],threads=a.threads,pool_reference=True,
-                               control_counts=shared_counts.get(name),puncture_populations=puncture)
+                               control_counts=shared_counts.get(name),puncture_populations=puncture,
+                               return_edges=a.likelihood_score)
+                if a.likelihood_score:
+                    scores,edges[name]=scores
                 prior=germline_prior(queries.filter(pl.all_horizontal(pl.col('v','j').str.strip_chars().ne('').fill_null(False))),
                                      ref,prior_background,include_length=chain=='TRB',exclude_exact=puncture)
                 scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',how='left',
@@ -221,6 +226,14 @@ def _paired_scores(a, reference, beta_control, prior_background):
                     .when(pl.col('germline_lr_'+name).is_null()).then(pl.lit('no_prior_evidence'))
                     .otherwise(pl.lit('scored')).alias('status_'+name))
         valid=out.filter(pl.col('status')=='scored')
+        if a.likelihood_score:
+            if valid.height:
+                linked=linked_density(valid,selected,edges['alpha'],edges['beta'])
+                out=out.join(linked,on='query_id',how='left',validate='1:1',maintain_order='left')
+            else:
+                out=out.with_columns(pl.lit(None,dtype=pl.Float64).alias('linked_density'),
+                    pl.lit(None,dtype=pl.UInt64).alias('n_linked_reference'),
+                    pl.lit(None,dtype=pl.UInt64).alias('linked_hit_count'))
         out=out.with_columns((pl.col('status').eq('scored').sum().over(a.cohort_column)
             if a.cohort_column else pl.lit(valid.height)).cast(pl.UInt64).alias('cohort_size'))
         if valid.height:
@@ -250,6 +263,10 @@ def _paired_scores(a, reference, beta_control, prior_background):
     out=out.join(scoring,on='query_id',how='left',validate='1:1',maintain_order='left')
     out=out.with_columns(*[pl.lit(None,dtype=dtype).alias(name) for name,dtype in score_columns.items()
                            if name not in out.columns])
+    if a.likelihood_score:
+        out=out.with_columns(*[pl.lit(None,dtype=dtype).alias(name) for name,dtype in
+            {'linked_density':pl.Float64,'n_linked_reference':pl.UInt64,'linked_hit_count':pl.UInt64}.items()
+            if name not in out.columns])
     out=out.with_columns(
         pl.when(pl.col('species')!=_organism(a.species)).then(pl.lit('unselected_species'))
         .otherwise(pl.col('status').fill_null('invalid_query')).alias('status'),
@@ -539,7 +556,12 @@ def main(a):
             'formula':'log(D_alpha+1e-6)+log(D_beta+1e-6)+original combined germline term' if a.locus=='paired' else
                       'log(D+1e-6)+original germline term when sparse; density-only if no prior supplied',
             'components':'original density, V weight, control correction and germline counts unchanged',
-            'cohort_dependent':False,'historical_score_preserved':True,'calibration':'requires identical complete selected-score null pipeline'}} if a.likelihood_score else {}),
+            'cohort_dependent':False,'historical_score_preserved':True,'calibration':'requires identical complete selected-score null pipeline',
+            **({'linked_component':{'formula':'sum(w_alpha*w_beta*K_alpha*K_beta/max(N_pair*C_alpha/M_alpha*C_beta/M_beta,.01))',
+                'reference':'first source-order V per distinct full-junction linked pair; same complex at both loci',
+                'puncture':'full paired junction identity only; partial exact hits retained',
+                'background':'original chain edit-CDF product, conditional independent-chain model',
+                'role':'separate diagnostic component; marginal score retained; no joint P-value transfer'}} if a.locus=='paired' else {})}} if a.likelihood_score else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
         'scope':'PSSM5 substitutions; unit controls5,2,2; significance nearest<=1; exact excluded',
         'representative':('first source-order V per declared task union junction' if a.targets_from_sample
