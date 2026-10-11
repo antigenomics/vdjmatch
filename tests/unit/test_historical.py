@@ -305,6 +305,48 @@ def test_original_sparse_boundary_and_paired_average_rank_fusion():
         paired_score([0], [0, 1], [0])
 
 
+def test_candidate_prior_exact_puncture_matches_physical_removal():
+    queries = pl.DataFrame({'query_id': ['a', 'different_genes', 'b', 'absent'],
+        'cdr3': ['CAAF', 'CAAF', 'CAGF', 'CASGF'],
+        'v': ['TRBV1*02', 'TRBV2', 'TRBV2', 'TRBV1'],
+        'j': ['TRBJ1', 'TRBJ2', 'TRBJ2', 'TRBJ1']})
+    reference = pl.DataFrame({'cdr3': ['CAAF', 'CAAF', 'CAGF', 'CATF'],
+        'v': ['TRBV1', 'TRBV2', 'TRBV2', 'TRBV1'],
+        'j': ['TRBJ1', 'TRBJ2', 'TRBJ2', 'TRBJ1']})
+    background = pl.DataFrame({'cdr3': ['CAAF', 'CAAF', 'CAGF', 'CASGF', 'CATF'],
+        'v': ['TRBV2', 'TRBV1', 'TRBV1', 'TRBV1', 'TRBV2'],
+        'j': ['TRBJ2', 'TRBJ1', 'TRBJ1', 'TRBJ1', 'TRBJ2']})
+    for length in [False, True]:
+        got = germline_prior(queries, reference, background,
+            include_length=length, exclude_exact=True)
+        for i, row in enumerate(queries.iter_rows(named=True)):
+            expected = germline_prior(queries.slice(i, 1),
+                reference.filter(pl.col('cdr3') != row['cdr3']),
+                background.filter(pl.col('cdr3') != row['cdr3']), include_length=length)
+            assert got.row(i) == expected.row(0)
+    empty = germline_prior(queries.head(1), reference.head(2), background.head(2), exclude_exact=True)
+    assert empty['n_reference'].to_list() == [0]
+    assert empty['background_size'].to_list() == [0]
+    assert empty['germline_lr'].to_list() == [None]
+
+
+def test_candidate_density_population_puncture_matches_physical_removal():
+    q, r = 'CASSLGQAYEQYF', 'CASSLGRAYEQYF'
+    reference = Annotator.from_frame(pl.DataFrame({'gene': ['TRB']*3,
+        'cdr3': [q, q, r], 'v': ['TRBV19']*3, 'epitope': ['E']*3}))._index.records_for('TRB')
+    _, queries = _prepare(pl.DataFrame({'query_id': ['a', 'b'], 'cdr3': [q, r],
+        'v': ['TRBV19']*2, 'locus': ['TRB']*2}))
+    got = density(queries, reference, Index.build([q, r]), puncture_populations=True)
+    for i, s in enumerate([q, r]):
+        expected = density(queries.slice(i, 1), reference.filter(pl.col('cdr3') != s),
+            Index.build([x for x in [q, r] if x != s]))
+        assert got.drop('estimator').row(i) == expected.drop('estimator').row(0)
+    empty = density(queries.head(1), reference.filter(pl.col('cdr3') == q),
+        Index.build([q]), puncture_populations=True)
+    assert empty['n_reference'].to_list() == empty['control_size'].to_list() == [0]
+    assert empty['score'].to_list() == empty['p_enrichment'].to_list() == [None]
+
+
 def test_cli_assayed_targets_preserve_rows_restrictions_and_statuses(tmp_path):
     from vdjmatch.cli.__main__ import main
     q, r = 'CASSLGQAYEQYF', 'CASSLGRAYEQYF'

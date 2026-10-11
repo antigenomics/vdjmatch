@@ -77,17 +77,24 @@ def shared_control_histograms(control, batches, *, threads=1):
     return control_histograms(control, radii, threads=threads, radii=radii)
 
 
-def density(queries, reference, control, *, threads=1, pool_reference=False, control_counts=None):
+def density(queries, reference, control, *, threads=1, pool_reference=False, control_counts=None,
+            puncture_populations=False):
     """Return keyed PSSM density and original radius<=1 significance component.
 
     Query IDs and contradictory labels remain distinct. Exact junctions are excluded
     symmetrically. Neither significance nor density is posterior specificity.
     ``pool_reference`` reproduces the original task-level reference union; the caller
     selects compatible MHC records first. Heterogeneous MHC output fields are null.
+    Candidate ``puncture_populations`` also removes exact matches from population
+    sizes. An empty remaining population yields missing score/significance.
     """
     if threads < 1 or not len(control):
         raise ValueError("positive threads and a nonempty control are required")
     seqs = queries['cdr3'].unique(maintain_order=True).to_list()
+    control_sizes = dict.fromkeys(seqs, len(control))
+    if puncture_populations:
+        exact = control.edit_histogram_batch(seqs, first_hit.scope(1), threads, False)
+        control_sizes = {s:len(control)-int(row[0]) for s,row in zip(seqs,exact)}
     rows = []
     if pool_reference:
         for column in ('epitope', 'species', 'gene'):
@@ -110,35 +117,42 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
         # Only target-supported radii enter the original formula. Narrower control
         # balls have the identical CDF at those radii; unsupported queries need none.
         counts = control_histograms(control,seqs,threads=threads,radii=radii) if control_counts is None else control_counts
-        significance = {s: evalue_result(hs[1],counts[s][1],len(rs),len(control))['p_enrichment']
-                        if hs[1] else 1.0 for s,hs in zip(seqs,unit)}
+        reference_keys = set(rs)
+        reference_sizes = {s:len(rs)-int(puncture_populations and s in reference_keys) for s in seqs}
+        significance = {s:(evalue_result(hs[1],counts[s][1],reference_sizes[s],control_sizes[s])['p_enrichment']
+                        if hs[1] else 1.0) if reference_sizes[s] and control_sizes[s] else None
+                        for s,hs in zip(seqs,unit)}
         for query in queries.iter_rows(named=True):
             s, v = query['cdr3'], query['v']
-            total = 0.0
-            for hit in hits[s]:
+            nr, nc_population = reference_sizes[s], control_sizes[s]
+            total = 0.0 if nr and nc_population else None
+            for hit in hits[s] if total is not None else []:
                 if rs[hit.ref_id] == s:
                     continue
                 ref_v = rv[hit.ref_id]
                 weight = 1.0 if gene_family(v) == gene_family(ref_v) else .25*vsim(v,ref_v)
                 nc = counts[s][hit.n_subs]
-                total += weight*math.exp(-hit.score/400.0)/max(len(rs)/len(control)*nc,.01)
+                total += weight*math.exp(-hit.score/400.0)/max(nr/nc_population*nc,.01)
             rows.append({'query_id':query['query_id'], **dict(zip(PMHC,key)),
                          'score':total, 'p_enrichment':significance[s],
-                         'n_reference':len(rs),'control_size':len(control),
-                         'estimator':'historical-pssm-density-v1'})
+                         'n_reference':nr,'control_size':nc_population,
+                         'estimator':'punctured-pssm-density-v1' if puncture_populations else 'historical-pssm-density-v1'})
     schema={'query_id':queries.schema['query_id'], **{c:pl.String for c in PMHC},
             'score':pl.Float64,'p_enrichment':pl.Float64,'n_reference':pl.UInt64,
             'control_size':pl.UInt64,'estimator':pl.String}
     return pl.DataFrame(rows,schema=schema)
 
 
-def germline_prior(queries, reference, background, *, include_length=True):
+def germline_prior(queries, reference, background, *, include_length=True, exclude_exact=False):
     """Original smoothed V/J[/junction-length] log likelihood ratio, keyed by query.
 
     Frames use ``cdr3,v,j``. Reference junctions use their first source-order V/J;
     background rows retain raw multiplicity. Alpha reproduction deliberately passes
     the original beta background with ``include_length=False``; no correction is
     inferred here. Unknown/missing-input disposition belongs to the caller.
+    ``exclude_exact`` removes every full-junction match from both populations and
+    feature counts per query. This candidate option preserves historical defaults;
+    an emptied population yields missing evidence, not a prior-only assignment.
     """
     ref = reference.unique('cdr3', keep='first', maintain_order=True)
     nr, nb = ref.height, background.height
@@ -151,22 +165,40 @@ def germline_prior(queries, reference, background, *, include_length=True):
             pl.col('v', 'j').str.replace(r'\*.*$', ''),
             pl.col('cdr3').str.len_chars().alias('length'))
 
-    out = features(queries).select('query_id', *columns)
+    out = features(queries).select('query_id', *(['cdr3'] if exclude_exact else []), *columns)
     ref, bg = features(ref), features(background)
-    out = out.with_columns(pl.lit(0.0).alias('germline_lr'))
+    out = out.with_columns(pl.lit(0.0).alias('germline_lr'),
+        pl.lit(nr, dtype=pl.UInt64).alias('n_reference'),
+        pl.lit(nb, dtype=pl.UInt64).alias('background_size'))
+    if exclude_exact:
+        for population, size in [(ref, 'n_reference'), (bg, 'background_size')]:
+            removed = population.group_by('cdr3').len().rename({'len': '_removed'})
+            out = (out.join(removed, on='cdr3', how='left', validate='m:1', maintain_order='left')
+                .with_columns((pl.col(size) - pl.col('_removed').fill_null(0)).alias(size))
+                .drop('_removed'))
     for column in columns:
         rc = ref.group_by(column).len().rename({'len': '_ref_count'})
         bc = bg.group_by(column).len().rename({'len': '_bg_count'})
         out = (out.join(rc, on=column, how='left', maintain_order='left')
                .join(bc, on=column, how='left', maintain_order='left')
+               .with_columns(pl.col('_ref_count', '_bg_count').fill_null(0)))
+        if exclude_exact:
+            keys = ['cdr3', column]
+            for population, count in [(ref, '_ref_count'), (bg, '_bg_count')]:
+                removed = population.group_by(keys).len().rename({'len': '_removed'})
+                out = (out.join(removed, on=keys, how='left', validate='m:1', maintain_order='left')
+                    .with_columns((pl.col(count) - pl.col('_removed').fill_null(0)).alias(count))
+                    .drop('_removed'))
+        out = (out
                .with_columns((pl.col('germline_lr') +
-                   (((pl.col('_ref_count').fill_null(0) + .5) / (nr + 30)) /
-                    ((pl.col('_bg_count').fill_null(0) + .5) / (nb + 30))).log())
+                   (((pl.col('_ref_count') + .5) / (pl.col('n_reference') + 30)) /
+                    ((pl.col('_bg_count') + .5) / (pl.col('background_size') + 30))).log())
                    .alias('germline_lr'))
                .drop('_ref_count', '_bg_count'))
-    return out.select('query_id', 'germline_lr').with_columns(
-        pl.lit(nr, dtype=pl.UInt64).alias('n_reference'),
-        pl.lit(nb, dtype=pl.UInt64).alias('background_size'))
+    if exclude_exact:
+        out = out.with_columns(pl.when((pl.col('n_reference') > 0) & (pl.col('background_size') > 0))
+            .then(pl.col('germline_lr')).otherwise(None).alias('germline_lr'))
+    return out.select('query_id', 'germline_lr', 'n_reference', 'background_size')
 
 
 def _score_series(values):
