@@ -119,16 +119,19 @@ def local_chemistry_evidence(queries, reference, background, *, paired=False,
         windows = qt.join(part.select('_id'), on='_id', how='semi')
         if not windows.height:
             continue
-        x = windows.select(coordinates).to_numpy()
+        x, inverse = np.unique(windows.select(coordinates).to_numpy(), axis=0, return_inverse=True)
         masses = windows.select('_id')
         for side, (pop, tokens) in zip(('reference', 'control'), populations):
             selected, points = pop.filter(mask), tokens.filter(mask)
             values = np.zeros(windows.height)
             if points.height:
+                # Identical coordinates have additive mixture weight; retain
+                # every receptor/window contribution without repeating KDE work.
+                points = points.group_by(coordinates).agg(pl.col('_weight').sum()).sort(coordinates)
                 model = KernelDensity(bandwidth=bandwidth_factor, kernel='gaussian',
                                       algorithm='ball_tree', atol=0, rtol=0)
                 model.fit(points.select(coordinates).to_numpy(), sample_weight=points['_weight'].to_numpy())
-                values = np.exp(model.score_samples(x) + norm) * selected.height
+                values = np.exp(model.score_samples(x)[inverse] + norm) * selected.height
             masses = masses.with_columns(pl.Series('_mass_'+side, values))
         mass_rows.append(masses.group_by('_id').agg(pl.col('_mass_reference', '_mass_control').mean(),
                                                     pl.len().alias('chemistry_query_windows')))
