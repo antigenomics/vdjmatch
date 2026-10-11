@@ -18,16 +18,6 @@ def test_kneedle_scale_ties_and_no_knee():
             tcrdist.kneedle_radius(values)
 
 
-def test_reference_structure_uses_matrix_units_and_all_keys():
-    distances=np.array([0.,2.,4.,20.,100.,np.nan])
-    coverage,shape=tcrdist.reference_structure(distances,radius_factor=5)
-    assert coverage==4/6 and 0<=shape<=1
-    costs=tcrdist._substitution_costs()
-    scaled=tcrdist.reference_structure(distances*7,radius_factor=5,costs=costs*7)
-    np.testing.assert_allclose(scaled,[coverage,shape],rtol=0,atol=1e-15)
-    assert tcrdist.reference_structure([np.nan])==(0.,0.)
-
-
 def test_kneedle_uses_strongest_confirmed_bend_not_minor_leading_bump():
     curve=[0]*5+[15,15]+list(range(16,36))+[70,100,140]
     assert tcrdist.kneedle_radius(curve)==35
@@ -84,21 +74,3 @@ def test_reference_radius_cli_keeps_unresolved_and_no_knee_dispositions(tmp_path
     assert out['nearest_keys'].to_list() == [2]
     assert out['radius'].null_count() == 1
     assert out['radius_status'].to_list() == ['no_knee']
-
-
-def test_reference_structure_cli_profiles_compatible_union(tmp_path):
-    from vdjmatch.cli.__main__ import main
-    source=tmp_path/'reference.tsv';sample=tmp_path/'queries.tsv';prefix=tmp_path/'profile'
-    pl.DataFrame({'cdr3':['CASSLGQAYEQYF','CASSLGRAYEQYF'], 'v':['TRBV19']*2,
-        'gene':['TRB']*2, 'epitope':['PEPTIDE']*2, 'species':['HomoSapiens']*2,
-        'mhc_a':['HLA-A*02:01','HLA-A*02:02'],'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2
-    }).write_csv(source,separator='\t')
-    pl.DataFrame({'query_id':['q1','q2'],'species':['human']*2,
-        'epitope':['PEPTIDE','ABSENT'],'mhc_a':['HLA-A*02']*2,
-        'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(sample,separator='\t')
-    assert main(['reference-radius','--vdjdb',str(source),'--species','human','--locus','TRB',
-        '--targets-from-sample',str(sample),'--output-prefix',str(prefix)])==0
-    rows=pl.read_csv(str(prefix)+'.radii.tsv',separator='\t').sort('epitope')
-    assert rows['reference_keys'].to_list()==[0,2]
-    assert rows['source_observations'].to_list()==[0,2]
-    assert rows['reference_coverage'].to_list()==[0.,1.]

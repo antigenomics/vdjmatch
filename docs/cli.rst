@@ -969,27 +969,3 @@ Zero supported motifs, invalid queries and absent references have explicit statu
 This command supplies a candidate component, not a switched scorer, joint paired
 likelihood, P-value or specificity probability. Pairing remains in the output IDs;
 run both loci and join by the original linkage to compare genuine paired queries.
-
-Global evidence combination
----------------------------
-
-``fit-evidence TABLE --model MODEL`` fits one experimental logistic formula from
-``likelihood_score``, ``conditional_rank_score``, ``motif_score``,
-``reference_coverage``, ``knee_shape`` and ``paired`` columns. Labels default to
-``label``; ``--weight-column`` supplies explicit population weights. Shared
-nonnegative evidence coefficients preserve monotonicity at fixed structure.
-Missing evidence receives an indicator; unsupported training rows require an
-explicit disposition before fitting. Model JSON records coefficients, scaling,
-training groups and input hash.
-
-``combine-evidence TABLE --model MODEL --output SCORES`` preserves every row and
-exports a linear ranking margin with an unsupported status when all components
-are absent. ``--require-heldout`` rejects overlap with training epitope groups
-for benchmark evaluation. This experimental margin has no transferred component
-P-value and is not a calibrated probability of binding.
-
-``reference-radius --targets-from-sample SAMPLE`` profiles the compatible pMHC
-reference unions declared by a sample. Its output also includes neighbour
-coverage and normalized convex bend. ``--coverage-radius-factor`` defaults to
-22.5 times the shared substitution-matrix scale; the bend uses unit-square
-normalization. These describe the reference without changing search radii.

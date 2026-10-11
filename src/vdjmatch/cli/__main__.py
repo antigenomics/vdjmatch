@@ -746,8 +746,6 @@ def main(argv: list[str] | None = None) -> int:
     register_historical(sub)
     from .motifs import register as register_motifs
     register_motifs(sub)
-    from .combination import register as register_combination
-    register_combination(sub)
     from .tcrdist import register as register_tcrdist
     register_tcrdist(sub)
     from .pgen import register as register_pgen
