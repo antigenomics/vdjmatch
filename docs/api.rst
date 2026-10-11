@@ -145,3 +145,8 @@ Curated source replication
 
 :func:`vdjmatch.db.replicated` retains source provenance and complete pMHC
 identity when selecting corroborated records.
+
+Experimental V-conditioned motif evidence
+-----------------------------------------
+
+.. autofunction:: vdjmatch.match.motifs.vdjbet_motif_scores

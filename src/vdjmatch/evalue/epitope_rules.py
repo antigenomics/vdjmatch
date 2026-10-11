@@ -10,20 +10,19 @@ MOTIFS=('exact3','imgt3','wild4','imgt_wild4')
 IMGT_CLASSES={a:group[0] for group in ('AILV','RHK','CM','ST','DE','NQ','G','F','P','W','Y') for a in group}
 
 
-def _tokens(frame, axes, mode):
+def _tokens(frame, axes, mode, *, full_junction=False, wildcard_positions=(1,2)):
     """Unique per-receptor motif tuples; paired tuples belong to one linked pair."""
     k=4 if 'wild' in mode else 3
     result=frame.select('_id',*[f'v{i}' for i in axes])
     for i in axes:
-        seq=pl.col(f'seq{i}').str.slice(3,pl.col(f'seq{i}').str.len_chars()-6)
+        seq=pl.col(f'seq{i}') if full_junction else pl.col(f'seq{i}').str.slice(3,pl.col(f'seq{i}').str.len_chars()-6)
         if 'imgt' in mode:seq=seq.str.replace_many(list(IMGT_CLASSES),list(IMGT_CLASSES.values()))
         tokens=frame.select('_id',seq.alias('_seq')).with_columns(
             pl.int_ranges(0,(pl.col('_seq').str.len_chars().cast(pl.Int64)-k+1).clip(lower_bound=0)).alias('_pos'))
         tokens=tokens.explode('_pos').filter(pl.col('_pos').is_not_null()).with_columns(
             pl.col('_seq').str.slice(pl.col('_pos'),k).alias('_token'))
         if k==4:
-            tokens=pl.concat([tokens.select('_id',pl.concat_str(pl.col('_token').str.slice(0,2),pl.lit('X'),pl.col('_token').str.slice(3,1)).alias(f't{i}')),
-                tokens.select('_id',pl.concat_str(pl.col('_token').str.slice(0,1),pl.lit('X'),pl.col('_token').str.slice(2,2)).alias(f't{i}'))])
+            tokens=pl.concat([tokens.select('_id',pl.concat_str(pl.col('_token').str.slice(0,p),pl.lit('X'),pl.col('_token').str.slice(p+1,3-p)).alias(f't{i}')) for p in wildcard_positions])
         else:tokens=tokens.select('_id',pl.col('_token').alias(f't{i}'))
         # A tuple is a single paired kernel feature; repeated/overlapping tokens
         # are averaged rather than claimed as independent observations.
