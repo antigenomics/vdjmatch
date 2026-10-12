@@ -664,6 +664,22 @@ def test_original_likelihood_scale_preserves_single_order_and_pair_identity():
     assert extended.head(2).equals(pair)
 
 
+def test_likelihood_prior_diagnostics_are_common_formulas_without_size_switch(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    raw.with_columns(pl.lit('one').alias('cohort')).write_csv(sample,separator='\t')
+    assert main(args+['--likelihood-score','--cohort-column','cohort'])==0
+    q=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    for side in ('alpha','beta'):
+        valid=q.filter(pl.col('status_'+side)=='scored')
+        density=(valid['density_score_'+side]+1e-6).log()
+        assert valid['likelihood_density_only_'+side].to_list()==pytest.approx(density.to_list())
+        assert valid['likelihood_full_prior_'+side].to_list()==pytest.approx((density+valid['germline_lr_'+side]).to_list())
+    valid=q.filter(pl.col('status')=='scored')
+    assert valid['likelihood_full_prior'].equals(valid['likelihood_score'])
+    assert valid['likelihood_density_only'].to_list()==pytest.approx(((valid['density_score_alpha']+1e-6).log()+(valid['density_score_beta']+1e-6).log()).to_list())
+
+
 def test_cli_likelihood_adds_evidence_without_changing_historical_fields(tmp_path):
     from vdjmatch.cli.__main__ import main
     _,_,prefix,args=_paired_cli_inputs(tmp_path)
@@ -729,6 +745,7 @@ def test_all_target_likelihood_reuses_original_paired_components_without_query_l
     assert main(all_args+['--withhold-epitope','E'])==0
     folded=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
     assert set(folded['epitope'])=={'F'}
+    assert folded.equals(out.filter(pl.col('epitope')=='F'))
     full=pl.read_csv(reference,separator='\t')
     full.filter(pl.col('epitope')!='E').write_csv(reference,separator='\t')
     assert main(all_args)==0

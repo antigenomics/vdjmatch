@@ -97,10 +97,7 @@ def test_all_targets_rank_reproduces_assayed_component_and_ignores_query_labels(
     assert main(all_args+['--withhold-epitope','E'])==0
     folded=pl.read_csv(tmp_path/'all.enrichment.tsv',separator='\t')
     assert set(folded['epitope'])=={'OTHER'}
-    ref=pl.read_csv(reference,separator='\t')
-    ref.filter(pl.col('epitope')!='E').write_csv(reference,separator='\t')
-    assert main(all_args)==0
-    assert pl.read_csv(tmp_path/'all.enrichment.tsv',separator='\t').equals(folded)
-    assert main(all_args+['--withhold-epitope','OTHER'])==0
+    assert folded.equals(new.filter(pl.col('epitope')=='OTHER'))
+    assert main(all_args+['--withhold-epitope','E','--withhold-epitope','OTHER'])==0
     queries=pl.read_csv(tmp_path/'all.queries.tsv',separator='\t')
     assert queries['status'].to_list()==['no_reference']

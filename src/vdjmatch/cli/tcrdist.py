@@ -14,7 +14,7 @@ def register(subparsers):
     p.add_argument('--mhc-match',choices=['exact','compatible'],default='exact')
     p.add_argument('--targets-from-sample',action='store_true',help='score only each row\'s declared assayed pMHC with compatible MHC resolution')
     p.add_argument('--all-targets',action='store_true',help='emit separate evidence for every full pMHC; query target labels are ignored')
-    p.add_argument('--withhold-epitope',action='append',help='all-target null fold: remove every reference record of this peptide, including background and all MHC restrictions')
+    p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep the full background model fixed')
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--alphabet',choices=['full','imgt'],default='full',
                    help='experimental ordered IMGT-class geometry; same projected matrix for CDR3/V loops, raw identities retained')
@@ -209,7 +209,6 @@ def main(a):
     if missing_withheld:=set(a.withhold_epitope or [])-set(r.filter(pl.col('reference_valid'))['epitope']):
         raise ValueError('withheld epitopes absent from valid species reference: '+', '.join(sorted(missing_withheld)))
     withheld_records=r.filter(pl.col('epitope').is_in(a.withhold_epitope or [])).height
-    r=r.filter(~pl.col('epitope').is_in(a.withhold_epitope or []))
     allowed=[v for v,m in model.items() if m['locus']==a.locus]
     def prepare(frame):
         return frame.with_columns(resolve_v_alleles(frame['v'],model,locus=a.locus).alias('_allele')).filter(
@@ -274,6 +273,13 @@ def main(a):
                     'knee_floored' if value>row['raw_radius'] else 'knee')
             target_radii[tuple(row[c] for c in PMHC)]=selected
         radius_seconds=time.perf_counter()-radius_start
+    if a.withhold_epitope:
+        # Candidate masking must not refit complement populations or knee floors.
+        groups=[(task,part,reference_part) for task,part,reference_part in groups
+                if not a.all_targets or task['epitope'] not in a.withhold_epitope]
+        if not a.all_targets:
+            groups=[(task,part,reference_part.head(0) if task['epitope'] in a.withhold_epitope else reference_part)
+                    for task,part,reference_part in groups]
     # Counts share one distance on references and controls; no dense control matrix.
     enrichment_rows=[]
     background_provenance=None
@@ -473,7 +479,7 @@ def main(a):
         background_costs['total']=time.perf_counter()-background_start
     rows=[]
     shortlist_rows=[];shortlist_costs=[]
-    dispositions={query_id:'no_reference' for query_id in q['query_id']} if a.all_targets and not r.height else {}
+    dispositions={query_id:'no_reference' for query_id in q['query_id']} if a.all_targets and not groups else {}
     for task,query_part,reference_part in groups:
         radius=target_radii[tuple(task[c] for c in PMHC)] if a.reference_radius else a.radius
         if task is not None:
@@ -672,6 +678,7 @@ def main(a):
                     'cli_source_sha256':sha256(Path(__file__))},
         'reference':db.provenance(a.vdjdb),'ingestion':ingestion,'reference_observations':original,'withheld_reference_chain_records':withheld_records,
         'reference_usable_keys':r.height,'query_rows':raw.height,'query_usable_rows':2*q.height if paired else q.height,
+        'withholding':'candidate hits only; full background populations and geometry parameters retained',
         **({'query_pairs':pair_rows.height,'query_usable_pairs':q.height,'reference_complete_pairs':paired_observations,
             'query_status_counts':dict(status.group_by('status').len().iter_rows()),
             'reference_key_unit':'distinct linked alpha/beta junction+V-allele+pMHC keys',

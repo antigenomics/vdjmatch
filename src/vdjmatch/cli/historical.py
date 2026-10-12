@@ -28,7 +28,7 @@ def register(subparsers):
     p.add_argument('--gap-radius',type=int,default=90,help='TCRdist extension radius only')
     p.add_argument('--gap-temperature',type=float,default=12,help='TCRdist extension temperature only')
     p.add_argument('--pssm-kernel-scale',type=float,default=400,help='positive positional-kernel decay scale in integer penalty units; positional modes only')
-    p.add_argument('--withhold-epitope',action='append',help='all-target null fold: remove every reference record of this peptide, including background and all MHC restrictions')
+    p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep other target models and controls fixed')
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
@@ -544,8 +544,20 @@ def main(a):
                                   valid['n_reference'],log_scale=True)
         else:
             values=(valid['score']+1e-6).log()
-        out=out.join(valid.select('_likelihood_row').with_columns(values.alias('likelihood_score')),
+        # Diagnose the inherited prior activation without changing model counts,
+        # matching, the historical score or the selected likelihood formula.
+        log_density=((pl.col('density_score_beta')+1e-6).log()+(pl.col('density_score_alpha')+1e-6).log()
+                     if a.locus=='paired' else (pl.col('density_score' if prior_background is not None else 'score')+1e-6).log())
+        prior=pl.col('germline_lr') if prior_background is not None else pl.lit(None,dtype=pl.Float64)
+        diagnostics=valid.select('_likelihood_row',log_density.alias('likelihood_density_only'),
+                                 (log_density+prior).alias('likelihood_full_prior')).with_columns(values.alias('likelihood_score'))
+        out=out.join(diagnostics,
                      on='_likelihood_row',how='left',validate='1:1',maintain_order='left').drop('_likelihood_row')
+        if a.locus=='paired' and a.cohort_column:
+            out=out.with_columns(*[pl.when(pl.col('status_'+side)=='scored').then(
+                (pl.col('density_score_'+side)+1e-6).log()+(pl.col('germline_lr_'+side) if full else 0.))
+                .otherwise(None).alias('likelihood_'+('full_prior_' if full else 'density_only_')+side)
+                for side in ('alpha','beta') for full in (False,True)])
     prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
     out.write_csv(str(prefix)+'.scores.tsv',separator='\t')
     extension_manifest=None
@@ -603,6 +615,7 @@ def main(a):
             'cohort_dependent':False,'historical_score_preserved':True,'calibration':'requires identical complete selected-score null pipeline'}} if a.likelihood_score else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
         'withheld_reference_chain_records':withheld_records,
+        'withholding':'candidate hits only; other target priors and raw controls retained',
         'target_selection':'every full pMHC; query labels ignored' if a.all_targets else 'assayed or explicit targets',
         'scope':'PSSM5 substitutions; unit controls5,2,2; significance nearest<=1; exact excluded',
         'representative':('first source-order V per declared task union junction' if a.targets_from_sample

@@ -1087,9 +1087,10 @@ The \texttt{--all-targets} mode evaluates the existing original log score
 and, separately, the existing conditional rank against each full pMHC
 hypothesis. Query target labels are not used. Each nearest-rank join is keyed
 by query and full pMHC; reference and control geometry remains unchanged.
-For a withheld-peptide null fold, \texttt{--withhold-epitope} removes every
-reference instance of the selected peptide, across MHC restrictions and
-from competing-label backgrounds, before search and reduction. Human and
+For a withheld-peptide null fold, \texttt{--withhold-epitope} masks the selected
+peptide from candidate hits across MHC restrictions. The full database model,
+remaining target priors, complement populations and geometry parameters are
+retained; this does not refit the model after deleting source records. Human and
 mouse populations are evaluated separately. Paired original evidence retains
 same-target unlinked marginal references; the paired rank component requires
 same-linked-pair distances. These commands emit component evidence, not a

@@ -466,11 +466,21 @@ one target cannot supply another target's nearest rank.
 Both commands accept repeated ``--withhold-epitope PEPTIDE`` arguments in
 all-target or sample-declared target mode. The latter also supports null
 normalization of compatible coarse-MHC hypothesis unions.
-A withholding fold removes all reference records of that peptide, across every
-MHC restriction and from the rank background. This is equivalent to physically
-removing those records before scoring. Invoke human and mouse separately.
+A withholding fold hides that peptide from candidate hits across every MHC
+restriction. The full database remains the model: other target priors, complement
+background populations, raw controls and reference geometry parameters stay fixed.
+Thus each remaining candidate retains its original score. This differs from
+physically deleting source records and refitting the model. Invoke human and mouse separately.
 The existing source/reference/native recipes record all options and withheld
 source-chain record counts; component P-values do not calibrate final selection.
+
+For the prior-activation audit, ``--likelihood-score`` also exports
+``likelihood_density_only`` and ``likelihood_full_prior``: the same log density
+without the germline term, and with the complete original germline term at every
+reference size. These diagnostic formulas have no 500-key switch and use identical
+hits, controls and model counts. Paired cohort output also exports both columns
+with ``_alpha`` and ``_beta`` suffixes for separate chain evaluation. They do not
+replace the historical/default score or establish an optimal activation rule.
 
 ``--germline-background RAW_TABLE`` adds the original sparse-reference unpaired
 formula: log(density + 1e-6) plus the V/J/length log likelihood ratio when the
