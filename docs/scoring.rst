@@ -529,6 +529,17 @@ refinement of correlated evidence, with no independence or biological
 probability claim. A fresh raw-task comparison and matching selected-score
 null calibration are required before adoption.
 
+``combine-evidence --null-evidence NULL_TABLE --structure-conditioned`` instead
+places each component on its matching empirical null-tail scale and reports
+:math:`S=\max(-\log p_L,-\log p_R+\log s)`, using the same sparse weight.
+Here :math:`p_L` and :math:`p_R` include conservative source tails, ties and
+no-hit null queries. At :math:`s=0` only original evidence contributes;
+a missing original score uses the available rank tail. Neither component
+available remains unsupported. This common unfitted selection avoids raw
+score-range domination while preserving the original normalized term. It is
+an experimental ranking statistic, not a combined P-value or a validated
+accuracy gain. Its complete selection requires separate null calibration.
+
 Experimental ordered class alignment
 ------------------------------------
 

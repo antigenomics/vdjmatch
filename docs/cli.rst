@@ -1055,6 +1055,16 @@ have tail one; two missing components remain unsupported. This avoids blending
 raw component scales and uses no fitted class coefficients or epitope exceptions.
 Empirical steps can introduce ties; accuracy improvement is not assumed.
 
+Add ``--structure-conditioned`` to use the same sparsity gate ``s`` as the
+fixed formula, with ``normalized_score = max(-log(p_L), -log(p_R)+log(s))``.
+Here ``p_L`` and ``p_R`` are the component null tails above. This retains the
+original normalized evidence and discounts rank evidence for dense structure;
+``s=0`` disables the alternative route. A missing original score uses the
+available rank tail without discount. This option also requires the four
+structure/support columns used by the fixed formula. It uses no query labels,
+fit or epitope-name switch; it is experimental, with accuracy and leave-query-out
+stability requiring validation.
+
 This maximum is a ranking statistic, not a combined P-value. Freeze the matching
 scorer/reference/null recipe, apply the same complete selection to null queries,
 reduce all candidate labels with the same tie/ambiguity rule, then calibrate that

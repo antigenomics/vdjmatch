@@ -13,6 +13,8 @@ def register(subparsers):
             p.add_argument('--weight-column')
         else:
             p.add_argument('--null-evidence',help='frozen full-pMHC/species/locus component null scores; normalize scales before selecting stronger evidence')
+            p.add_argument('--structure-conditioned',action='store_true',
+                           help='with --null-evidence, discount rank selection by the reference sparsity gate')
             p.add_argument('--fixed', action='store_true', help='apply the unfitted two-score sparsity formula')
             p.add_argument('--output', required=True)
             p.add_argument('--require-heldout', action='store_true',
@@ -28,6 +30,9 @@ def main(a):
     from ..db.cache import sha256
 
     null_evidence=getattr(a,'null_evidence',None)
+    structure_conditioned=getattr(a,'structure_conditioned',False)
+    if structure_conditioned and not null_evidence:
+        raise ValueError('--structure-conditioned requires --null-evidence')
     if not a.fit and sum(map(bool,[a.model,a.fixed,null_evidence]))!=1:
         raise ValueError('choose exactly one of --model, --fixed and --null-evidence')
     paths = [Path(a.evidence)] + ([Path(a.model)] if a.model else []) + ([Path(null_evidence)] if null_evidence else [])
@@ -44,14 +49,16 @@ def main(a):
         raise ValueError('nonempty evidence table required')
     if null_evidence:
         from ..aggregate.combination import null_normalized_evidence
-        scored=null_normalized_evidence(frame,pl.read_csv(null_evidence,separator='\t',infer_schema_length=None))
+        scored=null_normalized_evidence(frame,pl.read_csv(null_evidence,separator='\t',infer_schema_length=None),
+                                       structure_conditioned=structure_conditioned)
         output=Path(a.output);output.parent.mkdir(parents=True,exist_ok=True)
         scored.with_columns(pl.col('normalized_score').alias('combined_score'),
             pl.when(pl.col('normalized_score').is_not_null()).then(pl.lit('scored')).otherwise(pl.lit('unsupported')).alias('combined_status')).write_csv(output,separator='\t')
         Path(str(output)+'.manifest.json').write_text(json.dumps({
             'evidence_sha256':evidence_hash,'null_evidence_sha256':sha256(Path(null_evidence)),
             'rows':frame.height,'unsupported_rows':scored['normalized_score'].null_count(),
-            'formula':'-log(min(p_component_likelihood,p_component_rank))',
+            'formula':'max(-log(p_L),-log(p_R)+log(s)); missing L uses -log(p_R)' if structure_conditioned else '-log(min(p_component_likelihood,p_component_rank))',
+            'structure_conditioned':structure_conditioned,
             'normalization':'max source (k+1)/(N+1), exact ties and no-hit null queries retained',
             'population_keys':['species','locus','epitope','mhc_a','mhc_b','mhc_class'],
             'query_labels_used':False,'interpretation':'normalized ranking statistic; final selected-score P/E requires complete-pipeline calibration'},indent=2)+'\n')

@@ -112,3 +112,27 @@ def test_null_normalized_components_use_same_target_ties_sources_and_nohits(tmp_
                     nulls.with_columns(pl.lit(0.).alias('conditional_rank_score')),
                     nulls.with_columns(pl.lit(float('nan')).alias('likelihood_score'))]:
         with pytest.raises(ValueError):null_normalized_evidence(q,invalid)
+
+
+def test_structure_conditioned_null_selection_preserves_original_and_recovers_floor(tmp_path):
+    from vdjmatch.aggregate.combination import null_normalized_evidence
+    from vdjmatch.cli.__main__ import main
+    context=dict(species='human',locus='paired',epitope='E',mhc_a='HLA-A*02:01',mhc_b='B2M',mhc_class='MHCI')
+    frame=pl.DataFrame([dict(query_id=str(i),likelihood_score=l,conditional_rank_score=r,
+        original_support=u,reference_coverage=1.,knee_shape=1.,knee_radius_ratio=0.,paired=True,**context)
+        for i,(l,r,u) in enumerate([(-30.,10.,0.),(-30.,10.,1.),(10.,1.,0.),(None,10.,1.),(None,None,0.)])])
+    nulls=pl.DataFrame([dict(query_id=str(i),likelihood_score=float(i),conditional_rank_score=float(i+1),
+        outcome='null',null_source='reference',**context) for i in range(9)])
+    scored=null_normalized_evidence(frame,nulls,structure_conditioned=True)
+    np.testing.assert_allclose(scored['normalized_score'].to_list()[:4],[np.log(10),0.,np.log(10),np.log(10)])
+    assert scored['normalized_score'][4] is None
+    assert np.all(scored['normalized_score'].to_numpy()[:4]>=-np.log(scored['p_component_likelihood'].to_numpy()[:4]))
+    for column in ('likelihood_score','conditional_rank_score'):
+        transformed=lambda f:f.with_columns((pl.col(column)*100+3).alias(column))
+        assert null_normalized_evidence(transformed(frame),transformed(nulls),structure_conditioned=True)['normalized_score'].equals(scored['normalized_score'])
+    source=tmp_path/'evidence.tsv';control=tmp_path/'null.tsv';output=tmp_path/'scores.tsv'
+    frame.write_csv(source,separator='\t');nulls.write_csv(control,separator='\t')
+    args=['combine-evidence',str(source),'--structure-conditioned','--output',str(output)]
+    with pytest.raises(SystemExit):main(args+['--fixed'])
+    assert main(args+['--null-evidence',str(control)])==0
+    assert pl.read_csv(output,separator='\t')['combined_score'].equals(scored['normalized_score'])

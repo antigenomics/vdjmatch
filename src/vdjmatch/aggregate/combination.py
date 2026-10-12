@@ -1,10 +1,21 @@
-"""Small global logistic combination of existing evidence, not binding confidence."""
+"""Fixed or fitted combinations of existing evidence, not binding confidence."""
 import numpy as np
 from scipy.optimize import minimize
 from scipy.special import expit
 
 FEATURES=('likelihood_dense','likelihood_sparse','rank_dense','rank_sparse',
           'paired','likelihood_missing','rank_missing')
+
+
+def reference_sparsity(frame):
+    """Shared gate for fixed, fitted and null-normalized evidence."""
+    import polars as pl
+    structure=np.column_stack([frame[c].cast(pl.Float64).to_numpy() for c in
+                               ('reference_coverage','knee_shape','knee_radius_ratio','original_support')])
+    if not np.isfinite(structure).all() or np.any((structure<0)|(structure>1)):
+        raise ValueError('reference structure and original support must lie in [0,1]')
+    coverage,knee,radius,support=structure.T
+    return 1-support*coverage*(1-(1-knee)*radius)
 
 
 def evidence_features(frame):
@@ -22,13 +33,7 @@ def evidence_features(frame):
         raise ValueError('conditional rank evidence must be positive')
     likelihood=np.where(missing[:,0],0.,values[0])
     rank=np.log(np.where(missing[:,1],1.,values[1]))
-    structure=np.column_stack([frame[c].cast(pl.Float64).to_numpy() for c in
-                               ('reference_coverage','knee_shape','knee_radius_ratio','original_support')])
-    if not np.isfinite(structure).all() or np.any((structure<0)|(structure>1)):
-        raise ValueError('reference structure and original support must lie in [0,1]')
-    coverage,knee,radius,support=structure.T
-    # Coverage handles flat curves; knee size and shape refine the covered part.
-    sparse=1-support*coverage*(1-(1-knee)*radius)
+    sparse=reference_sparsity(frame)
     paired=frame['paired'].cast(pl.Boolean).to_numpy()
     if frame['paired'].null_count():raise ValueError('paired mode must be explicit')
     return np.column_stack(((1-sparse)*likelihood,sparse*likelihood,
@@ -100,13 +105,17 @@ def combine_evidence(frame, model):
     return result
 
 
-def null_normalized_evidence(frame, nulls):
+def null_normalized_evidence(frame, nulls, *, structure_conditioned=False):
     """Put original/rank evidence on matching empirical null-tail scales.
 
     S=-log(min(p_L,p_R)) selects the stronger normalized component. It is a
     ranking statistic, not a final P-value: calibrate this complete selection.
     Ties, no-hit nulls and conservative source maxima use the existing helper.
     Each full-pMHC/species/locus group needs its own frozen null population.
+    With structure_conditioned, S=max(-log(p_L), -log(p_R)+log(s)), where
+    s is the existing reference/local-support sparsity gate. The original tail
+    retains unit weight; dense structure discounts the alternative route. A
+    missing original component uses the available rank tail without discount.
     """
     import polars as pl
     from ..aggregate.candidates import PMHC
@@ -145,7 +154,17 @@ def null_normalized_evidence(frame, nulls):
                 calibrated,_=null_tail_probabilities(part.select('query_id',column),
                     background[key].select('query_id',column,'outcome','null_source'),score_column=column)
                 tails.append(calibrated['p_null'].to_numpy())
-        score=-np.log(np.minimum(*tails));score[~available]=np.nan
+        if structure_conditioned:
+            sparse=reference_sparsity(part)
+            rank_tail=np.full(part.height,-np.inf)
+            np.log(sparse,out=rank_tail,where=sparse>0)
+            rank_tail-=np.log(tails[1])
+            missing_l=~np.isfinite(values[:,0])
+            rank_tail[missing_l]=-np.log(tails[1][missing_l])
+            score=np.maximum(-np.log(tails[0]),rank_tail)
+        else:
+            score=-np.log(np.minimum(*tails))
+        score[~available]=np.nan
         rows.append(part.with_columns(pl.Series('p_component_likelihood',tails[0]),
             pl.Series('p_component_rank',tails[1]),pl.Series('normalized_score',score,nan_to_null=True)))
     return pl.concat(rows).sort('_norm_row').drop('_norm_row') if rows else frame.with_columns(
