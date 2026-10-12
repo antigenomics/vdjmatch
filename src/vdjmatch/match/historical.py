@@ -6,7 +6,7 @@ source order within each pMHC/junction, as in the original per-epitope producer.
 """
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from itertools import accumulate
 import math
 
@@ -97,8 +97,10 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
     seqs = queries['cdr3'].unique(maintain_order=True).to_list()
     control_sizes = dict.fromkeys(seqs, len(control))
     if puncture_populations:
-        exact = Counter(control.ref_seqs())
-        control_sizes = {s:len(control)-exact[s] for s in seqs}
+        # Bin zero retains exact draw multiplicity. Native histograms require
+        # radius >=1; only bin zero is used for population puncturing.
+        exact = control.edit_histogram_batch(seqs, first_hit.scope(1,0,0), threads, False)
+        control_sizes = {s:len(control)-int(row[0]) for s,row in zip(seqs,exact)}
     rows = []
     if pool_reference:
         for column in ('epitope', 'species', 'gene'):

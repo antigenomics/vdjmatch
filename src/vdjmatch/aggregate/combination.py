@@ -123,8 +123,11 @@ def null_normalized_evidence(frame, nulls, *, structure_conditioned=False):
     keys=['species','locus',*PMHC]
     columns=['likelihood_score','conditional_rank_score']
     required=set(keys+['query_id']+columns)
+    if structure_conditioned:
+        required.update(['reference_coverage','knee_shape','knee_radius_ratio','original_support'])
     for part in (frame,nulls):
-        if missing:=required-set(part.columns):
+        needed=required if part is frame else set(keys+['query_id']+columns)
+        if missing:=needed-set(part.columns):
             raise ValueError('missing columns: '+', '.join(sorted(missing)))
         if part['query_id'].null_count():raise ValueError('query IDs must be non-null')
         for column in columns:

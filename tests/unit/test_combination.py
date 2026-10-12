@@ -124,6 +124,8 @@ def test_structure_conditioned_null_selection_preserves_original_and_recovers_fl
     nulls=pl.DataFrame([dict(query_id=str(i),likelihood_score=float(i),conditional_rank_score=float(i+1),
         outcome='null',null_source='reference',**context) for i in range(9)])
     scored=null_normalized_evidence(frame,nulls,structure_conditioned=True)
+    with pytest.raises(ValueError,match='missing columns: knee_shape'):
+        null_normalized_evidence(frame.drop('knee_shape'),nulls,structure_conditioned=True)
     np.testing.assert_allclose(scored['normalized_score'].to_list()[:4],[np.log(10),0.,np.log(10),np.log(10)])
     assert scored['normalized_score'][4] is None
     assert np.all(scored['normalized_score'].to_numpy()[:4]>=-np.log(scored['p_component_likelihood'].to_numpy()[:4]))

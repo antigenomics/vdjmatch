@@ -338,7 +338,12 @@ def test_candidate_density_population_puncture_matches_physical_removal():
     _, queries = _prepare(pl.DataFrame({'query_id': ['a', 'b'], 'cdr3': [q, r],
         'v': ['TRBV19']*2, 'locus': ['TRB']*2}))
     controls = [q, q, r]
-    got = density(queries, reference, Index.build(controls), puncture_populations=True)
+    index = Index.build(controls)
+    class BatchedControl:
+        def __len__(self):return len(index)
+        def edit_histogram_batch(self,*args):return index.edit_histogram_batch(*args)
+        def ref_seqs(self):raise AssertionError('do not expand the whole control population per target')
+    got = density(queries, reference, BatchedControl(), puncture_populations=True)
     for i, s in enumerate([q, r]):
         expected = density(queries.slice(i, 1), reference.filter(pl.col('cdr3') != s),
             Index.build([x for x in controls if x != s]))
