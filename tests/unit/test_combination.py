@@ -67,3 +67,48 @@ def test_fixed_formula_dense_sparse_and_missing():
     # At fixed reference structure the original term always retains unit weight.
     stronger=frame.with_columns((pl.col('likelihood_score')+3).alias('likelihood_score'))
     np.testing.assert_allclose(fixed_evidence_combination(stronger)[[0,1,3]]-actual[[0,1,3]],3.)
+
+
+def test_null_normalized_components_use_same_target_ties_sources_and_nohits(tmp_path):
+    from vdjmatch.aggregate.combination import null_normalized_evidence
+    from vdjmatch.cli.__main__ import main
+    context=dict(species='human',locus='TRB',epitope='E',mhc_a='HLA-A*02:01',mhc_b='B2M',mhc_class='MHCI')
+    q=pl.DataFrame([dict(query_id='strong',likelihood_score=100.,conditional_rank_score=1.1,**context),
+                    dict(query_id='empty',likelihood_score=None,conditional_rank_score=None,**context)])
+    nulls=pl.DataFrame([dict(query_id=str(i),likelihood_score=l,conditional_rank_score=r,
+        outcome='null',null_source=source,**context) for i,(l,r,source) in enumerate([
+            (50.,1.0,'withheld'),(100.,1.1,'withheld'),(None,None,'withheld'),(None,None,'withheld'),
+            (200.,1.2,'generated'),(None,None,'generated')])])
+    result=null_normalized_evidence(q,nulls)
+    assert result['p_component_likelihood'][0]==pytest.approx(2/3)
+    assert result['p_component_rank'][0]==pytest.approx(2/3)
+    assert result['normalized_score'][0]==pytest.approx(-np.log(2/3))
+    assert result['normalized_score'][1] is None
+    assert result['p_component_likelihood'][1]==result['p_component_rank'][1]==1
+    # Scaling either component by a strictly increasing affine map is neutral.
+    for column in ['likelihood_score','conditional_rank_score']:
+        transformed_q=q.with_columns((pl.col(column)*100+3).alias(column))
+        transformed_nulls=nulls.with_columns((pl.col(column)*100+3).alias(column))
+        assert null_normalized_evidence(transformed_q,transformed_nulls)['normalized_score'].equals(result['normalized_score'])
+    with pytest.raises(ValueError,match='calibration group'):
+        null_normalized_evidence(q,nulls.with_columns(pl.lit('other').alias('epitope')))
+    source=tmp_path/'evidence.tsv';control=tmp_path/'nulls.tsv';output=tmp_path/'scores.tsv'
+    q.write_csv(source,separator='\t');nulls.write_csv(control,separator='\t')
+    assert main(['combine-evidence',str(source),'--null-evidence',str(control),'--output',str(output)])==0
+    saved=pl.read_csv(output,separator='\t')
+    assert saved['combined_score'].equals(result['normalized_score'])
+    assert saved['combined_status'].to_list()==['scored','unsupported']
+    assert saved.select(q.columns).equals(q)
+
+    # A query with no reference label must survive in rejection denominators.
+    absent=q.tail(1).with_columns(pl.lit(None,dtype=pl.String).alias(c)
+        for c in ('epitope','mhc_a','mhc_b','mhc_class'))
+    absent.write_csv(source,separator='\t')
+    assert main(['combine-evidence',str(source),'--null-evidence',str(control),'--output',str(output)])==0
+    saved=pl.read_csv(output,separator='\t')
+    assert saved['query_id'].to_list()==['empty'] and saved['combined_status'].to_list()==['unsupported']
+
+    for invalid in [nulls.with_columns(pl.lit('correct').alias('outcome')),
+                    nulls.with_columns(pl.lit(0.).alias('conditional_rank_score')),
+                    nulls.with_columns(pl.lit(float('nan')).alias('likelihood_score'))]:
+        with pytest.raises(ValueError):null_normalized_evidence(q,invalid)

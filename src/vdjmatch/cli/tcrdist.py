@@ -13,6 +13,8 @@ def register(subparsers):
     p.add_argument('--mhc-b')
     p.add_argument('--mhc-match',choices=['exact','compatible'],default='exact')
     p.add_argument('--targets-from-sample',action='store_true',help='score only each row\'s declared assayed pMHC with compatible MHC resolution')
+    p.add_argument('--all-targets',action='store_true',help='emit separate evidence for every full pMHC; query target labels are ignored')
+    p.add_argument('--withhold-epitope',action='append',help='all-target null fold: remove every reference record of this peptide, including background and all MHC restrictions')
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--alphabet',choices=['full','imgt'],default='full',
                    help='experimental ordered IMGT-class geometry; same projected matrix for CDR3/V loops, raw identities retained')
@@ -149,8 +151,14 @@ def main(a):
         raise ValueError('--reference-radius requires uniform nearest local-rank with V loops and vdjdb-other')
     if not np.isfinite(a.knee_floor_factor) or a.knee_floor_factor<=0:
         raise ValueError('knee floor factor must be finite and positive')
-    if a.unbounded_nearest and not a.targets_from_sample:
-        raise ValueError('--unbounded-nearest requires --targets-from-sample')
+    a.all_targets=getattr(a,'all_targets',False)
+    a.withhold_epitope=getattr(a,'withhold_epitope',None)
+    if a.withhold_epitope and not (a.all_targets or a.targets_from_sample):
+        raise ValueError('--withhold-epitope requires --all-targets or --targets-from-sample')
+    if a.all_targets and (a.targets_from_sample or a.epitope or a.mhc_a or a.mhc_b):
+        raise ValueError('--all-targets cannot be combined with assayed or explicit target selectors')
+    if a.unbounded_nearest and not (a.targets_from_sample or a.all_targets):
+        raise ValueError('--unbounded-nearest requires --targets-from-sample or --all-targets')
     if a.nearest_rank and (not a.background or not a.unbounded_nearest or a.position_weighting!='uniform'):
         raise ValueError('--nearest-rank requires a background, --unbounded-nearest and uniform geometry')
     if a.conditional_j and (not a.nearest_rank or a.neighbour_weighting!='local-rank' or a.background!='vdjdb-other'):
@@ -164,8 +172,8 @@ def main(a):
     if a.shortlist_audit and (a.locus=='paired' or not a.targets_from_sample or
                              not a.unbounded_nearest or a.position_weighting!='uniform' or a.v_loop_weight!=1):
         raise ValueError('--shortlist-audit requires uniform single-chain target/nearest mode with V weight1')
-    if a.background and not a.targets_from_sample:
-        raise ValueError('--background requires --targets-from-sample')
+    if a.background and not (a.targets_from_sample or a.all_targets):
+        raise ValueError('--background requires --targets-from-sample or --all-targets')
     if a.locus=='paired' and a.background and (a.background!='vdjdb-other' or a.position_weighting not in ('uniform','ndn')):
         raise ValueError('paired background requires vdjdb-other and uniform or ndn positional weights; generative/real joint controls are not defined')
     if a.neighbour_weighting=='linear' and (not a.background or a.radius<=0):
@@ -180,6 +188,8 @@ def main(a):
     if 'query_id' not in raw.columns:raw=raw.with_row_index('query_id')
     if raw['query_id'].null_count() or raw['query_id'].n_unique()!=raw.height:
         raise ValueError('query_id must be non-null and unique')
+    if a.all_targets:
+        raw=raw.drop(PMHC,strict=False)
     organism=_organism(a.species)
     ctrim=2 if a.junction_ends=='tcrdist' else 3
     paired=a.locus=='paired'
@@ -196,6 +206,10 @@ def main(a):
     r=db.load(a.vdjdb,species=reference_species,gene=None if paired else a.locus,epitope=a.epitope,
               mhc_a=a.mhc_a,mhc_b=a.mhc_b,mhc_match=a.mhc_match)
     original=r.height
+    if missing_withheld:=set(a.withhold_epitope or [])-set(r.filter(pl.col('reference_valid'))['epitope']):
+        raise ValueError('withheld epitopes absent from valid species reference: '+', '.join(sorted(missing_withheld)))
+    withheld_records=r.filter(pl.col('epitope').is_in(a.withhold_epitope or [])).height
+    r=r.filter(~pl.col('epitope').is_in(a.withhold_epitope or []))
     allowed=[v for v,m in model.items() if m['locus']==a.locus]
     def prepare(frame):
         return frame.with_columns(resolve_v_alleles(frame['v'],model,locus=a.locus).alias('_allele')).filter(
@@ -219,6 +233,11 @@ def main(a):
             raise ValueError('--targets-from-sample cannot be combined with explicit target selectors')
         from .historical import assayed_targets
         groups=assayed_targets(q.drop([c for c in ['species',*PMHC] if c in q.columns]),metadata,r,a.species)
+    elif a.all_targets:
+        if 'species' in metadata.columns:
+            aliases=['human','homosapiens','homo sapiens'] if organism=='human' else ['mouse','musmusculus','mus musculus']
+            q=q.join(metadata.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases)).select('query_id'),on='query_id',how='semi')
+        groups=[(dict(zip(PMHC,key)),q,part) for key,part in r.group_by(PMHC,maintain_order=True)]
     else:
         groups=[(None,q,r)]
     radius=a.radius
@@ -454,7 +473,7 @@ def main(a):
         background_costs['total']=time.perf_counter()-background_start
     rows=[]
     shortlist_rows=[];shortlist_costs=[]
-    dispositions={}
+    dispositions={query_id:'no_reference' for query_id in q['query_id']} if a.all_targets and not r.height else {}
     for task,query_part,reference_part in groups:
         radius=target_radii[tuple(task[c] for c in PMHC)] if a.reference_radius else a.radius
         if task is not None:
@@ -529,18 +548,19 @@ def main(a):
         rank_start=time.perf_counter();nearest_rows=[]
         for task,part,_ in groups:
             unique=part.unique(query_keys,maintain_order=True)
-            nearest=unique.join(out.select('query_id','distance'),on='query_id',how='inner',validate='1:1')
+            target_distances=out.filter(pl.all_horizontal([pl.col(c).eq_missing(pl.lit(task[c],dtype=pl.String)) for c in PMHC]))
+            nearest=unique.join(target_distances.select('query_id','distance'),on='query_id',how='inner',validate='1:1')
             if not nearest.height:continue
             population=(r.filter(pl.col('epitope')!=task['epitope']).unique(search_keys,maintain_order=True)
                         if a.background=='vdjdb-other' else controls)
             thresholds=[[200*int(d)] for d in nearest['distance']]
             m,_,_=counts(nearest,population,thresholds=thresholds)
             values=nearest.select(*query_keys,'query_id').with_columns(pl.Series('nearest_rank_control_count',m,dtype=pl.UInt64))
-            nearest_rows.append(part.select('query_id',*query_keys).join(values.drop('query_id'),on=query_keys,how='inner',validate='m:1').drop(query_keys))
+            nearest_rows.append(part.select('query_id',*query_keys).join(values.drop('query_id'),on=query_keys,how='inner',validate='m:1').drop(query_keys).with_columns(*[pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC]))
         nearest_fields=(pl.concat(nearest_rows) if nearest_rows else pl.DataFrame(schema={
-            'query_id':q.schema['query_id'],'nearest_rank_control_count':pl.UInt64}))
+            'query_id':q.schema['query_id'],'nearest_rank_control_count':pl.UInt64,**{c:pl.String for c in PMHC}}))
         for i,evidence in enumerate(enrichment_rows):
-            evidence=evidence.join(nearest_fields,on='query_id',how='left',validate='1:1')
+            evidence=evidence.join(nearest_fields,on=['query_id',*PMHC],how='left',validate='1:1',nulls_equal=True)
             usable=(evidence['reference_population']>0)&(evidence['control_population']>0)&evidence['nearest_rank_control_count'].is_not_null()
             tail=np.full(evidence.height,np.nan)
             if usable.any():
@@ -582,11 +602,11 @@ def main(a):
         status=status.with_columns(raw_calls.alias('v_call'),
             resolve_v_alleles(raw_calls,model,locus=a.locus).alias('resolved_v_allele'))
     status=status.with_columns(pl.col('available').fill_null(False))
-    if a.targets_from_sample and not paired:
+    if (a.targets_from_sample or a.all_targets) and not paired:
         valid_target_ids=set(dispositions)
         hit_ids=set(out['query_id'])
         species_ids=set(raw.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(
-            ['human','homosapiens','homo sapiens'] if organism=='human' else ['mouse','musmusculus','mus musculus']))['query_id'])
+            ['human','homosapiens','homo sapiens'] if organism=='human' else ['mouse','musmusculus','mus musculus']))['query_id']) if 'species' in raw.columns else set(raw['query_id'])
         status=status.with_columns(pl.Series('status',[
             'unselected_species' if query_id not in species_ids else
             'invalid_query_or_gene' if query_id not in valid_target_ids else
@@ -650,7 +670,7 @@ def main(a):
                     'seqtree_native_sha256':sha256(Path(_core.__file__)),
                     'scorer_source_sha256':sha256(Path(distance_matrix.__code__.co_filename)),
                     'cli_source_sha256':sha256(Path(__file__))},
-        'reference':db.provenance(a.vdjdb),'ingestion':ingestion,'reference_observations':original,
+        'reference':db.provenance(a.vdjdb),'ingestion':ingestion,'reference_observations':original,'withheld_reference_chain_records':withheld_records,
         'reference_usable_keys':r.height,'query_rows':raw.height,'query_usable_rows':2*q.height if paired else q.height,
         **({'query_pairs':pair_rows.height,'query_usable_pairs':q.height,'reference_complete_pairs':paired_observations,
             'query_status_counts':dict(status.group_by('status').len().iter_rows()),

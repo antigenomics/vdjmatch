@@ -13,6 +13,7 @@ def register(subparsers):
     p.add_argument('--mhc-match',choices=['exact','compatible'],default='exact')
     p.add_argument('--pool-reference',action='store_true',help='pool compatible restrictions per epitope before counting unique junctions')
     p.add_argument('--targets-from-sample',action='store_true',help='score each row against its declared assayed pMHC reference union')
+    p.add_argument('--all-targets',action='store_true',help='emit original log evidence for every full pMHC; query target labels are ignored')
     p.add_argument('--species',default='HomoSapiens')
     p.add_argument('--control')
     p.add_argument('--cohort-column',help='paired mode: isolate rank fusion by this explicit raw metadata column and emit original single-chain scores')
@@ -27,6 +28,7 @@ def register(subparsers):
     p.add_argument('--gap-radius',type=int,default=90,help='TCRdist extension radius only')
     p.add_argument('--gap-temperature',type=float,default=12,help='TCRdist extension temperature only')
     p.add_argument('--pssm-kernel-scale',type=float,default=400,help='positive positional-kernel decay scale in integer penalty units; positional modes only')
+    p.add_argument('--withhold-epitope',action='append',help='all-target null fold: remove every reference record of this peptide, including background and all MHC restrictions')
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
@@ -102,13 +104,16 @@ def _paired_scores(a, reference, beta_control, prior_background):
     from ..match.historical import density, germline_prior, paired_score, unpaired_score, shared_control_histograms
     fields,score_columns=_paired_columns(a.cohort_column)
     puncture=getattr(a,'puncture_populations',False)
+    all_targets=getattr(a,'all_targets',False)
     raw=_read_table(a.sample)
     if 'query_id' not in raw.columns:
         raw=raw.with_row_index('query_id')
     link=io.columns._resolve(raw).get('pair_id')
     if link is None:
         raise ValueError('paired original scoring requires a pair_id or clone_id linkage')
-    required=['species',*PMHC]+([a.cohort_column] if a.cohort_column else [])
+    if all_targets and 'species' not in raw.columns:
+        raw=raw.with_columns(pl.lit(a.species).alias('species'))
+    required=['species']+([] if all_targets else PMHC)+([a.cohort_column] if a.cohort_column else [])
     missing=sorted(set(required)-set(raw.columns))
     if missing:
         raise ValueError('sample-declared targets require columns: '+', '.join(missing))
@@ -122,7 +127,7 @@ def _paired_scores(a, reference, beta_control, prior_background):
     if raw['pair_id'].null_count() or raw.filter(pl.col('pair_id')=='').height:
         raise ValueError('every paired row requires a nonempty link')
     species_aliases={s:_organism(s) for s in raw['species'].unique().to_list()}
-    metadata_columns=required+(['binder'] if 'binder' in raw.columns else [])
+    metadata_columns=required+(['binder'] if 'binder' in raw.columns and not all_targets else [])
     normalized=raw.with_columns(pl.col('species').replace_strict(species_aliases))
     conflicts=normalized.group_by('pair_id').agg(pl.col(metadata_columns).n_unique())
     if conflicts.filter(pl.any_horizontal(pl.col(metadata_columns)>1)).height:
@@ -156,15 +161,23 @@ def _paired_scores(a, reference, beta_control, prior_background):
     canonical=r'^[ACDEFGHIKLMNPQRSTVWY]+$'
     genes_present={suffix:pl.all_horizontal(pl.col('v'+suffix,'j'+suffix).str.strip_chars().ne('').fill_null(False))
                    for suffix in ['a','b']}
+    def targets():
+        if not all_targets:
+            yield from assayed_targets(paired,metadata,reference,a.species)
+        else:
+            queries=paired.join(metadata.select('query_id','species'),on='query_id',validate='1:1').filter(pl.col('species')==_organism(a.species))
+            for key,selected in reference.group_by(PMHC,maintain_order=True):
+                task=dict(zip(PMHC,key))
+                yield task,queries.with_columns(*[pl.lit(v,dtype=pl.String).alias(k) for k,v in task.items()]),selected
     shared_counts = {}
-    if metadata.select(PMHC).unique().height > 1:
+    if (reference if all_targets else metadata).select(PMHC).unique().height > 1:
         for chain,name,suffix in [('TRA','alpha','a'),('TRB','beta','b')]:
             batches = ((part.filter(pl.col('cdr3'+suffix).str.contains(canonical).fill_null(False))
                 .select(pl.col('cdr3'+suffix).alias('cdr3')), selected.filter(pl.col('gene')==chain))
-                for _,part,selected in assayed_targets(paired,metadata,reference,a.species))
+                for _,part,selected in targets())
             shared_counts[name] = shared_control_histograms(controls[name], batches, threads=a.threads)
     parts=[]
-    for task,part,selected in assayed_targets(paired,metadata,reference,a.species):
+    for task,part,selected in targets():
         out=part.drop('species',*PMHC)
         for chain,name,suffix in [('TRA','alpha','a'),('TRB','beta','b')]:
             ref=selected.filter(pl.col('gene')==chain)
@@ -241,19 +254,23 @@ def _paired_scores(a, reference, beta_control, prior_background):
         else:
             out=out.with_columns(*[pl.lit(None,dtype=pl.Float64).alias(c) for c in
                                   ['score','rank_density_beta','rank_density_alpha','rank_germline_prior']])
+        if all_targets:
+            out=out.with_columns(*[pl.lit(v,dtype=pl.String).alias(k) for k,v in task.items()])
         parts.append(out)
     scores=pl.concat(parts,how='diagonal_relaxed') if parts else paired.head(0)
     # Preserve every original pair and both source chain IDs, even when its
     # species is not selected for this invocation's reference and controls.
     out=metadata.join(paired.drop('pair_id',*([a.cohort_column] if a.cohort_column else [])),on='query_id',how='left',validate='1:1',maintain_order='left')
     scoring=scores.drop([c for c in paired.columns if c!='query_id' and c in scores.columns])
-    out=out.join(scoring,on='query_id',how='left',validate='1:1',maintain_order='left')
+    out=out.join(scoring,on='query_id',how='left',validate='1:m' if all_targets else '1:1',maintain_order='left')
     out=out.with_columns(*[pl.lit(None,dtype=dtype).alias(name) for name,dtype in score_columns.items()
                            if name not in out.columns])
     out=out.with_columns(
         pl.when(pl.col('species')!=_organism(a.species)).then(pl.lit('unselected_species'))
-        .otherwise(pl.col('status').fill_null('invalid_query')).alias('status'),
+        .otherwise(pl.col('status').fill_null('no_reference' if all_targets and not reference.height else 'invalid_query')).alias('status'),
         pl.lit('original-paired-cohort-rank-sum-v1').alias('estimator'))
+    if all_targets:
+        out=out.with_columns(*[pl.lit(None,dtype=pl.String).alias(c) for c in PMHC if c not in out.columns])
     if a.cohort_column:
         out=out.with_columns(*[pl.when(pl.col('species')!=_organism(a.species)).then(pl.lit('unselected_species'))
             .otherwise(pl.col('status_'+name).fill_null('invalid_query')).alias('status_'+name) for name in ['alpha','beta']])
@@ -274,6 +291,14 @@ def main(a):
     from ..match.historical import density,germline_prior,unpaired_score,shared_control_histograms
     start=time.perf_counter()
     a.puncture_populations=getattr(a,'puncture_populations',False)
+    a.all_targets=getattr(a,'all_targets',False)
+    a.withhold_epitope=getattr(a,'withhold_epitope',None)
+    if a.withhold_epitope and not (a.all_targets or a.targets_from_sample):
+        raise ValueError('--withhold-epitope requires --all-targets or --targets-from-sample')
+    if a.all_targets and (a.targets_from_sample or a.epitope or a.mhc_a or a.mhc_b or a.pool_reference or a.cohort_column or a.gapped_extension):
+        raise ValueError('--all-targets cannot select assayed targets, pooled restrictions, cohort ranks or an experimental gap extension')
+    if a.all_targets and not a.likelihood_score:
+        raise ValueError('--all-targets requires --likelihood-score')
     if a.puncture_populations and a.gapped_extension:
         raise ValueError('--puncture-populations does not support the experimental gapped extension')
     if a.threads<1:raise ValueError('threads must be positive')
@@ -292,24 +317,37 @@ def main(a):
         raise ValueError('--cohort-column requires --locus paired')
     if a.cohort_column:
         _paired_columns(a.cohort_column)
-    if a.locus=='paired' and not (a.targets_from_sample and a.germline_background and a.alpha_control):
-        raise ValueError('--locus paired requires --targets-from-sample, --germline-background and --alpha-control')
+    if a.locus=='paired' and not ((a.targets_from_sample or a.all_targets) and a.germline_background and a.alpha_control):
+        raise ValueError('--locus paired requires --targets-from-sample or --all-targets, --germline-background and --alpha-control')
     if a.locus=='paired' and a.gapped_extension:
         raise ValueError('experimental gapped extension currently supports single-chain scores only')
     if a.targets_from_sample:
         if a.epitope or a.mhc_a or a.mhc_b:
             raise ValueError('--targets-from-sample is mutually exclusive with --epitope/--mhc-a/--mhc-b')
-    elif not a.epitope or not a.mhc_a:
+    elif not a.all_targets and (not a.epitope or not a.mhc_a):
         raise ValueError('explicit selection requires --epitope and --mhc-a')
     if a.locus!='paired':
         q,ingestion=io.read_rearrangement(a.sample,source='airr',return_report=True)
         _,q=_prepare(q)
         q=q.filter(pl.col('locus')==a.locus)
+        if a.all_targets:
+            from ..io.airr import _read_table
+            raw=_read_table(a.sample)
+            if 'query_id' not in raw.columns:raw=raw.with_row_index('query_id')
+            if raw['query_id'].null_count() or raw['query_id'].n_unique()!=raw.height:raise ValueError('query_id must be unique and non-null')
+            aliases=['human','homosapiens','homo sapiens'] if _organism(a.species)=='human' else ['mouse','musmusculus','mus musculus']
+            selected=pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases).fill_null(False) if 'species' in raw.columns else pl.lit(True)
+            raw=raw.with_columns(selected.alias('_species_selected'))
+            q=q.join(raw.filter(pl.col('_species_selected')).select('query_id'),on='query_id',how='semi')
     organism=_organism(a.species)
     reference_species={'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
     r=db.load(a.vdjdb,species=reference_species,gene=None if a.locus=='paired' else a.locus,epitope=a.epitope,
               mhc_a=a.mhc_a,mhc_b=a.mhc_b,mhc_match=a.mhc_match)
     r=r.filter(pl.col('reference_valid'))
+    if missing_withheld:=set(a.withhold_epitope or [])-set(r.filter(pl.col('reference_valid'))['epitope']):
+        raise ValueError('withheld epitopes absent from valid species reference: '+', '.join(sorted(missing_withheld)))
+    withheld_records=r.filter(pl.col('epitope').is_in(a.withhold_epitope or [])).height
+    r=r.filter(~pl.col('epitope').is_in(a.withhold_epitope or []))
     missing=sorted(set(a.epitope or [])-set(r['epitope'].to_list()))
     if missing:
         raise ValueError('requested epitopes absent under the selected reference restriction: '+', '.join(missing))
@@ -339,7 +377,7 @@ def main(a):
     prior_background=None
     if a.germline_background:
         prior_background=io.read_rearrangement(a.germline_background,source='legacy')
-        if not (a.pool_reference or a.targets_from_sample):
+        if not (a.pool_reference or a.targets_from_sample or a.all_targets):
             raise ValueError('original unpaired scoring requires --pool-reference')
     genes_present=pl.all_horizontal(pl.col('v','j').str.strip_chars().ne('').fill_null(False))
     alpha_provenance=None
@@ -433,9 +471,15 @@ def main(a):
                 score_columns['historical_score']=pl.Float64
         out=out.with_columns(*[pl.lit(None,dtype=dtype).alias(name) for name,dtype in score_columns.items()
                                if name not in out.columns])
-    elif a.pool_reference:
+    elif a.pool_reference or a.all_targets:
+        from ..aggregate.candidates import PMHC
         parts=[]
-        for _,part in r.group_by('epitope',maintain_order=True):
+        target_keys=[]
+        groups=r.group_by(PMHC if a.all_targets else 'epitope',maintain_order=True)
+        if a.all_targets and r.select(PMHC).unique().height > 1:
+            shared_counts=shared_control_histograms(ctrl,((q,part) for _,part in groups),threads=a.threads)
+        for _,part in groups:
+            target_keys.append({c:part[c][0] for c in PMHC})
             scores=score_density(q,part,pool_reference=True)
             if prior_background is not None:
                 prior=germline_prior(q.filter(genes_present),part,prior_background,
@@ -458,7 +502,21 @@ def main(a):
                 scores=scores.with_columns(pl.when(pl.col('germline_lr').is_null()).then(pl.lit('missing_v_or_j'))
                                             .otherwise(pl.lit('scored')).alias('status'))
             parts.append(scores)
-        out=pl.concat(parts)
+        out=pl.concat(parts,how='diagonal_relaxed') if parts else q.head(0)
+        if a.all_targets:
+            names=io.columns._resolve(raw)
+            if names.get('locus'):raw=raw.filter(pl.col(names['locus']).str.to_uppercase()==a.locus)
+            elif names.get('v'):raw=raw.filter(pl.col(names['v']).str.slice(0,3).str.to_uppercase()==a.locus)
+            ids=raw.select('query_id','_species_selected')
+            if parts:
+                # Restore invalid/missing rows for every target without reading labels.
+                out=pl.concat([ids.join(part,on='query_id',how='left',validate='1:1').with_columns(
+                    *[pl.lit(target[c],dtype=pl.String).alias(c) for c in PMHC],
+                    pl.when(~pl.col('_species_selected')).then(pl.lit('unselected_species')).otherwise(
+                        pl.col('status').fill_null('invalid_query') if 'status' in part.columns else pl.when(pl.col('score').is_not_null()).then(pl.lit('scored')).otherwise(pl.lit('invalid_query'))).alias('status')).drop('_species_selected') for part,target in zip(parts,target_keys)],how='diagonal_relaxed')
+            else:
+                out=ids.with_columns(pl.when(pl.col('_species_selected')).then(pl.lit('no_reference')).otherwise(pl.lit('unselected_species')).alias('status'),pl.lit(None,dtype=pl.Float64).alias('score'),*[pl.lit(None,dtype=pl.String).alias(c) for c in PMHC]).drop('_species_selected')
+            out=out.with_columns(*[pl.lit(None,dtype=t).alias(c) for c,t in [('density_score',pl.Float64),('germline_lr',pl.Float64),('n_reference',pl.UInt64),('control_size',pl.UInt64)] if c not in out.columns])
     else:
         out=score_density(q,r)
     if a.puncture_populations and a.locus!='paired':
@@ -470,7 +528,10 @@ def main(a):
             status=(status.when(pl.col('query_id').is_in(q.filter(~genes_present)['query_id'].implode()))
                     .then(pl.lit('missing_v_or_j'))
                     .when(pl.col('germline_lr').is_null()).then(pl.lit('no_prior_evidence')))
-        out=out.with_columns(status.otherwise(pl.col('status')).alias('status'))
+        status=status.otherwise(pl.col('status'))
+        if a.all_targets:
+            status=pl.when(pl.col('status').is_in(['invalid_query','unselected_species','no_reference'])).then(pl.col('status')).otherwise(status)
+        out=out.with_columns(status.alias('status'))
     if a.likelihood_score:
         from ..match.historical import paired_score
         out=out.with_row_index('_likelihood_row')
@@ -541,6 +602,8 @@ def main(a):
             'components':'original density, V weight, control correction and germline counts unchanged',
             'cohort_dependent':False,'historical_score_preserved':True,'calibration':'requires identical complete selected-score null pipeline'}} if a.likelihood_score else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
+        'withheld_reference_chain_records':withheld_records,
+        'target_selection':'every full pMHC; query labels ignored' if a.all_targets else 'assayed or explicit targets',
         'scope':'PSSM5 substitutions; unit controls5,2,2; significance nearest<=1; exact excluded',
         'representative':('first source-order V per declared task union junction' if a.targets_from_sample
                           else 'first source-order V per selected union junction' if a.pool_reference

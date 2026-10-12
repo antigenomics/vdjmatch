@@ -446,6 +446,32 @@ sequence search. The paired log score is independent of the other queries in a
 cohort. It is opt-in original-model evidence; its task regressions and missing
 linked-pair evidence still prevent promotion.
 
+``--all-targets --likelihood-score`` instead emits one original-model evidence
+row per query and full pMHC in the selected species reference. Input epitope,
+MHC and binder labels are ignored. Single TRA/TRB and paired inputs are supported;
+paired scoring requires the same alpha control and raw germline background as
+above. Missing or invalid queries and empty references retain explicit dispositions.
+It uses the existing original components, including independent same-target
+marginal references when linked pairs are unavailable. This is exhaustive evidence
+for benchmark/calibration workflows, not an accepted winning-label call or a new
+annotation default. The original kernel still excludes exact chain junctions.
+
+``tcrdist-neighbours --all-targets --unbounded-nearest --nearest-rank
+--background vdjdb-other --neighbour-weighting local-rank`` exports the matched
+conditional-rank component for every full pMHC, with the usual radius, matrix,
+V-loop and exact-exclusion options. Paired distances still refer to the same
+linked reference pair. Nearest evidence is joined by query plus full pMHC, so
+one target cannot supply another target's nearest rank.
+
+Both commands accept repeated ``--withhold-epitope PEPTIDE`` arguments in
+all-target or sample-declared target mode. The latter also supports null
+normalization of compatible coarse-MHC hypothesis unions.
+A withholding fold removes all reference records of that peptide, across every
+MHC restriction and from the rank background. This is equivalent to physically
+removing those records before scoring. Invoke human and mouse separately.
+The existing source/reference/native recipes record all options and withheld
+source-chain record counts; component P-values do not calibrate final selection.
+
 ``--germline-background RAW_TABLE`` adds the original sparse-reference unpaired
 formula: log(density + 1e-6) plus the V/J/length log likelihood ratio when the
 reference has fewer than 500 unique junctions. Background multiplicity is retained
@@ -997,10 +1023,33 @@ for benchmark evaluation. This experimental margin has no transferred component
 P-value and is not a calibrated probability of binding.
 
 ``combine-evidence TABLE --fixed --output SCORES`` applies the unfitted formula
-``(1-s)*likelihood_score+s*log(conditional_rank_score)``. If only one component
+``likelihood_score+s*log(conditional_rank_score)``. If only one component
 is available it uses that component; if neither is available it retains an
 unsupported row. Fitted applications also export this formula as ``fixed_score``
 for matched comparisons. Both require calibration of the complete selected score.
+
+``combine-evidence TABLE --null-evidence NULL_TABLE --output SCORES`` puts
+the original and conditional-rank components on matched empirical null-tail
+scales before choosing the stronger component. Both tables require ``query_id``,
+``species``, ``locus``, all four pMHC fields, ``likelihood_score`` and
+``conditional_rank_score``. Null rows additionally require ``outcome=null`` and
+``null_source``. Query IDs must be unique within each species/locus/full-pMHC
+population. Query outcome labels are not read.
+
+For each component and null source, its tail is ``(k+1)/(N+1)``, where ``k``
+counts null scores at least as large as the query score, including exact ties,
+and ``N`` includes every null query, including no-hits. The most conservative
+source tail is retained. Output ``normalized_score`` (also ``combined_score``)
+is ``-log(min(p_component_likelihood,p_component_rank))``. Missing components
+have tail one; two missing components remain unsupported. This avoids blending
+raw component scales and uses no fitted class coefficients or epitope exceptions.
+Empirical steps can introduce ties; accuracy improvement is not assumed.
+
+This maximum is a ranking statistic, not a combined P-value. Freeze the matching
+scorer/reference/null recipe, apply the same complete selection to null queries,
+reduce all candidate labels with the same tie/ambiguity rule, then calibrate that
+selected statistic with ``calibrate-calls``. Both input hashes and exact grouping
+keys are recorded. Earlier prediction tables are not inputs to a fresh benchmark.
 
 ``reference-radius --targets-from-sample SAMPLE`` profiles the compatible pMHC
 reference unions declared by a sample. Its output also includes neighbour

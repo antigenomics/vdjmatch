@@ -702,3 +702,80 @@ def test_cli_likelihood_keeps_each_target_row_without_prior(tmp_path,pooled):
     assert enriched.select(original.columns).equals(original)
     assert enriched.height==2
     assert enriched['likelihood_score'].to_list()==pytest.approx((original['score']+1e-6).log().to_list())
+
+
+def test_all_target_likelihood_reuses_original_paired_components_without_query_labels(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    reference=Path(args[args.index('--vdjdb')+1])
+    r=pl.read_csv(reference,separator='\t')
+    pl.concat([r,r.with_columns(pl.lit('F').alias('epitope'),pl.lit('HLA-A*01:01').alias('mhc_a'))]).write_csv(reference,separator='\t')
+    assert main(args+['--likelihood-score'])==0
+    baseline=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    raw.drop('epitope','mhc_a','mhc_b','mhc_class','binder').write_csv(sample,separator='\t')
+    all_args=[v for v in args if v!='--targets-from-sample']+['--all-targets','--likelihood-score']
+    assert main(all_args)==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out.height==8 and set(out['epitope'])=={'E','F'}
+    assert 'binder' not in out.columns
+    for epitope in ('E','F'):
+        part=out.filter(pl.col('epitope')==epitope).sort('query_id')
+        old=baseline.sort('query_id')
+        for c in ('likelihood_score','density_score_alpha','density_score_beta','germline_lr','status'):
+            assert part[c].equals(old[c]),c
+    raw.with_columns(pl.lit('bogus').alias('epitope'),pl.lit(0).alias('binder')).write_csv(sample,separator='\t')
+    assert main(all_args)==0
+    assert pl.read_csv(str(prefix)+'.scores.tsv',separator='\t').equals(out)
+    assert main(all_args+['--withhold-epitope','E'])==0
+    folded=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert set(folded['epitope'])=={'F'}
+    full=pl.read_csv(reference,separator='\t')
+    full.filter(pl.col('epitope')!='E').write_csv(reference,separator='\t')
+    assert main(all_args)==0
+    assert pl.read_csv(str(prefix)+'.scores.tsv',separator='\t').equals(folded)
+
+
+def test_all_target_single_likelihood_preserves_nohits_and_invalid_query_ids(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    reference=Path(args[args.index('--vdjdb')+1]);r=pl.read_csv(reference,separator='\t')
+    pl.concat([r,r.with_columns(pl.lit('F').alias('epitope'),pl.lit('HLA-A*01:01').alias('mhc_a'))]).write_csv(reference,separator='\t')
+    beta=raw.filter(pl.col('locus')=='TRB').drop('epitope','mhc_a','mhc_b','mhc_class','binder')
+    invalid=beta.head(1).with_columns(pl.lit('bad').alias('query_id'),pl.lit('CAXF').alias('junction_aa'))
+    missing=invalid.with_columns(pl.lit('missing').alias('query_id'),pl.lit(None,dtype=pl.String).alias('junction_aa'))
+    pl.concat([beta,invalid,missing]).write_csv(sample,separator='\t')
+    cli=['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB','--all-targets',
+        '--likelihood-score','--control',args[args.index('--control')+1],
+        '--germline-background',args[args.index('--germline-background')+1],'--output-prefix',str(prefix)]
+    assert main(cli)==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out.height==10
+    assert set(out['query_id'])=={'b1','b2','b4','bad','missing'}
+    invalid=out.filter(pl.col('query_id').is_in(['bad','missing']))
+    assert invalid['status'].to_list()==['invalid_query']*4
+    assert invalid['likelihood_score'].null_count()==4
+    for epitope in ('E','F'):
+        part=out.filter((pl.col('epitope')==epitope)&(pl.col('status')=='scored'))
+        assert part.height==3
+        assert part['likelihood_score'].is_finite().all()
+
+
+def test_all_target_single_species_and_empty_reference_preserve_query_population(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    reference=Path(args[args.index('--vdjdb')+1]);r=pl.read_csv(reference,separator='\t')
+    beta=raw.filter(pl.col('locus')=='TRB').with_columns(pl.lit('mouse').alias('species'))
+    beta.write_csv(sample,separator='\t')
+    cli=['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB','--all-targets',
+         '--likelihood-score','--control',args[args.index('--control')+1],
+         '--germline-background',args[args.index('--germline-background')+1],'--output-prefix',str(prefix)]
+    assert main(cli)==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out.height==3 and out['status'].to_list()==['unselected_species']*3
+    assert out['likelihood_score'].null_count()==3
+    beta.drop('species').write_csv(sample,separator='\t')
+    r.with_columns(pl.lit('KLGGALQAK').alias('epitope')).write_csv(reference,separator='\t')
+    assert main(cli)==0
+    empty=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert empty.height==3 and empty['status'].to_list()==['no_reference']*3
+    assert empty['likelihood_score'].null_count()==3

@@ -98,3 +98,55 @@ def combine_evidence(frame, model):
         raise ValueError('invalid evidence-combination parameters')
     result=beta[0]+((x-center)/scale)@beta[1:];result[~available]=np.nan
     return result
+
+
+def null_normalized_evidence(frame, nulls):
+    """Put original/rank evidence on matching empirical null-tail scales.
+
+    S=-log(min(p_L,p_R)) selects the stronger normalized component. It is a
+    ranking statistic, not a final P-value: calibrate this complete selection.
+    Ties, no-hit nulls and conservative source maxima use the existing helper.
+    Each full-pMHC/species/locus group needs its own frozen null population.
+    """
+    import polars as pl
+    from ..aggregate.candidates import PMHC
+    from ..cli.calibration import null_tail_probabilities
+    keys=['species','locus',*PMHC]
+    columns=['likelihood_score','conditional_rank_score']
+    required=set(keys+['query_id']+columns)
+    for part in (frame,nulls):
+        if missing:=required-set(part.columns):
+            raise ValueError('missing columns: '+', '.join(sorted(missing)))
+        if part['query_id'].null_count():raise ValueError('query IDs must be non-null')
+        for column in columns:
+            values=part[column].cast(pl.Float64).drop_nulls()
+            if not values.is_finite().all():raise ValueError('component scores must be finite or null')
+        if (part['conditional_rank_score'].cast(pl.Float64).drop_nulls()<=0).any():
+            raise ValueError('conditional rank evidence must be positive')
+        if part.select(keys+['query_id']).n_unique()!=part.height:
+            raise ValueError('query IDs must be unique within each calibration group')
+    if not nulls.height:raise ValueError('nonempty null evidence required')
+    if not {'outcome','null_source'}<=set(nulls.columns):raise ValueError('null evidence requires outcome and null_source')
+    if nulls['outcome'].null_count() or not nulls['outcome'].eq('null').all():raise ValueError('only null outcomes define normalization')
+    if nulls['null_source'].null_count() or nulls['null_source'].cast(pl.String).str.strip_chars().eq('').any():raise ValueError('null sources must be nonempty')
+    if {'_norm_row','normalized_score','p_component_likelihood','p_component_rank'} & set(frame.columns):
+        raise ValueError('normalization output columns already exist')
+    background=dict(nulls.group_by(keys,maintain_order=True))
+    rows=[]
+    for key,part in frame.with_row_index('_norm_row').group_by(keys,maintain_order=True):
+        values=part.select(pl.col(columns).cast(pl.Float64)).to_numpy()
+        available=np.isfinite(values).any(axis=1)
+        if key not in background:
+            if available.any():raise ValueError('missing null calibration group: '+str(key))
+            tails=[np.ones(part.height),np.ones(part.height)]
+        else:
+            tails=[]
+            for column in columns:
+                calibrated,_=null_tail_probabilities(part.select('query_id',column),
+                    background[key].select('query_id',column,'outcome','null_source'),score_column=column)
+                tails.append(calibrated['p_null'].to_numpy())
+        score=-np.log(np.minimum(*tails));score[~available]=np.nan
+        rows.append(part.with_columns(pl.Series('p_component_likelihood',tails[0]),
+            pl.Series('p_component_rank',tails[1]),pl.Series('normalized_score',score,nan_to_null=True)))
+    return pl.concat(rows).sort('_norm_row').drop('_norm_row') if rows else frame.with_columns(
+        *[pl.lit(None,dtype=pl.Float64).alias(c) for c in ['p_component_likelihood','p_component_rank','normalized_score']])

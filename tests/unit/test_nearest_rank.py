@@ -69,3 +69,38 @@ def test_conditional_j_empty_output_keeps_count_schema(tmp_path):
     out=pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     assert out.height==0
     assert {'j_reference_population','j_control_stratum','j_reference_probability','conditional_j_status','j_conditioned_rank_score'}<=set(out.columns)
+
+
+@pytest.mark.parametrize('locus',['TRB','paired'])
+def test_all_targets_rank_reproduces_assayed_component_and_ignores_query_labels(tmp_path,locus):
+    sample,reference=tmp_path/'query.tsv',tmp_path/'reference.tsv'
+    genes=['TRAV1-1*01','TRBV19*01'] if locus=='paired' else ['TRBV19*01']
+    loci=['TRA','TRB'] if locus=='paired' else ['TRB']
+    a,b,c='CASSLGQAYEQYF','CASSLGRAYEQYF','CASSWGRAYEQYF'
+    meta={'species':'human','epitope':'E','mhc_a':'HLA-A*02','mhc_b':'B2M','mhc_class':'MHCI'}
+    raw=pl.DataFrame([dict(query_id=str(i),clone_id='q',junction_aa=a,v_call=v,locus=l,**meta) for i,(l,v) in enumerate(zip(loci,genes))])
+    raw.write_csv(sample,separator='\t')
+    pl.DataFrame([dict(complex_id=str(i),cdr3=s,v=v,gene=l,**(meta|{'species':'HomoSapiens','epitope':e})) for i,(s,e) in enumerate([(a,'E'),(b,'E'),(c,'OTHER')]) for l,v in zip(loci,genes)]).write_csv(reference,separator='\t')
+    args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus',locus,'--unbounded-nearest','--nearest-rank','--background','vdjdb-other','--neighbour-weighting','local-rank','--radius-factor','22.5','--exclude-exact']
+    assert main(args+['--targets-from-sample','--output-prefix',str(tmp_path/'assayed')])==0
+    old=pl.read_csv(tmp_path/'assayed.enrichment.tsv',separator='\t')
+    raw.drop('epitope','mhc_a','mhc_b','mhc_class').write_csv(sample,separator='\t')
+    all_args=args+['--all-targets','--output-prefix',str(tmp_path/'all')]
+    assert main(all_args)==0
+    new=pl.read_csv(tmp_path/'all.enrichment.tsv',separator='\t')
+    assert new.height==2 and set(new['epitope'])=={'E','OTHER'}
+    assert new.filter(pl.col('epitope')=='E').select(old.columns).equals(old)
+    raw.with_columns(pl.lit('irrelevant').alias('epitope')).write_csv(sample,separator='\t')
+    assert main(all_args+['--threads','2'])==0
+    assert pl.read_csv(tmp_path/'all.enrichment.tsv',separator='\t').equals(new)
+
+    assert main(all_args+['--withhold-epitope','E'])==0
+    folded=pl.read_csv(tmp_path/'all.enrichment.tsv',separator='\t')
+    assert set(folded['epitope'])=={'OTHER'}
+    ref=pl.read_csv(reference,separator='\t')
+    ref.filter(pl.col('epitope')!='E').write_csv(reference,separator='\t')
+    assert main(all_args)==0
+    assert pl.read_csv(tmp_path/'all.enrichment.tsv',separator='\t').equals(folded)
+    assert main(all_args+['--withhold-epitope','OTHER'])==0
+    queries=pl.read_csv(tmp_path/'all.queries.tsv',separator='\t')
+    assert queries['status'].to_list()==['no_reference']
