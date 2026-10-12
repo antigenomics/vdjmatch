@@ -1055,8 +1055,10 @@ have tail one; two missing components remain unsupported. This avoids blending
 raw component scales and uses no fitted class coefficients or epitope exceptions.
 Empirical steps can introduce ties; accuracy improvement is not assumed.
 
-Add ``--structure-conditioned`` to use the same sparsity gate ``s`` as the
-fixed formula, with ``normalized_score = max(-log(p_L), -log(p_R)+log(s))``.
+Add ``--structure-conditioned`` to use the reference-only gate
+``s=1-reference_coverage*(1-(1-knee_shape)*knee_radius_ratio)``, with
+``normalized_score = max(-log(p_L), -log(p_R)+log(s))``. Query-local
+``original_support`` is not required and does not switch routes.
 Here ``p_L`` and ``p_R`` are the component null tails above. This retains the
 original normalized evidence and discounts rank evidence for dense structure;
 ``s=0`` disables the alternative route. A missing original score uses the

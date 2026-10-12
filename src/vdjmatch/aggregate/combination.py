@@ -113,7 +113,8 @@ def null_normalized_evidence(frame, nulls, *, structure_conditioned=False):
     Ties, no-hit nulls and conservative source maxima use the existing helper.
     Each full-pMHC/species/locus group needs its own frozen null population.
     With structure_conditioned, S=max(-log(p_L), -log(p_R)+log(s)), where
-    s is the existing reference/local-support sparsity gate. The original tail
+    s=1-c*[1-(1-k)*e] uses reference structure only. Query-local support
+    does not switch routes; it already contributes to the component scores. The original tail
     retains unit weight; dense structure discounts the alternative route. A
     missing original component uses the available rank tail without discount.
     """
@@ -124,7 +125,7 @@ def null_normalized_evidence(frame, nulls, *, structure_conditioned=False):
     columns=['likelihood_score','conditional_rank_score']
     required=set(keys+['query_id']+columns)
     if structure_conditioned:
-        required.update(['reference_coverage','knee_shape','knee_radius_ratio','original_support'])
+        required.update(['reference_coverage','knee_shape','knee_radius_ratio'])
     for part in (frame,nulls):
         needed=required if part is frame else set(keys+['query_id']+columns)
         if missing:=needed-set(part.columns):
@@ -158,7 +159,7 @@ def null_normalized_evidence(frame, nulls, *, structure_conditioned=False):
                     background[key].select('query_id',column,'outcome','null_source'),score_column=column)
                 tails.append(calibrated['p_null'].to_numpy())
         if structure_conditioned:
-            sparse=reference_sparsity(part)
+            sparse=reference_sparsity(part.with_columns(pl.lit(1.).alias('original_support')))
             rank_tail=np.full(part.height,-np.inf)
             np.log(sparse,out=rank_tail,where=sparse>0)
             rank_tail-=np.log(tails[1])

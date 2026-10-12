@@ -531,7 +531,9 @@ null calibration are required before adoption.
 
 ``combine-evidence --null-evidence NULL_TABLE --structure-conditioned`` instead
 places each component on its matching empirical null-tail scale and reports
-:math:`S=\max(-\log p_L,-\log p_R+\log s)`, using the same sparse weight.
+:math:`S=\max(-\log p_L,-\log p_R+\log s)`, with the reference-only weight
+:math:`s=1-c[1-(1-k)e]`. Query-local support does not switch routes; its
+information is already present in the component scores.
 Here :math:`p_L` and :math:`p_R` include conservative source tails, ties and
 no-hit null queries. At :math:`s=0` only original evidence contributes;
 a missing original score uses the available rank tail. Neither component

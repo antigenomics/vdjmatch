@@ -59,6 +59,7 @@ def main(a):
             'rows':frame.height,'unsupported_rows':scored['normalized_score'].null_count(),
             'formula':'max(-log(p_L),-log(p_R)+log(s)); missing L uses -log(p_R)' if structure_conditioned else '-log(min(p_component_likelihood,p_component_rank))',
             'structure_conditioned':structure_conditioned,
+            'structure_gate':'s=1-reference_coverage*(1-(1-knee_shape)*knee_radius_ratio)' if structure_conditioned else None,
             'normalization':'max source (k+1)/(N+1), exact ties and no-hit null queries retained',
             'population_keys':['species','locus','epitope','mhc_a','mhc_b','mhc_class'],
             'query_labels_used':False,'interpretation':'normalized ranking statistic; final selected-score P/E requires complete-pipeline calibration'},indent=2)+'\n')

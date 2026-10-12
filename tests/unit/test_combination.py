@@ -119,7 +119,7 @@ def test_structure_conditioned_null_selection_preserves_original_and_recovers_fl
     from vdjmatch.cli.__main__ import main
     context=dict(species='human',locus='paired',epitope='E',mhc_a='HLA-A*02:01',mhc_b='B2M',mhc_class='MHCI')
     frame=pl.DataFrame([dict(query_id=str(i),likelihood_score=l,conditional_rank_score=r,
-        original_support=u,reference_coverage=1.,knee_shape=1.,knee_radius_ratio=0.,paired=True,**context)
+        original_support=u,reference_coverage=0. if i==0 else 1.,knee_shape=1.,knee_radius_ratio=0.,paired=True,**context)
         for i,(l,r,u) in enumerate([(-30.,10.,0.),(-30.,10.,1.),(10.,1.,0.),(None,10.,1.),(None,None,0.)])])
     nulls=pl.DataFrame([dict(query_id=str(i),likelihood_score=float(i),conditional_rank_score=float(i+1),
         outcome='null',null_source='reference',**context) for i in range(9)])
@@ -138,3 +138,20 @@ def test_structure_conditioned_null_selection_preserves_original_and_recovers_fl
     with pytest.raises(SystemExit):main(args+['--fixed'])
     assert main(args+['--null-evidence',str(control)])==0
     assert pl.read_csv(output,separator='\t')['combined_score'].equals(scored['normalized_score'])
+
+
+def test_structure_conditioned_selection_has_no_query_support_switch():
+    """The same component evidence and repertoire must produce the same score."""
+    from vdjmatch.aggregate.combination import null_normalized_evidence
+    context=dict(species='human',locus='TRA',epitope='E',mhc_a='A*02:01',mhc_b='B2M',mhc_class='MHCI')
+    q=pl.DataFrame([dict(query_id=str(i),likelihood_score=-30.,conditional_rank_score=10.,
+        original_support=float(i),reference_coverage=1.,knee_shape=1.,knee_radius_ratio=0.,**context)
+        for i in range(2)])
+    nulls=pl.DataFrame([dict(query_id=str(i),likelihood_score=float(i),conditional_rank_score=float(i+1),
+        outcome='null',null_source='reference',**context) for i in range(9)])
+    dense=null_normalized_evidence(q,nulls,structure_conditioned=True)
+    np.testing.assert_allclose(dense['normalized_score'].to_numpy(),[0.,0.])
+    assert null_normalized_evidence(q.drop('original_support'),nulls,structure_conditioned=True)['normalized_score'].equals(dense['normalized_score'])
+    sparse=null_normalized_evidence(q.with_columns(pl.lit(0.).alias('reference_coverage')),
+                                    nulls,structure_conditioned=True)
+    np.testing.assert_allclose(sparse['normalized_score'].to_numpy(),np.log(10))
