@@ -230,6 +230,8 @@ def test_noise_gate_scope_one_is_equivalent():
 
 
 def test_default_excluded_histograms_match_wide_oracle(tmp_path, monkeypatch):
+    if not hasattr(Index, "edit_histogram_batch"):
+        pytest.skip("optional native edit histogram API is unavailable")
     queries = ['CASSF', 'CASSF', 'CATSF', 'CASSAF', 'CASF', 'CAAAF', 'CAAAV', 'GGGGG', 'WWWWWW']
     samples = dict(query_id=[str(i) for i in range(len(queries))],
         junction_aa=queries, locus=['TRB'] * len(queries))
