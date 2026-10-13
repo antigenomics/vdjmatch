@@ -427,7 +427,8 @@ def _format_kernel_selection(queries, ranked):
     import polars as pl
     if queries['query_id'].null_count() or queries['query_id'].n_unique()!=queries.height:
         raise ValueError('query identities must be unique and non-null')
-    out=queries.join(ranked,on='query_id',how='left',validate='1:1',maintain_order='left')
+    out=queries.join(ranked,on='query_id',how='left',validate='1:1',maintain_order='left').with_columns(
+        pl.col('tied_peptides','exact_peptides').fill_null(0))
     supported=(pl.col('kernel_score')>0).fill_null(False)
     return out.with_columns(
         pl.when(supported).then(pl.col('kernel_score')/(pl.col('kernel_score')+

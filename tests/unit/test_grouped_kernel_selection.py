@@ -159,5 +159,8 @@ def test_assayed_missing_peptide_or_mhc_retains_detailed_dispositions(tmp_path):
         full=pl.read_csv(str(tmp_path/'False')+'.'+name+'.tsv',separator='\t')
         compact=pl.read_csv(str(tmp_path/'True')+'.'+name+'.tsv',separator='\t')
         assert_frame_equal(full,compact,check_dtypes=False,check_exact=True)
+        if name=='selection':
+            assert full['tied_peptides'].to_list()==[0]*4
+            assert full['exact_peptides'].to_list()==[0]*4
     dispositions=pl.read_csv(str(tmp_path/'True')+'.queries.tsv',separator='\t')
     assert dispositions['status'].to_list()==['invalid_target']*3+['no_reference']
