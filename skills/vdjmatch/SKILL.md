@@ -86,3 +86,14 @@ Include matched generated paired nulls before recommending repertoire calls.
 Do not transfer a single-chain or linked-only cutoff to this any-axis event,
 or a withheld benchmark recipe to an ordinary all-valid exact-retained model.
 The original `reference-calls` mode remains available and is its default.
+
+## CLI-first examples
+
+Use [examples](../../docs/examples.rst) for raw synthetic offline inputs,
+annotation/comparison shell commands and fresh-kernel notebooks. Run
+`sh examples/annotate.sh NEW_DIRECTORY` or
+`sh examples/compare.sh NEW_DIRECTORY` with the installed CLI on PATH.
+All computed results come from CLI tables; preserve source identity and full
+pMHC keys in downstream joins. Scripts default to threads1, reject an existing
+output directory and propagate errors. DEMO labels are not experimental truth.
+Do not add computed caches or use old notebook outputs as prediction inputs.

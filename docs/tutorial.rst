@@ -1,79 +1,48 @@
 Annotate your first receptors
 =============================
 
-This tutorial uses a tiny reference supplied in memory. It needs no download and
-shows how individual receptor rows become peptide–MHC candidates and calls.
+This tutorial starts with raw synthetic repertoire tables, invokes the installed
+CLI, and reads its annotation outputs. It uses the pinned offline reference in the
+``examples`` directory; no reference download is needed.
 
-Install
--------
+Install and run
+---------------
 
-.. code-block:: bash
+Create and activate an isolated environment, install vdjmatch, and obtain the
+complete repository ``examples`` directory, including its raw ``inputs`` files.
 
+.. code-block:: sh
+
+   python -m venv .venv
+   . .venv/bin/activate
    python -m pip install vdjmatch
+   sh examples/annotate.sh annotation-demo
 
-The package installs ``seqtree`` for native batch search and ``vdjtools`` for
-repertoire ingestion. Use a virtual environment for an isolated installation.
+The script submits the metadata cohort and the wide paired population as separate
+CLI invocations with ``--threads 1`` and the supplied local reference. Four
+single-chain rows retain their sample/source IDs; two paired receptors retain
+clone identities, including the incomplete pair. ``DEMO_A`` and ``DEMO_B`` are
+synthetic software labels, not claims of antigen binding.
 
-Create a reference and queries
-------------------------------
+Inspect the CLI tables
+----------------------
 
 .. code-block:: python
 
    import polars as pl
-   from vdjmatch import Annotator
 
-   reference = pl.DataFrame({
-       "gene": ["TRB", "TRB"],
-       "cdr3": ["CASSIRSSYEQYF", "CASSPGTGYEQFF"],
-       "v": ["TRBV19", "TRBV5"],
-       "j": ["TRBJ2-7", "TRBJ2-1"],
-       "epitope": ["GILGFVFTL", "NLVPMVATV"],
-       "mhc_a": ["HLA-A*02:01", "HLA-A*02:01"],
-       "mhc_class": ["MHCI", "MHCI"],
-       "reference_id": ["study-a", "study-b"],
-   })
-   queries = pl.DataFrame({
-       "sequence_id": ["query-a", "query-b", "query-c"],
-       "junction_aa": ["CASSIRSSYEQYF", "CASSIRSSYEQYF", "CWWWWF"],
-       "v_call": ["TRBV19", "TRBV19", "TRBV1"],
-       "j_call": ["TRBJ2-7", "TRBJ2-7", "TRBJ1-1"],
-       "locus": ["TRB", "TRB", "TRB"],
-   })
-   annotator = Annotator.from_frame(reference)
-   calls = annotator.annotate(queries, scope="0", threads=1)
-   print(calls.select("sequence_id", "vdjmatch_epitope", "vdjmatch_status"))
+   queries = pl.read_csv("annotation-demo/cohort.queries.tsv", separator="\t")
+   selection = pl.read_csv("annotation-demo/cohort.selection.tsv", separator="\t")
+   print(queries.select("sample_id", "source_sequence_id"))
+   print(selection)
 
-The first two rows retain their separate identities and receive the same peptide
-candidate. The third has ``no_hit`` and remains in the output. With no background
-requested, these calls use uncalibrated ranking evidence.
+Also inspect ``paired.queries.tsv``, ``paired.selection.tsv`` and both manifests.
+Missing chains, invalid input and no-support dispositions stay in the output;
+never interpret them as experimental negative labels. Ordinary annotation keeps
+exact reference evidence. Relative kernel scores are neither binding probabilities
+nor calibrated false-call rates.
 
-Inspect alternatives
---------------------
-
-.. code-block:: python
-
-   candidates = annotator.candidates(queries, scope="1", threads=1)
-   print(candidates.select(
-       "query_id", "epitope", "mhc_a", "rank", "ned_score",
-       "n_clonotypes", "n_studies", "n_competing_clonotypes",
-   ))
-
-Each candidate is a peptide together with its MHC restriction. Read all candidates
-when a query has competing labels. Exact ranking ties produce ``ambiguous`` calls.
-The score and its margin describe ranking; neither is a posterior probability.
-
-Use a VDJdb release
--------------------
-
-.. code-block:: python
-
-   annotator = Annotator.latest(species="HomoSapiens")
-   calls = annotator.annotate(queries, calibrate=True, species="human", threads=1)
-
-``latest`` resolves the GitHub release by default. Fetching the reference or a
-background that is not bundled requires network access. For an offline run,
-follow :doc:`how-to` with an existing local reference and explicit background.
-
-The calibrated output adds the expected background match count ``E`` and the
-Poisson-tail ``p_enrichment`` for the stated candidate reference set. Their
-interpretation and counting units are explained in :doc:`explanation`.
+Continue with the downloadable :doc:`examples` notebooks, which execute these
+CLI commands from a fresh kernel and analyze their final tables. Follow
+:doc:`how-to` for your own formats and resource budget; use :doc:`explanation` for
+score interpretation and :doc:`cli`/:doc:`api` for reference documentation.

@@ -12,17 +12,34 @@ interfaces are documented in :doc:`cli` and :doc:`api`.
 
 .. toctree::
    :maxdepth: 2
+   :caption: Tutorials
 
    tutorial
+   examples
+   compendium
+   notebooks/precursor
+
+.. toctree::
+   :maxdepth: 2
+   :caption: How-to guides
+
    how-to
+   releases
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Explanation
+
    explanation
    scoring
    pgen
-   releases
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Reference
+
    cli
    api
-   compendium
-   notebooks/precursor
 
 Research context
 ----------------

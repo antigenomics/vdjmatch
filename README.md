@@ -32,6 +32,35 @@ The Python implementation follows the legacy Java/Groovy package, preserved on t
 [workflow guide](https://antigenomics.github.io/vdjmatch/how-to.html) and
 [score explanation](https://antigenomics.github.io/vdjmatch/explanation.html).
 
+## Pick an entry point
+
+| Task | Entry point | Guide |
+| --- | --- | --- |
+| Annotate a repertoire or cohort | `vdjmatch annotate` | [Tutorial](https://antigenomics.github.io/vdjmatch/tutorial.html) |
+| Compare retained geometries from raw inputs | `sh examples/compare.sh NEW_DIRECTORY` | [CLI examples](https://antigenomics.github.io/vdjmatch/examples.html) |
+| Calibrate the final selected-call event | `reference-calls`, then `calibrate-calls` | [CLI reference](https://antigenomics.github.io/vdjmatch/cli.html) |
+| Choose a pinned or offline reference | `--vdjdb LOCAL_REFERENCE` or `vdjmatch update` | [Workflow guide](https://antigenomics.github.io/vdjmatch/how-to.html) |
+
+## Runnable offline examples
+
+The [examples directory](examples/) contains tiny raw synthetic inputs, a pinned
+offline reference, [annotation](examples/annotate.sh) and
+[comparison](examples/compare.sh) shell scripts, and output-free
+[annotation](examples/annotation.ipynb) and
+[comparison](examples/comparison.ipynb) notebooks. Activate your installed
+environment and run from the repository root:
+
+```sh
+sh examples/annotate.sh annotation-demo
+sh examples/compare.sh comparison-demo
+```
+
+Both use one native thread, reject existing output directories and fail on CLI
+errors. The comparison explicitly runs exact-excluded detailed stem4 and advanced
+vcdr12; notebooks analyze only fresh CLI tables. `DEMO_A`/`DEMO_B` labels are
+synthetic software examples, not binding truth. See the
+[example guide](https://antigenomics.github.io/vdjmatch/examples.html).
+
 ## Features
 
 - Latest/pinned GitHub releases and offline legacy, rich or AIRR reference inputs.
@@ -40,7 +69,7 @@ The Python implementation follows the legacy Java/Groovy package, preserved on t
 - Targeted stem4 kernel annotation; original and advanced scorers remain available.
 - All peptide–MHC candidates, NED-v1 ranking and competing-label support.
 - Optional finite-background calibration with a stated counting unit and search predicate.
-- Paired-reference evidence requiring both chains in the same reference complex.
+- Paired evidence from linked reference complexes plus unlinked same-target chain marginals.
 - CLI hit/candidate/call/summary/ingestion tables and a reproducibility manifest.
 - Separate precursor-frequency APIs and their established worked examples.
 
