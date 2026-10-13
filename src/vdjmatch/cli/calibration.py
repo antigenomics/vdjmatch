@@ -278,6 +278,7 @@ def operating_points(frame, target_fpr, *, higher_is_better=True):
     ``outcome`` is correct/incorrect for labelled reference queries and null for null
     queries. Null score means abstention and stays in all denominators. Correctness
     describes the single winning label; callers must resolve ambiguity before input.
+    Labelled queries are optional; null-only fitting leaves recall unavailable.
     """
     import numpy as np
     import polars as pl
@@ -298,8 +299,8 @@ def operating_points(frame, target_fpr, *, higher_is_better=True):
         raise ValueError('a correct winning label requires a score')
     null = frame.filter(pl.col('outcome') == 'null')
     labelled = frame.filter(pl.col('outcome') != 'null')
-    if not labelled.height or not null.height:
-        raise ValueError('both labelled VDJdb queries and null queries are required')
+    if not null.height:
+        raise ValueError('null queries are required')
     if null['null_source'].null_count() or null['null_source'].cast(pl.String).str.strip_chars().eq('').any():
         raise ValueError('every null query requires a nonempty null_source')
     sign = 1 if higher_is_better else -1
@@ -331,7 +332,7 @@ def operating_points(frame, target_fpr, *, higher_is_better=True):
         'target_null_query_call_rate': target_fpr,
         'vdjdb_queries': labelled.height,
         'correct_calls': int(correct[selected]), 'incorrect_calls': int(incorrect[selected]),
-        'vdjdb_correct_call_recall': float(correct[selected] / labelled.height),
+        'vdjdb_correct_call_recall': float(correct[selected] / labelled.height) if labelled.height else None,
         'vdjdb_call_precision': float(precision[selected]) if np.isfinite(precision[selected]) else None,
         'no_score_queries': frame['score'].null_count(),
         'empirical_E_false_calls_per_query': float(empirical_expected[selected]),
@@ -350,7 +351,8 @@ def operating_points(frame, target_fpr, *, higher_is_better=True):
         'eligible': eligible, 'selected': np.arange(len(eligible)) == selected,
         'correct_calls': correct, 'incorrect_calls': incorrect,
         'vdjdb_queries': [labelled.height] * len(eligible),
-        'vdjdb_correct_call_recall': correct / labelled.height,
+        'vdjdb_correct_call_recall': (correct / labelled.height if labelled.height else
+            pl.Series([None] * len(eligible), dtype=pl.Float64)),
         'vdjdb_call_precision': pl.Series(precision).fill_nan(None),
         'empirical_E_false_calls_per_query': empirical_expected,
     })
