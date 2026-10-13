@@ -1,5 +1,14 @@
 """CLI for reproducible historical density baselines; no fitted combination."""
+from collections import deque
 from pathlib import Path
+
+
+def _take_prepared(prepared, queries, reference, counts):
+    if counts is None or not queries.height or not reference.height:
+        return None
+    if not prepared:
+        raise ValueError('missing prepared density neighbour population')
+    return prepared.popleft()
 
 
 def register(subparsers):
@@ -103,7 +112,7 @@ def _paired_scores(a, reference, beta_control, prior_background):
     from ..aggregate.candidates import PMHC
     from ..io.airr import _read_table
     from ..evalue.control import raw_background, _organism
-    from ..match.historical import density, germline_prior, paired_score, unpaired_score, shared_control_histograms
+    from ..match.historical import density, germline_prior, paired_score, unpaired_score, shared_control_histograms, PreparedBudget
     from ..match.vgene import precompute_v_similarities
     fields,score_columns=_paired_columns(a.cohort_column)
     puncture=getattr(a,'puncture_populations',False)
@@ -176,12 +185,15 @@ def _paired_scores(a, reference, beta_control, prior_background):
                 task=dict(zip(PMHC,key))
                 yield task,queries.with_columns(*[pl.lit(v,dtype=pl.String).alias(k) for k,v in task.items()]),selected
     shared_counts = {}
+    prepared_batches = {name: deque() for name in ('alpha', 'beta')}
+    prepared_budget = PreparedBudget()
     if (reference if all_targets else metadata).select(PMHC).unique().height > 1:
         for chain,name,suffix in [('TRA','alpha','a'),('TRB','beta','b')]:
             batches = ((part.filter(pl.col('cdr3'+suffix).str.contains(canonical).fill_null(False))
                 .select(pl.col('cdr3'+suffix).alias('cdr3')), selected.filter(pl.col('gene')==chain))
                 for _,part,selected in targets())
-            shared_counts[name] = shared_control_histograms(controls[name], batches, threads=a.threads)
+            shared_counts[name] = shared_control_histograms(controls[name], batches, threads=a.threads,
+                prepared_batches=prepared_batches[name], prepared_budget=prepared_budget)
     parts=[]
     for task,part,selected in targets():
         out=part.drop('species',*PMHC)
@@ -193,7 +205,8 @@ def _paired_scores(a, reference, beta_control, prior_background):
             if ref.height and queries.height:
                 scores=density(queries,ref,controls[name],threads=a.threads,pool_reference=True,
                                control_counts=shared_counts.get(name),puncture_populations=puncture,
-                               v_similarities=v_similarities[name])
+                               v_similarities=v_similarities[name],
+                               prepared_neighbours=_take_prepared(prepared_batches[name],queries,ref,shared_counts.get(name)))
                 prior=germline_prior(queries.filter(pl.all_horizontal(pl.col('v','j').str.strip_chars().ne('').fill_null(False))),
                                      ref,prior_background,include_length=chain=='TRB',exclude_exact=puncture)
                 scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',how='left',
@@ -370,10 +383,12 @@ def main(a):
     ctrl,provenance=raw_background('TRB' if a.locus=='paired' else a.locus,a.species,a.control)
     v_similarities=precompute_v_similarities(q['v'],r['v']) if a.locus!='paired' else None
     shared_counts = None
+    prepared_batches = deque()
     def score_density(queries,reference,*,pool_reference=False):
         scores=density(queries,reference,ctrl,threads=a.threads,pool_reference=pool_reference,
                        control_counts=shared_counts,puncture_populations=a.puncture_populations,
-                       v_similarities=v_similarities)
+                       v_similarities=v_similarities,
+                       prepared_neighbours=_take_prepared(prepared_batches,queries,reference,shared_counts))
         if a.gapped_extension:
             if not pool_reference:
                 raise ValueError('--gapped-extension requires pooled or sample-declared targets')
@@ -454,7 +469,8 @@ def main(a):
         selected=raw
         if raw.filter(species_selected).select(PMHC).unique().height > 1:
             shared_counts = shared_control_histograms(ctrl,
-                ((part, ref) for _,part,ref in assayed_targets(q,raw,r,a.species)), threads=a.threads)
+                ((part, ref) for _,part,ref in assayed_targets(q,raw,r,a.species)), threads=a.threads,
+                prepared_batches=prepared_batches)
         parts=[]
         for task,querypart,referencepart in assayed_targets(q,raw,r,a.species):
             if not referencepart.height:
@@ -536,7 +552,8 @@ def main(a):
         target_keys=[]
         groups=r.group_by(PMHC if a.all_targets else 'epitope',maintain_order=True)
         if a.all_targets and r.select(PMHC).unique().height > 1:
-            shared_counts=shared_control_histograms(ctrl,((q,part) for _,part in groups),threads=a.threads)
+            shared_counts=shared_control_histograms(ctrl,((q,part) for _,part in groups),threads=a.threads,
+                prepared_batches=prepared_batches)
         for _,part in groups:
             target_keys.append({c:part[c][0] for c in PMHC})
             scores=score_density(q,part,pool_reference=True)

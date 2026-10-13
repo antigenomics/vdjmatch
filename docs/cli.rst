@@ -125,6 +125,18 @@ The full-junction profile is restricted to the retained window, normalized to
 mean one and rounded to integer weights; the junction component is floored
 before V-loop and stem addition, independently for each paired chain.
 
+``--geometry-extra`` selects the fixed retained ``flank``, ``framev``,
+``framemid``, ``framej``, ``freegap``, ``jw``, ``stem4j``, ``jlen``, ``vjlen``,
+``norm``, ``jnorm``, ``sw`` or ``nw`` recipe. Each sets its matrix, trim3 ends
+and stem term and requires compact uniform full-alphabet kernel output with
+all V regions. J recipes compare literal J families after removing allele
+suffixes; length recipes use full-junction length. Local/global alignment uses
+the native affine implementation. Frame recipes retain their historical
+callback ordering. The historical ``norm``/``jnorm`` denominator includes the
+pre-exclusion same-V target count; exact-excluded runs therefore reproduce that
+diagnostic rather than a completely punctured model. Calibration cannot transfer
+from the targeted default to these alternatives.
+
 vdjmatch match
 --------------
 

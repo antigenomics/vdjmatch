@@ -4,6 +4,26 @@ Release notes
 0.4.0
 -----
 
+Targeted annotation and retained alternatives
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``vdjmatch annotate`` and ``annotate_repertoires`` accept single-chain AIRR,
+paired long/wide AIRR, simple V/J/junction tables, directories and path metadata.
+The targeted stem4 kernel is the annotation default; ``historical-density``
+retains the original scorer. Advanced kernel reducers, matrix/profile options
+and fixed ``--geometry-extra`` recipes remain available. Output preserves sample
+and source identities, missing support, contradictory labels and separate paired
+linked/marginal evidence. V similarities are prepared once per invocation and
+mixed cohorts share marginal population searches. Native searches respect the
+explicit thread budget; serial/parallel outputs are identical.
+
+Evidence scores are relative measures. Confidence calibration belongs to the
+complete geometry, scorer and target-selection procedure. Historical normalized
+extras preserve their pre-exclusion same-V denominator and remain reproduction
+diagnostics. Original density shares ordered transient reference edges within an
+invocation under a 2 GiB estimated preparation allocation cap; oversized
+requests fail explicitly and require fewer targets or queries.
+
 Standalone reference resolution
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -34,7 +54,7 @@ diagnostics and a run manifest. Calls preserve input rows; exact ranking ties
 abstain. Default search threads are one. Samples run sequentially and native
 search uses complete query batches per locus. VDJAM is the CLI/API default scoring matrix.
 
-Requires ``seqtree>=1.0.2``, ``vdjtools>=5.0.0``, ``polars>=1.41.2,<2`` and
+Requires ``seqtree>=1.1.1``, ``vdjtools>=5.0.0``, ``polars>=1.41.2,<2`` and
 ``scipy>=1.9`` for exact finite-control bounds and binomial tails.
 HF benchmark snapshots are explicit, separate from GitHub release resolution.
 Hard V/J calibration requires metadata-aware controls and fails explicitly.

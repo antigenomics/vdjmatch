@@ -96,7 +96,7 @@ def kernel_peptides(scores):
 
 def grouped_kernel_selection(queries, references, groups, *, query_keys, search_keys,
         paired, cutoffs, radius, kernel_scale, scorer, assayed=False, withheld_column=None,
-        position_weighting='uniform', **geometry):
+        position_weighting='uniform', geometry_preset=None, **geometry):
     """Compact all-label selection from one bounded native reference traversal.
 
     Memberships deduplicate search keys separately from pMHC annotations. Other
@@ -111,6 +111,20 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         return None,set()
     unique=queries.select(query_keys).unique(maintain_order=True).with_row_index('_row')
     whole=references.unique(search_keys,maintain_order=True).with_row_index('_ref')
+    normalise=geometry_preset in ('norm','jnorm')
+    same_v_totals=None
+    if normalise:
+        # Recorded diagnostic: N is punctured, but same-V mass is pre-puncture.
+        gene_columns=['_allelea','_alleleb'] if paired else ['_allele']
+        reference_genes=['_allele_alpha','_allele_beta'] if paired else ['_allele']
+        gene_names=['_gene'+str(i) for i in range(len(gene_columns))]
+        def gene_axes(frame,columns):
+            return frame.with_columns(*[pl.col(c).str.split('*').list.first().alias(g)
+                for c,g in zip(columns,gene_names)])
+        unique=gene_axes(unique,gene_columns)
+        same_v_totals=pl.concat([gene_axes(part.unique(search_keys),reference_genes)
+            .group_by(gene_names).len().with_columns(pl.lit(i).alias('_target'))
+            for i,(_,_,part) in enumerate(groups)])
     targets=pl.DataFrame({'_target':range(len(groups)),
                          'epitope':[task['epitope'] for task,_,_ in groups]})
     peptides=targets.select('epitope').unique(maintain_order=True).with_row_index('_peptide')
@@ -146,8 +160,12 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     def axes(frame, reference=False):
         seqs=['alpha','beta'] if reference and paired else ['cdr3a','cdr3b'] if paired else ['cdr3']
         genes=['_allele_alpha','_allele_beta'] if reference and paired else ['_allelea','_alleleb'] if paired else ['_allele']
+        from ..match.tcrdist import J_GEOMETRY_PRESETS
+        jcols=['j_alpha','j_beta'] if reference and paired else ['ja','jb'] if paired else ['j']
         return frame.select(*[pl.col(c).alias('seq'+str(i)) for i,c in enumerate(seqs)],
-                            *[pl.col(c).alias('v'+str(i)) for i,c in enumerate(genes)])
+                            *[pl.col(c).alias('v'+str(i)) for i,c in enumerate(genes)],
+                            *([pl.col(c).alias('j'+str(i)) for i,c in enumerate(jcols)]
+                              if geometry_preset in J_GEOMETRY_PRESETS else []))
     native_cuts=sorted(set([int(200*t) for t in cutoffs]+[distance_cutoff(radius)]))
     ladder_indices=np.searchsorted(native_cuts,np.asarray(cutoffs)*200)
     ladder_slice=slice(None) if len(native_cuts)==len(cutoffs) else ladder_indices
@@ -157,7 +175,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     if bytes_per_query>256*1024**2:
         raise ValueError('one grouped query exceeds the 256 MiB native count-buffer budget; restrict requested targets')
     iterator=grouped_total_distance_count_batch(axes(unique),axes(whole,True),native_cuts,
-        paired=paired,position_weighting=position_weighting,reference_target_offsets=offsets,
+        paired=paired,position_weighting=position_weighting,geometry_preset=geometry_preset,reference_target_offsets=offsets,
         reference_target_ids=members['_target'].to_numpy(),target_peptide_ids=target_peptides,
         reference_exclusive_peptide_ids=exclusive,
         chunk_size=min(64,max(1,256*1024**2//bytes_per_query)),**folds,**geometry)
@@ -184,11 +202,21 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         np.subtract(curves[:,0,None,:],np.take(curves,1+2*T+target_peptides,axis=1),out=control,dtype=np.float64)
         control=np.asarray(control[:,:,ladder_slice],order='C').reshape(C*T,-1)
         N=sizes[:,1:1+T];M=sizes[:,0,None]-sizes[:,1+2*T+target_peptides]
+        score_N=N.reshape(-1)
+        if normalise:
+            rows=unique.slice(chunk.start,C).select('_row',*gene_names).join(
+                targets.select('_target'),how='cross').join(same_v_totals,
+                on=['_target',*gene_names],how='left',validate='m:1').sort('_row','_target')
+            same_total=rows['len'].fill_null(0).to_numpy()
+            weight=scorer.split('-')[0]
+            score_N=(score_N if weight=='all' else same_total if weight=='vonly' else
+                     .25*score_N+.75*same_total)
+            score_N=np.where(score_N>0,score_N,1)
         # Immutable native curves already satisfy the validated monotone/subset
         # and population contract. Reuse the exact arithmetic without scanning
         # every generated curve again; public kernel_ladder keeps all checks.
         scores=_kernel_scores(shells,same_shells,
-            control,N.reshape(-1),M.reshape(-1),np.asarray(cutoffs,dtype=np.float64),
+            control,score_N,(np.maximum(M.reshape(-1),1) if normalise else M.reshape(-1)),np.asarray(cutoffs,dtype=np.float64),
             kernel_scale,.25,.01,scorer,False,_reuse_buffers=True)
         exact=np.zeros((C,T),dtype=np.uint32) if geometry.get('exclude_exact',False) else np.asarray(chunk.exact_counts)
         values=pl.DataFrame({'_row':np.repeat(np.arange(chunk.start,chunk.stop),T),

@@ -6,9 +6,11 @@ source order within each pMHC/junction, as in the original per-epitope producer.
 """
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, deque
+from array import array
 from itertools import accumulate
 import math
+import sys
 
 import polars as pl
 from seqtree import Index, SearchParams
@@ -18,6 +20,41 @@ from ..aggregate.candidates import PMHC
 from ..evalue import first_hit
 from .regions import significance_pssm, gene_family
 from .vgene import precompute_v_similarities
+
+
+_PREPARED_LIMIT_BYTES = 2 * 1024**3
+
+
+class PreparedBudget:
+    """One invocation's conservative retained graph allocation budget."""
+    def __init__(self):
+        self.retained = 0
+
+    def check(self, allocation, temporary=0):
+        if self.retained + allocation + temporary > _PREPARED_LIMIT_BYTES:
+            raise ValueError('historical prepared neighbours exceed the 2 GiB allocation budget; '
+                             'restrict the requested targets or query population')
+
+
+def _prepared_size(seqs, rs, edges):
+    # Include axes, the consumption-time sequence lookup, six array headers and
+    # fixed-width CSR offsets, counts and radii, including queries with no edges.
+    return (1024 + sys.getsizeof(seqs) + sys.getsizeof(rs)
+            + sum(sys.getsizeof(s) for s in seqs) + sum(sys.getsizeof(s) for s in rs)
+            + len(seqs) * (128 + 8 + 8 + 1) + 8 + edges * 13)
+
+
+def _pack_prepared(seqs, rs, hits, unit, radii):
+    n_edges=sum(len(row) for row in hits.values())
+    offsets=array('Q',[0])*(len(seqs)+1)
+    refs=array('I',[0])*n_edges;subs=array('B',[0])*n_edges;scores=array('q',[0])*n_edges
+    counts=array('Q',[0])*len(seqs);needed=array('B',[0])*len(seqs)
+    k=0
+    for i,s in enumerate(seqs):
+        for h in hits[s]:
+            refs[k]=h.ref_id;subs[k]=h.n_subs;scores[k]=h.score;k+=1
+        offsets[i+1]=k;counts[i]=unit[i][1];needed[i]=radii[s]
+    return seqs,rs,offsets,refs,subs,scores,counts,needed
 
 
 def control_histograms(control, sequences, *, threads=1, radii=None):
@@ -58,27 +95,49 @@ def _density_neighbours(seqs, rs, threads):
     return hits, unit, radii
 
 
-def shared_control_histograms(control, batches, *, threads=1):
+def shared_control_histograms(control, batches, *, threads=1, prepared_batches=None,
+                              prepared_budget=None):
     """One transient control CDF per junction at its largest needed target radius.
 
-    Reference searches are repeated during scoring so no cross-target neighbour
-    graph is retained. Counts below the largest radius are exactly unchanged.
+    Optional prepared batches retain flat CSR integer edges for consumption once
+    in this invocation. A shared budget bounds all retained batches to 2 GiB,
+    including fixed-width zero-edge metadata and estimated temporary Python hits.
+    Counts below the largest radius are exactly unchanged.
     """
     if threads < 1 or not len(control):
         raise ValueError('positive threads and a nonempty control are required')
     radii = {}
+    budget = prepared_budget if prepared_budget is not None else PreparedBudget()
+    if prepared_budget is None and prepared_batches:
+        budget.retained = sum(_prepared_size(p[0],p[1],len(p[3])) for p in prepared_batches)
     for queries, reference in batches:
         if not queries.height or not reference.height:
             continue
         seqs = queries['cdr3'].unique(maintain_order=True).to_list()
-        _, _, needed = _density_neighbours(seqs, reference.unique('cdr3', keep='first', maintain_order=True)['cdr3'].to_list(), threads)
+        rs = reference.unique('cdr3', keep='first', maintain_order=True)['cdr3'].to_list()
+        if prepared_batches is not None:
+            budget.check(_prepared_size(seqs,rs,0))
+        hits, unit, needed = _density_neighbours(seqs, rs, threads)
+        if prepared_batches is not None:
+            # Preserve the native edge order and scalar reduction, without retaining
+            # Python Neighbor objects or a computed prediction table.
+            size = _prepared_size(seqs,rs,sum(len(row) for row in hits.values()))
+            temporary = (sys.getsizeof(hits) + sys.getsizeof(needed)
+                         + sum(sys.getsizeof(row)+sum(max(128,sys.getsizeof(h)) for h in row)
+                               for row in hits.values())
+                         + sys.getsizeof(unit)+sum(sys.getsizeof(row)+8*len(row) for row in unit))
+            budget.check(size, temporary)
+            prepared_batches.append(_pack_prepared(seqs,rs,hits,unit,needed))
+            budget.retained += size
+        del hits
         for s, radius in needed.items():
             radii[s] = max(radii.get(s, 0), radius)
+        del unit, needed
     return control_histograms(control, radii, threads=threads, radii=radii)
 
 
 def density(queries, reference, control, *, threads=1, pool_reference=False, control_counts=None,
-            puncture_populations=False, v_similarities=None):
+            puncture_populations=False, v_similarities=None, prepared_neighbours=None):
     """Return keyed PSSM density and original radius<=1 significance component.
 
     The original exp(-P/400) kernel is a tempered, self-normalised BLOSUM
@@ -104,6 +163,8 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
         exact = control.edit_histogram_batch(seqs, first_hit.scope(1,0,0), threads, False)
         control_sizes = {s:len(control)-int(row[0]) for s,row in zip(seqs,exact)}
     rows = []
+    prepared_batches = deque()
+    preparation_requested = False
     if pool_reference:
         for column in ('epitope', 'species', 'gene'):
             if column in reference.columns and reference[column].n_unique() > 1:
@@ -115,13 +176,27 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
         groups = reference.group_by(PMHC, maintain_order=True)
         if control_counts is None and reference.select(PMHC).unique().height > 1:
             control_counts = shared_control_histograms(control,
-                ((queries, obs) for _, obs in groups), threads=threads)
+                ((queries, obs) for _, obs in groups), threads=threads, prepared_batches=prepared_batches)
+            preparation_requested = control_counts is not None
     for key, obs in groups:
         # Reproduce the original per-epitope reference representative rule explicitly.
         ref = obs.unique('cdr3', keep='first', maintain_order=True)
         rs, rv = ref['cdr3'].to_list(), ref['v'].to_list()
         rv=[gene_family(v) for v in rv]
-        hits, unit, radii = _density_neighbours(seqs, rs, threads)
+        prepared = prepared_neighbours
+        if prepared is None and preparation_requested and seqs and rs:
+            if not prepared_batches:
+                raise ValueError('missing prepared density neighbour population')
+            prepared = prepared_batches.popleft()
+        if prepared is None:
+            hits, unit, radii = _density_neighbours(seqs, rs, threads)
+        else:
+            prepared_seqs, prepared_rs, offsets, refs, subs, penalties, unit_counts, prepared_radii = prepared
+            if prepared_seqs != seqs or prepared_rs != rs:
+                raise ValueError('prepared density neighbour axes differ from query/reference population')
+            seq_index = {s:i for i,s in enumerate(prepared_seqs)}
+            radii = dict(zip(seqs,prepared_radii))
+            unit = ((0,n) for n in unit_counts)
         # Original significance used the nearest nonexact target radius, capped at one.
         # Only target-supported radii enter the original formula. Narrower control
         # balls have the identical CDF at those radii; unsupported queries need none.
@@ -135,15 +210,18 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
             s, v = query['cdr3'], gene_family(query['v'])
             nr, nc_population = reference_sizes[s], control_sizes[s]
             total = 0.0 if nr and nc_population else None
-            for hit in hits[s] if total is not None else []:
-                if rs[hit.ref_id] == s:
+            i = seq_index[s] if prepared is not None else None
+            edges = (((refs[k],subs[k],penalties[k]) for k in range(offsets[i],offsets[i+1])) if prepared is not None else
+                     ((hit.ref_id, hit.n_subs, hit.score) for hit in hits[s]))
+            for ref_id, n_subs, penalty in edges if total is not None else []:
+                if rs[ref_id] == s:
                     continue
-                ref_v = rv[hit.ref_id]
+                ref_v = rv[ref_id]
                 if v != ref_v and (v,ref_v) not in v_similarities:
                     raise ValueError('precomputed V similarities do not cover the query/reference families')
                 weight = 1.0 if v == ref_v else .25*v_similarities[(v,ref_v)]
-                nc = counts[s][hit.n_subs]
-                total += weight*math.exp(-hit.score/400.0)/max(nr/nc_population*nc,.01)
+                nc = counts[s][n_subs]
+                total += weight*math.exp(-penalty/400.0)/max(nr/nc_population*nc,.01)
             rows.append({'query_id':query['query_id'], **dict(zip(PMHC,key)),
                          'score':total, 'p_enrichment':significance[s],
                          'n_reference':nr,'control_size':nc_population,

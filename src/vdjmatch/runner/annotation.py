@@ -175,6 +175,13 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         raise ValueError(f"unknown scorer options: {sorted(unknown)}")
     if set(options) & {"sample", "vdjdb", "output_prefix", "func", "command"}:
         raise ValueError("input/reference/output options use the public runner arguments")
+    if options.get('geometry_extra') is not None:
+        vars(defaults).update(options)
+        defaults.selection_only=selection_only
+        defaults.locus=locus
+        tcrdist._apply_geometry_extra(defaults)
+        options.update({key:getattr(defaults,key) for key in
+            ('distance_matrix','junction_ends','stem_depth','stem_weight')})
     rows = _input_rows(inputs, metadata)
     prefix = Path(output_prefix).expanduser().resolve()
     protected = [path for _, path, _ in rows]

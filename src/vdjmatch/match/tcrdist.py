@@ -795,10 +795,89 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
         **({'shared_thresholds':True} if shared_thresholds else {}))
 
 
+GEOMETRY_PRESETS=('flank','framev','framemid','framej','freegap','jw','stem4j','jlen','vjlen','norm','jnorm','sw','nw')
+J_GEOMETRY_PRESETS=('jw','stem4j','jlen','vjlen','jnorm')
+
+
+def require_geometry_capabilities(preset, *, paired=False):
+    """Check both wrapper and native fields before reading the requested cohort."""
+    import inspect
+    if preset is None:
+        return
+    if preset not in GEOMETRY_PRESETS:
+        raise ValueError('unknown geometry preset')
+    method=getattr(gapblock,'grouped_paired_sum_count_batch' if paired else 'grouped_count_batch',None)
+    native=getattr(gapblock,'_GroupedGeometry',None)
+    if method is None or native is None:
+        raise RuntimeError('geometry extras require updated Python/native grouped support')
+    parameters=inspect.signature(method).parameters
+    required=[]
+    if preset in ('sw','nw'):
+        required=[('alignment_mode','alignment_mode')]
+    elif preset in ('framev','framemid','framej'):
+        required=[('score_quantum_alpha' if paired else 'score_quantum','score_quantum')]
+        if paired:required += [('gap_prior_alpha','gap_prior'),('gap_prior_beta','gap_prior')]
+    elif preset in J_GEOMETRY_PRESETS:
+        required=[('additional_feature_offsets'+suffix,'additional_features')
+            for suffix in (('_alpha','_beta') if paired else ('',))]
+    if any(parameter not in parameters or not hasattr(native,field) for parameter,field in required):
+        raise RuntimeError('geometry extra requires matching updated Python/native '+preset+' support')
+
+
+def _grouped_preset_options(preset,queries,references,axes,options,context,paired):
+    """Fixed recorded diagnostic recipes; alignment and offsets stay factored."""
+    costs=context['costs'];scale=int(costs.max())
+    if preset in ('sw','nw'):
+        options.update(matrix=SubstitutionMatrix.blosum62(),gap_open=max(1,round(scale/2)),
+            gap_extend=max(1,round(scale/2)),alignment_mode='local' if preset=='sw' else 'global',
+            alignment_scale=600,trim_left=3,trim_right=3)
+        options.pop('gap_prior',None)
+        for suffix in ('_alpha','_beta') if paired else ('',):
+            options.pop('position_weights_by_length'+suffix,None)
+    elif preset=='freegap':
+        options['gap_prior']=lambda i,d,m:0 if not d or 3<=i<=m-d-3 else gapblock.UNREACHABLE
+    for lane,(q,r,qv,rv) in enumerate(axes):
+        suffix=('_alpha','_beta')[lane] if paired else ''
+        if preset in ('framev','framemid','framej'):
+            loci={context['model'][v]['locus'] for v in qv+rv}
+            if len(loci)!=1:
+                raise ValueError('frame geometry requires one locus')
+            column={'TRA':(0,1,3),'TRB':(1,3,6)}[next(iter(loci))][('framev','framemid','framej').index(preset)]
+            # Preserve recorded reversed arguments, scale and trimmed coordinates.
+            prior=gapblock.frame_prior(column,scale)
+            options['gap_prior'+suffix]=lambda i,d,m,prior=prior:(300*prior(i-3,d,m-6)
+                if not d or 3<=i<=m-d-3 else gapblock.UNREACHABLE)
+            options['score_quantum'+suffix]=600
+        if preset=='flank':
+            index={a:i for i,a in enumerate(amino_acids())}
+            def ends(sequences):
+                return [[index[a] for a in s[:3]+s[-3:] for _ in range(2)] for s in sequences]
+            options['feature_offsets'+suffix]=gapblock.PairedFeatureOffsets(
+                ends(q),ends(r),costs.tolist(),weight=18,scale=200)
+        if preset not in J_GEOMETRY_PRESETS:
+            continue
+        jcol='j'+str(lane)
+        if jcol not in queries.columns or jcol not in references.columns:
+            raise ValueError('J geometry requires '+jcol+' on both grouped axes')
+        js=[('' if value is None else value).split('*')[0]
+            for frame in (queries,references) for value in frame[jcol].to_list()]
+        terms=[(js,False)]
+        if preset in ('jlen','vjlen'):terms.append(([len(s) for s in q+r],True))
+        if preset=='vjlen':terms.append(([v.split('*')[0] for v in qv+rv],False))
+        descriptors=[]
+        for values,length_term in terms:
+            keys=list(dict.fromkeys(values));lookup={value:i for i,value in enumerate(keys)}
+            ids=[[lookup[value]]*2 for value in values]
+            distance=(scale*np.abs(np.asarray(keys)[:,None]-np.asarray(keys)[None,:]) if length_term
+                else scale*(np.asarray(keys)[:,None]!=np.asarray(keys)[None,:]))
+            descriptors.append(gapblock.PairedFeatureOffsets(ids[:len(q)],ids[len(q):],distance.tolist(),weight=1,scale=200))
+        options['additional_feature_offsets'+suffix]=descriptors
+
+
 def grouped_total_distance_count_batch(queries, references, thresholds, *, paired=False,
         species='human', threads=1, ctrim=2, v_loop_weight=1, alphabet='full',
         stem_depth=0, stem_weight=1.0, matrix='tcrdist', v_loop_distances=None,
-        exclude_exact=False, chunk_size=64, v_regions=None, position_weighting='uniform', **memberships):
+        exclude_exact=False, chunk_size=64, v_regions=None, position_weighting='uniform', geometry_preset=None, **memberships):
     """One shared reference traversal with bounded label-count chunks.
 
     Frames use ``seq0/v0`` (TRA for linked pairs) and ``seq1/v1`` (TRB).
@@ -806,6 +885,17 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
     Geometry, same-gene auxiliaries and exact puncturing retain the established
     count contract; no kernel arithmetic or query-label fitting occurs here.
     """
+    if geometry_preset is not None and geometry_preset not in GEOMETRY_PRESETS:
+        raise ValueError('unknown geometry preset')
+    if geometry_preset is not None and (ctrim!=3 or alphabet!='full' or position_weighting!='uniform'):
+        raise ValueError('geometry presets require full alphabet, trim3 and uniform weights')
+    if geometry_preset is not None:
+        matrix='tcrdist' if geometry_preset in ('freegap','framev','framemid','framej') else 'blosum62'
+        stem_depth=4 if geometry_preset=='stem4j' else 0
+        stem_weight=1.0
+        if v_loop_distances is not None and v_loop_distances.get('matrix')!=matrix:
+            raise ValueError('geometry preset requires matching precomputed matrix')
+    require_geometry_capabilities(geometry_preset,paired=paired)
     v_loop_distances = _v_region_context(v_regions, v_loop_distances, species, alphabet, matrix)
     method='grouped_paired_sum_count_batch' if paired else 'grouped_count_batch'
     if not hasattr(gapblock,method):
@@ -869,6 +959,8 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
             # Native alignment is3 times the prototype raw score: floor to600
             # before adding V/stem offsets equals200*3*(prototype_raw//200).
             options['score_quantum'+suffix]=600
+    if geometry_preset is not None:
+        _grouped_preset_options(geometry_preset,queries,references,axes,options,context,paired)
     return getattr(gapblock,method)(*native_axes,thresholds,**options,**memberships,
         query_gene_ids=ids[:queries.height],reference_gene_ids=ids[queries.height:],
         exclude_exact=exclude_exact,chunk_size=chunk_size)

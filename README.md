@@ -93,6 +93,25 @@ The retained `sig` geometry adds `--position-weighting significance-trimmed`
 to the trim3 TCRdist geometry; `sigb62` also uses `--distance-matrix blosum62`.
 These two extras require compact output and retain the recorded rounding before
 V-loop addition. Calibration does not transfer between geometries.
+Additional recorded geometries use `--geometry-extra NAME`. This fixed recipe
+sets its matrix, trim3 ends and stem term; compact output is required.
+
+| NAME | Retained geometry |
+|---|---|
+| `flank` | BLOSUM62 costs for the three residues at each junction end |
+| `framev`, `framemid`, `framej` | Clipped TCRdist with the recorded frame gap prior |
+| `freegap` | Clipped TCRdist without the gap-position prior |
+| `jw`, `stem4j` | J-family mismatch cost, with zero or four stem levels |
+| `jlen`, `vjlen` | J mismatch and length difference; `vjlen` also adds V-family mismatch |
+| `norm`, `jnorm` | V-weighted population normalization, without or with J mismatch |
+| `sw`, `nw` | Native local or global affine alignment with BLOSUM62 |
+
+For example: `vdjmatch annotate repertoire.tsv --geometry-extra stem4j
+--threads 4 --output-prefix results/stem4j`.
+Frame recipes preserve the recorded callback argument ordering. The historical
+`norm`/`jnorm` denominator retains its pre-exclusion same-V target count; with
+`--exclude-exact` these are reproduction diagnostics, not a fully punctured
+benchmark model. Every extra needs its own calibration before confidence calls.
 `--threads N` budgets native compute threads; searches batch queries by population
 and do not create a worker process per receptor or input file.
 Mixed single/paired cohorts share marginal chain searches. V-loop tables are

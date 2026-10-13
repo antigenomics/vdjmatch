@@ -1,6 +1,30 @@
 """Native TCRdist3-compatible single-chain/linked-pair distance neighbourhoods."""
 from pathlib import Path
 
+GEOMETRY_EXTRAS = ('flank', 'framev', 'framemid', 'framej', 'freegap', 'jw',
+                   'stem4j', 'jlen', 'vjlen', 'norm', 'jnorm', 'sw', 'nw')
+J_GEOMETRY_EXTRAS = frozenset(('jw', 'stem4j', 'jlen', 'vjlen', 'jnorm'))
+
+
+def _apply_geometry_extra(a):
+    """Apply a retained fixed recipe before preparing its shared V matrices."""
+    extra = getattr(a, 'geometry_extra', None)
+    if extra is None:
+        return
+    if extra not in GEOMETRY_EXTRAS:
+        raise ValueError('unknown geometry extra')
+    if (a.neighbour_weighting != 'kernel' or not a.selection_only or
+            a.background != 'vdjdb-other' or a.alphabet != 'full' or
+            a.position_weighting != 'uniform' or a.v_regions != 'cdr12plus' or
+            a.v_loop_weight != 1):
+        raise ValueError('geometry extras require compact uniform full-alphabet kernel scoring with all V regions')
+    from ..match.tcrdist import require_geometry_capabilities
+    require_geometry_capabilities(extra,paired=a.locus in ('paired','auto'))
+    a.distance_matrix = 'tcrdist' if extra in ('framev', 'framemid', 'framej', 'freegap') else 'blosum62'
+    a.junction_ends = 'trim3'
+    a.stem_depth = 4 if extra == 'stem4j' else 0
+    a.stem_weight = 1.0
+
 
 def register(subparsers, name='tcrdist-neighbours'):
     p=subparsers.add_parser(name,help='targeted stem4 kernel evidence' if name=='annotate' else 'native TCRdist3-compatible distance balls')
@@ -49,6 +73,8 @@ def register(subparsers, name='tcrdist-neighbours'):
     p.add_argument('--kernel-scorer', choices=['v-bounded','all-bounded','vonly-bounded',
                    'v-rare','all-rare','vonly-rare'], default='v-bounded',
                    help='advanced ladder alternative; v-bounded is the targeted default')
+    p.add_argument('--geometry-extra', choices=GEOMETRY_EXTRAS,
+                   help='advanced retained fixed geometry; sets its matrix, trim3 ends and stem recipe; requires compact kernel scoring')
     p.add_argument('--rank-signal-prior',type=float,default=.5,
                    help='prior for the local-rank model only; not biological specificity prevalence')
     radius=p.add_mutually_exclusive_group()
@@ -151,6 +177,9 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     from ..match.tcrdist import distance_matrix,paired_distance_matrix,load_v_loops,resolve_v_alleles,distance_units,distance_cutoff,_substitution_costs
     from ..evalue.control import _organism
     start=time.perf_counter()
+    _apply_geometry_extra(a)
+    geometry_extra=getattr(a,'geometry_extra',None)
+    j_geometry=geometry_extra in J_GEOMETRY_EXTRAS
     kernel=a.neighbour_weighting=='kernel'
     selection_only=getattr(a,'selection_only',False)
     if marginal_tables is not None and (a.locus!='paired' or not kernel or not selection_only):
@@ -276,11 +305,22 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             r=r.with_columns(resolve_v_alleles(r['v_'+suffix],model,locus=locus).alias('_allele_'+suffix)).filter(
                     pl.col('_allele_'+suffix).is_in(allowed_chain) & (pl.col(suffix).str.len_chars()>=8))
         search_keys=['alpha','beta','_allele_alpha','_allele_beta']
-        r=r.unique(subset=[*search_keys,*PMHC,*(['j_alpha','j_beta'] if a.position_weighting=='ndn' or a.conditional_j else [])],maintain_order=True)
+        if j_geometry:
+            for column in ('j_alpha','j_beta'):
+                r=r.with_columns(pl.col(column).fill_null('').str.split('*').list.first())
+            for column in ('ja','jb'):
+                q=q.with_columns(pl.col(column).fill_null('').str.split('*').list.first())
+            search_keys += ['j_alpha','j_beta']
+        r=r.unique(subset=[*search_keys,*PMHC,*(['j_alpha','j_beta'] if not j_geometry and (a.position_weighting=='ndn' or a.conditional_j) else [])],maintain_order=True)
     else:
         q=prepare(q.filter(pl.col('locus')==a.locus))
-        r=prepare(r.filter(pl.col('reference_valid'))).unique(subset=['cdr3','_allele',*PMHC,*(['j'] if a.position_weighting=='ndn' or a.conditional_j else [])],maintain_order=True)
+        r=prepare(r.filter(pl.col('reference_valid')))
         search_keys=['cdr3','_allele']
+        if j_geometry:
+            q=q.with_columns(pl.col('j').fill_null('').str.split('*').list.first())
+            r=r.with_columns(pl.col('j').fill_null('').str.split('*').list.first())
+            search_keys += ['j']
+        r=r.unique(subset=[*search_keys,*PMHC,*(['j'] if not j_geometry and (a.position_weighting=='ndn' or a.conditional_j) else [])],maintain_order=True)
     if not paired and 'species' in metadata.columns:
         aliases=['human','homosapiens','homo sapiens'] if organism=='human' else ['mouse','musmusculus','mus musculus']
         q=q.join(metadata.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases)).select('query_id'),on='query_id',how='semi')
@@ -364,6 +404,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             from ..evalue.kernel import ladder_cutoffs,kernel_ladder
             kernel_cutoffs=ladder_cutoffs(matrix_scale,radius_factor=a.radius/matrix_scale)
         query_keys=['cdr3a','cdr3b','_allelea','_alleleb'] if paired else ['cdr3','_allele']
+        if j_geometry:
+            query_keys += ['ja','jb'] if paired else ['j']
         options=dict(species=organism,threads=a.threads,ctrim=ctrim,
                      position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,v_loop_distances=v_loop_distances)
         def boundaries(sequences,genes):
@@ -473,7 +515,9 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 'target_removal':'all records of target peptide, before key deduplication',
                 'shared_key_policy':'other epitope annotations retained; no arbitrary label selection',
                 'observation_unit':('distinct linked full alpha/beta junctions + resolved V alleles' if paired else
-                                    'distinct full junction + resolved V allele')+'; no abundance weights',
+                                    'distinct full junction + resolved V allele')+
+                                    (' + literal J families' if j_geometry else '')+'; no abundance weights',
+                'search_keys':search_keys,
                 'restriction':'same species/locus; other epitopes may have other MHC restrictions'}
         grouped_kernel=(selection_only and kernel and a.background=='vdjdb-other' and
             a.position_weighting in ('uniform','significance-trimmed') and not (a.conditional_j or a.epitope_rules or getattr(a,'chemistry',False)))
@@ -510,6 +554,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 query_keys=query_keys,search_keys=search_keys,paired=paired,
                 cutoffs=kernel_cutoffs,radius=a.radius,kernel_scale=22.5*matrix_scale,
                 scorer=a.kernel_scorer,assayed=a.targets_from_sample,
+                geometry_preset=geometry_extra,
                 **{k:v for k,v in options.items() if k!='linear_mass'})
             background_costs['native_count_batches']+=time.perf_counter()-count_start
             background_provenance['reduction']='one grouped reference traversal; whole search-key counts minus keys exclusive to target peptide; shared-label keys retained'
@@ -882,6 +927,13 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 str(prefix)+'.selection.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'selection_only':selection_only,
+        **({'geometry_extra':geometry_extra,
+            'geometry_extra_status':'advanced retained diagnostic',
+            'normalization':('V-weighted population: punctured total plus historical pre-puncture same-V target count'
+                if geometry_extra in ('norm','jnorm') else 'punctured total population'),
+            **({'paired_normalization':'extension using the joint resolved V-family tuple; no historical joint validation'}
+               if paired and geometry_extra in ('norm','jnorm') else {}),
+            'calibration_transfer':'requires its own geometry and all-label selection calibration'} if geometry_extra else {}),
         **({'marginal_execution':'run-local union chain population services'} if marginal_tables is not None else {}),
         'output_tables':(['queries','selection'] if selection_only else ['queries','candidates']+
             (['enrichment','selection'] if kernel else ['enrichment'] if a.background else [])+

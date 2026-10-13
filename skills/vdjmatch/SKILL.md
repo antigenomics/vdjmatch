@@ -52,6 +52,13 @@ queries, selections = result["queries"], result["selection"]
   `sig` uses compact `--position-weighting significance-trimmed
   --distance-matrix tcrdist --stem-depth 0 --junction-ends trim3`; `sigb62` uses
   blosum62. Preserve their pre-V junction rounding; calibration is geometry specific.
+  `--geometry-extra flank|framev|framemid|framej|freegap|jw|stem4j|jlen|vjlen|norm|jnorm|sw|nw`
+  selects a fixed retained recipe and sets its matrix, trim3 ends and stem term.
+  Require compact uniform full-alphabet geometry and all three V regions.
+  Frame recipes preserve the recorded callback ordering. `norm`/`jnorm` retain
+  pre-exclusion same-V target counts in their denominator, so exact-excluded
+  runs are historical reproduction diagnostics, not fully punctured models.
+  Do not transfer targeted stem4 calibration to any alternative.
   `historical-density` retains the original scorer and its advanced options.
   For original held-out components, use `historical-density --legacy-components
   --reference-population all-valid --germline-background RAW --control RAW`;
