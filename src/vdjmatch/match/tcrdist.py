@@ -308,7 +308,70 @@ def _v_loop_groups(genes, model, d):
     return loop_dist, indices
 
 
-def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2, v_loop_weight=1, alphabet='full'):
+STEM_DEPTH_DEFAULT = 4
+
+
+def stem_penalty(queries, references, *, depth=STEM_DEPTH_DEFAULT, weight=1.0, costs=None):
+    """Joint V-J hairpin stem cost, in the shared substitution-matrix scale.
+
+    The CDR3 loop folds as a hairpin, so junction position ``i`` sits opposite position
+    ``L-1-i``. A *stem level* is that pair of positions, and a level is only conserved
+    when **both** of its residues are conserved, so the two residue costs combine as a
+    maximum rather than a sum: one substitution anywhere in the pair breaks the level.
+
+        d += weight * (1/depth) * SUM over i < depth of
+             max( cost(q[i], r[i]), cost(q[Lq-1-i], r[Lr-1-i]) )
+
+    The level costs come from the same clipped substitution table the junction alignment
+    and the V loops use, so the term carries no private unit and no hand-written
+    distance: ``weight=1`` means one mean level cost per pair, which spans the same
+    0..``distance_units(costs)[0]`` range as one aligned residue. It is deliberately NOT
+    rescaled by ``Pmax`` -- that is what the measured ``stem4`` arm does, and rescaling
+    makes the term four times too strong.
+    ``depth`` is a declared residue count, not a per-clonotype boundary; ``depth=0``
+    disables the term and returns zeros. Junctions are used untrimmed: the stem is
+    anchored on the conserved ends that the alignment trim removes, which is why it adds
+    information the gap block cannot see.
+
+    Returns an integer ``(len(queries), len(references))`` matrix in native cost units,
+    ready to add to :func:`distance_matrix` output.
+
+    Naming: ``bench/holdout_stem_apex.py`` uses "stem" for a different object -- the
+    k-mers touching the first/last three residues, contrasted there against the loop
+    "apex". The two are not the same construction, but they do cover the same germline
+    frame, and that benchmark's finding is consistent with this term's behaviour: the
+    stem region tracks the V marginal and is robust rather than sharp, which is why this
+    term gives small, consistent gains and helps most on TRA, where the junction is
+    80.5 per cent germline against 63.5 per cent on TRB.
+    """
+    if isinstance(depth, bool) or not isinstance(depth, int) or depth < 0:
+        raise ValueError('stem depth must be a nonnegative integer')
+    if isinstance(weight, bool) or not isinstance(weight, (int, float)) or weight < 0:
+        raise ValueError('stem weight must be nonnegative')
+    queries, references = list(queries), list(references)
+    out = np.zeros((len(queries), len(references)), dtype=np.int32)
+    if not depth or not weight or not queries or not references:
+        return out
+    costs = _substitution_costs() if costs is None else costs
+    if any(len(s) < 2 * depth for s in queries + references):
+        raise ValueError(f'stem depth {depth} requires junctions of length >= {2 * depth}')
+    alphabet = amino_acids()
+    index = {c: i for i, c in enumerate(alphabet)}
+    def ends(seqs):
+        head = np.array([[index[s[i]] for i in range(depth)] for s in seqs], dtype=np.int64)
+        tail = np.array([[index[s[len(s) - 1 - i]] for i in range(depth)] for s in seqs],
+                        dtype=np.int64)
+        return head, tail
+    qh, qt = ends(queries)
+    rh, rt = ends(references)
+    total = np.zeros((len(queries), len(references)), dtype=np.int64)
+    for level in range(depth):
+        total += np.maximum(costs[qh[:, level][:, None], rh[None, :, level]],
+                            costs[qt[:, level][:, None], rt[None, :, level]])
+    return np.rint(weight * total / depth).astype(np.int32)
+
+
+def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2, v_loop_weight=1, alphabet='full', stem_depth=0, stem_weight=1.0):
     """TCRdist3 default distances in a bounded native batch, maximum64MiB output.
 
     Exact alleles are used; a missing allele suffix explicitly means *01, as in the
@@ -321,6 +384,10 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     ``v_loop_weight=0`` is the fixed CDR3-only ablation; eligibility stays identical.
     ``ctrim=3`` tests removal of three residues at both junction ends; the default
     remains the TCRdist3 three/two trim. Full junction identity is handled by callers.
+    ``stem_depth`` adds the joint V-J hairpin stem term of :func:`stem_penalty` on the
+    untrimmed junctions; 0 (the default) reproduces TCRdist3 exactly. The returned
+    ``cdr3`` matrix under ``return_cdr3`` stays the junction-only distance and never
+    carries the stem, which is a joint V-J term rather than a CDR3 alignment cost.
     """
     if type(v_loop_weight) is not int or v_loop_weight not in (0,1):
         raise ValueError("v_loop_weight must be integer0 or1")
@@ -338,6 +405,8 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     out=cdr3.copy() if return_cdr3 else cdr3
     loop_dist, indices = _v_loop_groups(genes, model, d)
     out+=v_loop_weight*loop_dist[indices[:len(queries),None],indices[None,len(queries):]]
+    if stem_depth:
+        out+=stem_penalty(queries,references,depth=stem_depth,weight=stem_weight,costs=d)
     return (out,cdr3) if return_cdr3 else out
 
 
@@ -558,11 +627,17 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
 
 def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_beta,
                            query_v_alpha, query_v_beta, reference_v_alpha, reference_v_beta,
-                           *, species='human', threads=1, ctrim=2, v_loop_weight=1, alphabet='full'):
+                           *, species='human', threads=1, ctrim=2, v_loop_weight=1, alphabet='full',
+                           stem_depth=0, stem_weight=1.0):
     """Sum alpha/beta distances against the same ordered reference pairs.
 
     Each position identifies one linked receptor pair; independent marginal nearest
     neighbours must not be substituted for the reference pair distance.
+    ``stem_depth`` applies the joint V-J hairpin stem of :func:`stem_penalty` to **both**
+    chains, which is how the measured ``stem4`` arm scores a linked pair: the summed
+    distance carries one stem term per chain, not one for the pair. The alpha and beta
+    stems are independent hairpins, so summing them is the same composition the rest of
+    the paired distance already uses.
     """
     parts=list(map(list,(query_alpha,query_beta,reference_alpha,reference_beta,
                         query_v_alpha,query_v_beta,reference_v_alpha,reference_v_beta)))
@@ -574,6 +649,8 @@ def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_b
     qvb,rvb=(resolve_v_alleles(v,model,locus='TRB').to_list() for v in [qvb,rvb])
     if any(v is None for v in qva+rva+qvb+rvb):
         raise ValueError('linked pair V calls must resolve uniquely to their declared alpha/beta locus')
-    out=distance_matrix(qa,ra,qva,rva,species=species,threads=threads,ctrim=ctrim,v_loop_weight=v_loop_weight,alphabet=alphabet)
-    out+=distance_matrix(qb,rb,qvb,rvb,species=species,threads=threads,ctrim=ctrim,v_loop_weight=v_loop_weight,alphabet=alphabet)
+    shared=dict(species=species,threads=threads,ctrim=ctrim,v_loop_weight=v_loop_weight,
+                alphabet=alphabet,stem_depth=stem_depth,stem_weight=stem_weight)
+    out=distance_matrix(qa,ra,qva,rva,**shared)
+    out+=distance_matrix(qb,rb,qvb,rvb,**shared)
     return out

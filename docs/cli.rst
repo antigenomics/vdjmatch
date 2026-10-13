@@ -619,6 +619,40 @@ to the original ``pair_id``. Real/generated paired backgrounds remain rejected;
 independent chain products are not a joint null.
 
 
+``--stem-depth`` adds the joint V--J hairpin stem term to the junction distance.
+The CDR3 loop folds as a hairpin, so junction position ``i`` sits opposite position
+``L-1-i``; a stem level is that pair, and a level counts as conserved only when
+**both** of its residues are conserved, so the two residue costs combine as a
+maximum rather than a sum. The term is evaluated on untrimmed junctions, which is
+why it adds information the trimmed alignment cannot see, and it uses the same
+clipped substitution table as the junction alignment and the V loops, so it
+introduces no new matrix and no fitted parameter.
+
+The default ``--stem-depth 0`` reproduces the TCRdist3 distance exactly.
+``--stem-depth 4`` is the configuration selected by the four-task benchmark
+objective; ``--stem-weight`` defaults to ``1.0``, which spans the same range as one
+aligned residue. Depth is a declared residue count, not a per-clonotype boundary.
+
+For ``--locus paired`` the stem is applied to **both** chains and the two terms
+are summed, which is how the selected configuration scores a linked pair: the
+summed distance carries one stem per chain, not one for the pair. Alpha and beta
+are independent hairpins, so this is the same composition the rest of the paired
+distance already uses.
+
+======================  =========  ===============================================
+Parameter               Default    Meaning
+======================  =========  ===============================================
+``--stem-depth``        ``0``      stem levels; 0 reproduces TCRdist3, 4 is selected
+``--stem-weight``       ``1.0``    weight in shared substitution-matrix cost units
+======================  =========  ===============================================
+
+Both are rejected at the command line if negative.
+
+The stem applies on the dense distance route only. The native ball counter reduces
+inside ``seqtree`` and never materialises a query/reference pair, so it cannot carry
+a per-pair term; combining ``--stem-depth`` with ``--background`` raises an error
+rather than silently returning counts computed without the stem.
+
 ``--junction-ends trim3`` is an experimental comparison that removes three
 residues at both junction ends. The default ``--junction-ends tcrdist``
 preserves the TCRdist3 three-N/two-C trim. Both keep full-junction exact

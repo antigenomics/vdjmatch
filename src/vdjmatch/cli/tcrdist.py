@@ -22,6 +22,16 @@ def register(subparsers):
                    help='TCRdist3 trims 3 N/2 C residues; trim3 tests 3 residues at both ends')
     p.add_argument('--v-loop-weight',type=int,choices=[0,1],default=1,
                    help='fixed experimental CDR3-only(0) versus CDR3+V(1); identical V eligibility')
+    p.add_argument('--stem-depth',type=int,default=0,
+                   help='joint V-J hairpin stem levels added to the junction distance. '
+                        'The CDR3 loop pairs position i with position L-1-i; a level counts '
+                        'as matched only when both residues match. 0 (default) reproduces '
+                        'TCRdist3 exactly; 4 is the benchmark-selected depth. '
+                        'Dense distance route only -- see --help notes on native counts.')
+    p.add_argument('--stem-weight',type=float,default=1.0,
+                   help='weight of the joint stem term, in shared substitution-matrix cost '
+                        'units; 1.0 is the measured arm and spans the same range as one '
+                        'aligned residue')
     p.add_argument('--background',choices=['real','generative','vdjdb-other'],
                    help='experimental assayed-target ball enrichment; no P-value')
     p.add_argument('--control',help='raw junction/V control table for real or generative background')
@@ -127,6 +137,20 @@ def main(a):
     from ..match.tcrdist import distance_matrix,paired_distance_matrix,load_v_loops,resolve_v_alleles,distance_units,distance_cutoff,_substitution_costs
     from ..evalue.control import _organism
     start=time.perf_counter()
+    # The stem is a per-pair additive term evaluated on the dense distance route. The
+    # native ball counter reduces inside seqtree and never materialises a pair, so it
+    # cannot carry the term today. Refuse the combination rather than return counts that
+    # silently ignore --stem-depth: a geometry that is dropped without error is
+    # indistinguishable from one that was applied.
+    if a.stem_depth < 0:
+        raise SystemExit('--stem-depth must be a nonnegative number of residues')
+    if a.stem_weight < 0:
+        raise SystemExit('--stem-weight must be nonnegative')
+    if a.stem_depth and a.background:
+        raise SystemExit('--stem-depth cannot be combined with --background: the native '
+                         'ball counter reduces inside seqtree and cannot apply a per-pair '
+                         'stem term, so the counts would silently ignore the stem. Score '
+                         'without --background to use the dense distance route.')
     a.alphabet=getattr(a,'alphabet','full')
     matrix_scale,bin_width=distance_units(_substitution_costs(a.alphabet))
     if a.alphabet!='full' and (a.epitope_rules or a.conditional_j or getattr(a,'chemistry',False)):
@@ -516,10 +540,10 @@ def main(a):
                 qa,qb=part['cdr3a'].to_list(),part['cdr3b'].to_list()
                 ra,rb=reference_part['alpha'].to_list(),reference_part['beta'].to_list()
                 distances=paired_distance_matrix(qa,qb,ra,rb,part['_allelea'].to_list(),part['_alleleb'].to_list(),
-                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet)
+                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight)
             else:
                 seqs=part['cdr3'].to_list()
-                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet)
+                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight)
             keep=distances<=radius
             nonexact=True
             if a.exclude_exact:
@@ -699,6 +723,12 @@ def main(a):
             'requested_radius':requested_radius,
             'radius_mode':'absolute' if absolute_radius else 'matrix_factor','bin_width':bin_width,
             'gap_cost':3*matrix_scale,'cdr3_weight':3,'v_loop_weight':a.v_loop_weight,
+            'stem_depth':a.stem_depth,'stem_weight':a.stem_weight,
+            **({'stem':'joint V-J hairpin; level i pairs junction positions i and L-1-i on '
+                       'untrimmed junctions; a level costs max(end,start) so it breaks when '
+                       'either residue differs; mean over levels times stem_weight, in shared '
+                       'clipped-BLOSUM62 cost units; one term per chain on paired distances'}
+               if a.stem_depth else {}),
             'native_units_per_distance_unit':200,'native_radius':native_radius,
             'definition':'maximum effective clipped BLOSUM62 substitution cost; shared CDR3/V-loop matrix' if a.alphabet=='full' else
                 'zero within IMGT11 class; minimum clipped BLOSUM62 cost across classes; shared CDR3/V-loop matrix; raw unknown symbols remain singletons',
@@ -712,8 +742,10 @@ def main(a):
         'selection':('exhaustive nearest nonexcluded reference; n_neighbours counts only within radius'
                      if a.unbounded_nearest else 'radius ball'),
         'distance':(('TCRdist3 default' if ctrim==2 else 'experimental symmetric-trim')+
-                    ' 3*CDR3+CDR1+CDR2+CDR2.5; ' if a.v_loop_weight else
-                    'experimental CDR3-only:3*CDR3; ')+organism+' combo_xcr_2024-03-05',
+                    ' 3*CDR3+CDR1+CDR2+CDR2.5' if a.v_loop_weight else
+                    'experimental CDR3-only:3*CDR3')+
+                   (f'+joint stem depth {a.stem_depth}' if a.stem_depth else '')+'; '+
+                   organism+' combo_xcr_2024-03-05',
         'junction_end_trim':{'n_terminal':3,'c_terminal':ctrim},
         **({'epitope_rules':{'germline':'joint V-gene predictive probabilities; one shared pooled pseudo-observation; no J/length marginal or added V-loop distance',
             'source_sha256':sha256(Path(reference_epitope_rules.__code__.co_filename)),
