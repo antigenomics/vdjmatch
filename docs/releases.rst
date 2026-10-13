@@ -54,7 +54,7 @@ diagnostics and a run manifest. Calls preserve input rows; exact ranking ties
 abstain. Default search threads are one. Samples run sequentially and native
 search uses complete query batches per locus. VDJAM is the CLI/API default scoring matrix.
 
-Requires ``seqtree>=1.1.1``, ``vdjtools>=5.0.0``, ``polars>=1.41.2,<2`` and
+Requires ``seqtree>=1.1.1``, ``vdjtools>=5.0.1``, ``polars>=1.41.2,<2`` and
 ``scipy>=1.9`` for exact finite-control bounds and binomial tails.
 HF benchmark snapshots are explicit, separate from GitHub release resolution.
 Hard V/J calibration requires metadata-aware controls and fails explicitly.

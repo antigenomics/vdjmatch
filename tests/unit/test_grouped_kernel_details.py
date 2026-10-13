@@ -30,12 +30,26 @@ def test_detailed_old_new_all_fields_and_native_batch_budget(tmp_path,monkeypatc
     from vdjmatch.cli import tcrdist as cli
     from vdjmatch.match import tcrdist as td
     from vdjmatch.cli.__main__ import main
+    from vdjmatch.evalue import kernel
     sample,reference=inputs(tmp_path,paired)
     args=['annotate','--details',str(sample),'--vdjdb',str(reference),'--locus','paired' if paired else 'TRB']
     if assayed:args+=['--targets-from-sample']
     if exclude:args+=['--exclude-exact']
     eligibility=cli._grouped_detailed_eligible
     native=td.grouped_total_distance_count_batch;calls=[]
+    scorer=kernel._kernel_scores;math_rows=[];batches=[];enrich=kernel.grouped_kernel_enrichment
+    def math(*args,**kwargs):
+        math_rows.append(args[0].shape[0])
+        return scorer(*args,**kwargs)
+    def detailed(queries,references,groups,**kwargs):
+        start=len(math_rows)
+        result=enrich(queries,references,groups,**kwargs)
+        expected=(sum(part.select(kwargs['query_keys']).unique().height for _,part,_ in groups)
+            if kwargs['assayed'] else queries.select(kwargs['query_keys']).unique().height*len(groups))
+        batches.append((sum(math_rows[start:]),expected))
+        return result
+    monkeypatch.setattr(kernel,'_kernel_scores',math)
+    monkeypatch.setattr(kernel,'grouped_kernel_enrichment',detailed)
     def counted(*args,**kwargs):
         calls.append(kwargs['threads'])
         return native(*args,**kwargs)
@@ -44,10 +58,11 @@ def test_detailed_old_new_all_fields_and_native_batch_budget(tmp_path,monkeypatc
         old,new=tmp_path/('old'+str(threads)),tmp_path/('new'+str(threads))
         monkeypatch.setattr(cli,'_grouped_detailed_eligible',lambda *a:False)
         assert main(args+['--threads',str(threads),'--output-prefix',str(old)])==0
-        calls.clear()
+        calls.clear();batches.clear()
         monkeypatch.setattr(cli,'_grouped_detailed_eligible',eligibility)
         assert main(args+['--threads',str(threads),'--output-prefix',str(new)])==0
         assert calls==[threads]*(3 if paired else 1)
+        assert batches and all(actual==expected for actual,expected in batches)
         old_files=sorted(tmp_path.glob(old.name+'*.tsv'))
         assert old_files
         for path in old_files:
@@ -58,3 +73,32 @@ def test_detailed_old_new_all_fields_and_native_batch_budget(tmp_path,monkeypatc
             if threads==4:
                 serial=other.with_name(other.name.replace('new4','new1',1))
                 assert_frame_equal(actual,pl.read_csv(serial,separator='\t',infer_schema_length=0),check_exact=True)
+
+
+def test_sparse_union_keeps_different_source_targets_and_skips_unrequested_chunk(monkeypatch):
+    from vdjmatch.evalue import kernel
+    from types import SimpleNamespace
+    import numpy as np
+    from vdjmatch.match import tcrdist as td
+    meta={'mhc_a':'A','mhc_b':'B2M','mhc_class':'MHCI'}
+    q=pl.DataFrame({'query_id':range(72),'cdr3':['CASSLGQAYEQYF']*3+[str(i) for i in range(69)],
+        '_allele':['TRBV19*01']*72})
+    r=pl.DataFrame({'cdr3':['CASSLGQAYEQYF']*2,'_allele':['TRBV19*01']*2,'epitope':['A','B']})
+    groups=[({'epitope':'A',**meta},q.head(2),r.head(1)),
+        ({'epitope':'B',**meta},q.slice(2,1),r.tail(1))]
+    def counts(*args,**kwargs):
+        for start,stop in ((0,64),(64,70)):
+            n=stop-start
+            yield SimpleNamespace(start=start,stop=stop,counts=np.ones((n,7,2),dtype=np.uint32),
+                sizes=np.ones((n,7),dtype=np.uint32),exact_counts=np.ones((n,2),dtype=np.uint32))
+    monkeypatch.setattr(td,'grouped_total_distance_count_batch',counts)
+    native=kernel._kernel_scores;seen=[]
+    def score(*args,**kwargs):
+        seen.append(args[0].shape)
+        return native(*args,**kwargs)
+    monkeypatch.setattr(kernel,'_kernel_scores',score)
+    out=kernel.grouped_kernel_enrichment(q,r,groups,query_keys=['cdr3','_allele'],
+        search_keys=['cdr3','_allele'],paired=False,cutoffs=[0,10],radius=0,kernel_scale=90,
+        scorer='v-bounded',assayed=True)
+    assert seen==[(2,2)]
+    assert out.select('query_id','epitope').rows()==[(0,'A'),(1,'A'),(2,'B')]

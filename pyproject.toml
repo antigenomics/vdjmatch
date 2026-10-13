@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "seqtree>=1.1.1",
-    "vdjtools>=5.0.0",    # format ingestion and native Pgen (lazy imports avoid overlap cycle)
+    "vdjtools>=5.0.1",    # format ingestion, allocated CPU-budget validation and native Pgen
     "polars>=1.41.2,<2",
     "scipy>=1.9",       # exact finite-control bounds and binomial tails for paired punctures
 ]

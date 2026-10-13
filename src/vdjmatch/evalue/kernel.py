@@ -191,28 +191,48 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     if assayed:
         allowed=pl.concat([part.select('query_id').with_columns(pl.lit(i).alias('_target'))
                           for i,(_,part,_) in enumerate(groups)])
+    sparse=_detailed and assayed
+    requested=(mapping.select('query_id','_row').join(allowed,on='query_id',how='inner')
+        .select('_row','_target').unique().sort('_row','_target') if sparse else None)
     states=[];hit_ids=set();T=len(groups)
     for chunk in iterator:
         C=chunk.stop-chunk.start
         curves=np.asarray(chunk.counts);sizes=np.asarray(chunk.sizes)
         # Convert directly to contiguous numerical rows; advanced-cut indexing
         # otherwise transposes and recopies every query x target x cutoff array.
-        shells=np.empty((C,T,len(cutoffs)),dtype=np.float64)
-        same_shells=np.empty_like(shells)
-        for source,out in ((curves[:,1:1+T,:][:,:,ladder_slice],shells),
-                           (curves[:,1+T:1+2*T,:][:,:,ladder_slice],same_shells)):
-            out[:,:,0]=source[:,:,0]
-            # Monotone uint32 curves have exact nonnegative uint32 increments.
-            out[:,:,1:]=np.subtract(source[:,:,1:],source[:,:,:-1],dtype=np.uint32)
-        shells=shells.reshape(C*T,-1);same_shells=same_shells.reshape(C*T,-1)
-        control=np.empty((C,T,len(native_cuts)),dtype=np.float64)
-        np.subtract(curves[:,0,None,:],np.take(curves,1+2*T+target_peptides,axis=1),out=control,dtype=np.float64)
-        control=np.asarray(control[:,:,ladder_slice],order='C').reshape(C*T,-1)
-        N=sizes[:,1:1+T];M=sizes[:,0,None]-sizes[:,1+2*T+target_peptides]
+        if sparse:
+            pairs=requested.filter(pl.col('_row').is_between(chunk.start,chunk.stop-1))
+            if not pairs.height:
+                continue
+            row=pairs['_row'].to_numpy();target=pairs['_target'].to_numpy();qrow=row-chunk.start
+            reference=curves[qrow,1+target,:][:,ladder_slice]
+            same=curves[qrow,1+T+target,:][:,ladder_slice]
+            shells=np.empty(reference.shape,dtype=np.float64);same_shells=np.empty_like(shells)
+            for source,out in ((reference,shells),(same,same_shells)):
+                out[:,0]=source[:,0]
+                out[:,1:]=np.subtract(source[:,1:],source[:,:-1],dtype=np.uint32)
+            control=np.subtract(curves[qrow,0,:][:,ladder_slice],
+                curves[qrow,1+2*T+target_peptides[target],:][:,ladder_slice],dtype=np.float64)
+            control=np.asarray(control,order='C')
+            N=sizes[qrow,1+target];M=sizes[qrow,0]-sizes[qrow,1+2*T+target_peptides[target]]
+        else:
+            shells=np.empty((C,T,len(cutoffs)),dtype=np.float64)
+            same_shells=np.empty_like(shells)
+            for source,out in ((curves[:,1:1+T,:][:,:,ladder_slice],shells),
+                               (curves[:,1+T:1+2*T,:][:,:,ladder_slice],same_shells)):
+                out[:,:,0]=source[:,:,0]
+                # Monotone uint32 curves have exact nonnegative uint32 increments.
+                out[:,:,1:]=np.subtract(source[:,:,1:],source[:,:,:-1],dtype=np.uint32)
+            shells=shells.reshape(C*T,-1);same_shells=same_shells.reshape(C*T,-1)
+            control=np.empty((C,T,len(native_cuts)),dtype=np.float64)
+            np.subtract(curves[:,0,None,:],np.take(curves,1+2*T+target_peptides,axis=1),out=control,dtype=np.float64)
+            control=np.asarray(control[:,:,ladder_slice],order='C').reshape(C*T,-1)
+            N=sizes[:,1:1+T];M=sizes[:,0,None]-sizes[:,1+2*T+target_peptides]
+            row=np.repeat(np.arange(chunk.start,chunk.stop),T);target=np.tile(np.arange(T),C)
         score_N=N.reshape(-1)
         if normalise:
-            rows=unique.slice(chunk.start,C).select('_row',*gene_names).join(
-                targets.select('_target'),how='cross').join(same_v_totals,
+            rows=(pairs.join(unique.select('_row',*gene_names),on='_row',how='left') if sparse else
+                unique.slice(chunk.start,C).select('_row',*gene_names).join(targets.select('_target'),how='cross')).join(same_v_totals,
                 on=['_target',*gene_names],how='left',validate='m:1').sort('_row','_target')
             same_total=rows['len'].fill_null(0).to_numpy()
             weight=scorer.split('-')[0]
@@ -226,14 +246,15 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
             control,score_N,(np.maximum(M.reshape(-1),1) if normalise else M.reshape(-1)),np.asarray(cutoffs,dtype=np.float64),
             kernel_scale,.25,.01,scorer,_detailed,_reuse_buffers=not _detailed)
         exact=np.zeros((C,T),dtype=np.uint32) if geometry.get('exclude_exact',False) else np.asarray(chunk.exact_counts)
-        values=pl.DataFrame({'_row':np.repeat(np.arange(chunk.start,chunk.stop),T),
-            '_target':np.tile(np.arange(T),C),'kernel_score':scores['kernel_score'],
-            'exact_reference_count':exact.reshape(-1),
-            '_radius_hit':(curves[:,1:1+T,radius_index]>0).reshape(-1)})
+        values=pl.DataFrame({'_row':row,'_target':target,'kernel_score':scores['kernel_score'],
+            'exact_reference_count':exact[qrow,target] if sparse else exact.reshape(-1),
+            '_radius_hit':(curves[qrow,1+target,radius_index]>0 if sparse else
+                (curves[:,1:1+T,radius_index]>0).reshape(-1))})
         if _detailed:
             # Counts and weights in the established detailed table use the final
             # ladder cutoff; candidate radius diagnostics are a separate output.
-            reference_count=curves[:,1:1+T,ladder_indices[-1]].reshape(-1)
+            reference_count=(curves[qrow,1+target,ladder_indices[-1]] if sparse else
+                curves[:,1:1+T,ladder_indices[-1]].reshape(-1))
             control_count=control[:,-1]
             values=values.with_columns(
                 pl.Series('n_control',control_count,dtype=pl.UInt64),
