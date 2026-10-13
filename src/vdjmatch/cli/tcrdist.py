@@ -191,8 +191,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     j_geometry=geometry_extra in J_GEOMETRY_EXTRAS
     kernel=a.neighbour_weighting=='kernel'
     selection_only=getattr(a,'selection_only',False)
-    if marginal_tables is not None and (a.locus!='paired' or not kernel or not selection_only):
-        raise ValueError('run-local marginal tables require compact paired kernel scoring')
+    if marginal_tables is not None and (a.locus!='paired' or not kernel):
+        raise ValueError('run-local marginal tables require paired kernel scoring')
     if selection_only and (not kernel or a.shortlist_audit or a.unbounded_nearest):
         raise ValueError('selection-only requires kernel scoring without candidate diagnostics')
     if kernel and not a.background:
@@ -923,8 +923,9 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 main(marginal,v_loop_distances=v_loop_distances)
             else:
                 lane=marginal_tables[locus]
-                if set(lane)!={'queries','selection'}:
-                    raise ValueError('compact union marginals require queries and selection tables')
+                required={'queries','selection'} if selection_only else {'queries','selection','enrichment'}
+                if (selection_only and set(lane)!=required) or not required.issubset(lane):
+                    raise ValueError('union marginals require query/selection and detailed evidence tables')
                 for kind,frame in lane.items():
                     frame.write_csv(marginal.output_prefix+'.'+kind+'.tsv',separator='\t')
             mapping=pair_rows.select('query_id',pl.col('query_id'+suffix).alias('_chain_id'))

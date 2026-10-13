@@ -231,10 +231,10 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     prefix.parent.mkdir(parents=True, exist_ok=True)
     tables, manifests, batches = {}, [], []
     paired_rows=cohort.filter(pl.col('_population')=='paired')
-    mixed_union=(locus=='auto' and selection_only and
+    mixed_union=(locus=='auto' and
         options.get('neighbour_weighting',defaults.neighbour_weighting)=='kernel' and
         paired_rows.height>0 and cohort.filter(pl.col('_population')=='single').height>0)
-    marginal_tables={};service_batches=[]
+    marginal_tables={};service_batches=[];detail_columns={}
     from ..evalue.control import _organism
     from ..match.tcrdist import precompute_v_loop_distances
     v_loop_distances=precompute_v_loop_distances(species=_organism(species),
@@ -287,7 +287,10 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
                     pl.col("query_id").cast(pl.String).alias("_service_query_id"),
                     pl.col("source_pair_id").alias("pair_id"))
                     if population == "paired" and kind.startswith(("TRA.", "TRB.")) else mapping)
-                tables.setdefault(kind, []).append(_restore(frame, lane_mapping))
+                restored=_restore(frame,lane_mapping)
+                if mixed_union and not selection_only:
+                    detail_columns.setdefault(population,{})[kind]=restored.columns
+                tables.setdefault(kind, []).append(restored)
             manifest = json.loads(Path(str(local_prefix) + ".manifest.json").read_text())
             manifests.append(manifest)
             if part.height:
@@ -312,6 +315,7 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         "table_threads": pl.thread_pool_size(), "species": species, "locus": locus,
         "selection_only": selection_only, "core_manifests": manifests, "outputs": outputs,
         **({'mixed_chain_union':True,'service_batches':service_batches} if mixed_union else {}),
+        **({'population_table_columns':detail_columns} if detail_columns else {}),
         "wall_seconds": time.perf_counter() - started}
     manifest_path = Path(str(prefix) + ".manifest.json")
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")

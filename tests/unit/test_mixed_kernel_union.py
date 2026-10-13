@@ -85,9 +85,10 @@ def test_union_equals_separate_fresh_services_and_searches_three_populations(tmp
 
 
 @pytest.mark.parametrize('edge',['assayed-missing-target','empty-reference','unlinked-reference','all-invalid','missing-single-TRA'])
-def test_union_edge_dispositions_equal_separate_services(tmp_path,edge):
+@pytest.mark.parametrize('details',[False,True])
+def test_union_edge_dispositions_equal_separate_services(tmp_path,edge,details):
     paths,reference=inputs(tmp_path)
-    options=dict(reference=reference,exclude_exact=True,threads=2)
+    options=dict(reference=reference,exclude_exact=True,threads=2,selection_only=not details)
     if edge=='assayed-missing-target':
         options['targets_from_sample']=True
         for path in paths:
@@ -117,8 +118,8 @@ def test_union_edge_dispositions_equal_separate_services(tmp_path,edge):
     assert out['manifest']['mixed_chain_union']
 
 
-@pytest.mark.parametrize('weighting',['kernel','radius'])
-def test_mixed_detailed_dispatch_remains_separate(tmp_path,monkeypatch,weighting):
+def test_mixed_non_kernel_detailed_dispatch_remains_separate(tmp_path,monkeypatch):
+    weighting='radius'
     import json
     from pathlib import Path
     from vdjmatch.cli import tcrdist
@@ -136,3 +137,35 @@ def test_mixed_detailed_dispatch_remains_separate(tmp_path,monkeypatch,weighting
         selection_only=False,neighbour_weighting=weighting)
     assert calls==[('TRA',73),('TRB',73),('paired',142)]
     assert 'mixed_chain_union' not in out['manifest']
+
+
+@pytest.mark.parametrize('assayed',[False,True])
+@pytest.mark.parametrize('exclude',[False,True])
+@pytest.mark.parametrize('threads',[1,4])
+@pytest.mark.parametrize('withheld',[[],['A']])
+def test_detailed_union_equals_separate_fresh_services_three_native_batches(tmp_path,monkeypatch,assayed,exclude,threads,withheld):
+    paths,reference=inputs(tmp_path)
+    if assayed:
+        frame=pl.read_csv(paths[1],separator='\t')
+        frame.with_columns(pl.lit('B').alias('epitope')).write_csv(paths[1],separator='\t')
+    options=dict(reference=reference,selection_only=False,targets_from_sample=assayed,
+                 exclude_exact=exclude,threads=threads,withhold_epitope=withheld)
+    pieces={}
+    for path in paths:
+        result=annotate_repertoires(path,output_prefix=tmp_path/('separate-'+path.stem),**options)
+        for kind in result['output_paths']:pieces.setdefault(kind,[]).append(result[kind])
+    from vdjmatch.match import tcrdist
+    original=tcrdist.grouped_total_distance_count_batch;calls=[]
+    def count(q,r,cutoffs,**kwargs):
+        calls.append((kwargs['paired'],kwargs['threads'],q.height))
+        return original(q,r,cutoffs,**kwargs)
+    monkeypatch.setattr(tcrdist,'grouped_total_distance_count_batch',count)
+    result=annotate_repertoires(paths,output_prefix=tmp_path/'union',**options)
+    assert [pair for pair,_,_ in calls]==[False,False,True]
+    assert all(n==threads for _,n,_ in calls)
+    assert result['manifest']['mixed_chain_union']
+    assert set(result['output_paths'])==set(pieces)
+    for kind,frames in pieces.items():
+        assert result[kind].columns==pl.concat(frames,how='diagonal_relaxed').columns
+        assert_frame_equal(comparable(result[kind]),
+            comparable(pl.concat(frames,how='diagonal_relaxed')),check_exact=True,check_row_order=True)
