@@ -13,6 +13,7 @@ def register(subparsers):
     parser.add_argument('--target-fpr', type=float, required=True)
     parser.add_argument('--lower-is-better', action='store_true')
     parser.add_argument('--score-column',default='score',help='numeric selected-score column; frozen in the recipe')
+    parser.add_argument('--input-manifest', help='optional score producer manifest; freeze its pipeline binding')
     parser.add_argument('--output-prefix', required=True)
     parser.set_defaults(func=main)
     apply = subparsers.add_parser('apply-call-calibration', help='reject independent query calls using a frozen empirical cutoff')
@@ -337,16 +338,29 @@ def main(args):
 
     frame=_read_table(args.cases)
     score_column=getattr(args,'score_column','score')
+    input_manifest_path=Path(args.input_manifest) if getattr(args,'input_manifest',None) else None
+    binding=None
+    if input_manifest_path is not None:
+        if score_column not in ('score','kernel_score') or args.lower_is_better:
+            raise ValueError('pipeline binding requires the final higher-is-better kernel score')
+        binding=pipeline_binding(json.loads(input_manifest_path.read_text()))
     if score_column not in frame.columns:
         raise ValueError('missing score column: '+score_column)
     result, curve = operating_points(frame.with_columns(frame[score_column].alias('score')), args.target_fpr,
                                     higher_is_better=not args.lower_is_better)
     result['score_column']=score_column
     result['input_sha256'] = sha256(Path(args.cases))
+    if binding is not None:
+        result['pipeline_binding']=binding
+        result['input_manifest_sha256']=sha256(input_manifest_path)
     result['limitations'] = ('Empirical rates on supplied query populations; not independent validation '
                             'or biological specificity probability. Bind source/scorer/reference identities '
                             'before recommending or applying this cutoff to another run.')
     prefix = Path(args.output_prefix)
+    if input_manifest_path is not None:
+        outputs={Path(str(prefix)+suffix).resolve() for suffix in ('.operating_points.tsv','.calibration.json')}
+        if outputs & {Path(args.cases).resolve(),input_manifest_path.resolve()}:
+            raise ValueError('output must not overwrite binding inputs')
     prefix.parent.mkdir(parents=True, exist_ok=True)
     curve.write_csv(str(prefix) + '.operating_points.tsv', separator='\t')
     Path(str(prefix) + '.calibration.json').write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')

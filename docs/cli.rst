@@ -928,6 +928,14 @@ Reduce final query-level decisions into tie-aware empirical operating points:
 
    vdjmatch calibrate-calls cases.tsv --target-fpr 0.01 --output-prefix calibration
 
+Add ``--input-manifest producer.manifest.json`` to freeze the complete supported
+single-chain kernel pipeline identity in the recipe. Apply that recipe with
+``apply-call-calibration --input-manifest query-producer.manifest.json``; the
+producer formats may differ, but their canonical scoring identities must match.
+This keeps exact-retained ordinary calibration separate from exact-excluded
+benchmark calibration. Paired and mixed-population bindings require a separate
+declared decision and null contract.
+
 The flat input has one unique ``query_id`` per query, a numeric ``score``, an
 ``outcome`` (``correct``, ``incorrect`` or ``null``), and ``null_source`` for
 null queries. Correct/incorrect describe the winning label on labelled VDJdb

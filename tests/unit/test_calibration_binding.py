@@ -145,8 +145,45 @@ def test_actual_cli_producers_have_matching_excluded_and_retained_bindings(tmp_p
             assert result.returncode==0,result.stderr
             manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
             produced.append(calibration.pipeline_binding(manifest))
+        cases=tmp_path/('calibration-'+exact+'.tsv')
+        pl.DataFrame(dict(query_id=['positive','null','nohit'],score=[2.,.5,None],
+            outcome=['correct','null','null'],null_source=[None,'synthetic','synthetic'])).write_csv(cases,separator='\t')
+        frozen=tmp_path/('frozen-'+exact)
+        producer=tmp_path/('reference-calls-'+exact+'.manifest.json')
+        result=subprocess.run([sys.executable,'-m','vdjmatch.cli','calibrate-calls',str(cases),
+            '--target-fpr','.01','--input-manifest',str(producer),'--output-prefix',str(frozen)],
+            capture_output=True,text=True,env=environment,timeout=30)
+        assert result.returncode==0,result.stderr
+        recipe=json.loads(Path(str(frozen)+'.calibration.json').read_text())
+        assert recipe['pipeline_binding']==produced[0]
+        assert recipe['input_manifest_sha256']==hashlib.sha256(producer.read_bytes()).hexdigest()
+        applied=tmp_path/('applied-'+exact+'.tsv')
+        result=subprocess.run([sys.executable,'-m','vdjmatch.cli','apply-call-calibration',str(cases),
+            '--calibration',str(frozen)+'.calibration.json',
+            '--input-manifest',str(tmp_path/('annotate-'+exact+'.manifest.json')),'--output',str(applied)],
+            capture_output=True,text=True,env=environment,timeout=30)
+        assert result.returncode==0,result.stderr
+        assert pl.read_csv(applied,separator='\t')['call_status'].to_list()==['accepted','no_supported_match','no_supported_match']
         assert produced[0]==produced[1]
         bindings[exact]=produced[0]
     assert bindings['exclude']!=bindings['retain']
     assert bindings['exclude']['geometry']['exclude_exact'] is True
     assert bindings['retain']['geometry']['exclude_exact'] is False
+
+
+@pytest.mark.parametrize('failure',['component','reverse','missing_identity'])
+def test_bound_calibration_freeze_fails_before_outputs(tmp_path,failure):
+    reference,_,_=manifests()
+    if failure=='missing_identity':reference.pop('source_sha256')
+    producer=tmp_path/'producer.json';producer.write_text(json.dumps(reference))
+    cases=tmp_path/'cases.tsv'
+    pl.DataFrame(dict(query_id=['label','null'],score=[2.,.5],E=[.1,.2],
+        outcome=['correct','null'],null_source=[None,'synthetic'])).write_csv(cases,separator='\t')
+    parser=argparse.ArgumentParser();calibration.register(parser.add_subparsers())
+    prefix=tmp_path/'new'/'calibration'
+    options=['--score-column','E'] if failure=='component' else ['--lower-is-better'] if failure=='reverse' else []
+    args=parser.parse_args(['calibrate-calls',str(cases),'--target-fpr','.01',
+        '--input-manifest',str(producer),'--output-prefix',str(prefix),*options])
+    with pytest.raises(ValueError,match='binding'):
+        calibration.main(args)
+    assert not prefix.parent.exists()
