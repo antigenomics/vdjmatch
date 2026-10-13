@@ -108,13 +108,13 @@ def test_repeated_source_observations_do_not_expand_all_labels_before_reduction(
     raw=pl.concat([raw]*1000).with_row_index('_source').with_columns(
         pl.col('_source').cast(pl.String).alias('sequence_id')).drop('_source')
     raw.write_csv(sample,separator='\t')
-    original=kernel.select_kernel
+    original=kernel._compact_kernel_selection
     seen=[]
-    def bounded(queries,scores):
-        seen.append(scores.height)
-        assert scores.height<=64*4  # four pMHC targets, bounded unique search keys
-        return original(queries,scores)
-    monkeypatch.setattr(kernel,'select_kernel',bounded)
+    def bounded(scores,exact,*layout):
+        seen.append(scores.size)
+        assert scores.shape[0]<=64 and scores.shape[1]<=4
+        return original(scores,exact,*layout)
+    monkeypatch.setattr(kernel,'_compact_kernel_selection',bounded)
     assert run(['annotate',str(sample),'--vdjdb',str(reference),'--locus','TRB',
         '--selection-only','--output-prefix',str(tmp_path/'out')])==0
     assert seen and max(seen)<=4
