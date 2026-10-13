@@ -2,6 +2,7 @@
 
 Subcommands:
   update     fetch/cache the latest VDJdb release
+  annotate   targeted stem4 kernel evidence with retained alternatives
   match      annotate query sample(s) against VDJdb (E-values + ranked hits + epitope summary)
   first-hit  global first-hit control calibration
   search     native sequence batch search with positional row identities
@@ -59,6 +60,19 @@ def _cmd_update(a: argparse.Namespace) -> int:
     db = __getattr__("db")
     path = db.fetch_latest(asset=a.asset, pin=a.pin, force=a.force, cache=a.cache)
     print(f"VDJdb {a.asset} cached at {path}")
+    return 0
+
+
+def _cmd_annotate(a: argparse.Namespace) -> int:
+    from ..runner.annotation import annotate_repertoires
+
+    options = vars(a).copy()
+    for name in ("cmd", "func", "sample", "metadata", "vdjdb", "output_prefix",
+                 "locus", "species", "threads"):
+        options.pop(name, None)
+    annotate_repertoires(a.sample, metadata=a.metadata, reference=a.vdjdb,
+        output_prefix=a.output_prefix, locus=a.locus, species=a.species,
+        threads=a.threads, **options)
     return 0
 
 
@@ -757,6 +771,25 @@ def main(argv: list[str] | None = None) -> int:
     register_combination(sub)
     from .tcrdist import register as register_tcrdist
     register_tcrdist(sub)
+    annotation = register_tcrdist(sub,name="annotate")
+    for action in annotation._actions:
+        if action.dest == "sample":
+            action.nargs = "?"
+            action.help = "junction table or directory of tables"
+        elif action.dest in {"vdjdb", "locus", "output_prefix"}:
+            action.required = False
+            action.default = {"vdjdb": None, "locus": "auto", "output_prefix": "annotation"}[action.dest]
+            if action.dest == "locus":
+                action.choices = ["auto", "TRA", "TRB", "paired"]
+            elif action.dest == "output_prefix":
+                action.option_strings.append("-o")
+                annotation._option_string_actions["-o"] = action
+    annotation.add_argument("--metadata", help="TSV with path and optional sample_id; paths relative to this TSV")
+    annotation.add_argument("--details", dest="selection_only", action="store_false",
+                            help="also export per-target evidence and candidates; memory grows with queries × targets")
+    annotation.set_defaults(func=_cmd_annotate, selection_only=True)
+    from .scoring_audit import register as register_scoring_audit
+    register_scoring_audit(sub)
     from .pgen import register as register_pgen
     register_pgen(sub)
     from .calibration import register as register_calibration
@@ -774,7 +807,7 @@ def main(argv: list[str] | None = None) -> int:
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
-    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support"}:
+    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support"}:
         import os
         import json
 

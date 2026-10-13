@@ -6,6 +6,8 @@ def register(subparsers):
     p=subparsers.add_parser('historical-density',help='reproduce the historical PSSM density component')
     p.add_argument('sample')
     p.add_argument('--vdjdb',required=True)
+    p.add_argument('--reference-population',choices=['curated-benchmark','all-valid'],default='curated-benchmark')
+    p.add_argument('--legacy-components',action='store_true',help='owning held-out NED, separate V/J/length odds and global first-hit gate; no empirical fusion')
     p.add_argument('--locus',choices=['TRA','TRB','paired'],required=True)
     p.add_argument('--epitope',action='append')
     p.add_argument('--mhc-a')
@@ -102,6 +104,7 @@ def _paired_scores(a, reference, beta_control, prior_background):
     from ..io.airr import _read_table
     from ..evalue.control import raw_background, _organism
     from ..match.historical import density, germline_prior, paired_score, unpaired_score, shared_control_histograms
+    from ..match.vgene import precompute_v_similarities
     fields,score_columns=_paired_columns(a.cohort_column)
     puncture=getattr(a,'puncture_populations',False)
     all_targets=getattr(a,'all_targets',False)
@@ -158,6 +161,9 @@ def _paired_scores(a, reference, beta_control, prior_background):
         paired=paired.join(ids,on='pair_id',how='left',validate='1:1',maintain_order='left')
     alpha_control,alpha_provenance=raw_background('TRA',a.species,a.alpha_control)
     controls={'alpha':alpha_control,'beta':beta_control}
+    v_similarities={name:precompute_v_similarities(paired['v'+suffix],
+        reference.filter(pl.col('gene')==chain)['v'])
+        for chain,name,suffix in [('TRA','alpha','a'),('TRB','beta','b')]}
     canonical=r'^[ACDEFGHIKLMNPQRSTVWY]+$'
     genes_present={suffix:pl.all_horizontal(pl.col('v'+suffix,'j'+suffix).str.strip_chars().ne('').fill_null(False))
                    for suffix in ['a','b']}
@@ -186,7 +192,8 @@ def _paired_scores(a, reference, beta_control, prior_background):
                 pl.col('v'+suffix).alias('v'),pl.col('j'+suffix).alias('j'))
             if ref.height and queries.height:
                 scores=density(queries,ref,controls[name],threads=a.threads,pool_reference=True,
-                               control_counts=shared_counts.get(name),puncture_populations=puncture)
+                               control_counts=shared_counts.get(name),puncture_populations=puncture,
+                               v_similarities=v_similarities[name])
                 prior=germline_prior(queries.filter(pl.all_horizontal(pl.col('v','j').str.strip_chars().ne('').fill_null(False))),
                                      ref,prior_background,include_length=chain=='TRB',exclude_exact=puncture)
                 scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',how='left',
@@ -289,7 +296,14 @@ def main(a):
     from seqtree import _core
     from ..evalue.control import raw_background, _organism
     from ..match.historical import density,germline_prior,unpaired_score,shared_control_histograms
+    from ..match.vgene import precompute_v_similarities
     start=time.perf_counter()
+    legacy=getattr(a,'legacy_components',False)
+    a.reference_population=getattr(a,'reference_population','curated-benchmark')
+    if legacy and (a.locus=='paired' or not a.germline_background or a.gapped_extension
+            or getattr(a,'puncture_populations',False) or a.likelihood_score or a.cohort_column
+            or a.targets_from_sample or getattr(a,'all_targets',False) or getattr(a,'withhold_epitope',None)):
+        raise ValueError('legacy components require TRA/TRB and germline-background without alternate reducers or withholding')
     a.puncture_populations=getattr(a,'puncture_populations',False)
     a.all_targets=getattr(a,'all_targets',False)
     a.withhold_epitope=getattr(a,'withhold_epitope',None)
@@ -324,7 +338,7 @@ def main(a):
     if a.targets_from_sample:
         if a.epitope or a.mhc_a or a.mhc_b:
             raise ValueError('--targets-from-sample is mutually exclusive with --epitope/--mhc-a/--mhc-b')
-    elif not a.all_targets and (not a.epitope or not a.mhc_a):
+    elif not legacy and not a.all_targets and (not a.epitope or not a.mhc_a):
         raise ValueError('explicit selection requires --epitope and --mhc-a')
     if a.locus!='paired':
         q,ingestion=io.read_rearrangement(a.sample,source='airr',return_report=True)
@@ -343,6 +357,8 @@ def main(a):
     reference_species={'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
     r=db.load(a.vdjdb,species=reference_species,gene=None if a.locus=='paired' else a.locus,epitope=a.epitope,
               mhc_a=a.mhc_a,mhc_b=a.mhc_b,mhc_match=a.mhc_match)
+    if a.reference_population=='all-valid':
+        r=r.with_columns(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('reference_valid'))
     r=r.filter(pl.col('reference_valid'))
     if missing_withheld:=set(a.withhold_epitope or [])-set(r.filter(pl.col('reference_valid'))['epitope']):
         raise ValueError('withheld epitopes absent from valid species reference: '+', '.join(sorted(missing_withheld)))
@@ -352,17 +368,20 @@ def main(a):
     if missing:
         raise ValueError('requested epitopes absent under the selected reference restriction: '+', '.join(missing))
     ctrl,provenance=raw_background('TRB' if a.locus=='paired' else a.locus,a.species,a.control)
+    v_similarities=precompute_v_similarities(q['v'],r['v']) if a.locus!='paired' else None
     shared_counts = None
     def score_density(queries,reference,*,pool_reference=False):
         scores=density(queries,reference,ctrl,threads=a.threads,pool_reference=pool_reference,
-                       control_counts=shared_counts,puncture_populations=a.puncture_populations)
+                       control_counts=shared_counts,puncture_populations=a.puncture_populations,
+                       v_similarities=v_similarities)
         if a.gapped_extension:
             if not pool_reference:
                 raise ValueError('--gapped-extension requires pooled or sample-declared targets')
             from ..match.unified import gapped_extension,historical_pssm_extension
             if a.gap_geometry in ('historical-pssm','matched-pssm'):
                 extension=historical_pssm_extension(queries,reference,ctrl,species=organism,threads=a.threads,
-                    matched_background=a.gap_geometry=='matched-pssm',kernel_scale=a.pssm_kernel_scale)
+                    matched_background=a.gap_geometry=='matched-pssm',kernel_scale=a.pssm_kernel_scale,
+                    v_similarities=v_similarities)
             else:
                 extension=gapped_extension(queries,reference,ctrl,species=organism,threads=a.threads,
                                             radius=a.gap_radius,temperature=a.gap_temperature)
@@ -377,8 +396,48 @@ def main(a):
     prior_background=None
     if a.germline_background:
         prior_background=io.read_rearrangement(a.germline_background,source='legacy')
-        if not (a.pool_reference or a.targets_from_sample or a.all_targets):
+        if not (legacy or a.pool_reference or a.targets_from_sample or a.all_targets):
             raise ValueError('original unpaired scoring requires --pool-reference')
+    if legacy:
+        from ..match.historical import legacy_components
+        from ..io.airr import _read_table
+        out=legacy_components(q,r,ctrl,prior_background,threads=a.threads,v_similarities=v_similarities)
+        raw=_read_table(a.sample)
+        if 'query_id' not in raw.columns:raw=raw.with_row_index('query_id')
+        names=io.columns._resolve(raw)
+        if names.get('locus'):raw=raw.filter(pl.col(names['locus']).str.to_uppercase()==a.locus)
+        elif names.get('v'):raw=raw.filter(pl.col(names['v']).str.slice(0,3).str.to_uppercase()==a.locus)
+        identities=[c for c in ['query_id','sequence_id','clone_id'] if c in raw.columns]
+        targets=r.unique('cdr3',keep='first',maintain_order=True)['epitope'].unique(maintain_order=True).to_list()
+        axes=raw.select(identities).join(pl.DataFrame({'epitope':targets},schema={'epitope':pl.String}),how='cross')
+        out=axes.join(out,on=['query_id','epitope'],how='left',validate='1:1',maintain_order='left').with_columns(
+            pl.when(pl.col('ned_score').is_null()).then(pl.lit('invalid_query'))
+                .when(~pl.col('feature_model_available')).then(pl.lit('no_feature_model'))
+                .otherwise(pl.lit('scored')).alias('status'))
+        prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
+        out.write_csv(str(prefix)+'.scores.tsv',separator='\t')
+        Path(str(prefix)+'.manifest.json').write_text(json.dumps({
+            'sample_sha256':sha256(Path(a.sample)),
+            'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
+                'seqtree_native_sha256':sha256(Path(_core.__file__)),
+                'scorer_source_sha256':sha256(Path(legacy_components.__code__.co_filename)),
+                'cli_source_sha256':sha256(Path(__file__))},
+            'reference':db.provenance(a.vdjdb),'reference_population':a.reference_population,
+            'control':provenance,'ingestion':ingestion,
+            'germline_background':{'sha256':sha256(Path(a.germline_background)),
+                'raw_rows':prior_background.height},
+            'parameters':{k:v for k,v in vars(a).items() if k!='func'},
+            'estimator':'legacy-heldout-components-v1',
+            'representative':'first source-order peptide/V/J per union junction; input query projection and first J supplied by caller',
+            'density':'sum(w*exp(-P/400)/(1+controlCDF)); w=1 same allele-stripped V, .25*directed V similarity otherwise; exact hits excluded; fixed populations',
+            'features':'independent V/J/length Laplace1 log odds; denominator population+observed category count; unseen-in-both query category0; reference eligibility20 junctions',
+            'gate':'global union first positive total-edit radius<=1; Poisson p_enrichment<.001 with existing rule-of-three empty-control convention',
+            'scope':'positional5 substitutions, no indels; unit control5 total edits/2 insertions/2 deletions',
+            'models':{name:sha256(Path(__file__).parents[1]/'resources'/folder/name) for folder,name in
+                [('trimming','position_significance.tsv'),('vgene','human_v_cdr12.tsv')]},
+            'not_included':['empirical negative-tail and four-channel Sidak fusion','ROC/AUC/confusion'],
+            'wall_seconds':time.perf_counter()-start},indent=2)+'\n')
+        return 0
     genes_present=pl.all_horizontal(pl.col('v','j').str.strip_chars().ne('').fill_null(False))
     alpha_provenance=None
     if a.locus=='paired':
@@ -605,7 +664,7 @@ def main(a):
                     'seqtree_native_sha256':sha256(Path(_core.__file__)),
                     'scorer_source_sha256':sha256(Path(density.__code__.co_filename)),
                     'cli_source_sha256':sha256(Path(__file__))},
-        'reference':db.provenance(a.vdjdb),'control':provenance,'ingestion':ingestion,
+        'reference':db.provenance(a.vdjdb),'reference_population':a.reference_population,'control':provenance,'ingestion':ingestion,
         'alpha_control':alpha_provenance,
         'gapped_extension':extension_manifest,
         **({'likelihood':{'score_column':'likelihood_score',

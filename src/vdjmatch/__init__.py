@@ -20,6 +20,9 @@ def __getattr__(name):
     if name in {"Annotator", "annotate"}:
         from .api import Annotator, annotate
         return {"Annotator": Annotator, "annotate": annotate}[name]
+    if name == "annotate_repertoires":
+        from .runner.annotation import annotate_repertoires
+        return annotate_repertoires
     raise AttributeError(name)
 
-__all__ = ["Annotator", "annotate", "__version__"]
+__all__ = ["Annotator", "annotate", "annotate_repertoires", "__version__"]

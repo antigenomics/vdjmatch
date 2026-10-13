@@ -50,6 +50,29 @@ def load_v_regions(chain: str | None = None, path=None) -> dict[str, dict[str, s
 _LOOPS: dict[str, str] = {}
 
 
+def _similarity(f1, f2, loops):
+    if f1 == f2:
+        return 1.0
+    l1, l2 = loops.get(f1), loops.get(f2)
+    if not l1 or not l2:
+        return 0.0
+    return SequenceMatcher(None, l1, l2).ratio()
+
+
+def precompute_v_similarities(query_genes, reference_genes=None, *, loops=None):
+    """Run-local directed legacy CDR1+CDR2 ratios for the used gene families.
+
+    SequenceMatcher can be asymmetric: query/reference order is retained. Unknown
+    same-family calls still receive 1, including the two empty-family calls.
+    An explicit loop model is optional; the default preserves the shipped human
+    model used by the historical scorer. No computed table is globally retained.
+    """
+    queries=sorted({gene_family(v) for v in query_genes})
+    references=queries if reference_genes is None else sorted({gene_family(v) for v in reference_genes})
+    loops=load_v_cdr12() if loops is None else loops
+    return {(q,r):_similarity(q,r,loops) for q in queries for r in references}
+
+
 @lru_cache(maxsize=None)
 def vsim(v1: str | None, v2: str | None) -> float:
     """Germline CDR1+CDR2 similarity in ``[0,1]`` between two V genes (1.0 = same family or identical
@@ -57,12 +80,7 @@ def vsim(v1: str | None, v2: str | None) -> float:
     if not _LOOPS:
         _LOOPS.update(load_v_cdr12())
     f1, f2 = gene_family(v1), gene_family(v2)
-    if f1 == f2:
-        return 1.0
-    l1, l2 = _LOOPS.get(f1), _LOOPS.get(f2)
-    if not l1 or not l2:
-        return 0.0
-    return SequenceMatcher(None, l1, l2).ratio()
+    return _similarity(f1,f2,_LOOPS)
 
 
 def v_clusters(chain: str, cut: float = 0.8) -> dict[str, int]:

@@ -2,20 +2,26 @@
 from pathlib import Path
 
 
-def register(subparsers):
-    p=subparsers.add_parser('tcrdist-neighbours',help='native TCRdist3-compatible distance balls')
+def register(subparsers, name='tcrdist-neighbours'):
+    p=subparsers.add_parser(name,help='targeted stem4 kernel evidence' if name=='annotate' else 'native TCRdist3-compatible distance balls')
     p.add_argument('sample')
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--locus',choices=['TRA','TRB','paired'],required=True)
     p.add_argument('--species',default='HomoSapiens')
+    p.add_argument('--reference-population',choices=['all-valid','curated-benchmark'],
+                   default='all-valid' if name=='annotate' else 'curated-benchmark',
+                   help='ordinary valid observations or the source-curated benchmark population')
     p.add_argument('--epitope',action='append')
     p.add_argument('--mhc-a')
     p.add_argument('--mhc-b')
     p.add_argument('--mhc-match',choices=['exact','compatible'],default='exact')
     p.add_argument('--targets-from-sample',action='store_true',help='score only each row\'s declared assayed pMHC with compatible MHC resolution')
+    p.add_argument('--selection-only',action='store_true',help='kernel selection with bounded table retention; omit detailed candidate and all-label evidence tables')
     p.add_argument('--all-targets',action='store_true',help='emit separate evidence for every full pMHC; query target labels are ignored')
     p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep the full background model fixed')
     p.add_argument('--threads',type=int,default=1)
+    p.add_argument('--distance-matrix',choices=['tcrdist','blosum62'],default='tcrdist',
+                   help='clipped TCRdist costs or unclipped BLOSUM62 Gram penalties')
     p.add_argument('--alphabet',choices=['full','imgt'],default='full',
                    help='experimental ordered IMGT-class geometry; same projected matrix for CDR3/V loops, raw identities retained')
     p.add_argument('--junction-ends',choices=['tcrdist','trim3'],default='tcrdist',
@@ -26,8 +32,7 @@ def register(subparsers):
                    help='joint V-J hairpin stem levels added to the junction distance. '
                         'The CDR3 loop pairs position i with position L-1-i; a level counts '
                         'as matched only when both residues match. 0 (default) reproduces '
-                        'TCRdist3 exactly; 4 is the benchmark-selected depth. '
-                        'Dense distance route only -- see --help notes on native counts.')
+                        'TCRdist3 exactly; 4 is the benchmark-selected depth.')
     p.add_argument('--stem-weight',type=float,default=1.0,
                    help='weight of the joint stem term, in shared substitution-matrix cost '
                         'units; 1.0 is the measured arm and spans the same range as one '
@@ -37,8 +42,11 @@ def register(subparsers):
     p.add_argument('--control',help='raw junction/V control table for real or generative background')
     p.add_argument('--position-weighting',choices=['uniform','significance','ndn'],default='uniform',
                    help='enrichment geometry; ndn uses fixed0.1V/J flanks and1NDN with verified ARDA boundaries')
-    p.add_argument('--neighbour-weighting',choices=['ball','linear','local-rank'],default='ball',
+    p.add_argument('--neighbour-weighting',choices=['ball','linear','local-rank','kernel'],default='ball',
                    help='ball/linear enrichment or experimental background-local rank evidence')
+    p.add_argument('--kernel-scorer', choices=['v-bounded','all-bounded','vonly-bounded',
+                   'v-rare','all-rare','vonly-rare'], default='v-bounded',
+                   help='advanced ladder alternative; v-bounded is the targeted default')
     p.add_argument('--rank-signal-prior',type=float,default=.5,
                    help='prior for the local-rank model only; not biological specificity prevalence')
     radius=p.add_mutually_exclusive_group()
@@ -56,6 +64,10 @@ def register(subparsers):
     p.add_argument('--shortlist-audit',action='store_true',help='audit actual CDR3-only radius retrieval and unchanged V costs; uniform single-chain only')
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
+    if name=='annotate':
+        p.set_defaults(stem_depth=4,distance_matrix='blosum62',junction_ends='trim3',
+                       neighbour_weighting='kernel',background='vdjdb-other')
+    return p
 
 
 def _paired_input(path, raw, model, organism):
@@ -133,26 +145,29 @@ def main(a):
     from ..aggregate.candidates import PMHC
     from ..io.airr import _read_table
     from ..db.cache import sha256
-    from seqtree import _core
+    from seqtree import _core,gapblock
     from ..match.tcrdist import distance_matrix,paired_distance_matrix,load_v_loops,resolve_v_alleles,distance_units,distance_cutoff,_substitution_costs
     from ..evalue.control import _organism
     start=time.perf_counter()
-    # The stem is a per-pair additive term evaluated on the dense distance route. The
-    # native ball counter reduces inside seqtree and never materialises a pair, so it
-    # cannot carry the term today. Refuse the combination rather than return counts that
-    # silently ignore --stem-depth: a geometry that is dropped without error is
-    # indistinguishable from one that was applied.
+    kernel=a.neighbour_weighting=='kernel'
+    selection_only=getattr(a,'selection_only',False)
+    if selection_only and (not kernel or a.shortlist_audit or a.unbounded_nearest):
+        raise ValueError('selection-only requires kernel scoring without candidate diagnostics')
+    if kernel and not a.background:
+        raise ValueError('kernel scoring requires a reference/control background')
+    if kernel and (a.position_weighting!='uniform' or a.nearest_rank or a.reference_radius
+                   or a.epitope_rules or a.conditional_j or a.chemistry):
+        raise ValueError('kernel scoring requires uniform geometry and excludes other diagnostic reducers')
+    if kernel and not (a.targets_from_sample or a.epitope or a.mhc_a or a.mhc_b):
+        a.all_targets=True
     if a.stem_depth < 0:
         raise SystemExit('--stem-depth must be a nonnegative number of residues')
-    if a.stem_weight < 0:
-        raise SystemExit('--stem-weight must be nonnegative')
-    if a.stem_depth and a.background:
-        raise SystemExit('--stem-depth cannot be combined with --background: the native '
-                         'ball counter reduces inside seqtree and cannot apply a per-pair '
-                         'stem term, so the counts would silently ignore the stem. Score '
-                         'without --background to use the dense distance route.')
+    if not np.isfinite(a.stem_weight) or a.stem_weight < 0:
+        raise SystemExit('--stem-weight must be finite and nonnegative')
+    if a.stem_depth and (a.epitope_rules or a.conditional_j or a.chemistry):
+        raise ValueError('stem geometry is separate from J/epitope-rule/chemistry diagnostics')
     a.alphabet=getattr(a,'alphabet','full')
-    matrix_scale,bin_width=distance_units(_substitution_costs(a.alphabet))
+    matrix_scale,bin_width=distance_units(_substitution_costs(a.alphabet,a.distance_matrix))
     if a.alphabet!='full' and (a.epitope_rules or a.conditional_j or getattr(a,'chemistry',False)):
         raise ValueError('class alignment is separate from J/epitope-rule/chemistry diagnostics')
     if a.radius_factor is not None and (not np.isfinite(a.radius_factor) or a.radius_factor<=0):
@@ -196,7 +211,7 @@ def main(a):
     if a.shortlist_audit and (a.locus=='paired' or not a.targets_from_sample or
                              not a.unbounded_nearest or a.position_weighting!='uniform' or a.v_loop_weight!=1):
         raise ValueError('--shortlist-audit requires uniform single-chain target/nearest mode with V weight1')
-    if a.background and not (a.targets_from_sample or a.all_targets):
+    if a.background and not (a.targets_from_sample or a.all_targets or kernel):
         raise ValueError('--background requires --targets-from-sample or --all-targets')
     if a.locus=='paired' and a.background and (a.background!='vdjdb-other' or a.position_weighting not in ('uniform','ndn')):
         raise ValueError('paired background requires vdjdb-other and uniform or ndn positional weights; generative/real joint controls are not defined')
@@ -217,7 +232,9 @@ def main(a):
     organism=_organism(a.species)
     ctrim=2 if a.junction_ends=='tcrdist' else 3
     paired=a.locus=='paired'
-    model=load_v_loops(organism)
+    from ..match.tcrdist import precompute_v_loop_distances
+    v_loop_distances=precompute_v_loop_distances(species=organism,alphabet=a.alphabet,matrix=a.distance_matrix)
+    model=v_loop_distances['model']
     if paired:
         pair_rows,ingestion=_paired_input(a.sample,raw,model,organism)
         q=pair_rows.filter(pl.col('available'))
@@ -227,9 +244,11 @@ def main(a):
         _,q=_prepare(data)
         metadata=raw
     reference_species={'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
-    r=db.load(a.vdjdb,species=reference_species,gene=None if paired else a.locus,epitope=a.epitope,
-              mhc_a=a.mhc_a,mhc_b=a.mhc_b,mhc_match=a.mhc_match)
+    r=db.load(a.vdjdb,species=reference_species,gene=None if paired else a.locus,epitope=None if kernel else a.epitope,
+              mhc_a=None if kernel else a.mhc_a,mhc_b=None if kernel else a.mhc_b,mhc_match=a.mhc_match)
     original=r.height
+    if a.reference_population=='all-valid':
+        r=r.with_columns(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('reference_valid'))
     if missing_withheld:=set(a.withhold_epitope or [])-set(r.filter(pl.col('reference_valid'))['epitope']):
         raise ValueError('withheld epitopes absent from valid species reference: '+', '.join(sorted(missing_withheld)))
     withheld_records=r.filter(pl.col('epitope').is_in(a.withhold_epitope or [])).height
@@ -251,6 +270,9 @@ def main(a):
         q=prepare(q.filter(pl.col('locus')==a.locus))
         r=prepare(r.filter(pl.col('reference_valid'))).unique(subset=['cdr3','_allele',*PMHC,*(['j'] if a.position_weighting=='ndn' or a.conditional_j else [])],maintain_order=True)
         search_keys=['cdr3','_allele']
+    if not paired and 'species' in metadata.columns:
+        aliases=['human','homosapiens','homo sapiens'] if organism=='human' else ['mouse','musmusculus','mus musculus']
+        q=q.join(metadata.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases)).select('query_id'),on='query_id',how='semi')
     if a.targets_from_sample:
         if a.epitope or a.mhc_a or a.mhc_b:
             raise ValueError('--targets-from-sample cannot be combined with explicit target selectors')
@@ -261,6 +283,12 @@ def main(a):
             aliases=['human','homosapiens','homo sapiens'] if organism=='human' else ['mouse','musmusculus','mus musculus']
             q=q.join(metadata.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases)).select('query_id'),on='query_id',how='semi')
         groups=[(dict(zip(PMHC,key)),q,part) for key,part in r.group_by(PMHC,maintain_order=True)]
+    elif kernel:
+        selected=db.load(a.vdjdb,species=reference_species,gene=None if paired else a.locus,
+                         epitope=a.epitope,mhc_a=a.mhc_a,mhc_b=a.mhc_b,mhc_match=a.mhc_match)
+        target_keys=selected.select(PMHC).unique()
+        targets=r.join(target_keys,on=PMHC,how='semi',nulls_equal=True)
+        groups=[(dict(zip(PMHC,key)),q,part) for key,part in targets.group_by(PMHC,maintain_order=True)]
     else:
         groups=[(None,q,r)]
     radius=a.radius
@@ -279,7 +307,7 @@ def main(a):
                 fields.extend([pl.col(suffix if paired else 'cdr3').alias(f'seq{i}'),
                     pl.col('_allele_'+suffix if paired else '_allele').alias(f'v{i}')])
             distances=reference_nearest_distances(reference_keys.select(fields),paired=paired,
-                species=organism,threads=a.threads,ctrim=ctrim,alphabet=a.alphabet)
+                species=organism,threads=a.threads,ctrim=ctrim,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,v_loop_distances=v_loop_distances)
             finite=distances[np.isfinite(distances)]
             nearest_curves.append(finite)
             knee=kneedle_radius(finite)
@@ -306,6 +334,10 @@ def main(a):
                     for task,part,reference_part in groups]
     # Counts share one distance on references and controls; no dense control matrix.
     enrichment_rows=[]
+    selection_state=selection_pending=None
+    selection_peptide=None
+    selection_hit_ids=set()
+    selection_dispositions={}
     background_provenance=None
     background_costs={'control_load':0.0,'native_count_batches':0.0}
     boundary_provenance=None
@@ -316,19 +348,23 @@ def main(a):
         from ..match.tcrdist import total_distance_count_batch,paired_total_distance_mass_batch
         from ..evalue.control import raw_gene_background
         linear=a.neighbour_weighting=='linear'
-        local=a.neighbour_weighting=='local-rank'
+        local=a.neighbour_weighting=='local-rank' or kernel
+        if kernel:
+            from ..evalue.kernel import ladder_cutoffs,kernel_ladder
+            kernel_cutoffs=ladder_cutoffs(matrix_scale,radius_factor=a.radius/matrix_scale)
         query_keys=['cdr3a','cdr3b','_allelea','_alleleb'] if paired else ['cdr3','_allele']
         options=dict(species=organism,threads=a.threads,ctrim=ctrim,
-                     position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet)
+                     position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,v_loop_distances=v_loop_distances)
         def boundaries(sequences,genes):
             return [boundary_map[(s,v)] for s,v in zip(sequences,genes)]
-        def counts(part,population,thresholds=None):
+        def counts(part,population,thresholds=None,*,same_v_gene=False):
+            shared_thresholds=thresholds is None and kernel
             if thresholds is None:
                 bound=int(round(200*radius))
-                cutoffs=list(range(0,bound+1,200*bin_width))
-                if cutoffs[-1]!=bound:cutoffs.append(bound)
-                thresholds=[cutoffs]*part.height if local else [[bound]]*part.height
-            width=len(thresholds[0]) if thresholds else int(np.floor(radius/bin_width))+1
+                cutoffs=[200*t for t in kernel_cutoffs] if kernel else list(range(0,bound+1,200*bin_width))
+                if not kernel and cutoffs[-1]!=bound:cutoffs.append(bound)
+                thresholds=cutoffs if shared_thresholds else ([cutoffs]*part.height if local else [[bound]]*part.height)
+            width=len(thresholds) if shared_thresholds else (len(thresholds[0]) if thresholds else int(np.floor(radius/bin_width))+1)
             if not part.height:
                 return [],[],np.zeros((0,width),dtype=np.uint64) if local else None
             if not population.height:
@@ -340,8 +376,8 @@ def main(a):
                     population['alpha'].to_list(),population['beta'].to_list(),
                     part['_allelea'].to_list(),part['_alleleb'].to_list(),
                     population['_allele_alpha'].to_list(),population['_allele_beta'].to_list(),
-                    thresholds,species=organism,threads=a.threads,
-                    ctrim=ctrim,exclude_exact=a.exclude_exact,position_weighting=a.position_weighting,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,
+                    thresholds,species=organism,threads=a.threads,same_v_gene=same_v_gene,shared_thresholds=shared_thresholds,v_loop_distances=v_loop_distances,
+                    ctrim=ctrim,exclude_exact=a.exclude_exact,position_weighting=a.position_weighting,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,
                     **({
                         'query_boundaries_alpha':boundaries(part['cdr3a'],part['_allelea']),
                         'query_boundaries_beta':boundaries(part['cdr3b'],part['_alleleb']),
@@ -354,7 +390,7 @@ def main(a):
             else:
                 native=total_distance_count_batch(part['cdr3'].to_list(),population['cdr3'].to_list(),
                     part['_allele'].to_list(),population['_allele'].to_list(),
-                    thresholds,**options,**({
+                    thresholds,**options,same_v_gene=same_v_gene,shared_thresholds=shared_thresholds,**({
                         'query_boundaries':boundaries(part['cdr3'],part['_allele']),
                         'reference_boundaries':boundaries(population['cdr3'],population['_allele'])
                     } if a.position_weighting=='ndn' else {}))
@@ -428,9 +464,50 @@ def main(a):
                 'observation_unit':('distinct linked full alpha/beta junctions + resolved V alleles' if paired else
                                     'distinct full junction + resolved V allele')+'; no abundance weights',
                 'restriction':'same species/locus; other epitopes may have other MHC restrictions'}
-        for task,part,reference_part in groups:
+        grouped_kernel=(selection_only and kernel and a.background=='vdjdb-other' and
+            a.position_weighting=='uniform' and not (a.conditional_j or a.epitope_rules or getattr(a,'chemistry',False)))
+        global_curves=None
+        if not grouped_kernel and kernel and a.background=='vdjdb-other' and len(groups)>1:
+            # All-label targets share the same query population. Concatenating
+            # that population once per target creates a query × target temporary.
+            if not a.targets_from_sample:
+                global_queries=q.select(query_keys).unique(maintain_order=True)
+            else:
+                parts=[part.select(query_keys) for _,part,_ in groups if part.height]
+                global_queries=(pl.concat(parts).unique(maintain_order=True) if parts else
+                                q.select(query_keys).head(0))
+            global_queries=global_queries.with_row_index('_global_row')
+            whole=r.unique(search_keys,maintain_order=True)
+            _,_,global_curves=counts(global_queries,whole)
+            global_sizes=np.asarray(populations(global_queries,whole),dtype=np.uint64)
+            spans=r.group_by(search_keys).agg(pl.col('epitope').n_unique().alias('_epitopes'))
+            background_provenance['reduction']='whole search-key counts minus keys exclusive to target peptide; shared-label keys retained'
+        if selection_only:
+            # Preserve the detailed route's final disposition order before
+            # sorting restrictions so one peptide can be completed at a time.
+            for task,part,reference_part in (groups[-1:] if a.all_targets else groups):
+                disposition=('invalid_target' if any(not isinstance(v,str) or not v.strip() for v in task.values())
+                             else 'searched' if reference_part.height else 'no_reference')
+                selection_dispositions.update(dict.fromkeys(part['query_id'],disposition))
+            if a.all_targets and not groups:
+                selection_dispositions=dict.fromkeys(q['query_id'],'no_reference')
+            groups.sort(key=lambda group: group[0]['epitope'] or '')
+        if grouped_kernel:
+            from ..evalue.kernel import grouped_kernel_selection
+            count_start=time.perf_counter()
+            selection_state,selection_hit_ids=grouped_kernel_selection(q,r,groups,
+                query_keys=query_keys,search_keys=search_keys,paired=paired,
+                cutoffs=kernel_cutoffs,radius=a.radius,kernel_scale=22.5*matrix_scale,
+                scorer=a.kernel_scorer,assayed=a.targets_from_sample,
+                **{k:v for k,v in options.items() if k not in ('position_weighting','linear_mass')})
+            background_costs['native_count_batches']+=time.perf_counter()-count_start
+            background_provenance['reduction']='one grouped reference traversal; whole search-key counts minus keys exclusive to target peptide; shared-label keys retained'
+        population_queries=(q.select(query_keys).unique(maintain_order=True)
+                            if kernel and not a.targets_from_sample else None)
+        for task,part,reference_part in ([] if grouped_kernel else groups):
             radius=target_radii[tuple(task[c] for c in PMHC)] if a.reference_radius else a.radius
-            unique=part.select(query_keys).unique(maintain_order=True)
+            unique=(population_queries if population_queries is not None else
+                    part.select(query_keys).unique(maintain_order=True))
             if not unique.height:
                 continue
             reference_keys=reference_part.unique(search_keys,maintain_order=True)
@@ -439,10 +516,21 @@ def main(a):
             if shared is not None:
                 evidence=unique.join(shared,on=query_keys,how='left',validate='1:1',maintain_order='left')
             else:
-                other=r.filter(pl.col('epitope')!=task['epitope']).unique(search_keys,maintain_order=True)
-                m,w,mc=counts(unique,other)
+                if global_curves is not None:
+                    only=(r.filter(pl.lit(False) if task['epitope'] is None else pl.col('epitope')==task['epitope']).join(spans,on=search_keys,how='left')
+                          .filter(pl.col('_epitopes')==1).unique(search_keys,maintain_order=True))
+                    _,_,removed=counts(unique,only)
+                    indices=unique.join(global_queries,on=query_keys,how='left',validate='1:1',
+                                        maintain_order='left')['_global_row'].to_numpy()
+                    mc=global_curves[indices]-removed
+                    M=global_sizes[indices]-np.asarray(populations(unique,only),dtype=np.uint64)
+                    m=mc[:,-1];w=m
+                else:
+                    other=r.filter(pl.col('epitope')!=task['epitope']).unique(search_keys,maintain_order=True)
+                    m,w,mc=counts(unique,other)
+                    M=populations(unique,other)
                 evidence=unique.with_columns(pl.Series('_m',m,dtype=pl.UInt64),pl.Series('control_weight',w,dtype=pl.Float64),
-                                            pl.Series('_M',populations(unique,other),dtype=pl.UInt64))
+                                            pl.Series('_M',M,dtype=pl.UInt64))
                 if local:
                     evidence=evidence.with_columns(pl.Series('_rank_control',mc))
                 del mc
@@ -458,7 +546,24 @@ def main(a):
                 pl.when(available).then(pl.lit('available')).otherwise(pl.lit('empty_population')).alias('enrichment_status'))
             evidence=evidence.with_columns((pl.col('reference_weight')/pl.col('expected_count')).alias('enrichment'),
                 (pl.col('n_control')==0).alias('zero_control_hits'),(pl.col('control_weight')==0).alias('zero_control_weight'))
-            if local:
+            if kernel:
+                _,_,same=counts(unique,reference_keys,same_v_gene=True)
+                scores=kernel_ladder(nc,same,evidence['_rank_control'].to_numpy(),N,
+                    evidence['control_population'].to_numpy(),kernel_cutoffs,kernel_scale=22.5*matrix_scale,
+                    scorer=a.kernel_scorer)
+                seq_cols=['cdr3a','cdr3b'] if paired else ['cdr3']
+                ref_seq_cols=['alpha','beta'] if paired else ['cdr3']
+                exact=reference_keys.select(*[pl.col(r).alias(q) for q,r in zip(seq_cols,ref_seq_cols)]).group_by(seq_cols).len()
+                exact_counts=unique.join(exact,on=seq_cols,how='left',maintain_order='left')['len'].fill_null(0)
+                if selection_only:
+                    radius_counts=(nc[:,kernel_cutoffs.index(radius)] if radius in kernel_cutoffs else
+                        counts(unique,reference_keys,[[distance_cutoff(radius)]]*unique.height)[2][:,0])
+                    evidence=evidence.with_columns(pl.Series('_radius_hit',radius_counts>0))
+                evidence=evidence.drop('_rank_control').with_columns(
+                    (pl.lit(0,dtype=pl.UInt64) if a.exclude_exact else exact_counts.cast(pl.UInt64)).alias('exact_reference_count'),
+                    *(pl.Series(k,v,nan_to_null=True) for k,v in scores.items()),
+                    pl.lit('relative_evidence_uncalibrated').alias('kernel_status'))
+            elif local:
                 from ..evalue.local_rank import local_rank_evidence
                 rank=local_rank_evidence(nc,evidence['_rank_control'].to_numpy(),N,
                                          evidence['control_population'].to_numpy(),prior=a.rank_signal_prior)
@@ -499,12 +604,30 @@ def main(a):
                 expanded=expanded.join(residual,on='query_id',how='left',validate='1:1',maintain_order='left')
                 field='conditional_j_usage' if a.conditional_j else 'epitope_rules' if a.epitope_rules else 'chemistry'
                 background_costs[field]=background_costs.get(field,0)+time.perf_counter()-j_start
-            enrichment_rows.append(expanded.with_columns(*(pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC)))
+            if selection_only:
+                selection_hit_ids.update(expanded.filter(pl.col('_radius_hit'))['query_id'])
+                from ..evalue.kernel import kernel_peptides,update_kernel_selection
+                if task['epitope'] not in (a.withhold_epitope or []):
+                    peptide=task['epitope']
+                    if selection_pending is not None and peptide!=selection_peptide:
+                        selection_state=update_kernel_selection(selection_state,selection_pending)
+                        selection_pending=None
+                    current=expanded.select('query_id','kernel_score','exact_reference_count').with_columns(
+                        pl.lit(peptide,dtype=pl.String).alias('epitope')).select(
+                            'query_id','epitope','kernel_score','exact_reference_count')
+                    selection_pending=kernel_peptides(current if selection_pending is None else
+                        pl.concat([selection_pending,current],how='vertical_relaxed'))
+                    selection_peptide=peptide
+            else:
+                enrichment_rows.append(expanded.with_columns(*(pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC)))
+        if selection_only and selection_pending is not None:
+            selection_state=update_kernel_selection(selection_state,selection_pending)
+            selection_pending=None
         background_costs['total']=time.perf_counter()-background_start
     rows=[]
     shortlist_rows=[];shortlist_costs=[]
-    dispositions={query_id:'no_reference' for query_id in q['query_id']} if a.all_targets and not groups else {}
-    for task,query_part,reference_part in groups:
+    dispositions=selection_dispositions if selection_only else ({query_id:'no_reference' for query_id in q['query_id']} if a.all_targets and not groups else {})
+    for task,query_part,reference_part in ([] if selection_only else groups):
         radius=target_radii[tuple(task[c] for c in PMHC)] if a.reference_radius else a.radius
         if task is not None:
             reference_part=reference_part.unique(search_keys,maintain_order=True)
@@ -518,7 +641,7 @@ def main(a):
             computation=query_part.unique(['cdr3','_allele'],maintain_order=True)
             audit=shortlist_audit_batch(computation['cdr3'],reference_part['cdr3'],
                 computation['_allele'],reference_part['_allele'],radius=a.radius,
-                species=organism,threads=a.threads,ctrim=ctrim,exclude_exact=a.exclude_exact,alphabet=a.alphabet)
+                species=organism,threads=a.threads,ctrim=ctrim,exclude_exact=a.exclude_exact,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,v_loop_distances=v_loop_distances)
             shared=computation.select('cdr3','_allele').with_columns(
                 pl.Series('cdr3_shortlist_keys',audit['cdr3_shortlist_keys'],dtype=pl.UInt64),
                 pl.Series('post_v_radius_keys',audit['post_v_radius_keys'],dtype=pl.UInt64),
@@ -540,10 +663,10 @@ def main(a):
                 qa,qb=part['cdr3a'].to_list(),part['cdr3b'].to_list()
                 ra,rb=reference_part['alpha'].to_list(),reference_part['beta'].to_list()
                 distances=paired_distance_matrix(qa,qb,ra,rb,part['_allelea'].to_list(),part['_alleleb'].to_list(),
-                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight)
+                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,v_loop_distances=v_loop_distances)
             else:
                 seqs=part['cdr3'].to_list()
-                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight)
+                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,v_loop_distances=v_loop_distances)
             keep=distances<=radius
             nonexact=True
             if a.exclude_exact:
@@ -619,7 +742,7 @@ def main(a):
             'sequence_ida','sequence_idb','species',*PMHC] if c in pair_rows.columns],'available','status',
             'v_call_alpha','v_call_beta',
             pl.col('_allelea').alias('resolved_v_allele_alpha'),pl.col('_alleleb').alias('resolved_v_allele_beta'))
-        hit_ids=set(out['query_id'])
+        hit_ids=selection_hit_ids if selection_only else set(out['query_id'])
         status=status.with_columns(pl.Series('status',[
             old if old!='searched' else dispositions.get(query_id) if dispositions.get(query_id) in {'invalid_target','no_reference'} else
             'matched' if query_id in hit_ids else 'no_neighbours'
@@ -634,7 +757,7 @@ def main(a):
     status=status.with_columns(pl.col('available').fill_null(False))
     if (a.targets_from_sample or a.all_targets) and not paired:
         valid_target_ids=set(dispositions)
-        hit_ids=set(out['query_id'])
+        hit_ids=selection_hit_ids if selection_only else set(out['query_id'])
         species_ids=set(raw.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(
             ['human','homosapiens','homo sapiens'] if organism=='human' else ['mouse','musmusculus','mus musculus']))['query_id']) if 'species' in raw.columns else set(raw['query_id'])
         status=status.with_columns(pl.Series('status',[
@@ -650,7 +773,8 @@ def main(a):
             'raw_radius':pl.Float64,'nearest_keys':pl.UInt64,'radius':pl.UInt32,
             'radius_floor':pl.Float64,'floor_source':pl.String,'radius_status':pl.String}
         pl.DataFrame(radius_rows,schema=radius_schema).write_csv(str(prefix)+'.radii.tsv',separator='\t')
-    out.write_csv(str(prefix)+'.candidates.tsv',separator='\t')
+    if not selection_only:
+        out.write_csv(str(prefix)+'.candidates.tsv',separator='\t')
     status.write_csv(str(prefix)+'.queries.tsv',separator='\t')
     if a.shortlist_audit:
         diagnostic=pl.concat(shortlist_rows) if shortlist_rows else pl.DataFrame(schema={
@@ -658,13 +782,22 @@ def main(a):
             'post_v_radius_keys':pl.UInt64,'nearest_within_shortlist_distance':pl.Float64})
         status.join(raw.select('query_id',*PMHC),on='query_id',validate='1:1').join(
             diagnostic,on='query_id',how='left',validate='1:1').write_csv(str(prefix)+'.shortlist.tsv',separator='\t')
-    if a.background:
+    if selection_only:
+        from ..evalue.kernel import finish_kernel_selection
+        selected=finish_kernel_selection(status,selection_state)
+        selected.write_csv(str(prefix)+'.selection.tsv',separator='\t')
+    if a.background and not selection_only:
         schema={'query_id':q.schema['query_id'],**{c:pl.String for c in PMHC},
                 **{c:pl.UInt64 for c in ['n_reference','reference_population','n_control','control_population']},
                 'reference_weight':pl.Float64,'control_weight':pl.Float64,
                 'expected_count':pl.Float64,'enrichment_status':pl.String,'enrichment':pl.Float64,
                 'zero_control_hits':pl.Boolean,'zero_control_weight':pl.Boolean}
         enrichment=pl.concat(enrichment_rows) if enrichment_rows else pl.DataFrame(schema=schema)
+        if kernel and not enrichment_rows:
+            enrichment=enrichment.with_columns(*[pl.lit(None,dtype=pl.Float64).alias('kernel_'+w+'_'+d)
+                for w in ('all','v','vonly') for d in ('bounded','rare')],
+                pl.lit(None,dtype=pl.Float64).alias('kernel_score'),pl.lit(None,dtype=pl.String).alias('kernel_status'),
+                pl.lit(None,dtype=pl.UInt64).alias('exact_reference_count'))
         if a.neighbour_weighting=='local-rank' and not enrichment_rows:
             enrichment=enrichment.with_columns(
                 *(pl.lit(None,dtype=pl.Float64).alias(k) for k in ['rank_bayes_factor','p_rank_bound','p_nearest_rank','posterior_rank_signal','rank_signal_prior']),
@@ -695,12 +828,54 @@ def main(a):
                 bandwidth_factor=a.chemistry_bandwidth_factor)
             enrichment=enrichment.with_columns(*[pl.Series(c,[],dtype=t) for c,t in empty.schema.items() if c!='query_id'])
         enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment.tsv',separator='\t')
+        if kernel:
+            from ..evalue.kernel import select_kernel
+            selected=select_kernel(status,enrichment.filter(~pl.col('epitope').is_in(a.withhold_epitope or [])))
+            selected.write_csv(str(prefix)+'.selection.tsv',separator='\t')
+    if paired and kernel:
+        from copy import copy
+        # Independent full-reference chain axes retain unlinked support; no joint P-value.
+        combined=None if selection_only else enrichment.select('query_id',*PMHC,pl.col('kernel_score').alias('kernel_linked_score'))
+        selected=selected.rename({'selected_epitope':'selected_linked_epitope',
+                                  'selection_status':'linked_selection_status'})
+        for suffix,locus,name in [('a','TRA','alpha'),('b','TRB','beta')]:
+            marginal=copy(a)
+            marginal.locus=locus
+            marginal.output_prefix=str(prefix)+'.'+locus
+            main(marginal)
+            mapping=pair_rows.select('query_id',pl.col('query_id'+suffix).alias('_chain_id'))
+            if not selection_only:
+                lane=pl.read_csv(marginal.output_prefix+'.enrichment.tsv',separator='\t',
+                                 schema_overrides={'query_id':raw.schema['query_id']})
+                lane=mapping.join(lane.rename({'query_id':'_chain_id'}),on='_chain_id',how='inner').select(
+                    'query_id',*PMHC,pl.col('kernel_score').alias('kernel_'+name+'_score'))
+                combined=combined.join(lane,on=['query_id',*PMHC],how='full',coalesce=True,nulls_equal=True)
+            calls=pl.read_csv(marginal.output_prefix+'.selection.tsv',separator='\t',
+                              schema_overrides={'query_id':raw.schema['query_id']})
+            calls=mapping.join(calls.rename({'query_id':'_chain_id'}),on='_chain_id',how='left').select(
+                'query_id',pl.col('selected_epitope').alias('selected_'+name+'_epitope'),
+                pl.col('selection_status').alias(name+'_selection_status'))
+            selected=selected.join(calls,on='query_id',how='left',validate='1:1',maintain_order='left')
+        if not selection_only:
+            combined.sort('query_id',*PMHC).write_csv(str(prefix)+'.paired-evidence.tsv',separator='\t')
+        selected.with_columns(pl.any_horizontal(*[
+            pl.col(c).is_in(['ranked_evidence','ambiguous']).fill_null(False) for c in
+            ['linked_selection_status','alpha_selection_status','beta_selection_status']]).alias('has_support')).write_csv(
+                str(prefix)+'.selection.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
+        'selection_only':selection_only,
+        'output_tables':(['queries','selection'] if selection_only else ['queries','candidates']+
+            (['enrichment','selection'] if kernel else ['enrichment'] if a.background else [])+
+            (['paired-evidence'] if paired and kernel else [])),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
                     'seqtree_native_sha256':sha256(Path(_core.__file__)),
+                    'seqtree_python_source_sha256':sha256(Path(gapblock.__file__)),
                     'scorer_source_sha256':sha256(Path(distance_matrix.__code__.co_filename)),
+                    **({'kernel_source_sha256':sha256(Path(kernel_ladder.__code__.co_filename))} if kernel else {}),
                     'cli_source_sha256':sha256(Path(__file__))},
-        'reference':db.provenance(a.vdjdb),'ingestion':ingestion,'reference_observations':original,'withheld_reference_chain_records':withheld_records,
+        'reference':db.provenance(a.vdjdb),'reference_population':a.reference_population,'ingestion':ingestion,'reference_observations':original,'withheld_reference_chain_records':withheld_records,
+        'v_loop_model':{'sha256':sha256(Path(str(files('vdjmatch.resources')/'tcrdist'/f'{organism}_v_loops.tsv'))),
+                        'precomputation':'one exact aligned-loop table per locus and invocation; reused across population batches'},
         'reference_usable_keys':r.height,'query_rows':raw.height,'query_usable_rows':2*q.height if paired else q.height,
         'withholding':'candidate hits only; full background populations and geometry parameters retained',
         **({'query_pairs':pair_rows.height,'query_usable_pairs':q.height,'reference_complete_pairs':paired_observations,
@@ -709,7 +884,16 @@ def main(a):
             'distance_unit':'alpha+beta sum to the same linked reference pair',
             'exact_exclusion':'both full junctions equal; V calls do not change the puncture',
             'matrix_work_budget_bytes':32*1024**2,
-            'independent_marginal_baseline':'not emitted; requires separate full compatible single-chain reference axes'} if paired else {}),
+            'independent_marginal_baseline':('full compatible TRA/TRB reference axes in separate outputs' if kernel else 'not emitted')} if paired else {}),
+        **({'kernel':{'score_column':'kernel_score','scorer':a.kernel_scorer,
+            'source_score_column':'kernel_'+a.kernel_scorer.replace('-','_'),
+            'matrix':a.distance_matrix,'cutoffs':kernel_cutoffs,
+            'count_cutoff':kernel_cutoffs[-1],'count_columns':'n_reference and n_control count through the ladder reach',
+            'kernel_scale':22.5*matrix_scale,
+            'cross_v':.25 if a.kernel_scorer.startswith('v-') else 1. if a.kernel_scorer.startswith('all-') else 0.,
+            'denominator':'1+control_count' if a.kernel_scorer.endswith('bounded') else 'max(control_count,0.01)',
+            'normalization':'exact-punctured target population','interpretation':'relative evidence; not a calibrated P/E or binding probability',
+            'paired':'linked alpha+beta sum plus separate full-reference chain scores; no joint probability or fitted fusion'}} if kernel else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
         **({'chemistry':{'source_sha256':sha256(Path(local_chemistry_evidence.__code__.co_filename)),
             'property_table_sha256':sha256(Path(str(files('vdjtools.resources').joinpath('aa_property_table.txt')))),
@@ -719,7 +903,7 @@ def main(a):
             'scale':'population standard deviation of published vdjtools KF4 amino-acid table; same geometry in reference/control',
             'exact_exclusion':'all full-junction identities across V categories, before both conditional and V-usage denominators',
             'interpretation':'experimental local density/V ratios; no P/E-value or binding probability'}} if getattr(a,'chemistry',False) else {}),
-        'distance_scale':{'alphabet':a.alphabet,'matrix_unit':matrix_scale,'radius':a.radius,'radius_factor':a.radius_factor,
+        'distance_scale':{'matrix':a.distance_matrix,'alphabet':a.alphabet,'matrix_unit':matrix_scale,'radius':a.radius,'radius_factor':a.radius_factor,
             'requested_radius':requested_radius,
             'radius_mode':'absolute' if absolute_radius else 'matrix_factor','bin_width':bin_width,
             'gap_cost':3*matrix_scale,'cdr3_weight':3,'v_loop_weight':a.v_loop_weight,
@@ -727,10 +911,10 @@ def main(a):
             **({'stem':'joint V-J hairpin; level i pairs junction positions i and L-1-i on '
                        'untrimmed junctions; a level costs max(end,start) so it breaks when '
                        'either residue differs; mean over levels times stem_weight, in shared '
-                       'clipped-BLOSUM62 cost units; one term per chain on paired distances'}
+                       +a.distance_matrix+' cost units; one term per chain on paired distances'}
                if a.stem_depth else {}),
             'native_units_per_distance_unit':200,'native_radius':native_radius,
-            'definition':'maximum effective clipped BLOSUM62 substitution cost; shared CDR3/V-loop matrix' if a.alphabet=='full' else
+            'definition':'maximum effective '+a.distance_matrix+' substitution cost; shared CDR3/V-loop matrix' if a.alphabet=='full' else
                 'zero within IMGT11 class; minimum clipped BLOSUM62 cost across classes; shared CDR3/V-loop matrix; raw unknown symbols remain singletons',
             'boundary_rounding':'floor to native integer units'},
         **({'reference_radius':{'selection':'reference-only nonexact leave-one-junction-out nearest-distance strongest confirmed Kneedle S=1 bend; no smoothing',

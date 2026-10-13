@@ -190,14 +190,6 @@ def test_cli_rejects_negative_stem_parameters(flag, value, tmp_path):
         run(_args(flag, value))
 
 
-def test_cli_refuses_stem_with_native_background():
-    """A geometry silently dropped by the native counter must not look like success."""
-    from vdjmatch.cli.tcrdist import main as run
-
-    with pytest.raises(SystemExit, match="stem-depth"):
-        run(_args("--stem-depth", "4", "--background", "real"))
-
-
 def test_cli_manifest_declares_the_stem_geometry(tmp_path):
     """A stem run must not describe itself as the TCRdist3 default.
 
@@ -279,3 +271,83 @@ def test_reproduces_the_independently_implemented_reference_arm():
     assert np.array_equal(got, expected), "stem no longer reproduces the measured arm"
     # The Pmax regression specifically: the term must span one residue's cost range.
     assert got.max() <= int(costs.max())
+
+
+@pytest.mark.parametrize('paired', [False, True])
+@pytest.mark.parametrize('weight', [0.0, 1.0, 1.5])
+def test_native_stem_counts_and_mass_equal_dense(paired, weight):
+    from vdjmatch.match.tcrdist import total_distance_count_batch, paired_total_distance_mass_batch
+    q = ['CASSLGQAYEQYF', 'WASSLGQAYEQYF']
+    r = q + ['CASSAGQAYEQWF', q[0], 'CASSLGQAPAYEQYF']
+    qv, rv = ['TRBV19'] * 2, ['TRBV19', 'TRBV7-9', 'TRBV19', 'TRBV19', 'TRBV19']
+    opts = dict(stem_depth=4, stem_weight=weight, ctrim=3)
+    if paired:
+        qa, ra = q[::-1], r[::-1]
+        qva, rva = ['TRAV1-1'] * 2, ['TRAV1-1'] * 5
+        d = 200 * paired_distance_matrix(qa, q, ra, r, qva, qv, rva, rv, **opts)
+        eligible = np.array([[not (a == c and b == e) for c, e in zip(ra, r)]
+                             for a, b in zip(qa, q)])
+    else:
+        d = 200 * distance_matrix(q, r, qv, rv, **opts)
+        eligible = np.array([[a != b for b in r] for a in q])
+    cuts = [[-1, 0, 200, 18000, *row.tolist(), 18000] for row in d]
+    for threads in (1, 4):
+        if paired:
+            got, mass = paired_total_distance_mass_batch(qa, q, ra, r, qva, qv, rva, rv,
+                                                        cuts, threads=threads, exclude_exact=True, **opts)
+        else:
+            got, mass = total_distance_count_batch(q, r, qv, rv, cuts, threads=threads,
+                                                  exclude_exact=True, linear_mass=True, **opts)
+        assert got == [[int(np.sum(eligible[i] & (d[i] <= t))) for t in row]
+                       for i, row in enumerate(cuts)]
+        assert mass == [[int(np.maximum(0, t - d[i][eligible[i]]).sum()) for t in row]
+                        for i, row in enumerate(cuts)]
+        shared_cuts=[-1,0,200,18000,200,0]
+        if paired:
+            shared=paired_total_distance_mass_batch(qa,q,ra,r,qva,qv,rva,rv,
+                shared_cuts,threads=threads,exclude_exact=True,shared_thresholds=True,**opts)
+            expanded=paired_total_distance_mass_batch(qa,q,ra,r,qva,qv,rva,rv,
+                [shared_cuts]*len(q),threads=threads,exclude_exact=True,**opts)
+        else:
+            shared=total_distance_count_batch(q,r,qv,rv,shared_cuts,threads=threads,
+                exclude_exact=True,linear_mass=True,shared_thresholds=True,**opts)
+            expanded=total_distance_count_batch(q,r,qv,rv,[shared_cuts]*len(q),threads=threads,
+                exclude_exact=True,linear_mass=True,**opts)
+        assert shared==expanded
+
+
+@pytest.mark.parametrize('weight', [float('nan'), float('inf')])
+def test_stem_rejects_nonfinite_weight(weight):
+    with pytest.raises(ValueError, match='weight'):
+        stem_penalty(A, B, depth=4, weight=weight)
+
+
+def test_unclipped_matrix_native_stem_matches_dense():
+    from seqtree import SubstitutionMatrix, amino_acids
+    from vdjmatch.match.tcrdist import total_distance_count_batch
+    b = SubstitutionMatrix.blosum62()
+    costs = np.array([[b.penalty(a, c) for c in amino_acids()] for a in amino_acids()])
+    q, r = A, B
+    opts = dict(stem_depth=4, ctrim=3, matrix='blosum62')
+    d = distance_matrix(q, r, V, V * len(r), **opts)
+    clipped = distance_matrix(q, r, V, V * len(r), stem_depth=4, ctrim=3)
+    assert costs.max() == 26 and not np.array_equal(d, clipped)
+    cuts = [[int(t) * 200 for t in d[0]]]
+    assert total_distance_count_batch(q, r, V, V * len(r), cuts, **opts) == [
+        [int((d[0] <= t // 200).sum()) for t in cuts[0]]]
+
+
+def test_same_gene_counts_retain_allele_loop_cost_in_one_batch():
+    from vdjmatch.match.tcrdist import total_distance_count_batch,distance_matrix
+    q=['CASSLGQAYEQYF','CASSAGQAYEQYF']
+    r=['CASSLGQAYEQYF','CASSLGQAYEQWF','CASSAGQAYEQYF']
+    qv=['TRBV19*01','TRBV7-9*01']
+    rv=['TRBV19*02','TRBV7-9*01','TRBV19*01']
+    d=distance_matrix(q,r,qv,rv,ctrim=3,matrix='blosum62',stem_depth=4)
+    t=[0,200*26,200*585,200*2600]
+    same=np.array([[a.split('*')[0]==b.split('*')[0] for b in rv] for a in qv])
+    expected=np.array([np.sum((200*d<=cut)&same,axis=1) for cut in t]).T
+    for threads in (1,4):
+        actual=total_distance_count_batch(q,r,qv,rv,[t]*len(q),ctrim=3,
+            matrix='blosum62',stem_depth=4,same_v_gene=True,threads=threads)
+        np.testing.assert_array_equal(actual,expected)

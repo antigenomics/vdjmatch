@@ -35,11 +35,73 @@ The Python implementation follows the legacy Java/Groovy package, preserved on t
 - Latest/pinned GitHub releases and offline legacy, rich or AIRR reference inputs.
 - Source-aware junction ingestion, stable row identities and explicit ingestion counts.
 - Native batched searches by locus, with retained reference observations.
+- Targeted stem4 kernel annotation; original and advanced scorers remain available.
 - All peptide–MHC candidates, NED-v1 ranking and competing-label support.
 - Optional finite-background calibration with a stated counting unit and search predicate.
 - Paired-reference evidence requiring both chains in the same reference complex.
 - CLI hit/candidate/call/summary/ingestion tables and a reproducibility manifest.
 - Separate precursor-frequency APIs and their established worked examples.
+
+### Targeted annotation
+
+```console
+$ vdjmatch annotate sample.tsv --threads 4 -o annotation
+$ vdjmatch annotate airr_directory/ --threads 4 -o cohort
+$ vdjmatch annotate --metadata samples.tsv --vdjdb reference.zip --threads 4 -o cohort
+```
+
+The reference is fetched automatically; `--vdjdb` selects a pinned offline table
+or archive. A metadata TSV has `path` and optional `sample_id` columns; relative
+paths resolve beside the metadata file. Directory discovery accepts TSV, CSV,
+text, gzip and Parquet tables. Sample names must be unique.
+
+AIRR input uses anchor-inclusive `junction_aa` and V calls. The default scores all
+peptide–MHC targets with the stem4 BLOSUM62 kernel ladder. `--locus paired` also
+retains independent TRA/TRB evidence from unlinked references. Scores are relative
+evidence; whole-selection null calibration is required for false-call recommendations.
+The original scorer remains available through `historical-density`; advanced
+alternatives remain available through that command and `tcrdist-neighbours`.
+
+| Query format | Required sequence/gene fields | Identity/linkage |
+| --- | --- | --- |
+| Single AIRR | `junction_aa`, `v_call`, `locus` (or locus inferred from V) | Optional `sequence_id`, `query_id`, `clonotype_id`, `clone_id` |
+| Simple repertoire | `junction_aa`, `v`, `locus`; optional `j` | Optional `clonotype_id`, `clone_id` or `cloneid` |
+| Linked AIRR | One TRA/TRB row per linked receptor, `junction_aa`, `v_call`, `locus` | Shared `cell_id`, `pair_id`, `clone_id` or `cloneid`; cell/pair linkage takes priority |
+| Wide paired repertoire | `junction_aa_alpha`, `junction_aa_beta`, `v_alpha`, `v_beta`; optional `j_alpha`, `j_beta` | Optional `clone_id` or `cloneid`; otherwise row identity links the pair |
+
+`--locus auto` infers single or paired populations; `--locus TRA`, `TRB` or
+`paired` selects explicitly. Missing chains and invalid rows retain dispositions;
+multiple chains in one clone/locus require resolution before annotation.
+`clonotype_id` and `clone_id` are retained as separate identities. Bare AIRR
+`cdr3_aa` excludes conserved anchors and cannot replace `junction_aa`.
+
+The default writes `.queries.tsv`, `.selection.tsv` and `.manifest.json`, retaining
+sample and source identities, competing scores, ties and no-support rows.
+`--details` additionally writes candidates and per-target evidence; its memory
+grows with queries × targets. `--epitope PEPTIDE` restricts the requested targets.
+`--exclude-exact` is for honest benchmarks; ordinary annotation retains exact hits.
+`--kernel-scorer` selects the advanced `all-bounded`, `vonly-bounded`, `v-rare`,
+`all-rare` or `vonly-rare` alternatives; `v-bounded` is the targeted default.
+`--threads N` budgets native compute threads; searches batch queries by population
+and do not create a worker process per receptor or input file.
+The library also enforces this ceiling for the Polars table pool. If Polars was
+already imported with a larger pool, start a fresh process with
+`POLARS_MAX_THREADS=N` set before importing Polars; the API fails explicitly
+rather than exceeding the requested budget. Input metadata whose names conflict
+with generated output fields is retained under `input_` prefixes.
+
+```python
+from vdjmatch import annotate_repertoires
+
+result = annotate_repertoires("airr_directory", reference="reference.zip",
+                             output_prefix="cohort", threads=4)
+queries, selections = result["queries"], result["selection"]
+```
+
+The original `Annotator` and `annotate` APIs remain available. Agent usage is
+documented in the repository [vdjmatch skill](skills/vdjmatch/SKILL.md).
+The synthetic library/CLI batch resource gate runs with test/bench extras:
+`python -m pytest tests/test_annotation_resources.py -q`.
 
 ### Precursor frequency
 

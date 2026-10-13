@@ -171,23 +171,27 @@ def test_raw_airr_control_rejects_bare_cdr3_with_only_j_call(tmp_path):
         raw_background("TRB", "human", path)
 
 
+@pytest.mark.parametrize("command,module", [("historical-density","historical"),("annotate","tcrdist")])
 @pytest.mark.parametrize("limit,expected", [("4", 4), (None, 12), ("99", 12)])
-def test_cli_preserves_parent_table_thread_cap(limit,expected):
+def test_cli_preserves_parent_table_thread_cap(limit,expected,command,module):
     import os
     import subprocess
     import sys
     env=dict(os.environ)
     if limit is None:env.pop("POLARS_MAX_THREADS",None)
     else:env["POLARS_MAX_THREADS"]=limit
-    code="""from vdjmatch.cli import historical
+    code=f"""from vdjmatch.cli import {module} as historical
 import json,os
 def probe(a):
     import polars as pl
-    print(json.dumps({'table_threads':pl.thread_pool_size(),'native_threads':a.threads}))
+    print(json.dumps({{'table_threads':pl.thread_pool_size(),'native_threads':a.threads}}))
     return 0
 historical.main=probe
 from vdjmatch.cli.__main__ import main
-main(['historical-density','unused','--vdjdb','unused','--locus','TRB',
+if '{command}'=='annotate':
+    import vdjmatch.cli.__main__ as cli
+    cli._cmd_annotate=probe
+main(['{command}','unused','--vdjdb','unused','--locus','TRB',
       '--threads','12','--output-prefix','unused'])
 """
     output=subprocess.run([sys.executable,'-c',code],env=env,text=True,

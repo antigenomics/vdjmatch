@@ -30,6 +30,85 @@ Fetch and retain a latest or pinned VDJdb release input for CLI and API use.
    * - ``--force``
      - Fetch the requested release again.
 
+vdjmatch annotate
+-----------------
+
+The targeted annotation default is the stem4 kernel-ladder scorer:
+
+Aligned CDR1/CDR2/CDR2.5 V-loop costs are precomputed once per annotation
+invocation and reused across target populations. Different V genes retain their
+loop-similarity contribution; the same-V shell is an additional kernel component.
+The legacy ``match`` command retains edit ``--scope`` and optional ``--match-v``.
+
+.. code-block:: bash
+
+   vdjmatch annotate sample.tsv --threads 4 -o annotation
+   vdjmatch annotate airr_directory/ --threads 4 -o cohort
+   vdjmatch annotate --metadata samples.tsv --vdjdb reference.zip --threads 4 -o cohort
+
+The reference is fetched automatically unless ``--vdjdb`` supplies an offline
+table/archive. Metadata has ``path`` and optional ``sample_id``; relative paths
+resolve beside the metadata TSV. Directory discovery accepts TSV, CSV, text,
+gzip and Parquet repertoire tables with unique sample names.
+
+Input uses anchor-inclusive ``junction_aa`` with AIRR ``v_call`` or simple ``v``
+and optional ``j`` fields. Wide pairs use ``junction_aa_alpha/beta`` and
+``v_alpha/beta``, with optional ``j_alpha/beta``. Cell/pair identity takes priority
+over clone linkage; clone and clonotype IDs remain distinct. Missing chains are
+retained and ambiguous multiple chains require resolution before scoring.
+``--locus auto`` infers populations; ``TRA``, ``TRB`` and ``paired`` select explicitly.
+The command retains exact evidence in ordinary annotation. ``--exclude-exact``
+punctures both search hits and population sizes for benchmarking. Combine it
+with ``--reference-population curated-benchmark`` to reproduce the source-curated
+benchmark reference; ordinary annotation defaults to all valid observations.
+
+The geometry combines threefold 3/3-trimmed junction distance, aligned V loops,
+and the rounded mean of four hairpin-level costs on untrimmed junctions. All
+terms use unclipped BLOSUM62 Gram penalties. Each level uses the maximum of its
+two opposite-residue costs; the stem is not multiplied by the matrix maximum.
+
+For target population size ``N``, shell counts ``dn(t)``, same-V shell counts
+``dv(t)`` and other-peptide cumulative counts ``m(t)``, the score is
+``sum_t exp(-t/h) * (0.25*dn(t) + 0.75*dv(t)) / (1+m(t)) / N``.
+Here ``h = 22.5 * Pmax`` and ``Pmax`` is the maximum substitution penalty.
+The fixed ladder contains 90 inner intervals to ``h`` and 62 outer intervals
+through ``100 * Pmax``. Empty target/control populations remain unavailable.
+Kernel ``n_reference`` and ``n_control`` columns count through this full ladder
+reach; the manifest records their cutoff.
+Explicit peptide/MHC selectors restrict targets while retaining the full
+other-peptide reference background. By default every full peptide–MHC target
+is scored; query assay labels are ignored.
+
+Default output includes query dispositions, selection TSVs and a manifest.
+Every eligible target is scored; restrictions of each peptide are reduced before
+retaining the winner, strongest competing peptide, score ties and exact-label
+ambiguity. Tables retained in memory grow with query count rather than the
+query-by-target product. ``--details`` additionally writes candidate and full
+all-label enrichment TSVs for continuous accuracy or detailed inspection.
+The advanced ``tcrdist-neighbours`` kernel route enables compact output with
+``--selection-only``; its default detailed exports remain unchanged.
+Selection pools restrictions of one peptide, retains score ties and conflicting
+exact-label ambiguity, and reports winner/(winner+strongest other peptide) as
+``kernel_support_share``. Kernel scores and shares are relative evidence. Use
+``calibrate-calls`` with matching whole-selection null scores before making a
+false-call recommendation; component calibration does not transfer.
+
+Paired runs emit linked alpha+beta evidence and separate ``.TRA``/``.TRB``
+outputs using all compatible single-chain references, including unlinked ones.
+With ``--details``, ``.paired-evidence.tsv`` keeps those three scores together. Selection reports
+three component labels/statuses and ``has_support``; missing linked references
+cannot veto a supported marginal. There is no inferred joint probability.
+
+The original scorer remains available as ``historical-density``. Existing
+advanced alternatives remain in ``historical-density`` and ``tcrdist-neighbours``;
+see their installed ``--help`` for options. Enrichment exports all/V-weighted/
+same-V-only ladder scores with bounded and rare-control denominators. These
+alternatives retain their own identities and are not calibrated by the default.
+``--kernel-scorer`` selects ``v-bounded`` (default), ``all-bounded``,
+``vonly-bounded``, ``v-rare``, ``all-rare`` or ``vonly-rare`` for selection.
+Historical V-similarity ratios are also precomputed per invocation, preserving
+query/reference direction and the original unknown-gene behavior.
+
 vdjmatch match
 --------------
 
@@ -411,6 +490,14 @@ Exact junction matches are excluded on both sides. Query identities remain
 separate even when their sequences coincide. For reproduction only, the first
 source-order V representative is used within each pMHC/junction group.
 
+``--legacy-components --reference-population all-valid --germline-background RAW
+--control RAW`` exports the original held-out calculation: NED with the raw
+control CDF, separate V/J/length log odds and the union-level first-hit gate.
+Omit peptide selectors to preserve the full reference union; an explicit MHC
+selector is supported. This mode requires single-chain TRA or TRB input and
+keeps fixed model populations. Empirical P-values, four-channel Sidak fusion
+and cohort ROC summaries consume these flat outputs separately.
+
 Experimental ``--puncture-populations`` also removes exact full-junction matches
 from density population sizes and germline feature counts/population sizes for
 each query. Repeated raw prior draws are removed with their multiplicity. Empty
@@ -625,8 +712,9 @@ The CDR3 loop folds as a hairpin, so junction position ``i`` sits opposite posit
 **both** of its residues are conserved, so the two residue costs combine as a
 maximum rather than a sum. The term is evaluated on untrimmed junctions, which is
 why it adds information the trimmed alignment cannot see, and it uses the same
-clipped substitution table as the junction alignment and the V loops, so it
-introduces no new matrix and no fitted parameter.
+substitution table selected by ``--distance-matrix`` as the junction alignment
+and V loops. TCRdist uses clipped costs; targeted annotation uses unclipped
+BLOSUM62 Gram penalties.
 
 The default ``--stem-depth 0`` reproduces the TCRdist3 distance exactly.
 ``--stem-depth 4`` is the configuration selected by the four-task benchmark
@@ -634,10 +722,9 @@ objective; ``--stem-weight`` defaults to ``1.0``, which spans the same range as 
 aligned residue. Depth is a declared residue count, not a per-clonotype boundary.
 
 For ``--locus paired`` the stem is applied to **both** chains and the two terms
-are summed, which is how the selected configuration scores a linked pair: the
-summed distance carries one stem per chain, not one for the pair. Alpha and beta
-are independent hairpins, so this is the same composition the rest of the paired
-distance already uses.
+are summed. The distance carries one stem per chain, using the same sum as
+the other paired distance terms. Per-chain benchmark views from paired sources
+do not establish true linked-pair accuracy or joint calibration.
 
 ======================  =========  ===============================================
 Parameter               Default    Meaning
@@ -648,10 +735,11 @@ Parameter               Default    Meaning
 
 Both are rejected at the command line if negative.
 
-The stem applies on the dense distance route only. The native ball counter reduces
-inside ``seqtree`` and never materialises a query/reference pair, so it cannot carry
-a per-pair term; combining ``--stem-depth`` with ``--background`` raises an error
-rather than silently returning counts computed without the stem.
+The stem applies to dense distances and native single/linked-pair ball counts and
+linear mass. Native counts evaluate factored junction-end codes alongside the
+small V-loop table, avoiding a query-by-reference offset matrix. Full junction
+identity still defines exact exclusion. Python and native capability are checked
+before counting.
 
 ``--junction-ends trim3`` is an experimental comparison that removes three
 residues at both junction ends. The default ``--junction-ends tcrdist``
@@ -1114,3 +1202,19 @@ coverage and normalized convex bend. ``--coverage-radius-factor`` defaults to
 normalization. These describe the reference without changing search radii.
 The radius ratio is regularized epsilon divided by epsilon plus the
 matrix-relative coverage radius; no knee is encoded as zero with its status retained.
+
+Legacy matrix and retrieval reproduction
+----------------------------------------
+
+``scoring-audit --task matrix --pmhc RAW --locus TRB --output-prefix OUT``
+rebuilds the accepted positional substitution tables and their off-diagonal
+Pearson correlations from an explicit raw VDJdb export. ``--task loo`` rebuilds
+the legacy epitope-withheld matrix training and candidate retrieval tables.
+Both accept ``--threads`` and record source/model hashes and options.
+TRA and TRB are separate invocations.
+
+These commands preserve the legacy unique-junction eligibility and, for LOO,
+composition caps, first-label assignment and tied-score balanced trapezoidal
+PR area. This metric is distinct from average precision and the current
+full-VDJdb source-record eligibility rule. Supply ``--structural-inc`` to
+include the structural matrix; without that model its row is omitted.

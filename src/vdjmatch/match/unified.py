@@ -139,7 +139,7 @@ def require_historical_pssm_kernel():
         raise RuntimeError('historical-pssm geometry requires positional seqtree gapblock support; rebuild/install the reviewed native source')
 
 
-def historical_pssm_extension(queries, reference, control, *, species='human', threads=1, matched_background=False, kernel_scale=400.0):
+def historical_pssm_extension(queries, reference, control, *, species='human', threads=1, matched_background=False, kernel_scale=400.0,v_similarities=None):
     """Opt-in original-position PSSM kernel on edges outside its substitution ball.
 
     Use full junctions and the native symmetric longer-sequence frame. Pin the
@@ -151,7 +151,7 @@ def historical_pssm_extension(queries, reference, control, *, species='human', t
     and its P-value remain separate; this component has no assigned P-value.
     """
     from .regions import significance_weights
-    from .vgene import vsim
+    from .vgene import precompute_v_similarities
     require_historical_pssm_kernel()
     if not isinstance(matched_background,bool):
         raise ValueError('matched_background must be boolean')
@@ -174,6 +174,8 @@ def historical_pssm_extension(queries, reference, control, *, species='human', t
     if not m_gap:
         raise ValueError('historical PSSM extension requires nonempty raw controls')
     usable=q.filter(pl.col('_available')).select('cdr3','_gene').unique(maintain_order=True)
+    if v_similarities is None:
+        v_similarities=precompute_v_similarities(usable['_gene'],ref['_gene'])
     numeric={'gapped_density':pl.Float64,'gapped_density_same_v_unweighted':pl.Float64,
         'gapped_density_cross_v_unweighted':pl.Float64,'gapped_edges_same_v':pl.UInt64,
         'gapped_edges_cross_v':pl.UInt64,'gapped_floor_density':pl.Float64}
@@ -208,7 +210,9 @@ def historical_pssm_extension(queries, reference, control, *, species='human', t
             seqs=part['cdr3'].to_list()
             qgenes=part['_gene'].to_list()
             # V factors mirror the original component, independently of sequence geometry.
-            priors={gene:np.asarray([1.0 if gene==r else .25*vsim(gene,r) for r in genes])[codes]
+            if any((gene,r) not in v_similarities for gene in set(qgenes) for r in genes if gene!=r):
+                raise ValueError('precomputed V similarities do not cover the query/reference families')
+            priors={gene:np.asarray([1.0 if gene==r else .25*v_similarities[(gene,r)] for r in genes])[codes]
                     for gene in set(qgenes)}
             penalties=np.asarray(gapblock.score_matrix(seqs,rs,**options))
             new=(penalties<=cutoff) & (np.asarray(seqs)[:,None]!=np.asarray(rs)[None,:])
