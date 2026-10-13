@@ -9,16 +9,51 @@ assignment array (load order, ints; phenograph outliers = -1) as JSON to argv[2]
 Called by bench/deeptcr_cluster.py (vdjmatch venv) via `conda run -n cmp-deeptcr`.
 """
 import json
+import multiprocessing
 import os
 import shutil
 import sys
 import tempfile
 
-import numpy as np
+
+def _threads(payload):
+    threads = payload.get("threads", 1)
+    if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
+        raise ValueError("threads must be a positive integer")
+    allocated = payload.get("allocated_cpu_budget")
+    if allocated is None and sys.platform.startswith("linux"):
+        raise ValueError("Linux cgroup allocation requires a validated caller CPU budget")
+    limits = [os.cpu_count() or 1]
+    if allocated is not None:
+        if isinstance(allocated, bool) or not isinstance(allocated, int) or allocated < 1:
+            raise ValueError("allocated_cpu_budget must be a positive integer")
+        limits.append(allocated)
+    if hasattr(os, "sched_getaffinity"):
+        limits.append(len(os.sched_getaffinity(0)))
+    if "SLURM_CPUS_PER_TASK" in os.environ:
+        allocated = int(os.environ["SLURM_CPUS_PER_TASK"])
+        if allocated < 1:
+            raise ValueError("SLURM_CPUS_PER_TASK must be positive")
+        limits.append(allocated)
+    if threads > min(limits):
+        raise ValueError("threads exceeds the available CPU allocation")
+    return threads
 
 
 def main():
     payload = json.load(open(sys.argv[1]))
+    threads = _threads(payload)
+    # Apply ceilings before importing numerical runtimes in parent or spawn workers.
+    for key in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS",
+                "OMP_THREAD_LIMIT", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ[key] = "1"
+    os.environ["TF_NUM_INTRAOP_THREADS"] = str(threads)
+    os.environ["TF_NUM_INTEROP_THREADS"] = "1"
+    os.environ["NUMBA_NUM_THREADS"] = str(threads)
+    import numpy as np
+    import tensorflow as tf
+    tf.config.threading.set_intra_op_parallelism_threads(threads)
+    tf.config.threading.set_inter_op_parallelism_threads(1)
     outp = sys.argv[2]
     name = payload.get("name", "deeptcr_run")
     beta = payload["beta"]
@@ -41,7 +76,14 @@ def main():
         load_kw["alpha_sequences"] = np.array(alpha)
     if v_alpha is not None:
         load_kw["v_alpha"] = np.array(v_alpha)
-    dt.Load_Data(**load_kw)
+    # Spawn avoids forking a process after importing TensorFlow. Ordered starmap
+    # remains DeepTCR's own embedding implementation through its public pool API.
+    pool = multiprocessing.get_context("spawn").Pool(processes=threads)
+    try:
+        dt.Load_Data(p=pool, **load_kw)
+    finally:
+        pool.close()
+        pool.join()
 
     # Default-ish VAE training; graph_seed/split_seed for reproducibility. stop_criterion=0.01 is the
     # library default (early-stop on reconstruction-loss plateau), so this is standard unsupervised usage.
