@@ -939,8 +939,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             calls=mapping.join(calls.rename({'query_id':'_chain_id'}),on='_chain_id',how='left').select(
                 'query_id',pl.col('selected_epitope').alias('selected_'+name+'_epitope'),
                 pl.col('selection_status').alias(name+'_selection_status'),
-                pl.col('kernel_score').alias('kernel_'+name+'_score'),
-                pl.col('kernel_competing_score').alias('kernel_'+name+'_competing_score'),
+                pl.col('kernel_score').cast(pl.Float64).alias('kernel_'+name+'_score'),
+                pl.col('kernel_competing_score').cast(pl.Float64).alias('kernel_'+name+'_competing_score'),
                 pl.col('tied_peptides').alias(name+'_tied_peptides'),
                 pl.col('exact_peptides').alias(name+'_exact_peptides'))
             selected=selected.join(calls,on='query_id',how='left',validate='1:1',maintain_order='left')
