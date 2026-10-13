@@ -74,6 +74,9 @@ alternatives remain available through that command and `tcrdist-neighbours`.
 multiple chains in one clone/locus require resolution before annotation.
 `clonotype_id` and `clone_id` are retained as separate identities. Bare AIRR
 `cdr3_aa` excludes conserved anchors and cannot replace `junction_aa`.
+For amino-acid clonotype inputs, collapse by the supplied V, junction and J
+calls, summing counts before annotation. Distinct J calls remain distinct
+clonotypes even when their search geometry is shared.
 
 The default writes `.queries.tsv`, `.selection.tsv` and `.manifest.json`, retaining
 sample and source identities, competing scores, ties and no-support rows.
@@ -102,6 +105,24 @@ The original `Annotator` and `annotate` APIs remain available. Agent usage is
 documented in the repository [vdjmatch skill](skills/vdjmatch/SKILL.md).
 The synthetic library/CLI batch resource gate runs with test/bench extras:
 `python -m pytest tests/test_annotation_resources.py -q`.
+
+For single-chain release calibration, `reference-calls --scorer stem4` runs
+the complete selected score with full junction exclusion. Add
+`--leave-epitope-out` to remove each query's truth peptide from every model
+count, including shared and sparse reference labels:
+
+```console
+$ vdjmatch reference-calls --vdjdb reference.zip --locus TRB --scorer stem4 \
+    --reference-population curated-benchmark --leave-epitope-out --threads 4 \
+    --output-prefix withheld
+$ vdjmatch calibrate-calls withheld.calibration-cases.tsv --target-fpr 0.01 \
+    --output-prefix calibration
+```
+
+This produces an empirical operating point for that pinned pipeline and null
+population. Sample recommendations also require matched generated nulls and
+reference policy; paired evidence requires its own joint calibration. The
+`reference-calls` original scorer and curated reference policy remain its defaults.
 
 ### Precursor frequency
 

@@ -50,10 +50,25 @@ def kernel_ladder(reference_counts, same_v_counts, control_counts, reference_siz
     return _kernel_scores(shells,same_shells,m,N,M,t,kernel_scale,cross_v,floor,scorer,extras)
 
 
-def _kernel_scores(shells,same_shells,m,N,M,t,kernel_scale,cross_v,floor,scorer,extras):
+def _kernel_scores(shells,same_shells,m,N,M,t,kernel_scale,cross_v,floor,scorer,extras, *, _reuse_buffers=False):
     """Shared arithmetic after the public or native counter's validation."""
     kernel=np.exp(-t/kernel_scale)
     usable=(N>0)&(M>0)
+    if _reuse_buffers and not extras:
+        # Only the compact native path supplies owned writable float buffers.
+        name,mode=scorer.split('-')
+        mass=shells if name=='all' else same_shells
+        if name=='v':
+            np.multiply(shells,cross_v,out=shells)
+            np.multiply(same_shells,1-cross_v,out=same_shells)
+            np.add(shells,same_shells,out=shells)
+            mass=shells
+        if mode=='bounded':np.add(1,m,out=m)
+        else:np.maximum(m,floor,out=m)
+        np.divide(kernel[None,:],m,out=m)
+        score=np.einsum('ij,ij->i',mass,m)/np.where(N>0,N,1)
+        score=np.where(usable,score,np.nan)
+        return {'kernel_'+scorer.replace('-','_'):score,'kernel_score':score}
     out={}
     for name in ('all','v','vonly'):
         if not extras and name!=scorer.split('-')[0]:
@@ -80,7 +95,7 @@ def kernel_peptides(scores):
 
 
 def grouped_kernel_selection(queries, references, groups, *, query_keys, search_keys,
-        paired, cutoffs, radius, kernel_scale, scorer, assayed=False, **geometry):
+        paired, cutoffs, radius, kernel_scale, scorer, assayed=False, withheld_column=None, **geometry):
     """Compact all-label selection from one bounded native reference traversal.
 
     Memberships deduplicate search keys separately from pMHC annotations. Other
@@ -110,6 +125,23 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         pl.col('epitope').first()).filter(pl.col('_labels')==1).join(peptides,on='epitope',how='left'))
     exclusive=whole.select('_ref',*search_keys).join(exclusive,on=search_keys,how='left',
         validate='1:1',maintain_order='left')['_peptide'].fill_null(-1).to_numpy()
+    folds={}
+    if withheld_column is not None:
+        if withheld_column not in query_keys:
+            raise ValueError('withheld peptide must be included in query deduplication keys')
+        # Selected peptides keep the count-channel namespace; sparse labels follow.
+        full_peptides=pl.concat([peptides.select('epitope'),references.select('epitope')]).unique(
+            maintain_order=True).with_row_index('_peptide')
+        labels=references.select(*search_keys,'epitope').unique().join(
+            whole.select('_ref',*search_keys),on=search_keys,validate='m:1').join(
+            full_peptides,on='epitope',nulls_equal=True,validate='m:1').sort('_ref','_peptide')
+        lengths=whole.select('_ref').join(labels.group_by('_ref').len(),on='_ref',how='left',
+            maintain_order='left')['len'].fill_null(0).to_numpy()
+        withheld=unique.select(pl.col(withheld_column).alias('epitope')).join(
+            full_peptides,on='epitope',how='left',nulls_equal=True,maintain_order='left')
+        folds=dict(query_withheld_peptide_ids=withheld['_peptide'].fill_null(-1).to_numpy(),
+            reference_peptide_offsets=np.concatenate((np.zeros(1,dtype=np.uint64),np.cumsum(lengths,dtype=np.uint64))),
+            reference_peptide_ids=labels['_peptide'].to_numpy())
     def axes(frame, reference=False):
         seqs=['alpha','beta'] if reference and paired else ['cdr3a','cdr3b'] if paired else ['cdr3']
         genes=['_allele_alpha','_allele_beta'] if reference and paired else ['_allelea','_alleleb'] if paired else ['_allele']
@@ -127,8 +159,8 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         paired=paired,reference_target_offsets=offsets,
         reference_target_ids=members['_target'].to_numpy(),target_peptide_ids=target_peptides,
         reference_exclusive_peptide_ids=exclusive,
-        chunk_size=min(64,max(1,256*1024**2//bytes_per_query)),**geometry)
-    mapping=queries.select('query_id',*query_keys).join(unique,on=query_keys,how='left',validate='m:1')
+        chunk_size=min(64,max(1,256*1024**2//bytes_per_query)),**folds,**geometry)
+    mapping=queries.select('query_id',*query_keys).join(unique,on=query_keys,how='left',validate='m:1',nulls_equal=True)
     allowed=None
     if assayed:
         allowed=pl.concat([part.select('query_id').with_columns(pl.lit(i).alias('_target'))
@@ -139,8 +171,13 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         curves=np.asarray(chunk.counts);sizes=np.asarray(chunk.sizes)
         # Convert directly to contiguous numerical rows; advanced-cut indexing
         # otherwise transposes and recopies every query x target x cutoff array.
-        nc=np.asarray(curves[:,1:1+T,:][:,:,ladder_slice],dtype=np.float64,order='C').reshape(C*T,-1)
-        same=np.asarray(curves[:,1+T:1+2*T,:][:,:,ladder_slice],dtype=np.float64,order='C').reshape(C*T,-1)
+        shells=np.empty((C,T,len(cutoffs)),dtype=np.float64)
+        same_shells=np.empty_like(shells)
+        for source,out in ((curves[:,1:1+T,:][:,:,ladder_slice],shells),
+                           (curves[:,1+T:1+2*T,:][:,:,ladder_slice],same_shells)):
+            out[:,:,0]=source[:,:,0]
+            np.subtract(source[:,:,1:],source[:,:,:-1],out=out[:,:,1:],dtype=np.float64)
+        shells=shells.reshape(C*T,-1);same_shells=same_shells.reshape(C*T,-1)
         control=np.empty((C,T,len(native_cuts)),dtype=np.float64)
         np.subtract(curves[:,0,None,:],curves[:,1+2*T+target_peptides,:],out=control,dtype=np.float64)
         control=np.asarray(control[:,:,ladder_slice],order='C').reshape(C*T,-1)
@@ -148,9 +185,9 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         # Immutable native curves already satisfy the validated monotone/subset
         # and population contract. Reuse the exact arithmetic without scanning
         # every generated curve again; public kernel_ladder keeps all checks.
-        scores=_kernel_scores(np.diff(nc,axis=1,prepend=0),np.diff(same,axis=1,prepend=0),
+        scores=_kernel_scores(shells,same_shells,
             control,N.reshape(-1),M.reshape(-1),np.asarray(cutoffs,dtype=np.float64),
-            kernel_scale,.25,.01,scorer,False)
+            kernel_scale,.25,.01,scorer,False,_reuse_buffers=True)
         exact=np.zeros((C,T),dtype=np.uint32) if geometry.get('exclude_exact',False) else np.asarray(chunk.exact_counts)
         values=pl.DataFrame({'_row':np.repeat(np.arange(chunk.start,chunk.stop),T),
             '_target':np.tile(np.arange(T),C),'kernel_score':scores['kernel_score'],

@@ -958,7 +958,38 @@ and retained/excluded record counts are exported.
    vdjmatch reference-calls --vdjdb reference.zip --locus TRB \
      --leave-epitope-out --threads 12 --output-prefix withheld
 
-Nonbundled species/loci require a matching raw ``--control`` repertoire. Output
+The default ``--scorer original`` retains the existing scoring and curated
+reference-valid policy. ``--reference-population all-valid`` explicitly includes
+all canonical valid junctions, including source records excluded by benchmark
+curation; ``curated-benchmark`` remains this command's default.
+
+``--scorer stem4`` exports the final selected ``kernel_score`` for single-chain
+calibration. It uses raw BLOSUM62 costs, trim3, depth 4 stem geometry, radius 585,
+the recorded 153-cutoff ladder and V-bounded evidence. Each peptide first takes
+its maximum over MHC restrictions, then all peptides compete; ties retain an
+explicit ambiguous disposition. The entire selected-policy reference includes
+sparse peptides. Peptide-withheld folds remove full peptide memberships before
+counts, population sizes and shared-key exclusivity, in one native batch.
+Distinct anchored-AA-junction/V/J identities are retained, with truth peptide
+also part of withheld query identity. Exact exclusion removes the full junction
+across V/J identities. Invalid genes and no-support queries remain in outputs.
+
+.. code-block:: bash
+
+   vdjmatch reference-calls --vdjdb reference.zip --locus TRA --scorer stem4 \
+     --reference-population all-valid --leave-epitope-out --threads 12 \
+     --output-prefix stem4-withheld
+
+Stem4 uses the other-peptide reference background. Explicit ``--control`` and
+nondefault ``--scope`` are rejected; ``human``/``mouse`` species aliases are accepted.
+Only ``--calibration-score score`` is compatible; component E/P values cannot
+calibrate this final scalar. Its outputs are calls, calibration cases, truth,
+source-record target support and a geometry/model/source-hashed manifest.
+Calibration must bind this scorer, selection and reference policy. No paired
+joint-null calibration is supplied.
+
+The original scorer requires a matching raw ``--control`` repertoire for nonbundled
+species/loci. Its output
 includes continuous candidates, calls, full truth labels, calibration input and a
 manifest. Wrong labels and no-hit/ambiguous dispositions remain in denominators.
 Calibration input uses the existing winning-label ranking ``score`` by default.

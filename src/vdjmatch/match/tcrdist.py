@@ -772,6 +772,14 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
     method='grouped_paired_sum_count_batch' if paired else 'grouped_count_batch'
     if not hasattr(gapblock,method):
         raise RuntimeError('grouped kernel counts require updated Python/native seqtree support')
+    if 'query_withheld_peptide_ids' in memberships:
+        import inspect
+        if 'query_withheld_peptide_ids' not in inspect.signature(getattr(gapblock,method)).parameters:
+            raise RuntimeError('peptide-withheld grouped counts require updated Python/native seqtree support')
+        native=getattr(gapblock,'_gapblock_grouped_count_batch',None)
+        if not all(name in (getattr(native,'__doc__',None) or '') for name in
+                ('query_withheld_peptide_ids','reference_peptide_offsets','reference_peptide_ids')):
+            raise RuntimeError('peptide-withheld grouped counts require updated native seqtree support')
     context=(precompute_v_loop_distances(species=species,alphabet=alphabet,matrix=matrix)
              if v_loop_distances is None else v_loop_distances)
     axes=[];gene_axes=[]

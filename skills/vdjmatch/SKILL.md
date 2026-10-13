@@ -29,6 +29,8 @@ queries, selections = result["queries"], result["selection"]
 - AIRR sequences are anchor-inclusive `junction_aa`, with `v_call` and `locus`.
   Never fabricate anchors from bare AIRR `cdr3_aa`.
 - Simple tables use `locus`, `v`, optional `j`, and `junction_aa`.
+  Unique amino-acid clonotype panels collapse the supplied V/junction/J key
+  and sum counts; retain different J calls and do not deduplicate by nucleotides.
 - Long pairs link TRA/TRB rows by the supplied cell/pair/clone identity. Wide pairs
   use `junction_aa_alpha/beta`, `v_alpha/beta` and optional `j_alpha/beta`.
   Keep clone and clonotype IDs separate; never select one ambiguous chain silently.
@@ -57,3 +59,11 @@ For library/CLI engineering, the synthetic serial/parallel and process-tree memo
 gate is `python -m pytest tests/test_annotation_resources.py -q` with test/bench
 extras installed. Scientific comparisons require matched populations and exact
 exclusion policies; preserve established results and report every task delta.
+
+Single-chain complete-score calibration uses `reference-calls --scorer stem4
+--reference-population curated-benchmark --leave-epitope-out`, followed by
+`calibrate-calls` on its `.calibration-cases.tsv`. Pin the reference, model,
+scorer, exclusion policy and generated null source before recommending a cutoff.
+This withheld benchmark does not supply paired joint calibration or transfer
+to an ordinary all-valid reference model. The original `reference-calls` mode
+remains available and is its default.
