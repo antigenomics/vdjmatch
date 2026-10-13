@@ -267,6 +267,25 @@ def germline_prior(queries, reference, background, *, include_length=True, exclu
             pl.col('v', 'j').str.replace(r'\*.*$', ''),
             pl.col('cdr3').str.len_chars().alias('length'))
 
+    if not exclude_exact:
+        # Preserve the accepted scalar division and inline null-fill operation order.
+        out = features(queries).select('query_id', *columns)
+        ref, bg = features(ref), features(background)
+        out = out.with_columns(pl.lit(0.0).alias('germline_lr'))
+        for column in columns:
+            rc = ref.group_by(column).len().rename({'len': '_ref_count'})
+            bc = bg.group_by(column).len().rename({'len': '_bg_count'})
+            out = (out.join(rc, on=column, how='left', maintain_order='left')
+                   .join(bc, on=column, how='left', maintain_order='left')
+                   .with_columns((pl.col('germline_lr') +
+                       (((pl.col('_ref_count').fill_null(0) + .5) / (nr + 30)) /
+                        ((pl.col('_bg_count').fill_null(0) + .5) / (nb + 30))).log())
+                       .alias('germline_lr'))
+                   .drop('_ref_count', '_bg_count'))
+        return out.select('query_id', 'germline_lr').with_columns(
+            pl.lit(nr, dtype=pl.UInt64).alias('n_reference'),
+            pl.lit(nb, dtype=pl.UInt64).alias('background_size'))
+
     out = features(queries).select('query_id', *(['cdr3'] if exclude_exact else []), *columns)
     ref, bg = features(ref), features(background)
     out = out.with_columns(pl.lit(0.0).alias('germline_lr'),
