@@ -223,25 +223,46 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         _validate_output_paths(prefix, [Path(reference).expanduser().resolve()])
     prefix.parent.mkdir(parents=True, exist_ok=True)
     tables, manifests, batches = {}, [], []
+    paired_rows=cohort.filter(pl.col('_population')=='paired')
+    mixed_union=(locus=='auto' and selection_only and
+        options.get('neighbour_weighting',defaults.neighbour_weighting)=='kernel' and
+        paired_rows.height>0 and cohort.filter(pl.col('_population')=='single').height>0)
+    marginal_tables={};service_batches=[]
+    from ..evalue.control import _organism
+    from ..match.tcrdist import precompute_v_loop_distances
+    v_loop_distances=precompute_v_loop_distances(species=_organism(species),
+        alphabet=options.get('alphabet',defaults.alphabet),
+        matrix=options.get('distance_matrix',defaults.distance_matrix),
+        v_regions=options.get('v_regions',defaults.v_regions))
     with TemporaryDirectory(prefix="vdjmatch-annotation-") as temporary:
         for population in ("TRA", "TRB", "paired"):
             part = (cohort.filter(pl.col("_population") == "paired") if population == "paired" else
                 cohort.filter((pl.col("_population") == "single") & (pl.col("locus") == population)) if locus == "auto" else
                 cohort.filter(pl.col("_population") == population))
-            if not part.height:
+            service_part=part
+            if mixed_union and population!='paired':
+                # Both paired loci retain the existing nonselected-chain dispositions.
+                service_part=pl.concat([part,paired_rows],how='vertical')
+            if not service_part.height:
                 continue
             sample = Path(temporary) / (population + ".tsv")
             local_prefix = Path(temporary) / population
             # Original wide sequence columns remain in identity/output metadata;
             # the scorer receives only the already-normalized long sequence axis.
-            wide_sequences = [c for c in part.columns if c.lower() in {
+            wide_sequences = [c for c in service_part.columns if c.lower() in {
                 "junction_aa_alpha", "junction_aa_beta", "cdr3_aa_alpha", "cdr3_aa_beta"}]
-            part.drop("_population", *wide_sequences).write_csv(sample, separator="\t")
+            service_part.drop("_population", *wide_sequences).write_csv(sample, separator="\t")
             args = _core_defaults(reference, local_prefix)
             vars(args).update(options)
             args.sample, args.locus, args.species = str(sample), population, species
             args.threads, args.selection_only = threads, selection_only
-            tcrdist.main(args)
+            if mixed_union and population=='paired':
+                tcrdist.main(args,marginal_tables=marginal_tables,v_loop_distances=v_loop_distances)
+            else:
+                tcrdist.main(args,v_loop_distances=v_loop_distances)
+            service_batches.append({'locus':population,'service_chain_rows':service_part.height,
+                'standalone_chain_rows':part.height if population!='paired' else 0,
+                'paired_chain_rows':paired_rows.height if mixed_union else part.height if population=='paired' else 0})
             mapping = (_pair_mapping(part, offset) if population == "paired" else part.drop("_population").with_columns(
                 pl.col("query_id").cast(pl.String).alias("_service_query_id"),
                 pl.col("source_pair_id").alias("pair_id")))
@@ -251,6 +272,10 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
                     "query_id": pl.String, "query_ida": pl.String, "query_idb": pl.String,
                     "sequence_id": pl.String, "sequence_ida": pl.String, "sequence_idb": pl.String,
                     "clone_id": pl.String, "pair_id": pl.String})
+                if mixed_union and population!='paired':
+                    marginal_tables.setdefault(population,{})[kind]=frame.filter(
+                        pl.col('query_id').is_in(paired_rows['query_id'].cast(pl.String).implode()))
+                    frame=frame.filter(pl.col('query_id').is_in(part['query_id'].cast(pl.String).implode()))
                 lane_mapping = (part.drop("_population").with_columns(
                     pl.col("query_id").cast(pl.String).alias("_service_query_id"),
                     pl.col("source_pair_id").alias("pair_id"))
@@ -258,8 +283,9 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
                 tables.setdefault(kind, []).append(_restore(frame, lane_mapping))
             manifest = json.loads(Path(str(local_prefix) + ".manifest.json").read_text())
             manifests.append(manifest)
-            batches.append({"locus": population, "query_chain_rows": part.height,
-                            "sample_count": part["sample_id"].n_unique()})
+            if part.height:
+                batches.append({"locus": population, "query_chain_rows": part.height,
+                                "sample_count": part["sample_id"].n_unique()})
     outputs = {}
     result = {}
     if not tables:
@@ -275,9 +301,10 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         frame.write_csv(path, separator="\t")
         result[kind], outputs[kind] = frame, str(path)
     manifest = {**(manifests[0] if len(manifests) == 1 else {}), "input_samples": len(rows), "input_chain_rows": cohort.height, "ingestion": reports,
-        "populations": batches, "population_service_calls": len(batches), "native_threads": threads,
+        "populations": batches, "population_service_calls": len(manifests), "native_threads": threads,
         "table_threads": pl.thread_pool_size(), "species": species, "locus": locus,
         "selection_only": selection_only, "core_manifests": manifests, "outputs": outputs,
+        **({'mixed_chain_union':True,'service_batches':service_batches} if mixed_union else {}),
         "wall_seconds": time.perf_counter() - started}
     manifest_path = Path(str(prefix) + ".manifest.json")
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")

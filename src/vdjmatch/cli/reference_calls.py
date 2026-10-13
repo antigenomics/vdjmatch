@@ -146,7 +146,8 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
     r = prepare(valid).unique(['cdr3', '_allele', *PMHC], maintain_order=True)
     groups = [(dict(zip(PMHC, task)), q, part) for task, part in r.group_by(PMHC, maintain_order=True)]
     geometry = dict(species=species, threads=args.threads, ctrim=3, v_loop_weight=1,
-        alphabet='full', stem_depth=4, stem_weight=1.0, matrix='blosum62', exclude_exact=True)
+        alphabet='full', stem_depth=4, stem_weight=1.0, matrix='blosum62', exclude_exact=True,
+        v_regions='cdr12plus', position_weighting='uniform')
     state, hit_ids = grouped_kernel_selection(q, r, groups, query_keys=query_keys,
         search_keys=['cdr3', '_allele'], paired=False, cutoffs=ladder_cutoffs(26),
         radius=585, kernel_scale=585, scorer='v-bounded', withheld_column=withheld,

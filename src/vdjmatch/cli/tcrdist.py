@@ -20,14 +20,16 @@ def register(subparsers, name='tcrdist-neighbours'):
     p.add_argument('--all-targets',action='store_true',help='emit separate evidence for every full pMHC; query target labels are ignored')
     p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep the full background model fixed')
     p.add_argument('--threads',type=int,default=1)
-    p.add_argument('--distance-matrix',choices=['tcrdist','blosum62'],default='tcrdist',
-                   help='clipped TCRdist costs or unclipped BLOSUM62 Gram penalties')
+    p.add_argument('--distance-matrix',choices=['tcrdist','blosum62','pam250','mj','vdjam'],default='tcrdist',
+                   help='clipped TCRdist costs or retained unclipped BLOSUM62/PAM250/MJ/VDJAM Gram penalties')
     p.add_argument('--alphabet',choices=['full','imgt'],default='full',
                    help='experimental ordered IMGT-class geometry; same projected matrix for CDR3/V loops, raw identities retained')
     p.add_argument('--junction-ends',choices=['tcrdist','trim3'],default='tcrdist',
                    help='TCRdist3 trims 3 N/2 C residues; trim3 tests 3 residues at both ends')
     p.add_argument('--v-loop-weight',type=int,choices=[0,1],default=1,
                    help='fixed experimental CDR3-only(0) versus CDR3+V(1); identical V eligibility')
+    p.add_argument('--v-regions',choices=['cdr12plus','cdr12'],default='cdr12plus',
+                   help='aligned V regions: CDR1/CDR2/CDR2.5 (default), or retained vcdr12 extra omitting CDR2.5')
     p.add_argument('--stem-depth',type=int,default=0,
                    help='joint V-J hairpin stem levels added to the junction distance. '
                         'The CDR3 loop pairs position i with position L-1-i; a level counts '
@@ -40,7 +42,7 @@ def register(subparsers, name='tcrdist-neighbours'):
     p.add_argument('--background',choices=['real','generative','vdjdb-other'],
                    help='experimental assayed-target ball enrichment; no P-value')
     p.add_argument('--control',help='raw junction/V control table for real or generative background')
-    p.add_argument('--position-weighting',choices=['uniform','significance','ndn'],default='uniform',
+    p.add_argument('--position-weighting',choices=['uniform','significance','significance-trimmed','ndn'],default='uniform',
                    help='enrichment geometry; ndn uses fixed0.1V/J flanks and1NDN with verified ARDA boundaries')
     p.add_argument('--neighbour-weighting',choices=['ball','linear','local-rank','kernel'],default='ball',
                    help='ball/linear enrichment or experimental background-local rank evidence')
@@ -133,7 +135,7 @@ def _paired_input(path, raw, model, organism):
     return pairs,ingestion
 
 
-def main(a):
+def main(a, *, marginal_tables=None, v_loop_distances=None):
     from importlib.metadata import version
     from importlib.resources import files
     import json
@@ -151,11 +153,15 @@ def main(a):
     start=time.perf_counter()
     kernel=a.neighbour_weighting=='kernel'
     selection_only=getattr(a,'selection_only',False)
+    if marginal_tables is not None and (a.locus!='paired' or not kernel or not selection_only):
+        raise ValueError('run-local marginal tables require compact paired kernel scoring')
     if selection_only and (not kernel or a.shortlist_audit or a.unbounded_nearest):
         raise ValueError('selection-only requires kernel scoring without candidate diagnostics')
     if kernel and not a.background:
         raise ValueError('kernel scoring requires a reference/control background')
-    if kernel and (a.position_weighting!='uniform' or a.nearest_rank or a.reference_radius
+    if a.position_weighting=='significance-trimmed' and (not kernel or not selection_only or a.junction_ends!='trim3'):
+        raise ValueError('trimmed significance requires compact kernel scoring and trim3 junction ends')
+    if kernel and (a.position_weighting not in ('uniform','significance-trimmed') or a.nearest_rank or a.reference_radius
                    or a.epitope_rules or a.conditional_j or a.chemistry):
         raise ValueError('kernel scoring requires uniform geometry and excludes other diagnostic reducers')
     if kernel and not (a.targets_from_sample or a.epitope or a.mhc_a or a.mhc_b):
@@ -167,6 +173,7 @@ def main(a):
     if a.stem_depth and (a.epitope_rules or a.conditional_j or a.chemistry):
         raise ValueError('stem geometry is separate from J/epitope-rule/chemistry diagnostics')
     a.alphabet=getattr(a,'alphabet','full')
+    a.v_regions=getattr(a,'v_regions','cdr12plus')
     matrix_scale,bin_width=distance_units(_substitution_costs(a.alphabet,a.distance_matrix))
     if a.alphabet!='full' and (a.epitope_rules or a.conditional_j or getattr(a,'chemistry',False)):
         raise ValueError('class alignment is separate from J/epitope-rule/chemistry diagnostics')
@@ -213,7 +220,7 @@ def main(a):
         raise ValueError('--shortlist-audit requires uniform single-chain target/nearest mode with V weight1')
     if a.background and not (a.targets_from_sample or a.all_targets or kernel):
         raise ValueError('--background requires --targets-from-sample or --all-targets')
-    if a.locus=='paired' and a.background and (a.background!='vdjdb-other' or a.position_weighting not in ('uniform','ndn')):
+    if a.locus=='paired' and a.background and (a.background!='vdjdb-other' or a.position_weighting not in ('uniform','ndn','significance-trimmed')):
         raise ValueError('paired background requires vdjdb-other and uniform or ndn positional weights; generative/real joint controls are not defined')
     if a.neighbour_weighting=='linear' and (not a.background or a.radius<=0):
         raise ValueError('linear neighbour weighting requires a background and positive radius')
@@ -221,7 +228,7 @@ def main(a):
         raise ValueError('local-rank requires a background and prior strictly between zero and one')
     if bool(a.control) != (a.background in {'real','generative'}):
         raise ValueError('--control is required only for --background real or generative')
-    if a.position_weighting!='uniform' and (not a.background or a.junction_ends!='tcrdist'):
+    if a.position_weighting in ('significance','ndn') and (not a.background or a.junction_ends!='tcrdist'):
         raise ValueError('full positional weighting requires --background and excludes an additional trim3')
     raw=_read_table(a.sample)
     if 'query_id' not in raw.columns:raw=raw.with_row_index('query_id')
@@ -233,7 +240,11 @@ def main(a):
     ctrim=2 if a.junction_ends=='tcrdist' else 3
     paired=a.locus=='paired'
     from ..match.tcrdist import precompute_v_loop_distances
-    v_loop_distances=precompute_v_loop_distances(species=organism,alphabet=a.alphabet,matrix=a.distance_matrix)
+    if v_loop_distances is None:
+        v_loop_distances=precompute_v_loop_distances(species=organism,alphabet=a.alphabet,matrix=a.distance_matrix,v_regions=a.v_regions)
+    elif any(v_loop_distances[key]!=value for key,value in
+             [('species',organism),('alphabet',a.alphabet),('matrix',a.distance_matrix),('v_regions',a.v_regions)]):
+        raise ValueError('run-local V tables must match the requested species and geometry')
     model=v_loop_distances['model']
     if paired:
         pair_rows,ingestion=_paired_input(a.sample,raw,model,organism)
@@ -465,7 +476,7 @@ def main(a):
                                     'distinct full junction + resolved V allele')+'; no abundance weights',
                 'restriction':'same species/locus; other epitopes may have other MHC restrictions'}
         grouped_kernel=(selection_only and kernel and a.background=='vdjdb-other' and
-            a.position_weighting=='uniform' and not (a.conditional_j or a.epitope_rules or getattr(a,'chemistry',False)))
+            a.position_weighting in ('uniform','significance-trimmed') and not (a.conditional_j or a.epitope_rules or getattr(a,'chemistry',False)))
         global_curves=None
         if not grouped_kernel and kernel and a.background=='vdjdb-other' and len(groups)>1:
             # All-label targets share the same query population. Concatenating
@@ -499,7 +510,7 @@ def main(a):
                 query_keys=query_keys,search_keys=search_keys,paired=paired,
                 cutoffs=kernel_cutoffs,radius=a.radius,kernel_scale=22.5*matrix_scale,
                 scorer=a.kernel_scorer,assayed=a.targets_from_sample,
-                **{k:v for k,v in options.items() if k not in ('position_weighting','linear_mass')})
+                **{k:v for k,v in options.items() if k!='linear_mass'})
             background_costs['native_count_batches']+=time.perf_counter()-count_start
             background_provenance['reduction']='one grouped reference traversal; whole search-key counts minus keys exclusive to target peptide; shared-label keys retained'
         population_queries=(q.select(query_keys).unique(maintain_order=True)
@@ -842,7 +853,14 @@ def main(a):
             marginal=copy(a)
             marginal.locus=locus
             marginal.output_prefix=str(prefix)+'.'+locus
-            main(marginal)
+            if marginal_tables is None:
+                main(marginal,v_loop_distances=v_loop_distances)
+            else:
+                lane=marginal_tables[locus]
+                if set(lane)!={'queries','selection'}:
+                    raise ValueError('compact union marginals require queries and selection tables')
+                for kind,frame in lane.items():
+                    frame.write_csv(marginal.output_prefix+'.'+kind+'.tsv',separator='\t')
             mapping=pair_rows.select('query_id',pl.col('query_id'+suffix).alias('_chain_id'))
             if not selection_only:
                 lane=pl.read_csv(marginal.output_prefix+'.enrichment.tsv',separator='\t',
@@ -864,6 +882,7 @@ def main(a):
                 str(prefix)+'.selection.tsv',separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'selection_only':selection_only,
+        **({'marginal_execution':'run-local union chain population services'} if marginal_tables is not None else {}),
         'output_tables':(['queries','selection'] if selection_only else ['queries','candidates']+
             (['enrichment','selection'] if kernel else ['enrichment'] if a.background else [])+
             (['paired-evidence'] if paired and kernel else [])),
@@ -906,7 +925,7 @@ def main(a):
         'distance_scale':{'matrix':a.distance_matrix,'alphabet':a.alphabet,'matrix_unit':matrix_scale,'radius':a.radius,'radius_factor':a.radius_factor,
             'requested_radius':requested_radius,
             'radius_mode':'absolute' if absolute_radius else 'matrix_factor','bin_width':bin_width,
-            'gap_cost':3*matrix_scale,'cdr3_weight':3,'v_loop_weight':a.v_loop_weight,
+            'gap_cost':3*matrix_scale,'cdr3_weight':3,'v_loop_weight':a.v_loop_weight,'v_regions':a.v_regions,
             'stem_depth':a.stem_depth,'stem_weight':a.stem_weight,
             **({'stem':'joint V-J hairpin; level i pairs junction positions i and L-1-i on '
                        'untrimmed junctions; a level costs max(end,start) so it breaks when '
@@ -926,7 +945,7 @@ def main(a):
         'selection':('exhaustive nearest nonexcluded reference; n_neighbours counts only within radius'
                      if a.unbounded_nearest else 'radius ball'),
         'distance':(('TCRdist3 default' if ctrim==2 else 'experimental symmetric-trim')+
-                    ' 3*CDR3+CDR1+CDR2+CDR2.5' if a.v_loop_weight else
+                    (' 3*CDR3+CDR1+CDR2'+('+CDR2.5' if a.v_regions=='cdr12plus' else '')) if a.v_loop_weight else
                     'experimental CDR3-only:3*CDR3')+
                    (f'+joint stem depth {a.stem_depth}' if a.stem_depth else '')+'; '+
                    organism+' combo_xcr_2024-03-05',
@@ -942,8 +961,8 @@ def main(a):
             'interpretation':'empirical predictive ranking only; no P/E-value, biological posterior or benchmark-label fitting'}} if a.epitope_rules else {}),
         **({'shortlist_audit':{'stages':shortlist_costs,'scope':'CDR3 radius shortlist then unchanged nonnegative V costs; same eligibility/full-junction puncture. Original exhaustive outputs unchanged; no global K cap, biological confidence or paired claim.'}} if a.shortlist_audit else {}),
         **({'background_enrichment':{'background':background_provenance,'stage_wall_seconds':background_costs,
-            'v_loop_weight':a.v_loop_weight,
-            'geometry':'fixed0.1VJ/1NDN' if a.position_weighting=='ndn' else 'full-profile decay' if a.position_weighting=='significance' else f'trim3/{ctrim}',
+            'v_loop_weight':a.v_loop_weight,'v_regions':a.v_regions,
+            'geometry':'fixed0.1VJ/1NDN' if a.position_weighting=='ndn' else 'full-profile decay' if a.position_weighting=='significance' else 'trim3 mean-one significance; junction floor before V/stem addition' if a.position_weighting=='significance-trimmed' else f'trim3/{ctrim}',
             **({'boundaries':boundary_provenance} if boundary_provenance else {}),
             'formula':'reference_weight/[reference_population*(control_weight+0.5)/(control_population+1)]',
             'kernel':'max(0,1-distance/radius)' if a.neighbour_weighting=='linear' else 'distance<=radius',

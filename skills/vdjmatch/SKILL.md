@@ -46,6 +46,12 @@ queries, selections = result["queries"], result["selection"]
 - Compact output is the default. `--details` exports continuous evidence per target
   and candidates; its memory grows with queries × targets. `--epitope` restricts
   requested targets. `--kernel-scorer` selects retained advanced kernel variants;
+  `--v-regions cdr12 --stem-depth 0 --distance-matrix tcrdist
+  --junction-ends trim3` selects the retained `vcdr12` geometry.
+  Matrix extras use `--distance-matrix pam250|mj|vdjam` with stem depth 0 and trim3.
+  `sig` uses compact `--position-weighting significance-trimmed
+  --distance-matrix tcrdist --stem-depth 0 --junction-ends trim3`; `sigb62` uses
+  blosum62. Preserve their pre-V junction rounding; calibration is geometry specific.
   `historical-density` retains the original scorer and its advanced options.
   For original held-out components, use `historical-density --legacy-components
   --reference-population all-valid --germline-background RAW --control RAW`;

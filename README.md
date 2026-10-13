@@ -85,8 +85,18 @@ grows with queries × targets. `--epitope PEPTIDE` restricts the requested targe
 `--exclude-exact` is for honest benchmarks; ordinary annotation retains exact hits.
 `--kernel-scorer` selects the advanced `all-bounded`, `vonly-bounded`, `v-rare`,
 `all-rare` or `vonly-rare` alternatives; `v-bounded` is the targeted default.
+The retained `vcdr12` geometry is `--v-regions cdr12 --stem-depth 0
+--distance-matrix tcrdist --junction-ends trim3`; it uses CDR1/CDR2 V similarity.
+Matrix extras use `--distance-matrix pam250`, `mj` or `vdjam`, with
+`--stem-depth 0 --junction-ends trim3`; gaps and ladder cutoffs use that matrix's units.
+The retained `sig` geometry adds `--position-weighting significance-trimmed`
+to the trim3 TCRdist geometry; `sigb62` also uses `--distance-matrix blosum62`.
+These two extras require compact output and retain the recorded rounding before
+V-loop addition. Calibration does not transfer between geometries.
 `--threads N` budgets native compute threads; searches batch queries by population
 and do not create a worker process per receptor or input file.
+Mixed single/paired cohorts share marginal chain searches. V-loop tables are
+prepared once per invocation, including the selected matrix and V regions.
 The library also enforces this ceiling for the Polars table pool. If Polars was
 already imported with a larger pool, start a fresh process with
 `POLARS_MAX_THREADS=N` set before importing Polars; the API fails explicitly

@@ -95,7 +95,8 @@ def kernel_peptides(scores):
 
 
 def grouped_kernel_selection(queries, references, groups, *, query_keys, search_keys,
-        paired, cutoffs, radius, kernel_scale, scorer, assayed=False, withheld_column=None, **geometry):
+        paired, cutoffs, radius, kernel_scale, scorer, assayed=False, withheld_column=None,
+        position_weighting='uniform', **geometry):
     """Compact all-label selection from one bounded native reference traversal.
 
     Memberships deduplicate search keys separately from pMHC annotations. Other
@@ -156,7 +157,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     if bytes_per_query>256*1024**2:
         raise ValueError('one grouped query exceeds the 256 MiB native count-buffer budget; restrict requested targets')
     iterator=grouped_total_distance_count_batch(axes(unique),axes(whole,True),native_cuts,
-        paired=paired,reference_target_offsets=offsets,
+        paired=paired,position_weighting=position_weighting,reference_target_offsets=offsets,
         reference_target_ids=members['_target'].to_numpy(),target_peptide_ids=target_peptides,
         reference_exclusive_peptide_ids=exclusive,
         chunk_size=min(64,max(1,256*1024**2//bytes_per_query)),**folds,**geometry)
@@ -176,10 +177,11 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         for source,out in ((curves[:,1:1+T,:][:,:,ladder_slice],shells),
                            (curves[:,1+T:1+2*T,:][:,:,ladder_slice],same_shells)):
             out[:,:,0]=source[:,:,0]
-            np.subtract(source[:,:,1:],source[:,:,:-1],out=out[:,:,1:],dtype=np.float64)
+            # Monotone uint32 curves have exact nonnegative uint32 increments.
+            out[:,:,1:]=np.subtract(source[:,:,1:],source[:,:,:-1],dtype=np.uint32)
         shells=shells.reshape(C*T,-1);same_shells=same_shells.reshape(C*T,-1)
         control=np.empty((C,T,len(native_cuts)),dtype=np.float64)
-        np.subtract(curves[:,0,None,:],curves[:,1+2*T+target_peptides,:],out=control,dtype=np.float64)
+        np.subtract(curves[:,0,None,:],np.take(curves,1+2*T+target_peptides,axis=1),out=control,dtype=np.float64)
         control=np.asarray(control[:,:,ladder_slice],order='C').reshape(C*T,-1)
         N=sizes[:,1:1+T];M=sizes[:,0,None]-sizes[:,1+2*T+target_peptides]
         # Immutable native curves already satisfy the validated monotone/subset

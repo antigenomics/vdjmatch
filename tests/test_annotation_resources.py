@@ -57,21 +57,21 @@ def _measured(command, report, threads):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("input_format", ["simple", "airr_single", "wide_paired", "long_paired"])
+@pytest.mark.parametrize("input_format", ["simple", "airr_single", "wide_paired", "long_paired", "mixed"])
 def test_directory_library_metadata_cli_parallel_resource_parity(tmp_path, input_format):
     samples = tmp_path / "samples"
     samples.mkdir()
     rows_per_sample = 1024
-    paired = input_format.endswith("paired")
+    paired = input_format.endswith("paired") or input_format == 'mixed'
     for name in ("one", "two", "three", "four"):
         identity = {"query_id": [f"q{i:04}" for i in range(rows_per_sample)],
             "clonotype_id": [f"type{i:04}" for i in range(rows_per_sample)],
             "clone_id": [f"clone{i:04}" for i in range(rows_per_sample)]}
         beta = ["CASSLGQAYEQYF", "CASSLGQAYEQWF", "invalid", None] * (rows_per_sample//4)
-        if paired:
+        if paired and (input_format != 'mixed' or name in ('one','two')):
             alpha = ["CAVRDSNYQLIW", None, "invalid", None] * (rows_per_sample//4)
             beta = ["CASSLGQAYEQYF", "CASSLGQAYEQWF", None, None] * (rows_per_sample//4)
-            if input_format == "wide_paired":
+            if input_format in ("wide_paired", "mixed"):
                 frame = pl.DataFrame({**identity, "junction_aa_alpha": alpha, "junction_aa_beta": beta,
                     "v_alpha": ["TRAV12-1"] * rows_per_sample, "j_alpha": ["TRAJ33"] * rows_per_sample,
                     "v_beta": ["TRBV19"] * rows_per_sample, "j_beta": ["TRBJ2-7"] * rows_per_sample})
@@ -127,8 +127,10 @@ else:
     from vdjmatch.cli.__main__ import main
     assert main(['annotate','--metadata',source,'--vdjdb',reference,'--threads',str(threads),'-o',prefix])==0
 assert calls['grouped_count_batch'] and set(calls['grouped_count_batch'])=={threads}, calls
-if paired=='1':
+if paired in ('1','2'):
     assert calls['grouped_paired_sum_count_batch'] and set(calls['grouped_paired_sum_count_batch'])=={threads}, calls
+if paired=='2':
+    assert len(calls['grouped_count_batch'])==2 and len(calls['grouped_paired_sum_count_batch'])==1, calls
 print(json.dumps({'native_batches':{k:len(v) for k,v in calls.items()},
     'native_thread_arguments':{k:sorted(set(v)) for k,v in calls.items()}}))
 ''')
@@ -137,12 +139,12 @@ print(json.dumps({'native_batches':{k:len(v) for k,v in calls.items()},
         for threads in (1, 4):
             prefix = tmp_path / f"{mode}{threads}"
             command = [sys.executable, str(driver), mode, str(samples if mode == "library" else metadata),
-                       str(reference), str(prefix), str(threads), str(int(paired))]
+                       str(reference), str(prefix), str(threads), '2' if input_format=='mixed' else str(int(paired))]
             _measured(command, prefix.with_suffix(".resources.json"), threads)
             manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
-            assert manifest['population_service_calls']==1
+            assert manifest['population_service_calls']==(3 if input_format=='mixed' else 1)
             assert manifest['input_samples']==len(names)
-            assert manifest['input_chain_rows']==rows_per_sample*len(names)*(2 if paired else 1)
+            assert manifest['input_chain_rows']==rows_per_sample*(6 if input_format=='mixed' else len(names)*(2 if paired else 1))
             assert manifest['native_threads']==threads
             assert manifest['table_threads']<=threads
             tables = {}
@@ -154,14 +156,16 @@ print(json.dumps({'native_batches':{k:len(v) for k,v in calls.items()},
                 assert frame.group_by("sample_id").len()["len"].to_list() == [rows_per_sample]*len(names)
                 assert not frame['source_clone_id'].null_count()
                 assert set(frame['source_clone_id']) == {f"clone{i:04}" for i in range(rows_per_sample)}
-                source_columns = ['source_query_ida', 'source_query_idb'] if paired else ['source_query_id']
+                source_columns = (['source_query_id','source_query_ida','source_query_idb'] if input_format=='mixed' else
+                                  ['source_query_ida', 'source_query_idb'] if paired else ['source_query_id'])
                 for column in source_columns:
-                    assert not frame[column].null_count()
+                    if input_format!='mixed':assert not frame[column].null_count()
                     suffix = column[-1] if input_format == 'long_paired' else ''
-                    assert set(frame[column]) == {f'q{i:04}'+suffix for i in range(rows_per_sample)}
-                clonotype_columns = ['clonotype_ida', 'clonotype_idb'] if paired else ['clonotype_id']
+                    assert set(frame[column].drop_nulls()) == {f'q{i:04}'+suffix for i in range(rows_per_sample)}
+                clonotype_columns = (['clonotype_id','clonotype_ida','clonotype_idb'] if input_format=='mixed' else
+                                     ['clonotype_ida', 'clonotype_idb'] if paired else ['clonotype_id'])
                 for column in clonotype_columns:
-                    assert set(frame[column]) == {f'type{i:04}' for i in range(rows_per_sample)}
+                    assert set(frame[column].drop_nulls()) == {f'type{i:04}' for i in range(rows_per_sample)}
                 tables[kind] = frame.sort("sample_id", "query_id")
             if baseline is None:
                 baseline = tables

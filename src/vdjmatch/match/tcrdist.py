@@ -91,7 +91,7 @@ def reference_structure(distances, *, radius_factor=22.5, costs=None):
     return coverage, shape
 
 
-def reference_nearest_distances(frame, *, paired=False, species='human', threads=1, ctrim=3, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='tcrdist',v_loop_distances=None):
+def reference_nearest_distances(frame, *, paired=False, species='human', threads=1, ctrim=3, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='tcrdist',v_loop_distances=None, v_regions=None):
     """Nonexact same-population nearest distances from one native batch.
 
     Input columns are seq0/v0, plus seq1/v1 for linked TRA/TRB. Full junctions
@@ -99,6 +99,7 @@ def reference_nearest_distances(frame, *, paired=False, species='human', threads
     NaN means no nonexact reference. No K cap or dense receptor distance matrix
     is used. The paired reducer uses the existing sum against one reference pair.
     """
+    v_loop_distances = _v_region_context(v_regions, v_loop_distances, species, alphabet, matrix)
     import polars as pl
 
     costs = _substitution_costs(alphabet,matrix)
@@ -259,12 +260,17 @@ def _substitution_costs(alphabet='full', matrix='tcrdist'):
     """
     if alphabet not in ('full', 'imgt'):
         raise ValueError('alphabet must be full or imgt')
-    if matrix not in ('tcrdist', 'blosum62'):
-        raise ValueError('matrix must be tcrdist or blosum62')
+    if matrix not in ('tcrdist', 'blosum62', 'pam250', 'mj', 'vdjam'):
+        raise ValueError('matrix must be tcrdist, blosum62, pam250, mj or vdjam')
     if matrix != 'tcrdist' and alphabet != 'full':
         raise ValueError('unclipped matrix requires the full alphabet')
-    symbols=amino_acids(); b=SubstitutionMatrix.blosum62()
-    if matrix == 'blosum62':
+    symbols=amino_acids()
+    if matrix == 'vdjam':
+        from .scoring import load_vdjam
+        b=load_vdjam()
+    else:
+        b=getattr(SubstitutionMatrix, {'tcrdist':'blosum62', 'mj':'structural'}.get(matrix,matrix))()
+    if matrix != 'tcrdist':
         return np.asarray([[b.penalty(a,c) for c in symbols] for a in symbols],dtype=np.int32)
     costs=np.asarray([[0 if a==c else max(0,min(4,4-b.similarity(a,c)))
                        for c in symbols] for a in symbols],dtype=np.int32)
@@ -336,28 +342,53 @@ def _distance_inputs(queries, references, query_v, reference_v, species, threads
     return queries, references, model, genes
 
 
-def precompute_v_loop_distances(*, species='human', alphabet='full', matrix='tcrdist'):
+def precompute_v_loop_distances(*, species='human', alphabet='full', matrix='tcrdist', v_regions='cdr12plus'):
     """Exact aligned V-loop costs for reuse within one annotation invocation.
 
     The small allele tables are immutable inputs to later population batches;
     no sample predictions, process-global state or persisted cache are retained.
     TRA/TRB have separate tables because their aligned widths can differ.
+    ``v_regions="cdr12"`` omits CDR2.5; the default ``cdr12plus`` retains it.
     """
+    if v_regions not in ('cdr12plus', 'cdr12'):
+        raise ValueError('v_regions must be cdr12plus or cdr12')
     model=load_v_loops(species)
+    selected_model = (model if v_regions == 'cdr12plus' else
+                      {v: dict(meta, cdr25='') for v, meta in model.items()})
     costs=_substitution_costs(alphabet,matrix)
     tables={}
     for locus in ('TRA','TRB'):
         alleles=np.asarray(sorted(v for v in model if model[v]['locus']==locus))
-        distances,_=_v_loop_groups(alleles.tolist(),model,costs)
+        distances,_=_v_loop_groups(alleles.tolist(),selected_model,costs)
         distances.setflags(write=False)
         alleles.setflags(write=False)
         tables[locus]=(alleles,distances)
     costs.setflags(write=False)
-    return {'species':species,'alphabet':alphabet,'matrix':matrix,'model':model,
+    return {'species':species,'alphabet':alphabet,'matrix':matrix,'model':model,'v_regions':v_regions,
             'costs':costs,'tables':tables,'resolved_calls':_v_allele_lookup(model),
             'distance_units':distance_units(costs),
             'count_matrix':SubstitutionMatrix.from_similarity((-3*costs).tolist()),
             'cdr3_matrix':SubstitutionMatrix.from_similarity((-costs).tolist())}
+
+
+def _v_region_context(v_regions, context, species, alphabet, matrix):
+    """Resolve optional aligned-region choice without changing default preparation.
+
+    None inherits a supplied context, otherwise selects CDR1+CDR2+CDR2.5.
+    ``cdr12`` omits only CDR2.5; allele resolution and junction geometry stay common.
+    """
+    if v_regions is None:
+        return context
+    if v_regions not in ('cdr12plus', 'cdr12'):
+        raise ValueError('v_regions must be cdr12plus or cdr12')
+    if context is not None:
+        if context.get('v_regions', 'cdr12plus') != v_regions:
+            raise ValueError('precomputed V loops require matching V regions')
+        return context
+    if v_regions == 'cdr12plus':
+        return None
+    return precompute_v_loop_distances(species=species, alphabet=alphabet,
+                                      matrix=matrix, v_regions=v_regions)
 
 
 def _v_loop_groups(genes, model, d, v_loop_distances=None):
@@ -455,7 +486,7 @@ def stem_penalty(queries, references, *, depth=STEM_DEPTH_DEFAULT, weight=1.0, c
     return result.astype(np.int32)
 
 
-def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2, v_loop_weight=1, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='tcrdist', v_loop_distances=None):
+def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2, v_loop_weight=1, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='tcrdist', v_loop_distances=None, v_regions=None):
     """TCRdist3 default distances in a bounded native batch, maximum64MiB output.
 
     Exact alleles are used; a missing allele suffix explicitly means *01, as in the
@@ -466,6 +497,8 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     positions; mouse TRA templates are29. Callers handle missing calls explicitly.
     ``return_cdr3=True`` returns total and weighted CDR3 matrices separately.
     ``v_loop_weight=0`` is the fixed CDR3-only ablation; eligibility stays identical.
+    ``v_regions="cdr12"`` retains aligned CDR1/CDR2 only. None inherits a
+    supplied prepared context, otherwise keeps CDR1/CDR2/CDR2.5.
     ``ctrim=3`` tests removal of three residues at both junction ends; the default
     remains the TCRdist3 three/two trim. Full junction identity is handled by callers.
     ``stem_depth`` adds the joint V-J hairpin stem term of :func:`stem_penalty` on the
@@ -473,6 +506,7 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     ``cdr3`` matrix under ``return_cdr3`` stays the junction-only distance and never
     carries the stem, which is a joint V-J term rather than a CDR3 alignment cost.
     """
+    v_loop_distances = _v_region_context(v_regions, v_loop_distances, species, alphabet, matrix)
     if type(v_loop_weight) is not int or v_loop_weight not in (0,1):
         raise ValueError("v_loop_weight must be integer0 or1")
     queries, references, model, genes = _distance_inputs(
@@ -499,7 +533,7 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
                                species='human', threads=1, ctrim=2,
                                position_weighting='uniform', exclude_exact=False, linear_mass=False,
                                query_boundaries=None, reference_boundaries=None, v_loop_weight=1,
-                               same_v_gene=False, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='tcrdist', shared_thresholds=False, v_loop_distances=None):
+                               same_v_gene=False, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='tcrdist', shared_thresholds=False, v_loop_distances=None, v_regions=None):
     """Count full-junction/V-loop balls without a dense query/reference matrix.
 
     ``thresholds`` contains one integer list per query, in native units200 times
@@ -533,6 +567,7 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
     boundary ties whose kernel weight is zero. This mode requires the matching
     seqtree native reducer; it never substitutes a dense matrix or another score.
     """
+    v_loop_distances = _v_region_context(v_regions, v_loop_distances, species, alphabet, matrix)
     import inspect
     if 'group_distances' not in inspect.signature(gapblock.count_batch).parameters:
         raise RuntimeError('total-distance counts require seqtree gapblock group_distances support')
@@ -551,13 +586,14 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
 
 
 def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,species='human',
-                          threads=1,ctrim=2,exclude_exact=False,alphabet='full',stem_depth=0,stem_weight=1.0,matrix='tcrdist',v_loop_distances=None):
+                          threads=1,ctrim=2,exclude_exact=False,alphabet='full',stem_depth=0,stem_weight=1.0,matrix='tcrdist',v_loop_distances=None, v_regions=None):
     """Audit the actual CDR3 ball and unchanged V costs in one native reduction.
 
     Native units, eligibility and full-junction puncturing match total counts.
     No K cap. Older native backends retain a bounded sparse retrieval fallback.
     This audits uniform single-chain retrieval, not annotation confidence.
     """
+    v_loop_distances = _v_region_context(v_regions, v_loop_distances, species, alphabet, matrix)
     import time
     import inspect
     streaming=hasattr(gapblock,'group_audit_batch')
@@ -727,7 +763,7 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
         query_v_alpha,query_v_beta,reference_v_alpha,reference_v_beta,thresholds,*,
         species='human',threads=1,ctrim=2,exclude_exact=False,position_weighting='uniform',
         query_boundaries_alpha=None,query_boundaries_beta=None,
-        reference_boundaries_alpha=None,reference_boundaries_beta=None,v_loop_weight=1,same_v_gene=False,alphabet='full',stem_depth=0,stem_weight=1.0,matrix='tcrdist',shared_thresholds=False,v_loop_distances=None):
+        reference_boundaries_alpha=None,reference_boundaries_beta=None,v_loop_weight=1,same_v_gene=False,alphabet='full',stem_depth=0,stem_weight=1.0,matrix='tcrdist',shared_thresholds=False,v_loop_distances=None, v_regions=None):
     """Counts and triangular integer mass for linked alpha+beta total distances.
 
     Thresholds and masses use native units200 times ordinary TCRdist distance.
@@ -737,6 +773,7 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
     ``same_v_gene`` requires matching alpha and beta V genes in that same pair,
     preserving the requested V-loop costs; it does not infer joint support from chain marginals.
     """
+    v_loop_distances = _v_region_context(v_regions, v_loop_distances, species, alphabet, matrix)
     if not hasattr(gapblock,'paired_sum_count_batch'):
         raise RuntimeError('linked mass requires seqtree paired_sum_count_batch support')
     if shared_thresholds:
@@ -761,7 +798,7 @@ def paired_total_distance_mass_batch(query_alpha,query_beta,reference_alpha,refe
 def grouped_total_distance_count_batch(queries, references, thresholds, *, paired=False,
         species='human', threads=1, ctrim=2, v_loop_weight=1, alphabet='full',
         stem_depth=0, stem_weight=1.0, matrix='tcrdist', v_loop_distances=None,
-        exclude_exact=False, chunk_size=64, **memberships):
+        exclude_exact=False, chunk_size=64, v_regions=None, position_weighting='uniform', **memberships):
     """One shared reference traversal with bounded label-count chunks.
 
     Frames use ``seq0/v0`` (TRA for linked pairs) and ``seq1/v1`` (TRB).
@@ -769,9 +806,20 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
     Geometry, same-gene auxiliaries and exact puncturing retain the established
     count contract; no kernel arithmetic or query-label fitting occurs here.
     """
+    v_loop_distances = _v_region_context(v_regions, v_loop_distances, species, alphabet, matrix)
     method='grouped_paired_sum_count_batch' if paired else 'grouped_count_batch'
     if not hasattr(gapblock,method):
         raise RuntimeError('grouped kernel counts require updated Python/native seqtree support')
+    if position_weighting not in ('uniform','significance-trimmed'):
+        raise ValueError('grouped position_weighting must be uniform or significance-trimmed')
+    if position_weighting=='significance-trimmed':
+        if ctrim!=3:
+            raise ValueError('trimmed significance requires trim3 geometry')
+        import inspect
+        quantum='score_quantum_alpha' if paired else 'score_quantum'
+        if (quantum not in inspect.signature(getattr(gapblock,method)).parameters or
+                not hasattr(getattr(gapblock,'_GroupedGeometry',None),'score_quantum')):
+            raise RuntimeError('trimmed significance requires Python/native alignment quantization support')
     if 'query_withheld_peptide_ids' in memberships:
         import inspect
         if 'query_withheld_peptide_ids' not in inspect.signature(getattr(gapblock,method)).parameters:
@@ -808,6 +856,19 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
             v_loop_weight=v_loop_weight,alphabet=alphabet,stem_depth=stem_depth,
             stem_weight=stem_weight,matrix=matrix,v_loop_distances=context)
         native_axes=(q,r)
+    if position_weighting=='significance-trimmed':
+        from .regions import significance_weights
+        for i,(q,r,_,_) in enumerate(axes):
+            weights={}
+            for length in {len(s) for s in q+r}:
+                profile=significance_weights(length)[3:-3]
+                mean=sum(profile)/len(profile) if profile else 1.0
+                weights[length]=[0]*3+[max(1,round(100*w/mean)) for w in profile]+[0]*3
+            suffix=('_alpha','_beta')[i] if paired else ''
+            options['position_weights_by_length'+suffix]=weights
+            # Native alignment is3 times the prototype raw score: floor to600
+            # before adding V/stem offsets equals200*3*(prototype_raw//200).
+            options['score_quantum'+suffix]=600
     return getattr(gapblock,method)(*native_axes,thresholds,**options,**memberships,
         query_gene_ids=ids[:queries.height],reference_gene_ids=ids[queries.height:],
         exclude_exact=exclude_exact,chunk_size=chunk_size)
@@ -816,7 +877,7 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
 def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_beta,
                            query_v_alpha, query_v_beta, reference_v_alpha, reference_v_beta,
                            *, species='human', threads=1, ctrim=2, v_loop_weight=1, alphabet='full',
-                           stem_depth=0, stem_weight=1.0, matrix='tcrdist',v_loop_distances=None):
+                           stem_depth=0, stem_weight=1.0, matrix='tcrdist',v_loop_distances=None, v_regions=None):
     """Sum alpha/beta distances against the same ordered reference pairs.
 
     Each position identifies one linked receptor pair; independent marginal nearest
@@ -827,6 +888,7 @@ def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_b
     stems are independent hairpins, so summing them is the same composition the rest of
     the paired distance already uses.
     """
+    v_loop_distances = _v_region_context(v_regions, v_loop_distances, species, alphabet, matrix)
     parts=list(map(list,(query_alpha,query_beta,reference_alpha,reference_beta,
                         query_v_alpha,query_v_beta,reference_v_alpha,reference_v_beta)))
     qa,qb,ra,rb,qva,qvb,rva,rvb=parts

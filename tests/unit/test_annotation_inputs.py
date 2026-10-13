@@ -22,7 +22,8 @@ def table(path, *, locus="TRB", paired=False):
 def core(monkeypatch):
     from vdjmatch.cli import tcrdist
     calls = []
-    def run(a):
+    def run(a, *, v_loop_distances, marginal_tables=None):
+        assert v_loop_distances['species']=='human'
         raw = pl.read_csv(a.sample, separator="\t", infer_schema_length=0)
         calls.append((a, raw))
         if a.locus == "paired":

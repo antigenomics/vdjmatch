@@ -108,6 +108,22 @@ alternatives retain their own identities and are not calibrated by the default.
 ``vonly-bounded``, ``v-rare``, ``all-rare`` or ``vonly-rare`` for selection.
 Historical V-similarity ratios are also precomputed per invocation, preserving
 query/reference direction and the original unknown-gene behavior.
+Mixed compact single/paired cohorts share marginal chain searches; the V-loop
+tables are prepared once for the cohort. ``--v-regions cdr12`` retains the
+``vcdr12`` alternative, omitting only CDR2.5. Its recorded geometry also uses
+``--stem-depth 0 --distance-matrix tcrdist --junction-ends trim3``.
+Default geometry retains CDR1, CDR2 and CDR2.5. Calibration belongs to the entire
+selected geometry and scorer.
+The matrix extras are ``--distance-matrix pam250``, ``mj`` and ``vdjam``;
+their recorded geometries use ``--stem-depth 0 --junction-ends trim3``.
+They retain unclipped Gram penalties and use the same matrix units for V loops,
+junctions, gaps and the ladder.
+``--position-weighting significance-trimmed`` selects the recorded ``sig``
+geometry with ``--distance-matrix tcrdist --stem-depth 0 --junction-ends trim3``;
+``sigb62`` changes the matrix to ``blosum62``. These require compact output.
+The full-junction profile is restricted to the retained window, normalized to
+mean one and rounded to integer weights; the junction component is floored
+before V-loop and stem addition, independently for each paired chain.
 
 vdjmatch match
 --------------
