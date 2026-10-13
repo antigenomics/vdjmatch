@@ -938,16 +938,25 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                               schema_overrides={'query_id':raw.schema['query_id']})
             calls=mapping.join(calls.rename({'query_id':'_chain_id'}),on='_chain_id',how='left').select(
                 'query_id',pl.col('selected_epitope').alias('selected_'+name+'_epitope'),
-                pl.col('selection_status').alias(name+'_selection_status'))
+                pl.col('selection_status').alias(name+'_selection_status'),
+                pl.col('kernel_score').alias('kernel_'+name+'_score'),
+                pl.col('kernel_competing_score').alias('kernel_'+name+'_competing_score'),
+                pl.col('tied_peptides').alias(name+'_tied_peptides'),
+                pl.col('exact_peptides').alias(name+'_exact_peptides'))
             selected=selected.join(calls,on='query_id',how='left',validate='1:1',maintain_order='left')
         if not selection_only:
             combined.sort('query_id',*PMHC).write_csv(str(prefix)+'.paired-evidence.tsv',separator='\t')
-        selected.with_columns(pl.any_horizontal(*[
+        selected.with_columns(
+            pl.max_horizontal('kernel_score','kernel_alpha_score','kernel_beta_score').alias('kernel_any_axis_score'),
+            pl.any_horizontal(*[
             pl.col(c).is_in(['ranked_evidence','ambiguous']).fill_null(False) for c in
             ['linked_selection_status','alpha_selection_status','beta_selection_status']]).alias('has_support')).write_csv(
                 str(prefix)+'.selection.tsv',separator='\t')
+    if paired and kernel:
+        from .calibration import paired_call_event,paired_pipeline_sources
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'selection_only':selection_only,
+        **({'paired_call_event':paired_call_event(),'paired_source_sha256':paired_pipeline_sources()} if paired and kernel else {}),
         **({'geometry_extra':geometry_extra,
             'geometry_extra_status':'advanced retained diagnostic',
             'normalization':('V-weighted population: punctured total plus historical pre-puncture same-V target count'

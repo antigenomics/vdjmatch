@@ -26,11 +26,34 @@ def register(subparsers):
     return parser
 
 
+
+PAIRED_STATISTIC='maximum of final selected linked, alpha and beta kernel scores'
+
+
+def paired_call_event():
+    """The declared any-axis event; no combined label or evidence ranking."""
+    return dict(score_column='kernel_any_axis_score',statistic=PAIRED_STATISTIC,
+        axes=['linked','alpha','beta'],selection='each axis: max restriction then max peptide; ties retained',
+        linked='alpha+beta distance to genuine linked references',
+        marginals='full compatible TRA/TRB references including unlinked observations',
+        exact_policy='linked: both full junctions; marginals: own full junction; V/J do not change puncture')
+
+
+def paired_pipeline_sources():
+    """Pin both shipped paired producers and their shared event/binding definition."""
+    import hashlib
+    return {name:hashlib.sha256(Path(__file__).with_name(name+'.py').read_bytes()).hexdigest()
+            for name in ('reference_calls','tcrdist','calibration')}
+
+
+def _bound_score_columns(binding):
+    return ('score','kernel_any_axis_score') if binding['context'][1]=='paired' else ('score','kernel_score')
+
 def pipeline_binding(manifest):
-    """Canonical single-chain kernel identity from either shipped score producer.
+    """Canonical kernel and selected-event identity from either shipped producer.
 
     This is a provenance check, not calibration. A single-population cohort
-    manifest can wrap its core producer; mixed/paired decisions require their
+    manifest can wrap its core producer; mixed populations require their
     own declared selection and null contract.
     """
     import hashlib
@@ -52,7 +75,7 @@ def pipeline_binding(manifest):
             if options['scorer'] != 'stem4':
                 raise ValueError('binding requires final kernel scoring')
             if (manifest['selection'] != 'maximum restriction per peptide, then maximum peptide; exact score ties remain ambiguous'
-                    or manifest['calibration_statistic'] != 'final selected kernel_score; no component P/E transfer'):
+                    or manifest['calibration_statistic'] != (PAIRED_STATISTIC if options['locus']=='paired' else 'final selected kernel_score; no component P/E transfer')):
                 raise ValueError('binding selection/statistic is unsupported')
             geometry = {k:v for k,v in manifest['geometry'].items() if k != 'threads'}
             sources = {k:manifest['source_sha256'][k] for k in ('kernel','tcrdist','seqtree_native','seqtree_python')}
@@ -77,8 +100,8 @@ def pipeline_binding(manifest):
                 ('seqtree_native','seqtree_native_sha256'), ('seqtree_python','seqtree_python_source_sha256'))}
         species, locus = options['species'], options['locus']
         organism = {'HomoSapiens':'human','MusMusculus':'mouse'}[species]
-        if locus not in ('TRA','TRB') or geometry['species'] != organism or not isinstance(geometry['exclude_exact'], bool):
-            raise ValueError('binding requires one single-chain species and exact policy')
+        if locus not in ('TRA','TRB','paired') or geometry['species'] != organism or not isinstance(geometry['exclude_exact'], bool):
+            raise ValueError('binding requires one receptor population, species and exact policy')
         required_geometry = {'species','matrix','ctrim','v_loop_weight','alphabet','stem_depth','stem_weight',
             'exclude_exact','radius','kernel_scale','cutoffs','cross_v','floor','scorer','matrix_scale','v_regions','position_weighting'}
         if set(geometry) != required_geometry:
@@ -92,10 +115,17 @@ def pipeline_binding(manifest):
         hashes = [reference, *sources.values()]
         if any(not isinstance(x,str) or len(x)!=64 or any(c not in '0123456789abcdef' for c in x) for x in hashes):
             raise ValueError('binding requires complete SHA-256 identities')
+        if locus=='paired':
+            if manifest.get('paired_call_event')!=paired_call_event():
+                raise ValueError('binding requires the declared paired any-axis event')
+            if manifest.get('paired_source_sha256')!=paired_pipeline_sources():
+                raise ValueError('paired producer sources differ from installed sources')
+            sources=dict(sources,**{'paired_'+k:v for k,v in manifest['paired_source_sha256'].items()})
         return dict(context=[species,locus], reference_population=policy, reference_sha256=reference,
             geometry=geometry, sources=sources, model_file_sha256=file_hash, model_semantic_sha256=semantic_hash,
-            statistic='final selected kernel_score', selection='max restriction then max peptide; ties retained',
-            exact_policy=('full-junction puncture across V/J; no ordinary exact-retained transfer' if geometry['exclude_exact']
+            statistic=PAIRED_STATISTIC if locus=='paired' else 'final selected kernel_score',
+            selection='independent linked/alpha/beta selections; maximum scalar only' if locus=='paired' else 'max restriction then max peptide; ties retained',
+            exact_policy=(('linked: both full junctions; marginals: own full junction; no ordinary exact-retained transfer' if locus=='paired' else 'full-junction puncture across V/J; no ordinary exact-retained transfer') if geometry['exclude_exact']
                           else 'exact evidence retained across all labels; ordinary annotation'))
     except (KeyError, TypeError, AttributeError) as exc:
         raise ValueError('binding manifest is missing required producer identities') from exc
@@ -115,7 +145,7 @@ def apply_calibration(frame, calibration, *, input_manifest=None):
             raise ValueError('pipeline binding requires --input-manifest')
         if pipeline_binding(input_manifest) != calibration['pipeline_binding']:
             raise ValueError('pipeline binding does not match score producer manifest')
-        if calibration.get('score_column','score') not in ('score','kernel_score') or calibration.get('comparison') != '>=':
+        if calibration.get('score_column','score') not in _bound_score_columns(calibration['pipeline_binding']) or calibration.get('comparison') != '>=':
             raise ValueError('pipeline binding requires the final higher-is-better kernel score')
     score_column=calibration.get('score_column','score')
     if not isinstance(score_column,str) or not score_column.strip():
@@ -341,9 +371,9 @@ def main(args):
     input_manifest_path=Path(args.input_manifest) if getattr(args,'input_manifest',None) else None
     binding=None
     if input_manifest_path is not None:
-        if score_column not in ('score','kernel_score') or args.lower_is_better:
-            raise ValueError('pipeline binding requires the final higher-is-better kernel score')
         binding=pipeline_binding(json.loads(input_manifest_path.read_text()))
+        if score_column not in _bound_score_columns(binding) or args.lower_is_better:
+            raise ValueError('pipeline binding requires its final higher-is-better kernel score')
     if score_column not in frame.columns:
         raise ValueError('missing score column: '+score_column)
     result, curve = operating_points(frame.with_columns(frame[score_column].alias('score')), args.target_fpr,

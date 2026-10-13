@@ -1032,8 +1032,33 @@ nondefault ``--scope`` are rejected; ``human``/``mouse`` species aliases are acc
 Only ``--calibration-score score`` is compatible; component E/P values cannot
 calibrate this final scalar. Its outputs are calls, calibration cases, truth,
 source-record target support and a geometry/model/source-hashed manifest.
-Calibration must bind this scorer, selection and reference policy. No paired
-joint-null calibration is supplied.
+Calibration must bind this scorer, selection and reference policy.
+
+Paired reference nulls require both ``--locus paired`` and
+``--leave-epitope-out`` with ``--scorer stem4``. Queries retain genuine TRA/TRB
+linkage, both V/J identities and their source complex IDs in the truth table.
+Eligibility requires at least 30 source records for either chain and peptide
+before exclusion; paired or unique-key counts do not replace source counts.
+The truth peptide is removed from all linked and marginal hit populations,
+counts, sizes and shared-label memberships. Unlinked compatible chain references
+remain available to the two marginal axes.
+
+.. code-block:: bash
+
+   vdjmatch reference-calls --vdjdb reference.zip --locus paired --scorer stem4 \
+     --leave-epitope-out --reference-population all-valid --exact-policy retain \
+     --threads 12 --output-prefix paired-withheld
+
+The paired statistic is ``kernel_any_axis_score``, the maximum of the final
+selected linked, alpha and beta scores. This defines an any-axis call event and
+introduces no combined label. Paired ``annotate`` outputs preserve the linked
+``kernel_score`` and existing labels, and add ``kernel_alpha_score``,
+``kernel_beta_score`` and ``kernel_any_axis_score`` with marginal ties.
+Fit/apply a matching recipe with ``--score-column kernel_any_axis_score``, or
+use a flat ``score`` column projected from that statistic with its matching
+``--input-manifest``. A paired recipe rejects the linked ``kernel_score``.
+Reference population, exact policy, geometry, sources and model must match;
+the command provides null inputs and does not supply a precomputed cutoff.
 
 The original scorer requires a matching raw ``--control`` repertoire for nonbundled
 species/loci. Its output
