@@ -78,6 +78,11 @@ Single-chain complete-score calibration uses `reference-calls --scorer stem4
 --reference-population curated-benchmark --leave-epitope-out`, followed by
 `calibrate-calls` on its `.calibration-cases.tsv`. Pin the reference, model,
 scorer, exclusion policy and generated null source before recommending a cutoff.
-This withheld benchmark does not supply paired joint calibration or transfer
-to an ordinary all-valid reference model. The original `reference-calls` mode
-remains available and is its default.
+Use `--input-manifest` for fitting and application to enforce the producer binding.
+For genuine paired withheld nulls, add `--locus paired`; fit with
+`--score-column kernel_any_axis_score`. This is the maximum of final selected
+linked, alpha and beta scores; labels and ties stay separate on each axis.
+Include matched generated paired nulls before recommending repertoire calls.
+Do not transfer a single-chain or linked-only cutoff to this any-axis event,
+or a withheld benchmark recipe to an ordinary all-valid exact-retained model.
+The original `reference-calls` mode remains available and is its default.

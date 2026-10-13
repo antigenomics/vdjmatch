@@ -951,6 +951,8 @@ any-call rate. If none is usable, it reports ``abstain_all`` with a null cutoff.
 It writes ``.operating_points.tsv`` and ``.calibration.json`` with separate
 null counts/rates, labelled-query correct-call recall and call precision.
 Generated nulls do not enter the labelled-query precision denominator.
+Labelled queries are optional. A null-only input fits the same cutoff and
+source rates, with recall and precision left unavailable.
 
 This command computes an empirical recommendation candidate. The input hash
 is recorded; callers must also pin the producing scorer, geometry, reference,

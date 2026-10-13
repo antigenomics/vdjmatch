@@ -147,6 +147,7 @@ $ vdjmatch reference-calls --vdjdb reference.zip --locus TRB --scorer stem4 \
     --reference-population curated-benchmark --leave-epitope-out --threads 4 \
     --output-prefix withheld
 $ vdjmatch calibrate-calls withheld.calibration-cases.tsv --target-fpr 0.01 \
+    --input-manifest withheld.manifest.json \
     --output-prefix calibration
 ```
 
@@ -154,6 +155,24 @@ This produces an empirical operating point for that pinned pipeline and null
 population. Sample recommendations also require matched generated nulls and
 reference policy; paired evidence requires its own joint calibration. The
 `reference-calls` original scorer and curated reference policy remain its defaults.
+
+For paired nulls, use `reference-calls --locus paired --scorer stem4
+--leave-epitope-out`. Both linked and full unlinked chain references contribute.
+The selected `kernel_any_axis_score` is the maximum of the linked, alpha and beta
+scores; each axis retains its own selected labels and ties.
+
+```console
+$ vdjmatch reference-calls --vdjdb reference.zip --locus paired --scorer stem4 \
+    --leave-epitope-out --threads 4 --output-prefix paired-withheld
+$ vdjmatch calibrate-calls paired-withheld.calibration-cases.tsv --target-fpr 0.01 \
+    --score-column kernel_any_axis_score --input-manifest paired-withheld.manifest.json \
+    --output-prefix paired-calibration
+```
+
+This fits the declared any-axis event for the supplied null population.
+Repertoire recommendations also require matched generated paired nulls. Keep the
+reference population and exact-hit policy identical when applying a recipe;
+single-chain or linked-only calibration cannot be applied to the paired event.
 
 ### Precursor frequency
 
