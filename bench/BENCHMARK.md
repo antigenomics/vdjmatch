@@ -94,6 +94,43 @@ python bench/compare.py --methods vdjmatch tcrmatch --datasets shortlist --out b
 Emits `bench/out/results.tsv` (tidy: method, dataset, locus, epitope, metric, value) + the boxplot/
 beeswarm PNGs.
 
+### Junction geometry arms
+
+`bench/geometry_detect.py` is the hook for a **vdjmatch junction geometry**. Until it existed no
+script here exercised one, and the geometry selected by the four-task objective was reproducible
+only from the analysis workspace.
+
+```fish
+# requires the supplied samples; it tells you so if they are missing
+set -x VDJMATCH_TESTDATA ~/vcs/manuscripts/2026-vdjmatch-ms/test_data
+
+python bench/geometry_detect.py                       # shipped TCRdist3 geometry
+python bench/geometry_detect.py --stem-depth 4        # the selected joint V-J stem arm
+python bench/geometry_detect.py --compare             # both, with the per-task delta
+```
+
+It runs the Group-A detection tasks — NLV+/tet-, LLW vs LLL, and YLQ/GLC on TCRvdb, i.e. the
+leakage-free stratum where every external method is comparable — and writes the standard
+`predictions/<method>/<task>_<locus>.tsv`, so its output drops into `compare.py` beside
+`tcrdist`, `imw` and the rest. Geometry knobs: `--stem-depth`, `--stem-weight`,
+`--junction-ends`, `--v-loop-weight`, `--alphabet`.
+
+**It scores nearest-neighbour distance and an in-radius kernel sum, matching
+`tcrdist_detect.py`, not the kernel-ladder statistic.** That keeps it like-for-like with the
+other producers and means its numbers are *not* the ladder-statistic numbers recorded in the
+analysis workspace and must not be quoted as them. What it measures is the geometry, with the
+scoring held fixed.
+
+Measured 13 October 2026, `--compare`, 7 tasks over both loci, stem depth 4 against depth 0:
+mean **+0.0032 ROC** and **+0.0059 PR**, improving 5 of 7. The gain concentrates on alpha —
+GLC TRA +0.0085 ROC, YLQ TRA +0.0060 — and both small losses are TRB (YLQ TRB −0.0012, LLL TRB
+−0.0002). That is the alpha-chain asymmetry the sweep predicted, recovered here under a
+different scoring rule and a different task construction, so it is corroboration rather than a
+repeat of the same measurement.
+
+Exact junction identities are punctured from the reference. Queries whose V call does not
+resolve are dropped and counted in the per-task line, never silently.
+
 ## Figures/tables selected for the appendix (now)
 
 Keep the small set that carries the argument; cut the rest (text update later, from `docs/`):
