@@ -901,10 +901,15 @@ These tails do not establish biological binding probability or independence of
 peptide-withheld observations. Query outcome labels do not enter this calculation.
 
 Use a calibration produced by the same entire scorer, reference, geometry and
-winning-label selection pipeline. This command does not automatically bind those
-identities or change the annotation API's default decisions. It supplies the
-rejection step; the composite scorer and its matched open-set calibration remain
-development requirements. Retained exact-reference evidence is not proof of
+winning-label selection pipeline. A recipe containing ``pipeline_binding``
+requires ``--input-manifest producer.manifest.json``. The command validates its
+single-chain species, reference population/hash, exact-hit policy, geometry,
+selection and model/software identities before writing outputs. Different or
+missing identities fail explicitly. Generic unbound empirical recipes remain
+supported; their caller owns pipeline compatibility. Application supplies the
+rejection step and preserves the annotation API's existing decisions. Matched
+open-set calibration still requires fresh null scores from that exact pipeline.
+Retained exact-reference evidence is not proof of
 biological binding. Rejection means insufficient support for a VDJdb assignment,
 not proof that a receptor cannot bind anything.
 
@@ -1001,6 +1006,12 @@ counts, population sizes and shared-key exclusivity, in one native batch.
 Distinct anchored-AA-junction/V/J identities are retained, with truth peptide
 also part of withheld query identity. Exact exclusion removes the full junction
 across V/J identities. Invalid genes and no-support queries remain in outputs.
+
+``--exact-policy exclude`` is the benchmark default. For a separately calibrated
+ordinary annotation pipeline, ``--exact-policy retain`` keeps exact evidence
+while preserving peptide withholding and all query identities. The manifest
+records the policy; a cutoff from excluded queries cannot be applied to retained
+queries. This option produces calibration inputs and does not supply a cutoff.
 
 .. code-block:: bash
 

@@ -18,20 +18,104 @@ def register(subparsers):
     apply = subparsers.add_parser('apply-call-calibration', help='reject independent query calls using a frozen empirical cutoff')
     apply.add_argument('cases', help='TSV: unique query_id and score; other columns are preserved evidence')
     apply.add_argument('--calibration', required=True, help='matching scorer/reference calibrate-calls JSON')
+    apply.add_argument('--input-manifest', help='score producer manifest; required for a pipeline-bound recipe')
     apply.add_argument('--null-cases', help='original calibrate-calls input, hash-bound to the frozen recipe; add per-query null tails')
     apply.add_argument('--output', required=True)
     apply.set_defaults(func=apply_main)
     return parser
 
 
-def apply_calibration(frame, calibration):
+def pipeline_binding(manifest):
+    """Canonical single-chain kernel identity from either shipped score producer.
+
+    This is a provenance check, not calibration. A single-population cohort
+    manifest can wrap its core producer; mixed/paired decisions require their
+    own declared selection and null contract.
+    """
+    import hashlib
+    import json
+    from importlib.resources import files
+    from ..match.tcrdist import load_v_loops
+
+    try:
+        if 'core_manifests' in manifest:
+            if len(manifest['core_manifests']) != 1:
+                raise ValueError('binding requires one single-chain population')
+            manifest = manifest['core_manifests'][0]
+        reference = manifest['reference']['input_sha256']
+        policy = manifest['reference_population']
+        if policy not in ('all-valid', 'curated-benchmark'):
+            raise ValueError('binding requires a known reference population')
+        if 'geometry' in manifest:
+            options = manifest['options']
+            if options['scorer'] != 'stem4':
+                raise ValueError('binding requires final kernel scoring')
+            if (manifest['selection'] != 'maximum restriction per peptide, then maximum peptide; exact score ties remain ambiguous'
+                    or manifest['calibration_statistic'] != 'final selected kernel_score; no component P/E transfer'):
+                raise ValueError('binding selection/statistic is unsupported')
+            geometry = {k:v for k,v in manifest['geometry'].items() if k != 'threads'}
+            sources = {k:manifest['source_sha256'][k] for k in ('kernel','tcrdist','seqtree_native','seqtree_python')}
+        else:
+            options = manifest['parameters']
+            if (not options['all_targets'] or options['background'] != 'vdjdb-other'
+                    or options['neighbour_weighting'] != 'kernel'
+                    or any(options.get(k) for k in ('epitope','mhc_a','mhc_b','targets_from_sample',
+                        'withhold_epitope','geometry_extra','reference_radius','nearest_rank','conditional_j','epitope_rules','chemistry'))):
+                raise ValueError('binding requires the complete supported all-label kernel selection')
+            g, kernel = manifest['distance_scale'], manifest['kernel']
+            if kernel['score_column'] != 'kernel_score' or manifest['junction_end_trim']['n_terminal'] != 3:
+                raise ValueError('binding statistic/trim is unsupported')
+            geometry = dict(species={'HomoSapiens':'human','MusMusculus':'mouse'}[options['species']],
+                matrix=g['matrix'], ctrim=manifest['junction_end_trim']['c_terminal'], v_loop_weight=g['v_loop_weight'],
+                alphabet=g['alphabet'], stem_depth=g['stem_depth'], stem_weight=g['stem_weight'],
+                exclude_exact=options['exclude_exact'], radius=g['radius'], kernel_scale=kernel['kernel_scale'],
+                cutoffs=kernel['cutoffs'], cross_v=kernel['cross_v'], floor=.01, scorer=kernel['scorer'],
+                matrix_scale=g['matrix_unit'], v_regions=g['v_regions'], position_weighting=options['position_weighting'])
+            sources = {name:manifest['software'][key] for name,key in (
+                ('kernel','kernel_source_sha256'), ('tcrdist','scorer_source_sha256'),
+                ('seqtree_native','seqtree_native_sha256'), ('seqtree_python','seqtree_python_source_sha256'))}
+        species, locus = options['species'], options['locus']
+        organism = {'HomoSapiens':'human','MusMusculus':'mouse'}[species]
+        if locus not in ('TRA','TRB') or geometry['species'] != organism or not isinstance(geometry['exclude_exact'], bool):
+            raise ValueError('binding requires one single-chain species and exact policy')
+        required_geometry = {'species','matrix','ctrim','v_loop_weight','alphabet','stem_depth','stem_weight',
+            'exclude_exact','radius','kernel_scale','cutoffs','cross_v','floor','scorer','matrix_scale','v_regions','position_weighting'}
+        if set(geometry) != required_geometry:
+            raise ValueError('binding geometry is incomplete or unsupported')
+        model_file = Path(str(files('vdjmatch.resources')/'tcrdist'/f'{organism}_v_loops.tsv'))
+        file_hash = hashlib.sha256(model_file.read_bytes()).hexdigest()
+        semantic_hash = hashlib.sha256(json.dumps(load_v_loops(organism), sort_keys=True, default=str).encode()).hexdigest()
+        if (manifest['model_sha256'] != semantic_hash if 'geometry' in manifest
+                else manifest['v_loop_model']['sha256'] != file_hash):
+            raise ValueError('binding model differs from installed germline model')
+        hashes = [reference, *sources.values()]
+        if any(not isinstance(x,str) or len(x)!=64 or any(c not in '0123456789abcdef' for c in x) for x in hashes):
+            raise ValueError('binding requires complete SHA-256 identities')
+        return dict(context=[species,locus], reference_population=policy, reference_sha256=reference,
+            geometry=geometry, sources=sources, model_file_sha256=file_hash, model_semantic_sha256=semantic_hash,
+            statistic='final selected kernel_score', selection='max restriction then max peptide; ties retained',
+            exact_policy=('full-junction puncture across V/J; no ordinary exact-retained transfer' if geometry['exclude_exact']
+                          else 'exact evidence retained across all labels; ordinary annotation'))
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError('binding manifest is missing required producer identities') from exc
+
+
+def apply_calibration(frame, calibration, *, input_manifest=None):
     """Apply a frozen cutoff without reading query labels or refitting it.
 
     Input scores remain ranking evidence; only call_score represents an accepted
     call. No-score queries and rejected candidates are no_supported_match, not
-    proven nonbinders. The caller must use matching scorer/reference identities.
+    proven nonbinders. Bound recipes require a matching producer manifest;
+    callers of generic unbound recipes own their scorer/reference compatibility.
     """
     import polars as pl
+    if 'pipeline_binding' in calibration:
+        if input_manifest is None:
+            raise ValueError('pipeline binding requires --input-manifest')
+        if pipeline_binding(input_manifest) != calibration['pipeline_binding']:
+            raise ValueError('pipeline binding does not match score producer manifest')
+        if calibration.get('score_column','score') not in ('score','kernel_score') or calibration.get('comparison') != '>=':
+            raise ValueError('pipeline binding requires the final higher-is-better kernel score')
     score_column=calibration.get('score_column','score')
     if not isinstance(score_column,str) or not score_column.strip():
         raise ValueError('score_column must name a numeric input column')
@@ -117,7 +201,9 @@ def apply_main(args):
     from ..io.airr import _read_table
     recipe = Path(args.calibration)
     frozen = json.loads(recipe.read_text())
-    out = apply_calibration(_read_table(args.cases), frozen)
+    input_manifest_path = Path(args.input_manifest) if getattr(args,'input_manifest',None) else None
+    input_manifest = json.loads(input_manifest_path.read_text()) if input_manifest_path else None
+    out = apply_calibration(_read_table(args.cases), frozen, input_manifest=input_manifest)
     null_path = Path(args.null_cases) if getattr(args,'null_cases',None) else None
     tails = None
     if null_path is not None:
@@ -130,6 +216,8 @@ def apply_main(args):
     manifest_path = Path(str(target)+'.manifest.json')
     tail_path=Path(str(target)+'.null-tails.tsv')
     inputs={Path(args.cases).resolve(),recipe.resolve()} | ({null_path.resolve()} if null_path else set())
+    if input_manifest_path is not None:
+        inputs.add(input_manifest_path.resolve())
     if {target.resolve(),manifest_path.resolve(),tail_path.resolve()} & inputs:
         raise ValueError('output must not overwrite inputs')
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -141,6 +229,8 @@ def apply_main(args):
         'queries': out.height, 'accepted_calls': accepted, 'rejected_queries': out.height-accepted,
         'no_score_queries': out[frozen.get('score_column','score')].null_count(), 'query_labels_used': False,
         'score_column':frozen.get('score_column','score'),
+        **({'pipeline_binding':frozen['pipeline_binding'], 'input_manifest_sha256':sha256(input_manifest_path)}
+           if 'pipeline_binding' in frozen else {}),
         **({'null_cases_sha256':sha256(null_path),'null_tail_table_sha256':sha256(tail_path),
             'P_definition':'max source (k+1)/(N+1), including ties and no-hit null queries; exchangeability-conditional rank P, no-score P1',
             'E_definition':'max source k/N, observed false calls per query at the given score; no-score E0; not biological binding probability',

@@ -19,7 +19,7 @@ def args(tmp_path, *options):
 
 def test_defaults_and_component_selector_rejection(tmp_path):
     a=args(tmp_path)
-    assert a.scorer=='original' and a.reference_population=='curated-benchmark'
+    assert a.scorer=='original' and a.reference_population=='curated-benchmark' and a.exact_policy=='exclude'
     with pytest.raises(ValueError,match='final kernel_score'):
         reference_calls.main(args(tmp_path,'--scorer','stem4','--calibration-score','E'))
 
@@ -152,3 +152,40 @@ def test_new_python_with_stale_native_rejected_before_geometry(monkeypatch,paire
     monkeypatch.setattr(tcrdist,'precompute_v_loop_distances',geometry)
     with pytest.raises(RuntimeError,match='updated native seqtree'):
         tcrdist.grouped_total_distance_count_batch(None,None,[],paired=paired,query_withheld_peptide_ids=[])
+
+
+@pytest.mark.parametrize('policy,excluded',[('exclude',True),('retain',False)])
+def test_stem4_explicit_exact_policy_reaches_native_counts(tmp_path,monkeypatch,policy,excluded):
+    reference(tmp_path)
+    from vdjmatch.evalue import kernel
+    native=kernel.grouped_kernel_selection
+    flags=[]
+    def counted(*args,**kwargs):
+        flags.append(kwargs['exclude_exact'])
+        return native(*args,**kwargs)
+    monkeypatch.setattr(kernel,'grouped_kernel_selection',counted)
+    reference_calls.main(args(tmp_path,'--scorer','stem4','--exact-policy',policy))
+    assert flags==[excluded]
+    manifest=json.loads((tmp_path/'out.manifest.json').read_text())
+    assert manifest['geometry']['exclude_exact'] is excluded
+    assert manifest['options']['exact_policy']==policy
+    assert ('retained' in manifest['self_exclusion']) is (not excluded)
+    assert pl.read_csv(tmp_path/'out.calls.tsv',separator='\t').height==4
+
+
+def test_original_explicit_retained_policy_reaches_evidence(tmp_path,monkeypatch):
+    from vdjmatch.api import Annotator
+    reference(tmp_path)
+    control=tmp_path/'control.tsv'
+    pl.DataFrame({'junction_aa':['CASSLAFAYEQYF']}).write_csv(control,separator='\t')
+    evidence=Annotator._evidence
+    flags=[]
+    def counted(self,*args,**kwargs):
+        flags.append(kwargs['exclude_exact'])
+        return evidence(self,*args,**kwargs)
+    monkeypatch.setattr(Annotator,'_evidence',counted)
+    reference_calls.main(args(tmp_path,'--control',str(control),'--exact-policy','retain'))
+    assert flags==[False]
+    manifest=json.loads((tmp_path/'out.manifest.json').read_text())
+    assert manifest['options']['exact_policy']=='retain'
+    assert 'retained' in manifest['self_exclusion']

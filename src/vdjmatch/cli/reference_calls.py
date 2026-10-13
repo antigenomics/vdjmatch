@@ -17,6 +17,8 @@ def register(subparsers):
     p.add_argument('--min-target-records', type=int, default=30,
                    help='benchmark query targets only; the searchable reference remains complete')
     p.add_argument('--leave-epitope-out', action='store_true')
+    p.add_argument('--exact-policy', choices=['exclude', 'retain'], default='exclude',
+                   help='exclude query junctions for benchmarks; retain exact evidence only for ordinary-call calibration')
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
     return p
@@ -68,7 +70,7 @@ def main(args):
     exclusions = raw.select('query_id', 'epitope') if args.leave_epitope_out else None
     params = search_params(args.scope, matrix=load_vdjam(), gap_open=DEFAULT_SCALE, gap_extend=DEFAULT_SCALE)
     _, candidates = ann._evidence(q, params, control=control,
-        threads=args.threads, exclude_exact=True, exclude_epitopes=exclusions)
+        threads=args.threads, exclude_exact=getattr(args, 'exact_policy', 'exclude') == 'exclude', exclude_epitopes=exclusions)
     calls = _append_calls(raw, q, candidates, ann.loci, 'vdjmatch_')
     score = pl.when(pl.col('vdjmatch_status') == 'matched').then(
         pl.col('vdjmatch_' + args.calibration_score)).otherwise(None).alias('score')
@@ -104,7 +106,8 @@ def main(args):
         'target_support_rule': 'valid source records per species/locus/peptide, before self-exclusion; pool MHC restrictions',
         'search_reference': 'entire valid species/locus reference, including sparse peptides',
         'queries': raw.height, 'candidate_rows': candidates.height, 'wall_seconds': time.monotonic()-started,
-        'self_exclusion': 'benchmark-only full-junction puncture of hits and population sizes',
+        'self_exclusion': ('benchmark-only full-junction puncture of hits and population sizes'
+            if getattr(args, 'exact_policy', 'exclude') == 'exclude' else 'exact evidence retained for ordinary-call calibration'),
         'observation_unit': 'distinct full-junction/V/J'+('/truth peptide' if args.leave_epitope_out else ''),
         'peptide_withholding': 'all restrictions removed before reduction' if args.leave_epitope_out else None,
         'scoring': 'production default vdjam matrix, score_scale400, soft V weight0.25',
@@ -146,7 +149,8 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
     r = prepare(valid).unique(['cdr3', '_allele', *PMHC], maintain_order=True)
     groups = [(dict(zip(PMHC, task)), q, part) for task, part in r.group_by(PMHC, maintain_order=True)]
     geometry = dict(species=species, threads=args.threads, ctrim=3, v_loop_weight=1,
-        alphabet='full', stem_depth=4, stem_weight=1.0, matrix='blosum62', exclude_exact=True,
+        alphabet='full', stem_depth=4, stem_weight=1.0, matrix='blosum62',
+        exclude_exact=getattr(args, 'exact_policy', 'exclude') == 'exclude',
         v_regions='cdr12plus', position_weighting='uniform')
     state, hit_ids = grouped_kernel_selection(q, r, groups, query_keys=query_keys,
         search_keys=['cdr3', '_allele'], paired=False, cutoffs=ladder_cutoffs(26),
@@ -204,7 +208,8 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
         reference_population=args.reference_population,
         target_support_rule='valid source records per species/locus/peptide before exclusion; MHC pooled only for eligibility',
         search_reference='all selected-policy valid species/locus observations, including sparse peptides; resolved V and junction length >=8',
-        self_exclusion='full junction removed from all labels, counts and population sizes',
+        self_exclusion=('full junction removed from all labels, counts and population sizes'
+            if geometry['exclude_exact'] else 'exact evidence retained for ordinary-call calibration'),
         peptide_withholding='per-query full peptide memberships removed before counts, sizes and exclusivity' if withheld else None,
         observation_unit='distinct full-junction/V/J'+('/truth peptide' if withheld else ''),
         calibration_statistic='final selected kernel_score; no component P/E transfer',
