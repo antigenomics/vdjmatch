@@ -6,6 +6,15 @@ GEOMETRY_EXTRAS = ('flank', 'framev', 'framemid', 'framej', 'freegap', 'jw',
 J_GEOMETRY_EXTRAS = frozenset(('jw', 'stem4j', 'jlen', 'vjlen', 'jnorm'))
 
 
+def _grouped_detailed_eligible(a,kernel,selection_only,groups,references):
+    """Keep advanced radius/rank and null-label diagnostics on their existing route."""
+    return (not selection_only and kernel and a.background=='vdjdb-other' and
+        a.position_weighting=='uniform' and not (a.reference_radius or a.nearest_rank or
+        a.conditional_j or a.epitope_rules or getattr(a,'chemistry',False)) and
+        all(task['epitope'] is not None for task,_,_ in groups) and
+        (len(groups)>1 or not references['epitope'].null_count()))
+
+
 def _apply_geometry_extra(a):
     """Apply a retained fixed recipe before preparing its shared V matrices."""
     extra = getattr(a, 'geometry_extra', None)
@@ -521,8 +530,9 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 'restriction':'same species/locus; other epitopes may have other MHC restrictions'}
         grouped_kernel=(selection_only and kernel and a.background=='vdjdb-other' and
             a.position_weighting in ('uniform','significance-trimmed') and not (a.conditional_j or a.epitope_rules or getattr(a,'chemistry',False)))
+        grouped_detailed=_grouped_detailed_eligible(a,kernel,selection_only,groups,r)
         global_curves=None
-        if not grouped_kernel and kernel and a.background=='vdjdb-other' and len(groups)>1:
+        if not (grouped_kernel or grouped_detailed) and kernel and a.background=='vdjdb-other' and len(groups)>1:
             # All-label targets share the same query population. Concatenating
             # that population once per target creates a query × target temporary.
             if not a.targets_from_sample:
@@ -558,9 +568,20 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 **{k:v for k,v in options.items() if k!='linear_mass'})
             background_costs['native_count_batches']+=time.perf_counter()-count_start
             background_provenance['reduction']='one grouped reference traversal; whole search-key counts minus keys exclusive to target peptide; shared-label keys retained'
+        if grouped_detailed:
+            from ..evalue.kernel import grouped_kernel_enrichment
+            count_start=time.perf_counter()
+            evidence=grouped_kernel_enrichment(q,r,groups,query_keys=query_keys,search_keys=search_keys,
+                paired=paired,cutoffs=kernel_cutoffs,radius=a.radius,kernel_scale=22.5*matrix_scale,
+                scorer=a.kernel_scorer,assayed=a.targets_from_sample,
+                **{k:v for k,v in options.items() if k!='linear_mass'})
+            if evidence is not None:
+                enrichment_rows.append(evidence)
+            background_costs['native_count_batches']+=time.perf_counter()-count_start
+            background_provenance['reduction']='one grouped reference traversal; whole search-key counts minus keys exclusive to target peptide; shared-label keys retained'
         population_queries=(q.select(query_keys).unique(maintain_order=True)
                             if kernel and not a.targets_from_sample else None)
-        for task,part,reference_part in ([] if grouped_kernel else groups):
+        for task,part,reference_part in ([] if grouped_kernel or grouped_detailed else groups):
             radius=target_radii[tuple(task[c] for c in PMHC)] if a.reference_radius else a.radius
             unique=(population_queries if population_queries is not None else
                     part.select(query_keys).unique(maintain_order=True))

@@ -96,7 +96,7 @@ def kernel_peptides(scores):
 
 def grouped_kernel_selection(queries, references, groups, *, query_keys, search_keys,
         paired, cutoffs, radius, kernel_scale, scorer, assayed=False, withheld_column=None,
-        position_weighting='uniform', geometry_preset=None, **geometry):
+        position_weighting='uniform', geometry_preset=None, _detailed=False, **geometry):
     """Compact all-label selection from one bounded native reference traversal.
 
     Memberships deduplicate search keys separately from pMHC annotations. Other
@@ -127,6 +127,10 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
             for i,(_,_,part) in enumerate(groups)])
     targets=pl.DataFrame({'_target':range(len(groups)),
                          'epitope':[task['epitope'] for task,_,_ in groups]})
+    if _detailed:
+        from ..aggregate.candidates import PMHC
+        targets=targets.with_columns(*[pl.Series(c,[task[c] for task,_,_ in groups],dtype=pl.String)
+            for c in PMHC if c!='epitope'])
     peptides=targets.select('epitope').unique(maintain_order=True).with_row_index('_peptide')
     target_peptides=targets.join(peptides,on='epitope',nulls_equal=True,maintain_order='left')['_peptide'].to_numpy()
     members=pl.concat([part.select(search_keys).unique().with_columns(pl.lit(i).alias('_target'))
@@ -179,7 +183,10 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         reference_target_ids=members['_target'].to_numpy(),target_peptide_ids=target_peptides,
         reference_exclusive_peptide_ids=exclusive,
         chunk_size=min(64,max(1,256*1024**2//bytes_per_query)),**folds,**geometry)
-    mapping=queries.select('query_id',*query_keys).join(unique,on=query_keys,how='left',validate='m:1',nulls_equal=True)
+    mapping=queries.select('query_id',*query_keys).join(unique,on=query_keys,how='left',validate='m:1',nulls_equal=True,
+        **({'maintain_order':'left'} if _detailed else {}))
+    if _detailed:
+        mapping=mapping.with_row_index('_query_order')
     allowed=None
     if assayed:
         allowed=pl.concat([part.select('query_id').with_columns(pl.lit(i).alias('_target'))
@@ -217,12 +224,43 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         # every generated curve again; public kernel_ladder keeps all checks.
         scores=_kernel_scores(shells,same_shells,
             control,score_N,(np.maximum(M.reshape(-1),1) if normalise else M.reshape(-1)),np.asarray(cutoffs,dtype=np.float64),
-            kernel_scale,.25,.01,scorer,False,_reuse_buffers=True)
+            kernel_scale,.25,.01,scorer,_detailed,_reuse_buffers=not _detailed)
         exact=np.zeros((C,T),dtype=np.uint32) if geometry.get('exclude_exact',False) else np.asarray(chunk.exact_counts)
         values=pl.DataFrame({'_row':np.repeat(np.arange(chunk.start,chunk.stop),T),
             '_target':np.tile(np.arange(T),C),'kernel_score':scores['kernel_score'],
             'exact_reference_count':exact.reshape(-1),
             '_radius_hit':(curves[:,1:1+T,radius_index]>0).reshape(-1)})
+        if _detailed:
+            # Counts and weights in the established detailed table use the final
+            # ladder cutoff; candidate radius diagnostics are a separate output.
+            reference_count=curves[:,1:1+T,ladder_indices[-1]].reshape(-1)
+            control_count=control[:,-1]
+            values=values.with_columns(
+                pl.Series('n_control',control_count,dtype=pl.UInt64),
+                pl.Series('control_weight',control_count,dtype=pl.Float64),
+                pl.Series('control_population',M.reshape(-1),dtype=pl.UInt64),
+                pl.Series('n_reference',reference_count,dtype=pl.UInt64),
+                pl.Series('reference_weight',reference_count,dtype=pl.Float64),
+                pl.Series('reference_population',N.reshape(-1),dtype=pl.UInt64),
+                *(pl.Series(k,v,nan_to_null=True) for k,v in scores.items()),
+                pl.col('exact_reference_count').cast(pl.UInt64),
+                pl.lit('relative_evidence_uncalibrated').alias('kernel_status'))
+            available=(pl.col('reference_population')>0)&(pl.col('control_population')>0)
+            values=values.with_columns(
+                pl.when(available).then(pl.col('reference_population')*(pl.col('control_weight')+.5)/
+                    (pl.col('control_population')+1)).alias('expected_count'),
+                pl.when(available).then(pl.lit('available')).otherwise(pl.lit('empty_population')).alias('enrichment_status'))
+            values=values.with_columns((pl.col('reference_weight')/pl.col('expected_count')).alias('enrichment'),
+                (pl.col('n_control')==0).alias('zero_control_hits'),
+                (pl.col('control_weight')==0).alias('zero_control_weight'))
+            observations=mapping.filter(pl.col('_row').is_between(chunk.start,chunk.stop-1)).select(
+                'query_id','_query_order','_row')
+            for part in observations.iter_slices(max(1,65536//T)):
+                expanded=(part.join(allowed,on='query_id',how='inner').join(values,on=['_row','_target'],how='inner')
+                    if assayed else part.join(values,on='_row',how='inner'))
+                expanded=expanded.join(targets,on='_target',how='left',validate='m:1')
+                states.append(expanded.drop('_row','_radius_hit'))
+            continue
         chunk_mapping=mapping.filter(pl.col('_row').is_between(chunk.start,chunk.stop-1)).select('query_id','_row')
         columns=['selected_epitope','kernel_score','kernel_competing_score','tied_peptides','exact_peptides']
         if allowed is None:
@@ -242,7 +280,21 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
                 hit_ids.update(expanded.filter(pl.col('_radius_hit'))['query_id'])
                 selected=select_kernel(expanded.select('query_id').unique(),expanded)
                 states.append(selected.select('query_id',*columns))
+    if _detailed and states:
+        from ..aggregate.candidates import PMHC
+        columns=['query_id','n_control','control_weight','control_population','n_reference',
+            'reference_weight','reference_population','expected_count','enrichment_status',
+            'enrichment','zero_control_hits','zero_control_weight','exact_reference_count',
+            *['kernel_'+w+'_'+d for w in ('all','v','vonly') for d in ('bounded','rare')],
+            'kernel_score','kernel_status',*PMHC]
+        return pl.concat(states).sort('_target','_query_order').select(columns),hit_ids
     return pl.concat(states) if states else None,hit_ids
+
+
+def grouped_kernel_enrichment(queries,references,groups,**kwargs):
+    """Detailed continuous evidence using the same bounded grouped native batch."""
+    evidence,_=grouped_kernel_selection(queries,references,groups,_detailed=True,**kwargs)
+    return evidence
 
 
 def update_kernel_selection(state, scores):
