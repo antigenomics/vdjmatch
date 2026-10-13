@@ -227,3 +227,24 @@ def test_noise_gate_scope_one_is_equivalent():
         assert evidence[0] == evidence[1]
         assert evidence[0][1]["radius"] == 1
         assert evidence[0][2]["radius"] == 1
+
+
+def test_default_excluded_histograms_match_wide_oracle(tmp_path, monkeypatch):
+    queries = ['CASSF', 'CASSF', 'CATSF', 'CASSAF', 'CASF', 'CAAAF', 'CAAAV', 'GGGGG', 'WWWWWW']
+    samples = dict(query_id=[str(i) for i in range(len(queries))],
+        junction_aa=queries, locus=['TRB'] * len(queries))
+    options = args(tmp_path, samples, '--exclude-exact')
+    options.scope = '5,2,2,5'
+    target = Index.build(['CASSF', 'CATSF'], 'aa')
+    control = Index.build(['CASSF', 'CASRF'], 'aa')
+    hits, costs = first_hit.scan(target, [''] * 2, control, queries,
+        params=search_params(options.scope), threads=1, exclude_exact=True)
+    expected = [first_hit.pvalue(h, c, 2, 2) for h, c in zip(hits, costs)]
+    def reject_wide_control(*a, **kw):
+        raise AssertionError('default excluded CLI must use native control histograms')
+    monkeypatch.setattr(first_hit, 'scan', reject_wide_control)
+    assert cli.main(options) == 0
+    out = pl.read_csv(tmp_path / 'out.evidence.tsv', separator='\t')
+    for i, row in enumerate(expected):
+        for column in ('radius', 'n_target', 'n_control', 'E', 'p_enrichment'):
+            assert out[column][i] == row[column]

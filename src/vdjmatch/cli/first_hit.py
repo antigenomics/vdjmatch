@@ -129,22 +129,47 @@ def main(args):
     target = Index.build(targets, "aa")
     control, control_source = _control(args)
     queries = retained["cdr3"].to_list()
-    target_hits, control_costs = first_hit.scan(
-        target,
-        [""] * len(target),
-        control,
-        queries,
-        params=params,
-        threads=args.threads,
-        exclude_exact=args.exclude_exact,
-        chunk=max(1, len(queries)),
+    histogram_control = (
+        args.scope == "5,2,2,5" and args.exclude_exact
+        and hasattr(control, "edit_histogram_batch")
     )
-    results = {
-        row_id: first_hit.pvalue(hits, costs, len(target), len(control))
-        for row_id, hits, costs in zip(
-            retained["_input_row"], target_hits, control_costs
+    if histogram_control:
+        from ..match.historical import control_histograms
+
+        unique_queries = list(dict.fromkeys(queries))
+        hits = first_hit._cost_lists(target, unique_queries, params, args.threads,
+            True, max(1, len(unique_queries)), "search: target", False)
+        target_by_query = dict(zip(unique_queries, hits))
+        radii = {q: h[0][0] if h else 0 for q, h in target_by_query.items()}
+        counts = control_histograms(control, unique_queries, threads=args.threads,
+            radii=radii)
+        results = {}
+        for row_id, q in zip(retained["_input_row"], queries):
+            h = target_by_query[q]
+            if not h:
+                results[row_id] = first_hit.pvalue([], [], len(target), len(control))
+                continue
+            r = radii[q]
+            results[row_id] = {"radius": r, **first_hit.evalue_result(
+                sum(c <= r for c, _ in h), counts[q][r], len(target), len(control))}
+    else:
+        target_hits, control_costs = first_hit.scan(
+            target,
+            [""] * len(target),
+            control,
+            queries,
+            params=params,
+            threads=args.threads,
+            exclude_exact=args.exclude_exact,
+            chunk=max(1, len(queries)),
         )
-    }
+        results = {
+            row_id: first_hit.pvalue(hits, costs, len(target), len(control))
+            for row_id, hits, costs in zip(
+                retained["_input_row"], target_hits, control_costs
+            )
+        }
+
     normalized = {row["_input_row"]: row for row in query.iter_rows(named=True)}
     count_column = io.columns._resolve(raw).get("count")
     counts = raw.select(
@@ -252,6 +277,7 @@ def main(args):
         },
         "control": {**control_source, "unique_junctions": len(control)},
         "counting_unit": "unique target/control junctions; original query rows",
+        "control_search": "adaptive-native-histograms" if histogram_control else "wide-native-hits",
         "resources": {
             "wall_seconds": time.perf_counter() - started,
             "peak_rss_bytes": peak_bytes,
