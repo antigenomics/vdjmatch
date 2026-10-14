@@ -52,9 +52,14 @@ def test_cli_help_uses_only_package_names(capsys):
     from vdjmatch.cli.__main__ import main
     policy = json.loads((ROOT/'examples/comparison-provenance.ipynb').read_text())
     pattern = re.compile('|'.join(policy['metadata']['forbidden_package_patterns']), re.I)
-    for command in ([], ['annotate'], ['neighbours'], ['evidence'],
-                    ['historical-density'], ['reference-calls'], ['reference-radius'], ['reference-structure'], ['motif-evidence']):
+    with pytest.raises(SystemExit) as stopped:
+        main(['--help'])
+    assert stopped.value.code == 0
+    root_help=capsys.readouterr().out
+    assert pattern.search(root_help) is None
+    commands=re.search(r'\{([^{}]+)\}',root_help).group(1).split(',')
+    for command in commands:
         with pytest.raises(SystemExit) as stopped:
-            main([*command, '--help'])
+            main([command, '--help'])
         assert stopped.value.code == 0
         assert pattern.search(capsys.readouterr().out) is None

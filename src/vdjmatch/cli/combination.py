@@ -16,6 +16,8 @@ def register(subparsers):
             p.add_argument('--null-evidence',help='frozen full-pMHC/species/locus component null scores; normalize scales before selecting stronger evidence')
             p.add_argument('--structure-conditioned',action='store_true',
                            help='with --null-evidence, discount rank selection by the reference sparsity gate')
+            p.add_argument('--three-channel',action='store_true',
+                           help='experimental: normalize original/gapblock/stem4 scores and sum their explicit reference-derived weights')
             p.add_argument('--fixed', action='store_true', help='apply the unfitted two-score sparsity formula')
             p.add_argument('--output', required=True)
             p.add_argument('--require-heldout', action='store_true',
@@ -40,8 +42,11 @@ def _main(a):
 
     null_evidence=getattr(a,'null_evidence',None)
     structure_conditioned=getattr(a,'structure_conditioned',False)
+    three_channel=getattr(a,'three_channel',False)
     if structure_conditioned and not null_evidence:
         raise ValueError('--structure-conditioned requires --null-evidence')
+    if three_channel and (not null_evidence or structure_conditioned):
+        raise ValueError('--three-channel requires --null-evidence and explicit weights; no two-channel gate')
     if not a.fit and sum(map(bool,[a.model,a.fixed,null_evidence]))!=1:
         raise ValueError('choose exactly one of --model, --fixed and --null-evidence')
     paths = [Path(a.evidence)] + ([Path(a.model)] if a.model else []) + ([Path(null_evidence)] if null_evidence else [])
@@ -57,16 +62,19 @@ def _main(a):
     if not frame.height:
         raise ValueError('nonempty evidence table required')
     if null_evidence:
-        from ..aggregate.combination import null_normalized_evidence
+        from ..aggregate.combination import null_normalized_evidence, THREE_COMPONENTS, THREE_WEIGHTS
         scored=null_normalized_evidence(frame,pl.read_csv(null_evidence,separator='\t',infer_schema_length=None),
-                                       structure_conditioned=structure_conditioned)
+                                       structure_conditioned=structure_conditioned,three_channel=three_channel)
         output=Path(a.output);output.parent.mkdir(parents=True,exist_ok=True)
         scored.with_columns(pl.col('normalized_score').alias('combined_score'),
             pl.when(pl.col('normalized_score').is_not_null()).then(pl.lit('scored')).otherwise(pl.lit('unsupported')).alias('combined_status')).write_csv(output,separator='\t')
         Path(str(output)+'.manifest.json').write_text(json.dumps({
             'evidence_sha256':evidence_hash,'null_evidence_sha256':sha256(Path(null_evidence)),
             'rows':frame.height,'unsupported_rows':scored['normalized_score'].null_count(),
-            'formula':'max(-log(p_L),-log(p_R)+log(s)); missing L uses -log(p_R)' if structure_conditioned else '-log(min(p_component_likelihood,p_component_rank))',
+            'formula':'sum(w_k * -log(p_k)); missing components contribute zero without weight redistribution' if three_channel else 'max(-log(p_L),-log(p_R)+log(s)); missing L uses -log(p_R)' if structure_conditioned else '-log(min(p_component_likelihood,p_component_rank))',
+            'three_channel':three_channel,
+            'components':list(THREE_COMPONENTS) if three_channel else ['likelihood_score','conditional_rank_score'],
+            'weight_columns':list(THREE_WEIGHTS) if three_channel else None,
             'structure_conditioned':structure_conditioned,
             'structure_gate':'s=1-reference_coverage*(1-(1-knee_shape)*knee_radius_ratio)' if structure_conditioned else None,
             'normalization':'max source (k+1)/(N+1), exact ties and no-hit null queries retained',

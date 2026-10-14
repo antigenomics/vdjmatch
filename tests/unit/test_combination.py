@@ -155,3 +155,38 @@ def test_structure_conditioned_selection_has_no_query_support_switch():
     sparse=null_normalized_evidence(q.with_columns(pl.lit(0.).alias('reference_coverage')),
                                     nulls,structure_conditioned=True)
     np.testing.assert_allclose(sparse['normalized_score'].to_numpy(),np.log(10))
+
+
+def test_three_channel_sum_keeps_scales_weights_ties_and_missing_evidence(tmp_path):
+    from vdjmatch.aggregate.combination import null_normalized_evidence, THREE_COMPONENTS, THREE_WEIGHTS
+    from vdjmatch.cli.__main__ import main
+    context=dict(species='human',locus='TRB',epitope='E',mhc_a='HLA-A*02',mhc_b='B2M',mhc_class='MHCI')
+    q=pl.DataFrame([dict(query_id=f'q:{i}',original_score=o,gapblock_score=g,stem4_score=s,
+        original_weight=.5,gapblock_weight=.25,stem4_weight=.25,**context)
+        for i,(o,g,s) in enumerate([(2.,20.,200.),(None,20.,None),(None,None,None)])])
+    nulls=pl.DataFrame([dict(query_id=str(i),original_score=o,gapblock_score=g,stem4_score=s,
+        outcome='null',null_source=source,**context) for i,(o,g,s,source) in enumerate([
+            (1.,10.,100.,'withheld'),(2.,20.,200.,'withheld'),(None,None,None,'withheld'),
+            (3.,30.,300.,'generated'),(None,None,None,'generated')])])
+    result=null_normalized_evidence(q,nulls,three_channel=True)
+    np.testing.assert_allclose(result['normalized_score'].to_list()[:2],[-np.log(2/3),-.25*np.log(2/3)])
+    assert result['normalized_score'][2] is None
+    contributions=result.select(pl.sum_horizontal(pl.col('^contribution_.*$'))).to_series()
+    np.testing.assert_allclose(contributions.head(2),result['normalized_score'].head(2))
+    for column in THREE_COMPONENTS:
+        transform=lambda f:f.with_columns((pl.col(column)*17-13).alias(column))
+        assert null_normalized_evidence(transform(q),transform(nulls),three_channel=True)['normalized_score'].equals(result['normalized_score'])
+    zero=q.with_columns(pl.lit(0.).alias('gapblock_weight'),pl.lit(.5).alias('stem4_weight'))
+    assert null_normalized_evidence(zero,nulls,three_channel=True)['normalized_score'][1] is None
+    for weights in ([1.,0.,.1],[-1.,1.,1.],[float('nan'),0.,1.],[None,0.,1.]):
+        invalid=q.with_columns(pl.lit(w).alias(c) for c,w in zip(THREE_WEIGHTS,weights))
+        with pytest.raises(ValueError,match='weights'):
+            null_normalized_evidence(invalid,nulls,three_channel=True)
+    source=tmp_path/'evidence.tsv';control=tmp_path/'null.tsv';output=tmp_path/'scores.tsv'
+    q.write_csv(source,separator='\t');nulls.write_csv(control,separator='\t')
+    args=['combine-evidence',str(source),'--three-channel','--output',str(output)]
+    with pytest.raises(SystemExit):main(args+['--fixed'])
+    assert main(args+['--null-evidence',str(control)])==0
+    saved=pl.read_csv(output,separator='\t')
+    assert saved['combined_score'].equals(result['normalized_score'])
+    assert saved.select(q.columns).equals(q)

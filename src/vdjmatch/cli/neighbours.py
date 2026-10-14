@@ -66,8 +66,9 @@ def register(subparsers, name='neighbours'):
     p.add_argument('--stem-depth',type=int,default=0,
                    help='joint V-J hairpin stem levels added to the junction distance. '
                         'The CDR3 loop pairs position i with position L-1-i; a level counts '
-                        'as matched only when both residues match. 0 (default) reproduces '
-                        'clipped BLOSUM62 geometry exactly; 4 is the benchmark-selected depth.')
+                        'as matched only when both residues match. 0 reproduces '
+                        'clipped BLOSUM62 geometry exactly; 4 uses four stem levels. '
+                        'Defaults: 4 for annotate/evidence, 0 for neighbours.')
     p.add_argument('--stem-weight',type=float,default=1.0,
                    help='weight of the joint stem term, in shared substitution-matrix cost '
                         'units; 1.0 is the measured arm and spans the same range as one '

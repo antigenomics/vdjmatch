@@ -143,3 +143,13 @@ unavailable, not negative recognition evidence. One native population batch feed
 all target graphs; no per-query/target native pool or persisted feature cache.
 These features do not fit fusion weights or calibrate recognition. Any harmonized
 score sum still needs matched component identities and final-selection calibration.
+
+`combine-evidence EVIDENCE --null-evidence NULLS --three-channel --output SCORES`
+puts `original_score`, `gapblock_score`, `stem4_score` on conservative matched
+null-tail scales and sums their explicit `original_weight`, `gapblock_weight`,
+`stem4_weight` contributions. Weights are nonnegative and sum to one; retain
+them in output and derive them from the declared reference morphology, never
+assay labels or epitope lookup. Missing components contribute zero without weight
+redistribution; entirely unsupported weighted evidence stays unavailable. The
+automatic weighting law is not implemented. Input scorer/reference/exclusion/null
+identities must match. Component tails are not the final fused P-value.

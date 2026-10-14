@@ -11,7 +11,7 @@ Current kernel evidence
 .. graphviz::
 
    digraph kernel {
-     graph [rankdir=TB, bgcolor="transparent"];
+     graph [rankdir=TB, bgcolor="white"];
      node [shape=box, style=rounded, fontname="Helvetica", fontsize=11, color="#0072B2"];
      edge [color="#555555"];
      input [label="Query TRA, TRB or linked alpha/beta\n+ labelled VDJdb reference"];
@@ -36,7 +36,7 @@ Conditional-rank evidence
 .. graphviz::
 
    digraph rank {
-     graph [rankdir=TB, bgcolor="transparent"];
+     graph [rankdir=TB, bgcolor="white"];
      node [shape=box, style=rounded, fontname="Helvetica", fontsize=11, color="#009E73"];
      query [label="Query and target / background receptors\nSame distance and exclusion rule"];
      ranks [label="Rank target distances against background\nAverage tied reciprocal ranks"];
@@ -56,7 +56,7 @@ Legacy scoring routes
 .. graphviz::
 
    digraph legacy {
-     graph [rankdir=TB, bgcolor="transparent"];
+     graph [rankdir=TB, bgcolor="white"];
      node [shape=box, style=rounded, fontname="Helvetica", fontsize=11, color="#D55E00"];
      input [label="Query junction + V/J\nReference receptors + declared background"];
      search [label="Legacy sequence-neighbour search"];
@@ -80,7 +80,7 @@ From ranking to a match decision
 .. graphviz::
 
    digraph calibration {
-     graph [rankdir=TB, bgcolor="transparent"];
+     graph [rankdir=TB, bgcolor="white"];
      node [shape=box, style=rounded, fontname="Helvetica", fontsize=11, color="#555555"];
      nulls [label="Matched null queries\nSame reference, scorer and complete label selection"];
      freeze [label="calibrate-calls\nFreeze operating cutoff + producer identity"];
@@ -102,7 +102,7 @@ Reference structure for scoring weights
 .. graphviz::
 
    digraph structure {
-     graph [rankdir=TB, bgcolor="transparent"];
+     graph [rankdir=TB, bgcolor="white"];
      node [shape=box, style=rounded, fontname="Helvetica", fontsize=11, color="#0072B2"];
      input [label="Reference full junctions, V genes and pMHC\nDeclared species, chain and population policy"];
      search [label="One native Hamming-one batch\nUnique full junctions; no indels"];
@@ -110,13 +110,21 @@ Reference structure for scoring weights
      connectivity [label="Components and articulation fragments\nExact full-junction removal profiles"];
      usage [label="Junction-length and V-usage composition\nRemove the same junction contributions"];
      tables [label="Full and punctured feature tables\nGraph morphology, length and V diversity"];
-     future [label="Proposed harmonized score sum\nReference-derived chainwise weights",style="rounded,dashed",color="#777777"];
+     future [label="Proposed reference-to-weight rule\nGraph, length and V usage; chainwise",style="rounded,dashed",color="#777777"];
+     scores [label="Original, gap-block and stem4 scores\nMatching component null populations"];
+     tails [label="Conservative empirical null tails\nCommon log-evidence scale (nats)"];
+     sum [label="Explicit weights: nonnegative, sum to one\nCombined ranking and channel contributions"];
+     calibration [label="Required final-selection calibration\nAll candidate labels and paired axes",style="rounded,dashed",color="#777777"];
      input -> search -> target -> connectivity -> tables;
      target -> usage -> tables;
      tables -> future [style=dashed];
+     future -> sum [style=dashed];
+     scores -> tails -> sum;
+     sum -> calibration [style=dashed];
    }
 
-``reference-structure`` implements the solid arrows. It characterizes reference
-neighbourhoods and exact exclusion effects without reading query binding labels.
-The dashed stage is the structure-guided scoring investigation: weights and final
-selection calibration require separate verification before adoption.
+``reference-structure`` exports morphology and exact exclusion effects;
+``combine-evidence --three-channel`` normalizes the components and applies explicit
+weights. Solid stages are implemented. Dashed stages remain the scoring
+investigation: the reference-to-weight rule and final selection calibration need
+verification before adoption. Neither command reads query binding labels.

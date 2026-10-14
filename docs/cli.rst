@@ -1306,6 +1306,31 @@ reduce all candidate labels with the same tie/ambiguity rule, then calibrate tha
 selected statistic with ``calibrate-calls``. Both input hashes and exact grouping
 keys are recorded. Earlier prediction tables are not inputs to a fresh benchmark.
 
+Three-channel normalization (experimental)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``combine-evidence TABLE --null-evidence NULL_TABLE --three-channel --output SCORES``
+normalizes ``original_score``, ``gapblock_score`` and ``stem4_score`` with the
+same conservative null-tail rule. Both tables use the population keys above;
+all three components must have the same reference, exclusion and null-query
+identities. The evidence table additionally supplies ``original_weight``,
+``gapblock_weight`` and ``stem4_weight``. Each row's weights must be finite,
+nonnegative and sum to one.
+
+The output retains inputs and weights, adds ``p_component_original``,
+``p_component_gapblock`` and ``p_component_stem4``, each channel's
+``log_evidence_*`` in nats and its weighted ``contribution_*``, and reports
+``combined_score = sum(weight * -log(component_tail))``. Higher scores rank
+stronger evidence. A missing component has tail one and contributes zero;
+its weight is retained. If every positively weighted component is missing,
+``combined_status`` is ``unsupported`` and the score is unavailable.
+
+This command applies explicit weights; automatic weights from graph, length and
+V usage remain under investigation. It fits no coefficients and does not read
+assay labels. The component tails describe their declared null populations;
+the sum requires its own complete selected-label and paired-axis calibration
+before reporting a match P-value.
+
 ``reference-radius --targets-from-sample SAMPLE`` profiles the compatible pMHC
 reference unions declared by a sample. Its output also includes neighbour
 coverage and normalized convex bend. ``--coverage-radius-factor`` defaults to
