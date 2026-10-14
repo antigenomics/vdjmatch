@@ -47,11 +47,11 @@ queries, selections = result["queries"], result["selection"]
 - Compact output is the default. `--details` exports continuous evidence per target
   and candidates; its memory grows with queries × targets. `--epitope` restricts
   requested targets. `--kernel-scorer` selects retained advanced kernel variants;
-  `--v-regions cdr12 --stem-depth 0 --distance-matrix tcrdist
+  `--v-regions cdr12 --stem-depth 0 --distance-matrix clipped
   --junction-ends trim3` selects the retained `vcdr12` geometry.
   Matrix extras use `--distance-matrix pam250|mj|vdjam` with stem depth 0 and trim3.
   `sig` uses compact `--position-weighting significance-trimmed
-  --distance-matrix tcrdist --stem-depth 0 --junction-ends trim3`; `sigb62` uses
+  --distance-matrix clipped --stem-depth 0 --junction-ends trim3`; `sigb62` uses
   blosum62. Preserve their pre-V junction rounding; calibration is geometry specific.
   `--geometry-extra flank|framev|framemid|framej|freegap|jw|stem4j|jlen|vjlen|norm|jnorm|sw|nw`
   selects a fixed retained recipe and sets its matrix, trim3 ends and stem term.

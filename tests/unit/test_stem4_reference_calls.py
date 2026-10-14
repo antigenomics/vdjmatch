@@ -141,17 +141,17 @@ def test_stem4_species_alias_normalized_before_reference_load(tmp_path,monkeypat
 
 @pytest.mark.parametrize('paired',[False,True])
 def test_new_python_with_stale_native_rejected_before_geometry(monkeypatch,paired):
-    from vdjmatch.match import tcrdist
+    from vdjmatch.match import geometry
     def new_wrapper(*args,query_withheld_peptide_ids=None,**kwargs):
         raise AssertionError('wrapper must not execute')
     def stale_native():pass
-    def geometry(**kwargs):raise AssertionError('geometry must not execute')
+    def blocked_geometry(**kwargs):raise AssertionError('geometry must not execute')
     method='grouped_paired_sum_count_batch' if paired else 'grouped_count_batch'
-    monkeypatch.setattr(tcrdist.gapblock,method,new_wrapper)
-    monkeypatch.setattr(tcrdist.gapblock,'_gapblock_grouped_count_batch',stale_native)
-    monkeypatch.setattr(tcrdist,'precompute_v_loop_distances',geometry)
+    monkeypatch.setattr(geometry.gapblock,method,new_wrapper)
+    monkeypatch.setattr(geometry.gapblock,'_gapblock_grouped_count_batch',stale_native)
+    monkeypatch.setattr(geometry,'precompute_v_loop_distances',blocked_geometry)
     with pytest.raises(RuntimeError,match='updated native seqtree'):
-        tcrdist.grouped_total_distance_count_batch(None,None,[],paired=paired,query_withheld_peptide_ids=[])
+        geometry.grouped_total_distance_count_batch(None,None,[],paired=paired,query_withheld_peptide_ids=[])
 
 
 @pytest.mark.parametrize('policy,excluded',[('exclude',True),('retain',False)])

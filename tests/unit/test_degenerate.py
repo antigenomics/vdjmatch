@@ -4,7 +4,7 @@ import polars as pl
 import pytest
 
 from vdjmatch.evalue.epitope_rules import IMGT_CLASSES
-from vdjmatch.match.tcrdist import (
+from vdjmatch.match.geometry import (
     _cdr3_options, _substitution_costs, amino_acids, distance_matrix,
     distance_units, load_v_loops, paired_total_distance_mass_batch,
     reference_nearest_distances, total_distance_count_batch,
@@ -75,7 +75,7 @@ def test_class_cli_retains_raw_exclusion_and_matrix_recipe(tmp_path):
     pl.DataFrame([dict(junction_aa=q, v_call='TRBV19*01', locus='TRB', **meta)]).write_csv(sample, separator='\t')
     pl.DataFrame([dict(cdr3=s, v='TRBV19*01', gene='TRB', **(meta | dict(species='HomoSapiens', epitope=e)))
                   for s, e in [(q, 'E'), (alias, 'E'), ('CASSFTQETQYF', 'OTHER')]]).write_csv(ref, separator='\t')
-    args = ['tcrdist-neighbours', str(sample), '--vdjdb', str(ref), '--locus', 'TRB',
+    args = ['neighbours', str(sample), '--vdjdb', str(ref), '--locus', 'TRB',
             '--targets-from-sample', '--exclude-exact', '--unbounded-nearest', '--nearest-rank',
             '--background', 'vdjdb-other', '--neighbour-weighting', 'local-rank']
     for name, extra in [('full', []), ('imgt', ['--alphabet', 'imgt']),

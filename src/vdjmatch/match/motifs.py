@@ -1,16 +1,16 @@
-"""VDJbet V-conditioned MF×IKF evidence; not a calibrated likelihood or P-value."""
+"""masked-motif V-conditioned MF×IKF evidence; not a calibrated likelihood or P-value."""
 import polars as pl
 
 from ..aggregate.candidates import PMHC
 from ..evalue.epitope_rules import _tokens
 
 
-def vdjbet_motif_scores(queries, reference, *, exclude_exact=False, target_reference=None):
+def masked_motif_scores(queries, reference, *, exclude_exact=False, target_reference=None):
     """Return supported V+masked-4-mer scores per query/full pMHC.
 
     Inputs use full junction ``cdr3`` and ``v``; queries have unique query_id,
     reference has PMHC columns. Call separately for each species and locus.
-    Follow vdjbet: IMGT classes, all four masks, distinct junction presence,
+    Follow masked_motif: IMGT classes, all four masks, distinct junction presence,
     x_length,V,target>=2, x_V,target>=3, x_target>=5, and sum(max(MF_V×IKF))
     per motif divided by query length. Benchmark exclusion removes a full query
     junction from every target/V stratum and global counts before any gate.

@@ -201,7 +201,7 @@ def test_raw_airr_control_rejects_bare_cdr3_with_only_j_call(tmp_path):
         raw_background("TRB", "human", path)
 
 
-@pytest.mark.parametrize("command,module", [("historical-density","historical"),("annotate","tcrdist")])
+@pytest.mark.parametrize("command,module", [("historical-density","historical"),("annotate","neighbours")])
 @pytest.mark.parametrize("limit,expected", [("4", 4), (None, 12), ("99", 12)])
 def test_cli_preserves_parent_table_thread_cap(limit,expected,command,module):
     import os

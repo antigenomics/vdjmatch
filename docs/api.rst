@@ -164,7 +164,7 @@ identity when selecting corroborated records.
 Experimental V-conditioned motif evidence
 -----------------------------------------
 
-.. autofunction:: vdjmatch.match.motifs.vdjbet_motif_scores
+.. autofunction:: vdjmatch.match.motifs.masked_motif_scores
 
 Targeted kernel evidence
 ------------------------
@@ -172,10 +172,10 @@ Targeted kernel evidence
 .. automodule:: vdjmatch.evalue.kernel
    :members: ladder_cutoffs, kernel_ladder, select_kernel
 
-.. autofunction:: vdjmatch.match.tcrdist.precompute_v_loop_distances
+.. autofunction:: vdjmatch.match.geometry.precompute_v_loop_distances
 
 Legacy calculation reproduction
---------------------------------
+-------------------------------
 
 .. automodule:: vdjmatch.match.scoring_audit
    :members: matrix_audit, loo_audit

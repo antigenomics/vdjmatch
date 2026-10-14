@@ -3,7 +3,7 @@ import numpy as np
 import polars as pl
 import pytest
 from seqtree import SubstitutionMatrix, gapblock
-from vdjmatch.match import tcrdist as td
+from vdjmatch.match import geometry as td
 from vdjmatch.match.regions import significance_weights
 
 
@@ -34,7 +34,7 @@ def frames(paired):
     return q,r
 
 
-@pytest.mark.parametrize('matrix',['tcrdist','blosum62'])
+@pytest.mark.parametrize('matrix',['clipped','blosum62'])
 @pytest.mark.parametrize('paired',[False,True])
 def test_trimmed_profile_exact_native_boundaries_context_and_threads(matrix,paired):
     q,r=frames(paired);context=td.precompute_v_loop_distances(matrix=matrix,v_regions='cdr12')
@@ -69,7 +69,7 @@ def test_rounding_before_v_and_stem_offsets_on_a_genuine_residual():
         if (2*int(costs[symbols.index('A'),symbols.index(a)])*w)%200)
     q='CAA'+'A'*7+'AAF';r=q[:site+3]+aa+q[site+4:]
     context=td.precompute_v_loop_distances()
-    oracle=recorded_distance([q],[r],['TRBV19'],['TRBV7-9'],'tcrdist',context)[0,0]
+    oracle=recorded_distance([q],[r],['TRBV19'],['TRBV7-9'],'clipped',context)[0,0]
     assert raw%200 and 3*(raw//200)<3*raw/200
     cuts=[int(200*oracle)-1,int(200*oracle)]
     iterator=td.grouped_total_distance_count_batch(pl.DataFrame({'seq0':[q],'v0':['TRBV19']}),

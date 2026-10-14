@@ -85,7 +85,7 @@ retaining the winner, strongest competing peptide, score ties and exact-label
 ambiguity. Tables retained in memory grow with query count rather than the
 query-by-target product. ``--details`` additionally writes candidate and full
 all-label enrichment TSVs for continuous accuracy or detailed inspection.
-The advanced ``tcrdist-neighbours`` kernel route enables compact output with
+The advanced ``neighbours`` kernel route enables compact output with
 ``--selection-only``; its default detailed exports remain unchanged.
 Selection pools restrictions of one peptide, retains score ties and conflicting
 exact-label ambiguity, and reports winner/(winner+strongest other peptide) as
@@ -100,7 +100,7 @@ three component labels/statuses and ``has_support``; missing linked references
 cannot veto a supported marginal. There is no inferred joint probability.
 
 The original scorer remains available as ``historical-density``. Existing
-advanced alternatives remain in ``historical-density`` and ``tcrdist-neighbours``;
+advanced alternatives remain in ``historical-density`` and ``neighbours``;
 see their installed ``--help`` for options. Enrichment exports all/V-weighted/
 same-V-only ladder scores with bounded and rare-control denominators. These
 alternatives retain their own identities and are not calibrated by the default.
@@ -111,7 +111,7 @@ query/reference direction and the original unknown-gene behavior.
 Mixed compact single/paired cohorts share marginal chain searches; the V-loop
 tables are prepared once for the cohort. ``--v-regions cdr12`` retains the
 ``vcdr12`` alternative, omitting only CDR2.5. Its recorded geometry also uses
-``--stem-depth 0 --distance-matrix tcrdist --junction-ends trim3``.
+``--stem-depth 0 --distance-matrix clipped --junction-ends trim3``.
 Default geometry retains CDR1, CDR2 and CDR2.5. Calibration belongs to the entire
 selected geometry and scorer.
 The matrix extras are ``--distance-matrix pam250``, ``mj`` and ``vdjam``;
@@ -119,7 +119,7 @@ their recorded geometries use ``--stem-depth 0 --junction-ends trim3``.
 They retain unclipped Gram penalties and use the same matrix units for V loops,
 junctions, gaps and the ladder.
 ``--position-weighting significance-trimmed`` selects the recorded ``sig``
-geometry with ``--distance-matrix tcrdist --stem-depth 0 --junction-ends trim3``;
+geometry with ``--distance-matrix clipped --stem-depth 0 --junction-ends trim3``;
 ``sigb62`` changes the matrix to ``blosum62``. These require compact output.
 The full-junction profile is restricted to the retained window, normalized to
 mean one and rounded to integer weights; the junction component is floored
@@ -571,7 +571,7 @@ marginal references when linked pairs are unavailable. This is exhaustive eviden
 for benchmark/calibration workflows, not an accepted winning-label call or a new
 annotation default. The original kernel still excludes exact chain junctions.
 
-``tcrdist-neighbours --all-targets --unbounded-nearest --nearest-rank
+``neighbours --all-targets --unbounded-nearest --nearest-rank
 --background vdjdb-other --neighbour-weighting local-rank`` exports the matched
 conditional-rank component for every full pMHC, with the usual radius, matrix,
 V-loop and exact-exclusion options. Paired distances still refer to the same
@@ -616,7 +616,7 @@ invalid inputs retain their original pair/chain IDs and explicit statuses.
 ``--gapped-extension`` is an experimental single-chain ranking candidate for pooled
 or sample-declared targets. It preserves the original density and adds reference
 edges outside the equal-length five-substitution ball, at every supported length.
-Each additional edge contributes w(V) exp(-total TCRdist / tau) divided by the
+Each additional edge contributes w(V) exp(-total distance / tau) divided by the
 empirical CDR3 background mass, with the original 0.01 denominator floor. Here
 w(V) is 1 for the same allele-stripped V gene and 0.25 for different genes. This
 is a categorical gene prior: different genes retain the 0.25 factor even when
@@ -629,7 +629,7 @@ Flat diagnostics report the pre-prior, pre-V-weight same-gene and cross-gene
 kernel sums and accepted-edge counts. ``gapped_density`` equals the same-gene
 sum plus 0.25 times the cross-gene sum. ``gapped_floor_density`` is the weighted
 contribution of edges whose empirical denominator is strictly below 0.01. Best
-accepted-edge total, weighted CDR3 and V-loop distances retain native TCRdist
+accepted-edge total, weighted CDR3 and V-loop distances retain native distance units
 units, with the first source-order reference chosen on total-distance ties.
 Empty or unavailable extension outputs have zero sums/counts and null best-edge
 distances; rows that never enter scoring keep null diagnostics and their status.
@@ -655,7 +655,7 @@ penalty, control count, contribution and gap length are exported. Block placemen
 is explicitly unavailable from the native scalar output. The original density,
 score and P-value remain separate; this experimental addition has no combined
 P-value. It requires positional gap-block support in the installed seqtree binary
-and rejects older implementations before loading controls. TCRdist-specific
+and rejects older implementations before loading controls. Clipped-geometry
 radius/temperature options do not apply.
 
 ``--gapped-extension --gap-geometry matched-pssm`` uses the same positional
@@ -679,14 +679,14 @@ cutoff, control counts, original comparator or component significance.
 See :doc:`scoring` for the equations, statistical interpretation and limits.
 
 
-Native TCRdist3-compatible distances
-------------------------------------
+Native junction/V-loop distances
+--------------------------------
 
 Experimental background enrichment
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For single-chain declared-target comparisons, add ``--targets-from-sample
---background real --control RAW_TABLE`` to ``tcrdist-neighbours``. The same
+--background real --control RAW_TABLE`` to ``neighbours``. The same
 control-table interface supports ``--background generative``; this flag declares
 its origin and does not generate sequences. ``--background vdjdb-other`` builds
 controls from other-peptide annotations in the selected species/locus reference,
@@ -741,10 +741,10 @@ The CDR3 loop folds as a hairpin, so junction position ``i`` sits opposite posit
 maximum rather than a sum. The term is evaluated on untrimmed junctions, which is
 why it adds information the trimmed alignment cannot see, and it uses the same
 substitution table selected by ``--distance-matrix`` as the junction alignment
-and V loops. TCRdist uses clipped costs; targeted annotation uses unclipped
+and V loops. The clipped geometry uses bounded substitution costs; targeted annotation uses unclipped
 BLOSUM62 Gram penalties.
 
-The default ``--stem-depth 0`` reproduces the TCRdist3 distance exactly.
+The default ``--stem-depth 0`` omits the terminal stem term.
 ``--stem-depth 4`` is the configuration selected by the four-task benchmark
 objective; ``--stem-weight`` defaults to ``1.0``, which spans the same range as one
 aligned residue. Depth is a declared residue count, not a per-clonotype boundary.
@@ -757,7 +757,7 @@ do not establish true linked-pair accuracy or joint calibration.
 ======================  =========  ===============================================
 Parameter               Default    Meaning
 ======================  =========  ===============================================
-``--stem-depth``        ``0``      stem levels; 0 reproduces TCRdist3, 4 is selected
+``--stem-depth``        ``0``      stem levels; 0 omits the stem, 4 is the retained depth
 ``--stem-weight``       ``1.0``    weight in shared substitution-matrix cost units
 ======================  =========  ===============================================
 
@@ -770,18 +770,18 @@ identity still defines exact exclusion. Python and native capability are checked
 before counting.
 
 ``--junction-ends trim3`` is an experimental comparison that removes three
-residues at both junction ends. The default ``--junction-ends tcrdist``
-preserves the TCRdist3 three-N/two-C trim. Both keep full-junction exact
+residues at both junction ends. The default ``--junction-ends trim32``
+preserves the clipped BLOSUM62 geometry three-N/two-C trim. Both keep full-junction exact
 exclusion and V-loop distances; paired distances use the same option on both
 linked chains. The manifest records the trim and distinguishes the experimental
 geometry from the native default. No confidence calibration is added.
 
-``vdjmatch tcrdist-neighbours SAMPLE --vdjdb REFERENCE --locus TRB --threads 4
+``vdjmatch neighbours SAMPLE --vdjdb REFERENCE --locus TRB --threads 4
 --radius 90 --exclude-exact --output-prefix OUT`` exports minimum distance and
 neighbour counts per pMHC, plus a separate query-availability table. It reproduces
-the default TCRdist3 distance: three times the trimmed, restricted-gap CDR3
+the default clipped BLOSUM62 geometry distance: three times the trimmed, restricted-gap CDR3
 distance, plus aligned V-gene CDR1, CDR2 and CDR2.5 distances. The bundled loop
-models and their license/provenance are under ``resources/tcrdist``. Use
+models and their license/provenance are under ``resources/vloops``. Use
 ``--species human|mouse`` to choose the organism. Missing allele
 suffixes explicitly resolve to ``*01``. Model-proven co-locus aliases resolve
 uniquely without changing raw calls; ambiguous calls remain unavailable. The
@@ -817,14 +817,14 @@ neighbours. Explicit ``--epitope``, ``--mhc-a`` and ``--mhc-b`` selectors suppor
 The existing seqtree gap-block batch kernel computes CDR3 distances; vectorized
 lookups add germline-loop distances. Single-chain distance outputs are bounded
 to 64 MiB per batch; paired matrix work uses a 32 MiB budget. These allocation
-bounds do not establish whole-process RSS. A clipped BLOSUM-derived matrix reproduces TCRdist penalties; ordinary
+bounds do not establish whole-process RSS. The clipped BLOSUM62 matrix has nonnegative bounded substitution penalties; ordinary
 seqtree BLOSUM Gram penalties are a different metric.
 
-Exhaustive TCRdist nearest reference
-------------------------------------
+Exhaustive clipped BLOSUM62 geometry nearest reference
+------------------------------------------------------
 
-``tcrdist-neighbours --targets-from-sample --unbounded-nearest`` reports the
-minimum native TCRdist distance over every usable, nonexcluded reference in each
+``neighbours --targets-from-sample --unbounded-nearest`` reports the
+minimum native clipped BLOSUM62 geometry distance over every usable, nonexcluded reference in each
 query's declared compatible pMHC union. A minimum may exceed ``--radius``;
 ``n_neighbours`` continues to count only references within that radius. With
 ``--exclude-exact``, exclusion compares the complete junction. In paired mode,
@@ -1086,9 +1086,9 @@ filters principal accuracy/ranking evaluations with a recommended cutoff.
 Fixed V/J versus NDN geometry
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The experimental ``tcrdist-neighbours --position-weighting ndn`` arm requires
+The experimental ``neighbours --position-weighting ndn`` arm requires
 ``vdjmatch[ndn]`` and a seqtree native build with per-input positional weights.
-Use it with ``--background`` and default ``--junction-ends tcrdist``. It weights
+Use it with ``--background`` and default ``--junction-ends trim32``. It weights
 verified ARDA V/J junction flanks by0.1 and NDN by1, retaining the clipped
 BLOSUM62 substitution matrix, V-loop contribution and positive length-gap costs.
 Aligned substitutions use the larger of the query and reference position weights.
@@ -1101,13 +1101,13 @@ manifest records geometry, counts and source identities. Generated draw
 multiplicity and observed junction/V population units remain unchanged.
 
 This option changes background enrichment/local-rank geometry only. The nearest
-distance output retains its TCRdist3 comparator geometry. It provides an
+distance output retains its clipped BLOSUM62 geometry comparator geometry. It provides an
 experimental ranking contrast, with no default annotation or confidence change.
 
 Fixed V-loop information contrast
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``tcrdist-neighbours --v-loop-weight 0`` is an experimental CDR3-only
+``neighbours --v-loop-weight 0`` is an experimental CDR3-only
 contrast against the default ``--v-loop-weight 1``. Both retain identical
 query/reference/control V-call eligibility, full identity keys and optional
 exact puncturing. Only CDR1/CDR2/CDR2.5 distance offsets are removed;
@@ -1137,7 +1137,7 @@ junction/resolved-V keys define the search population; paired mode uses genuine
 linked receptors and the summed distance to the same reference pair. Source
 observation counts and unavailable keys remain explicit.
 
-``tcrdist-neighbours --reference-radius`` applies this selection to each
+``neighbours --reference-radius`` applies this selection to each
 sample-declared compatible reference union. It requires uniform geometry,
 V loops, ``--nearest-rank --unbounded-nearest --targets-from-sample``,
 ``--neighbour-weighting local-rank --background vdjdb-other``. Its additional
@@ -1157,7 +1157,7 @@ Cohort-relative paired evidence ordering
 ----------------------------------------
 
 The opt-in ``paired-evidence-order`` command reduces existing fixed-radius
-TCRdist evidence; it performs no sequence search and changes no default scorer::
+clipped BLOSUM62 geometry evidence; it performs no sequence search and changes no default scorer::
 
    vdjmatch paired-evidence-order evidence.tsv --output ordered.tsv --threads 1
 
@@ -1221,7 +1221,7 @@ V-conditioned motif evidence
 ----------------------------
 
 ``vdjmatch motif-evidence SAMPLE --vdjdb REFERENCE --locus TRA|TRB
---species human|mouse --output-prefix RESULT`` computes experimental VDJbet
+--species human|mouse --output-prefix RESULT`` computes experimental masked-motif
 MF×IKF evidence for the sample's declared full pMHC. It uses the union of compatible
 reference restrictions for target motif counts and all valid same-species/locus
 references for global motif frequency. Full junctions, all four wildcard positions,
@@ -1257,7 +1257,7 @@ original chain support ``u``, the shared sparsity gate is
 ``s = 1-u*c*(1-(1-k)*e)``. Single-chain support is zero or one; paired support
 is the fraction of chains with positive original density. The GLM fits four
 nonnegative dense/sparse score coefficients, plus mode and missing indicators.
-Standalone VDJbet motifs remain a separate comparator.
+Standalone masked-motif motifs remain a separate comparator.
 
 ``combine-evidence TABLE --model MODEL --output SCORES`` preserves every row and
 exports a linear ranking margin with an unsupported status when all components

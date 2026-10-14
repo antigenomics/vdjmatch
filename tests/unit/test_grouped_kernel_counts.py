@@ -2,7 +2,7 @@
 import polars as pl
 import pytest
 
-from vdjmatch.match import tcrdist
+from vdjmatch.match import geometry
 
 
 @pytest.mark.parametrize('paired', [False, True])
@@ -12,13 +12,13 @@ def test_grouped_distance_prepares_one_population_and_gene_codes(monkeypatch, pa
     def native(*args, **kwargs):
         calls.append((args,kwargs))
         return iter(())
-    monkeypatch.setattr(tcrdist.gapblock,name,native,raising=False)
+    monkeypatch.setattr(geometry.gapblock,name,native,raising=False)
     q=pl.DataFrame({'seq0':['CASSLGQAYEQYF'], 'v0':['TRBV19*01']})
     r=pl.DataFrame({'seq0':['CASSLGQAYEQWF'], 'v0':['TRBV19*02']})
     if paired:
         q=q.rename({'seq0':'seq1','v0':'v1'}).with_columns(pl.lit('CAVRDSNYQLIW').alias('seq0'),pl.lit('TRAV12-2*01').alias('v0'))
         r=r.rename({'seq0':'seq1','v0':'v1'}).with_columns(pl.lit('CAVRDSNYQLVW').alias('seq0'),pl.lit('TRAV12-2*02').alias('v0'))
-    list(tcrdist.grouped_total_distance_count_batch(q,r,[0,117000],paired=paired,
+    list(geometry.grouped_total_distance_count_batch(q,r,[0,117000],paired=paired,
         reference_target_offsets=[0,1],reference_target_ids=[0],target_peptide_ids=[0],
         reference_exclusive_peptide_ids=[0],threads=1,ctrim=3,stem_depth=4,matrix='blosum62'))
     assert len(calls)==1

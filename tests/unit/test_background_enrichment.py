@@ -53,7 +53,7 @@ def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,backgroun
         'mhc_a':['HLA-A*02:01']*4,'mhc_b':['B2M']*4,'mhc_class':['MHCI']*4}).write_csv(reference,separator='\t')
     control_sequences=[q,r,r] if background=='generative' else [q,r]
     pl.DataFrame({'junction_aa':control_sequences,'v_call':['TRBV19']*len(control_sequences)}).write_csv(control,separator='\t')
-    args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+    args=['neighbours',str(sample),'--vdjdb',str(reference),'--locus','TRB',
           '--targets-from-sample','--junction-ends','trim3','--radius','0','--exclude-exact',
           '--background',background,'--output-prefix',str(prefix)]
     args+=['--neighbour-weighting',weighting,'--rank-signal-prior','.3']
@@ -83,7 +83,7 @@ def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,backgroun
 
 
 def test_background_options_reject_undefined_joint_and_ignored_controls():
-    base=['tcrdist-neighbours','missing','--vdjdb','missing','--output-prefix','out']
+    base=['neighbours','missing','--vdjdb','missing','--output-prefix','out']
     for flags in (['--locus','paired','--targets-from-sample','--background','real','--control','b'],
                   ['--locus','TRB','--control','b'],
                   ['--locus','TRB','--background','real','--targets-from-sample']):
@@ -106,7 +106,7 @@ def test_linear_paired_score_keeps_linkage_and_punctures_both_populations(tmp_pa
     pl.DataFrame({'complex_id':['1','1','2','2','3','3','4','4'],'gene':['TRA','TRB']*4,
         'cdr3':[a,a,a,b,b,a,b,b],'v':['TRAV1-1','TRBV19']*4,'species':['HomoSapiens']*8,
         'epitope':['E']*4+['other']*4,'mhc_a':['HLA-A*02']*8,'mhc_b':['B2M']*8,'mhc_class':['MHCI']*8}).write_csv(reference,separator='\t')
-    args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus','paired',
+    args=['neighbours',str(sample),'--vdjdb',str(reference),'--locus','paired',
         '--targets-from-sample','--background','vdjdb-other','--neighbour-weighting',weighting,
         '--exclude-exact','--radius','18','--position-weighting',geometry,'--output-prefix',str(prefix)]
     assert main(args)==0
@@ -130,13 +130,13 @@ def test_linear_paired_score_keeps_linkage_and_punctures_both_populations(tmp_pa
 @pytest.mark.parametrize('flags',[['--radius','0','--background','vdjdb-other','--targets-from-sample'],[]])
 def test_linear_rejects_zero_radius_or_missing_background(flags):
     with pytest.raises(SystemExit):
-        main(['tcrdist-neighbours','missing','--vdjdb','missing','--locus','TRB',
+        main(['neighbours','missing','--vdjdb','missing','--locus','TRB',
               '--neighbour-weighting','linear','--output-prefix','out',*flags])
 
 
 @pytest.mark.parametrize('factor',[5,5.1])
 def test_matrix_relative_radius_and_bins_preserve_evidence(monkeypatch,tmp_path,factor):
-    from vdjmatch.match import tcrdist
+    from vdjmatch.match import geometry
     sample=tmp_path/'sample.tsv';reference=tmp_path/'reference.tsv'
     q='CASSLGQAYEQYF';near='CASSLGQAWAYEQYF';far='CASSLWWWWGQAYEQYF'
     pl.DataFrame({'junction_aa':[q],'v_call':['TRBV19'],'locus':['TRB'],
@@ -145,13 +145,13 @@ def test_matrix_relative_radius_and_bins_preserve_evidence(monkeypatch,tmp_path,
     pl.DataFrame({'cdr3':[near,far],'v':['TRBV19','TRBV7-9'],'gene':['TRB']*2,
         'species':['HomoSapiens']*2,'epitope':['E','other'],'mhc_a':['HLA-A*02:01']*2,
         'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(reference,separator='\t')
-    args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+    args=['neighbours',str(sample),'--vdjdb',str(reference),'--locus','TRB',
         '--targets-from-sample','--background','vdjdb-other','--neighbour-weighting','local-rank',
         '--unbounded-nearest','--nearest-rank','--junction-ends','trim3',
         '--radius-factor',str(factor)]
     assert main(args+['--output-prefix',str(tmp_path/'base')])==0
-    matrix=tcrdist._substitution_costs()
-    monkeypatch.setattr(tcrdist,'_substitution_costs',lambda alphabet='full',matrix_name='tcrdist':2*matrix)
+    matrix=geometry._substitution_costs()
+    monkeypatch.setattr(geometry,'_substitution_costs',lambda alphabet='full',matrix_name='clipped':2*matrix)
     assert main(args+['--output-prefix',str(tmp_path/'scaled')])==0
     base=pl.read_csv(tmp_path/'base.enrichment.tsv',separator='\t')
     scaled=pl.read_csv(tmp_path/'scaled.enrichment.tsv',separator='\t')

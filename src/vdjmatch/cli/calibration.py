@@ -43,7 +43,7 @@ def paired_pipeline_sources():
     """Pin both shipped paired producers and their shared event/binding definition."""
     import hashlib
     return {name:hashlib.sha256(Path(__file__).with_name(name+'.py').read_bytes()).hexdigest()
-            for name in ('reference_calls','tcrdist','calibration')}
+            for name in ('reference_calls','neighbours','calibration')}
 
 
 def _bound_score_columns(binding):
@@ -59,7 +59,7 @@ def pipeline_binding(manifest):
     import hashlib
     import json
     from importlib.resources import files
-    from ..match.tcrdist import load_v_loops
+    from ..match.geometry import load_v_loops
 
     try:
         if 'core_manifests' in manifest:
@@ -78,7 +78,7 @@ def pipeline_binding(manifest):
                     or manifest['calibration_statistic'] != (PAIRED_STATISTIC if options['locus']=='paired' else 'final selected kernel_score; no component P/E transfer')):
                 raise ValueError('binding selection/statistic is unsupported')
             geometry = {k:v for k,v in manifest['geometry'].items() if k != 'threads'}
-            sources = {k:manifest['source_sha256'][k] for k in ('kernel','tcrdist','seqtree_native','seqtree_python')}
+            sources = {k:manifest['source_sha256'][k] for k in ('kernel','geometry','seqtree_native','seqtree_python')}
         else:
             options = manifest['parameters']
             if (not options['all_targets'] or options['background'] != 'vdjdb-other'
@@ -96,7 +96,7 @@ def pipeline_binding(manifest):
                 cutoffs=kernel['cutoffs'], cross_v=kernel['cross_v'], floor=.01, scorer=kernel['scorer'],
                 matrix_scale=g['matrix_unit'], v_regions=g['v_regions'], position_weighting=options['position_weighting'])
             sources = {name:manifest['software'][key] for name,key in (
-                ('kernel','kernel_source_sha256'), ('tcrdist','scorer_source_sha256'),
+                ('kernel','kernel_source_sha256'), ('geometry','scorer_source_sha256'),
                 ('seqtree_native','seqtree_native_sha256'), ('seqtree_python','seqtree_python_source_sha256'))}
         species, locus = options['species'], options['locus']
         organism = {'HomoSapiens':'human','MusMusculus':'mouse'}[species]
@@ -106,7 +106,7 @@ def pipeline_binding(manifest):
             'exclude_exact','radius','kernel_scale','cutoffs','cross_v','floor','scorer','matrix_scale','v_regions','position_weighting'}
         if set(geometry) != required_geometry:
             raise ValueError('binding geometry is incomplete or unsupported')
-        model_file = Path(str(files('vdjmatch.resources')/'tcrdist'/f'{organism}_v_loops.tsv'))
+        model_file = Path(str(files('vdjmatch.resources')/'vloops'/f'{organism}_v_loops.tsv'))
         file_hash = hashlib.sha256(model_file.read_bytes()).hexdigest()
         semantic_hash = hashlib.sha256(json.dumps(load_v_loops(organism), sort_keys=True, default=str).encode()).hexdigest()
         if (manifest['model_sha256'] != semantic_hash if 'geometry' in manifest

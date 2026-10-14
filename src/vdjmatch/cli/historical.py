@@ -34,10 +34,10 @@ def register(subparsers):
     p.add_argument('--puncture-populations',action='store_true',
                    help='candidate: remove exact full junctions from density and prior population sizes/counts; preserves historical defaults')
     p.add_argument('--gapped-extension',action='store_true',help='experimental gapped density mode; matched-pssm rescores all accepted edges; no combined P-value')
-    p.add_argument('--gap-geometry',choices=['tcrdist','historical-pssm','matched-pssm'],default='tcrdist',
-                   help='tcrdist/historical-pssm add extension edges; matched-pssm uses one positional kernel and control CDF for all edges')
-    p.add_argument('--gap-radius',type=int,default=90,help='TCRdist extension radius only')
-    p.add_argument('--gap-temperature',type=float,default=12,help='TCRdist extension temperature only')
+    p.add_argument('--gap-geometry',choices=['clipped','historical-pssm','matched-pssm'],default='clipped',
+                   help='geometry/historical-pssm add extension edges; matched-pssm uses one positional kernel and control CDF for all edges')
+    p.add_argument('--gap-radius',type=int,default=90,help='clipped BLOSUM62 geometry extension radius only')
+    p.add_argument('--gap-temperature',type=float,default=12,help='clipped BLOSUM62 geometry extension temperature only')
     p.add_argument('--pssm-kernel-scale',type=float,default=400,help='positive positional-kernel decay scale in integer penalty units; positional modes only')
     p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep other target models and controls fixed')
     p.add_argument('--threads',type=int,default=1)
@@ -331,13 +331,13 @@ def main(a):
     if a.threads<1:raise ValueError('threads must be positive')
     if not math.isfinite(a.pssm_kernel_scale) or a.pssm_kernel_scale<=0:
         raise ValueError('--pssm-kernel-scale must be finite and positive')
-    if a.gap_geometry=='tcrdist' and a.pssm_kernel_scale!=400:
+    if a.gap_geometry=='clipped' and a.pssm_kernel_scale!=400:
         raise ValueError('--pssm-kernel-scale requires a positional gap geometry')
     if a.gap_geometry in ('historical-pssm','matched-pssm'):
         if not a.gapped_extension:
             raise ValueError('--gap-geometry requires --gapped-extension')
         if a.gap_radius!=90 or a.gap_temperature!=12:
-            raise ValueError('--gap-radius/--gap-temperature apply only to TCRdist geometry')
+            raise ValueError('--gap-radius/--gap-temperature apply only to clipped BLOSUM62 geometry')
         from ..match.unified import require_historical_pssm_kernel
         require_historical_pssm_kernel()
     if a.cohort_column and a.locus!='paired':
@@ -668,11 +668,11 @@ def main(a):
                     ('original edges rescored with matched CDF; no hit cap' if a.gap_geometry=='matched-pssm' else 'excluding original same-length<=5-substitution edges; no hit cap'),
                 'diagnostics':'highest weighted-contribution reference junction/V, penalty/count/contribution/gap length; block position and alignment unavailable from scalar native output'}
         else:
-            from ..match.tcrdist import distance_matrix, load_v_loops
+            from ..match.geometry import distance_matrix, load_v_loops
             extension_manifest={**common,
                 'source_sha256':sha256(Path(gapped_extension.__code__.co_filename)),
                 'distance_source_sha256':sha256(Path(distance_matrix.__code__.co_filename)),
-                'model_sha256':sha256(Path(load_v_loops.__code__.co_filename).parent.parent/'resources/tcrdist'/f'{organism}_v_loops.tsv'),
+                'model_sha256':sha256(Path(load_v_loops.__code__.co_filename).parent.parent/'resources/vloops'/f'{organism}_v_loops.tsv'),
                 'control_geometry':'trimmed restricted-gap CDR3; unique full controls; exact full identity punctured',
                 'formula':'original density plus only new gapped/V-loop kernel edges; V weight1 same allele-stripped gene/.25 otherwise; no vsim multiplier',
                 'diagnostics':'pre-prior unweighted same/cross V sums, edge counts, weighted floor contribution, and source-order best accepted edge total/CDR3/V-loop distances'}

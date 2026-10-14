@@ -12,14 +12,14 @@ from . import search_params
 def gapped_extension(queries, reference, control, *, species='human', threads=1, radius=90, temperature=12):
     """Experimental additive density on edges outside the original five-substitution ball.
 
-    The kernel uses total TCRdist, while its empirical CDF uses weighted CDR3
+    The kernel uses total clipped BLOSUM62 geometry, while its empirical CDF uses weighted CDR3
     distance only. Allele-stripped equal V genes have categorical weight one;
     different genes have weight .25, independently of their native loop similarity.
     This is an uncalibrated component: no new P-value is assigned.
     Reference junctions retain their first source-order V representative. N includes
     all those representatives; unavailable genes contribute no extension edges.
     """
-    from .tcrdist import distance_matrix,load_v_loops,_cdr3_options,resolve_v_alleles
+    from .geometry import distance_matrix,load_v_loops,_cdr3_options,resolve_v_alleles
     if isinstance(threads,bool) or not isinstance(threads,int) or threads<1:
         raise ValueError('threads must be positive')
     if isinstance(radius,bool) or not isinstance(radius,int) or radius<0 or not np.isfinite(temperature) or temperature<=0:

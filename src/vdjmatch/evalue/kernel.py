@@ -126,7 +126,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     and unselected peptides remain in the background. No predictions persist.
     """
     import polars as pl
-    from ..match.tcrdist import grouped_total_distance_count_batch, distance_cutoff
+    from ..match.geometry import grouped_total_distance_count_batch, distance_cutoff
     if scorer not in KERNEL_SCORERS:
         raise ValueError('unknown kernel scorer')
     if not groups or not queries.height:
@@ -186,7 +186,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     def axes(frame, reference=False):
         seqs=['alpha','beta'] if reference and paired else ['cdr3a','cdr3b'] if paired else ['cdr3']
         genes=['_allele_alpha','_allele_beta'] if reference and paired else ['_allelea','_alleleb'] if paired else ['_allele']
-        from ..match.tcrdist import J_GEOMETRY_PRESETS
+        from ..match.geometry import J_GEOMETRY_PRESETS
         jcols=['j_alpha','j_beta'] if reference and paired else ['ja','jb'] if paired else ['j']
         return frame.select(*[pl.col(c).alias('seq'+str(i)) for i,c in enumerate(seqs)],
                             *[pl.col(c).alias('v'+str(i)) for i,c in enumerate(genes)],

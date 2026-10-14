@@ -89,7 +89,7 @@ def test_gapped_extension_preserves_original_edges_and_skips_control_search(monk
 
 def test_gapped_extension_equal_length_six_substitutions_and_zero_cdf_floor():
     from vdjmatch.match.unified import gapped_extension
-    from vdjmatch.match.tcrdist import distance_matrix
+    from vdjmatch.match.geometry import distance_matrix
     q='CASSLGQAYEQYF';r=q[:3]+'TTTTTT'+q[9:]
     assert len(q)==len(r) and sum(a!=b for a,b in zip(q,r))==6
     queries=pl.DataFrame({'query_id':['a'],'cdr3':[q],'v':['TRBV19']})
@@ -104,7 +104,7 @@ def test_gapped_extension_equal_length_six_substitutions_and_zero_cdf_floor():
 
 def test_gapped_extension_full_control_puncture_and_serial_equality(monkeypatch):
     from vdjmatch.match.unified import gapped_extension
-    from vdjmatch.match.tcrdist import distance_matrix
+    from vdjmatch.match.geometry import distance_matrix
     q='CASSLGQAYEQYF';r=q+'F';same_trim='CAVSLGQAYEQWF'
     assert q[3:-2]==same_trim[3:-2] and q!=same_trim
     queries=pl.DataFrame({'query_id':['a','repeat','unknown'],'cdr3':[q]*3,
@@ -133,7 +133,7 @@ def test_gapped_extension_full_control_puncture_and_serial_equality(monkeypatch)
 
 def test_gapped_extension_uses_v_loops_but_cdr3_only_background_and_first_v():
     from vdjmatch.match.unified import gapped_extension
-    from vdjmatch.match.tcrdist import distance_matrix
+    from vdjmatch.match.geometry import distance_matrix
     q='CASSLGQAYEQYF';r=q+'F'
     queries=pl.DataFrame({'query_id':['a'],'cdr3':[q],'v':['TRBV19']})
     refs=pl.DataFrame({'cdr3':[r],'v':['TRBV19*02']})
@@ -151,22 +151,22 @@ def test_gapped_extension_uses_v_loops_but_cdr3_only_background_and_first_v():
 
 def test_gapped_extension_categorical_v_prior_and_flat_diagnostics(monkeypatch):
     from vdjmatch.match.unified import gapped_extension
-    from vdjmatch.match import tcrdist
+    from vdjmatch.match import geometry
     q='CASSLGQAYEQYF'
     same,cross='TRBV24-1*01','TRBV24/OR9-2*01'
-    model=tcrdist.load_v_loops()
+    model=geometry.load_v_loops()
     assert same.split('*')[0]!=cross.split('*')[0]
     assert all(model[same][k]==model[cross][k] for k in ('cdr1','cdr2','cdr25'))
     refs=pl.DataFrame({'cdr3':[q+'F',q+'W'],'v':[same,cross]})
     queries=pl.DataFrame({'query_id':['q','unknown'],'cdr3':[q,q],'v':[same,'unknown']})
-    total,cdr3=tcrdist.distance_matrix([q],refs['cdr3'].to_list(),[same],[same,cross],return_cdr3=True)
+    total,cdr3=geometry.distance_matrix([q],refs['cdr3'].to_list(),[same],[same,cross],return_cdr3=True)
     assert total[0,0]==total[0,1] and (total==cdr3).all()
-    calls=[];native_distance=tcrdist.distance_matrix;native_count=gapblock.count_batch
+    calls=[];native_distance=geometry.distance_matrix;native_count=gapblock.count_batch
     def distance(*args,**kwargs):
         calls.append('distance');return native_distance(*args,**kwargs)
     def count(*args,**kwargs):
         calls.append('count');return native_count(*args,**kwargs)
-    monkeypatch.setattr(tcrdist,'distance_matrix',distance)
+    monkeypatch.setattr(geometry,'distance_matrix',distance)
     monkeypatch.setattr(gapblock,'count_batch',count)
     control=Index.build([q]);tau=15
     out=gapped_extension(queries,refs,control,temperature=tau)
@@ -196,7 +196,7 @@ def test_gapped_extension_categorical_v_prior_and_flat_diagnostics(monkeypatch):
 
 def test_gapped_alias_prepare_preserves_raw_v_and_model_prior():
     from vdjmatch.match.unified import gapped_extension
-    from vdjmatch.match.tcrdist import distance_matrix
+    from vdjmatch.match.geometry import distance_matrix
     q='CASSLGQAYEQYF';r=q+'F'
     queries=pl.DataFrame({'query_id':['alias','delta'],'cdr3':[q,q],'v':['TRAV29','TRDV1']})
     reference=pl.DataFrame({'cdr3':[r],'v':['TRAV29/DV5']})

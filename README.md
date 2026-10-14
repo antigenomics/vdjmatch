@@ -115,7 +115,7 @@ peptide–MHC targets with the stem4 BLOSUM62 kernel ladder. `--locus paired` al
 retains independent TRA/TRB evidence from unlinked references. Scores are relative
 evidence; whole-selection null calibration is required for false-call recommendations.
 The original scorer remains available through `historical-density`; advanced
-alternatives remain available through that command and `tcrdist-neighbours`.
+alternatives remain available through that command and `neighbours`.
 
 | Query format | Required sequence/gene fields | Identity/linkage |
 | --- | --- | --- |
@@ -141,11 +141,11 @@ grows with queries × targets. `--epitope PEPTIDE` restricts the requested targe
 `--kernel-scorer` selects the advanced `all-bounded`, `vonly-bounded`, `v-rare`,
 `all-rare` or `vonly-rare` alternatives; `v-bounded` is the targeted default.
 The retained `vcdr12` geometry is `--v-regions cdr12 --stem-depth 0
---distance-matrix tcrdist --junction-ends trim3`; it uses CDR1/CDR2 V similarity.
+--distance-matrix clipped --junction-ends trim3`; it uses CDR1/CDR2 V similarity.
 Matrix extras use `--distance-matrix pam250`, `mj` or `vdjam`, with
 `--stem-depth 0 --junction-ends trim3`; gaps and ladder cutoffs use that matrix's units.
 The retained `sig` geometry adds `--position-weighting significance-trimmed`
-to the trim3 TCRdist geometry; `sigb62` also uses `--distance-matrix blosum62`.
+to the trim3 clipped BLOSUM62 geometry; `sigb62` also uses `--distance-matrix blosum62`.
 These two extras require compact output and retain the recorded rounding before
 V-loop addition. Calibration does not transfer between geometries.
 Additional recorded geometries use `--geometry-extra NAME`. This fixed recipe
@@ -154,8 +154,8 @@ sets its matrix, trim3 ends and stem term; compact output is required.
 | NAME | Retained geometry |
 |---|---|
 | `flank` | BLOSUM62 costs for the three residues at each junction end |
-| `framev`, `framemid`, `framej` | Clipped TCRdist with the recorded frame gap prior |
-| `freegap` | Clipped TCRdist without the gap-position prior |
+| `framev`, `framemid`, `framej` | Clipped BLOSUM62 geometry with the recorded frame gap prior |
+| `freegap` | Clipped BLOSUM62 geometry without the gap-position prior |
 | `jw`, `stem4j` | J-family mismatch cost, with zero or four stem levels |
 | `jlen`, `vjlen` | J mismatch and length difference; `vjlen` also adds V-family mismatch |
 | `norm`, `jnorm` | V-weighted population normalization, without or with J mismatch |

@@ -1,11 +1,11 @@
-"""Independent scalar oracle for the author-supplied VDJbet motif recipe."""
+"""Independent scalar oracle for the author-supplied masked-motif motif recipe."""
 from collections import Counter
 import math
 
 import polars as pl
 import pytest
 
-from vdjmatch.match.motifs import vdjbet_motif_scores
+from vdjmatch.match.motifs import masked_motif_scores
 
 
 @pytest.mark.parametrize('source', ['sample', 'reference', 'directory', 'symlink', 'hardlink', 'prefix_symlink'])
@@ -35,7 +35,7 @@ def test_motif_cli_rejects_output_input_overlap_before_reading(tmp_path, source)
     assert sample.read_bytes()==before
 
 
-def test_vdjbet_counts_masks_and_full_junction_puncture():
+def test_masked_motif_counts_masks_and_full_junction_puncture():
     groups=('AILV','RHK','CM','ST','DE','NQ','G','F','P','W','Y')
     classes={a:g[0] for g in groups for a in g}
     def tokens(s):
@@ -58,20 +58,20 @@ def test_vdjbet_counts_masks_and_full_junction_puncture():
             if v!='TRBV1' or t not in tokens(rows[0]['cdr3']):continue
             if n>=2 and va[v,e,t]>=3 and antigen[e,t]>=5:
                 expected[e,t]=max(expected.get((e,t),0),va[v,e,t]/alltokens[t]*math.log(len(pop)/alltokens[t]))
-        out=vdjbet_motif_scores(q,r,exclude_exact=exclude)
+        out=masked_motif_scores(q,r,exclude_exact=exclude)
         for row in out.iter_rows(named=True):
             values=[x for (e,t),x in expected.items() if e==row['epitope']]
             assert row['motif_score']==pytest.approx(sum(values)/len(rows[0]['cdr3']))
             assert row['supported_motifs']==len(values)
         assert out['epitope'].to_list()==sorted({e for e,t in expected})
-        targeted=vdjbet_motif_scores(q.with_columns(pl.lit('NLV').alias('epitope'),
+        targeted=masked_motif_scores(q.with_columns(pl.lit('NLV').alias('epitope'),
             pl.lit('A').alias('mhc_a'),pl.lit('B').alias('mhc_b'),pl.lit('I').alias('mhc_class')),
             r,exclude_exact=exclude,target_reference=r.filter(pl.col('epitope')=='NLV'))
         assert targeted.sort('epitope').equals(out.filter(pl.col('epitope')=='NLV').sort('epitope'))
     # A target with five instances loses its support gate after exact puncture.
-    assert vdjbet_motif_scores(q,r.head(5),exclude_exact=True).height==0
+    assert masked_motif_scores(q,r.head(5),exclude_exact=True).height==0
     with pytest.raises(ValueError,match='unique'):
-        vdjbet_motif_scores(pl.concat([q,q]),r)
+        masked_motif_scores(pl.concat([q,q]),r)
 
 
 @pytest.mark.parametrize('directory',[False,True])

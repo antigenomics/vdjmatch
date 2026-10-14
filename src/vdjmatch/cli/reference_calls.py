@@ -131,7 +131,7 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
     from ..api import _prepare
     from ..aggregate.candidates import PMHC
     from ..evalue.kernel import grouped_kernel_selection, finish_kernel_selection, ladder_cutoffs
-    from ..match.tcrdist import precompute_v_loop_distances, resolve_v_alleles
+    from ..match.geometry import precompute_v_loop_distances, resolve_v_alleles
 
     species = {'HomoSapiens': 'human', 'MusMusculus': 'mouse'}.get(args.species)
     if species is None:
@@ -192,11 +192,11 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
         table.write_csv(str(prefix)+'.'+suffix+'.tsv', separator='\t')
     provenance = db.provenance(args.vdjdb)
     from ..evalue import kernel
-    from ..match import tcrdist
+    from ..match import geometry as geometry_module
     import seqtree.gapblock as native_wrapper
     import seqtree._core as native_core
     source_hashes = {name: hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
-        for name, module in [('kernel', kernel), ('tcrdist', tcrdist), ('seqtree_python', native_wrapper), ('seqtree_native', native_core)]}
+        for name, module in [('kernel', kernel), ('geometry', geometry_module), ('seqtree_python', native_wrapper), ('seqtree_native', native_core)]}
     source_hashes['reference_calls'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     manifest = dict(reference=provenance, reference_sha256=provenance.get('input_sha256'),
         software={x: importlib.metadata.version(x) for x in ['vdjmatch', 'seqtree', 'vdjtools']},
@@ -235,7 +235,7 @@ def _stem4_paired(args,reference,valid,started):
     from ..aggregate.candidates import PMHC
     from ..evalue.paired import build_paired_ref
     from ..evalue.kernel import grouped_kernel_selection,finish_kernel_selection,ladder_cutoffs
-    from ..match.tcrdist import precompute_v_loop_distances,resolve_v_alleles
+    from ..match.geometry import precompute_v_loop_distances,resolve_v_alleles
     from .calibration import PAIRED_STATISTIC,paired_call_event,paired_pipeline_sources
 
     valid=valid.filter(pl.col('gene').is_in(['TRA','TRB']))
@@ -304,11 +304,11 @@ def _stem4_paired(args,reference,valid,started):
             ('target-support',support.with_columns((pl.col('reference_records')>=args.min_target_records).alias('benchmark_eligible')))]:
         table.write_csv(str(prefix)+'.'+suffix+'.tsv',separator='\t')
     from ..evalue import kernel
-    from ..match import tcrdist
+    from ..match import geometry as geometry_module
     import seqtree.gapblock as wrapper
     import seqtree._core as native
     sources={name:hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
-        for name,module in [('kernel',kernel),('tcrdist',tcrdist),('seqtree_python',wrapper),('seqtree_native',native)]}
+        for name,module in [('kernel',kernel),('geometry',geometry_module),('seqtree_python',wrapper),('seqtree_native',native)]}
     provenance=db.provenance(args.vdjdb)
     manifest=dict(reference=provenance,reference_sha256=provenance.get('input_sha256'),
         software={name:importlib.metadata.version(name) for name in ['vdjmatch','seqtree','vdjtools']},

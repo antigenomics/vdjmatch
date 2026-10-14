@@ -57,7 +57,7 @@ def native_inputs():
         '_allele':['TRBV19*01','TRBV19*01','TRBV7-9*01','TRBV19*01','TRBV7-9*01'],
         'epitope':['B','A','B','C','A'],'restriction':['r1','r1','r2','r1','r2']})
     groups=[({'epitope':e},queries,part) for (e,_),part in refs.group_by('epitope','restriction',maintain_order=True)]
-    from vdjmatch.match.tcrdist import precompute_v_loop_distances
+    from vdjmatch.match.geometry import precompute_v_loop_distances
     return queries,refs,groups,precompute_v_loop_distances(matrix='blosum62')
 
 

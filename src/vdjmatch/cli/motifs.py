@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 def register(subparsers):
-    p=subparsers.add_parser('motif-evidence',help='experimental VDJbet V+K-mer evidence for sample-declared pMHC')
+    p=subparsers.add_parser('motif-evidence',help='experimental masked-motif V+K-mer evidence for sample-declared pMHC')
     p.add_argument('sample')
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--locus',choices=['TRA','TRB'],required=True)
@@ -23,7 +23,7 @@ def main(a):
     from ..db.cache import sha256
     from ..evalue.control import _organism
     from ..io.airr import _read_table
-    from ..match.motifs import vdjbet_motif_scores
+    from ..match.motifs import masked_motif_scores
     from .historical import assayed_targets
     from ..runner.annotation import _validate_output_paths
     prefix=_validate_output_paths(a.output_prefix, [a.sample,a.vdjdb])
@@ -53,7 +53,7 @@ def main(a):
     if targets:
         keys=['cdr3','v',*PMHC]
         representatives=q.filter(pl.col('_valid')).unique(keys,maintain_order=True)
-        evidence=vdjbet_motif_scores(representatives,ref,exclude_exact=a.exclude_exact,
+        evidence=masked_motif_scores(representatives,ref,exclude_exact=a.exclude_exact,
                                    target_reference=pl.concat(targets))
         q=q.join(representatives.select(*keys,pl.col('query_id').alias('_motif_query')),
             on=keys,how='left',validate='m:1',nulls_equal=True).join(

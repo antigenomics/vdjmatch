@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bench"))
 
 geometry_detect = pytest.importorskip("geometry_detect")
 
-from vdjmatch.match.tcrdist import load_v_loops  # noqa: E402
+from vdjmatch.match.geometry import load_v_loops  # noqa: E402
 
 MODEL = load_v_loops("human")
 REFS = ["CASSLGQAYEQYF", "CASSAGQAYEQYF", "CASSIVGGNEQFF"]

@@ -2,11 +2,11 @@
 import numpy as np
 import pytest
 
-from vdjmatch.match import tcrdist as td
+from vdjmatch.match import geometry as td
 
 
 @pytest.mark.parametrize('species', ['human', 'mouse'])
-@pytest.mark.parametrize('alphabet,matrix', [('full', 'tcrdist'), ('imgt', 'tcrdist'), ('full', 'blosum62')])
+@pytest.mark.parametrize('alphabet,matrix', [('full', 'clipped'), ('imgt', 'clipped'), ('full', 'blosum62')])
 def test_precomputed_loops_match_original_allele_subsets(species, alphabet, matrix, monkeypatch):
     table = td.precompute_v_loop_distances(species=species, alphabet=alphabet, matrix=matrix)
     costs = td._substitution_costs(alphabet, matrix)

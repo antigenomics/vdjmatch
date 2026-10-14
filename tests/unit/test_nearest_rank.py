@@ -14,7 +14,7 @@ def test_cli_nearest_rank_recovers_outside_ball_without_changing_existing_fields
     pl.DataFrame([dict(clone_id='q',junction_aa=a,v_call=v,locus=l,**meta) for l,v in zip(loci,genes)]).write_csv(sample,separator='\t')
     rows=[dict(complex_id=str(i),cdr3=s,v=v,gene=l,**(meta|{'species':'HomoSapiens','epitope':e})) for i,(s,e) in enumerate([(a,'E'),(b,'E'),(b,'OTHER'),(c,'OTHER'),(d,'OTHER')]) for l,v in zip(loci,genes)]
     pl.DataFrame(rows).write_csv(reference,separator='\t')
-    args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus',locus,'--targets-from-sample','--unbounded-nearest','--background','vdjdb-other','--neighbour-weighting','local-rank','--radius','0','--exclude-exact']
+    args=['neighbours',str(sample),'--vdjdb',str(reference),'--locus',locus,'--targets-from-sample','--unbounded-nearest','--background','vdjdb-other','--neighbour-weighting','local-rank','--radius','0','--exclude-exact']
     for extra in [[],['--nearest-rank']]:
         prefix=tmp_path/('new' if extra else 'old');assert main(args+extra+['--output-prefix',str(prefix)])==0
     for suffix in ['queries','candidates']:
@@ -22,7 +22,7 @@ def test_cli_nearest_rank_recovers_outside_ball_without_changing_existing_fields
     old=pl.read_csv(tmp_path/'old.enrichment.tsv',separator='\t');new=pl.read_csv(tmp_path/'new.enrichment.tsv',separator='\t')
     assert old.equals(new.select(old.columns));assert old['n_reference'][0]==0 and old['p_nearest_rank'][0]==1
     distance=pl.read_csv(tmp_path/'new.candidates.tsv',separator='\t')['distance'][0]
-    from vdjmatch.match.tcrdist import distance_matrix,paired_distance_matrix
+    from vdjmatch.match.geometry import distance_matrix,paired_distance_matrix
     controls=[b,c,d]
     if locus=='paired':d=paired_distance_matrix([a],[a],controls,controls,[genes[0]],[genes[1]],[genes[0]]*len(controls),[genes[1]]*len(controls))[0]
     else:d=distance_matrix([a],controls,[genes[0]],[genes[0]]*len(controls))[0]
@@ -65,7 +65,7 @@ def test_conditional_j_empty_output_keeps_count_schema(tmp_path):
     pl.DataFrame({'junction_aa':['CASSLGQAYEQYF'],'v_call':['TRBV19*01'],'locus':['TRB'],'species':['human'],'epitope':['E'],'mhc_a':['HLA-A*02'],'mhc_b':['B2M'],'mhc_class':['MHCI']}).write_csv(sample,separator='\t')
     pl.DataFrame({'cdr3':['CASSLGRAYEQYF'],'v':['TRBV19*01'],'gene':['TRB'],'species':['HomoSapiens'],'epitope':['E'],'mhc_a':['HLA-A*02'],'mhc_b':['B2M'],'mhc_class':['MHCI']}).write_csv(reference,separator='\t')
     prefix=tmp_path/'empty'
-    assert main(['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--species','mouse','--locus','TRB','--targets-from-sample','--unbounded-nearest','--nearest-rank','--background','vdjdb-other','--neighbour-weighting','local-rank','--conditional-j','--output-prefix',str(prefix)])==0
+    assert main(['neighbours',str(sample),'--vdjdb',str(reference),'--species','mouse','--locus','TRB','--targets-from-sample','--unbounded-nearest','--nearest-rank','--background','vdjdb-other','--neighbour-weighting','local-rank','--conditional-j','--output-prefix',str(prefix)])==0
     out=pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     assert out.height==0
     assert {'j_reference_population','j_control_stratum','j_reference_probability','conditional_j_status','j_conditioned_rank_score'}<=set(out.columns)
@@ -81,7 +81,7 @@ def test_all_targets_rank_reproduces_assayed_component_and_ignores_query_labels(
     raw=pl.DataFrame([dict(query_id=str(i),clone_id='q',junction_aa=a,v_call=v,locus=l,**meta) for i,(l,v) in enumerate(zip(loci,genes))])
     raw.write_csv(sample,separator='\t')
     pl.DataFrame([dict(complex_id=str(i),cdr3=s,v=v,gene=l,**(meta|{'species':'HomoSapiens','epitope':e})) for i,(s,e) in enumerate([(a,'E'),(b,'E'),(c,'OTHER')]) for l,v in zip(loci,genes)]).write_csv(reference,separator='\t')
-    args=['tcrdist-neighbours',str(sample),'--vdjdb',str(reference),'--locus',locus,'--unbounded-nearest','--nearest-rank','--background','vdjdb-other','--neighbour-weighting','local-rank','--radius-factor','22.5','--exclude-exact']
+    args=['neighbours',str(sample),'--vdjdb',str(reference),'--locus',locus,'--unbounded-nearest','--nearest-rank','--background','vdjdb-other','--neighbour-weighting','local-rank','--radius-factor','22.5','--exclude-exact']
     assert main(args+['--targets-from-sample','--output-prefix',str(tmp_path/'assayed')])==0
     old=pl.read_csv(tmp_path/'assayed.enrichment.tsv',separator='\t')
     raw.drop('epitope','mhc_a','mhc_b','mhc_class').write_csv(sample,separator='\t')

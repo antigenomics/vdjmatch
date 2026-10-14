@@ -174,11 +174,8 @@ Acids Research}`, numbered refs). `git init` + first commit. Structure:
   (fraction of labelled clonotypes keeping ≥1 significant same-epitope hit after the E-value filter) —
   exact defs to confirm with owner. Stratify {human,mouse}×{MHC-I,MHC-II}, TRA/TRB; shuffled-label
   negative → AUC→0.5. Reuse `seqtree/bench/bench_epitope.py` machinery.
-- **Deliverable 3 (comparison, data-gated):** vs TCRMatch (PMID 33777034, sandbox build+run), ImmuneWatch
-  DETECT (commercial → use provided `test_data/immunedetect_results/*.ods`, accuracy only), ERGO/ERGO-II
-  (immrep23), immrep25 (owner data). Datasets: samples 1–2 (3 epitopes single-chain), 4–5 (300k OLGA
-  random = feasibility frontier), 6 (TCRvdb paired). Metrics: accuracy (PR/ROC) + throughput (TCRs/s) +
-  peak RSS vs input size; find where competitors OOM/time out. Mark steps awaiting owner data.
+- **Deliverable 3 (comparison, data-gated):** compare native external methods using the
+  comparison notebooks and supplied prediction outputs. Preserve original parameter defaults.
 
 ---
 
@@ -224,10 +221,10 @@ Default: pure Python in vdjmatch first; escalate to seqtree C++ only behind a pr
   experiment; owner decides after seeing results.
 - **purity/retention** exact definitions (§F).
 - **VDJAM granularity** (per-chain NDN only vs also V/J standalone) and matrix scale λ (legacy integer vs fresh half-bit).
-- **Authorship/affiliations/COI/funding**; ImmuneWatch relationship disclosure.
+- **Authorship/affiliations/COI/funding**; commercial relationship disclosure.
 - **immrep25 + extra comparison datasets**, mouse/TRA OLGA controls — owner-provided later.
-- **Citations:** verify every DOI via PubMed/arXiv before adding (Shcherbinin 2023 PMID 37649481, TCRMatch
-  33777034, ERGO 32983088 / ERGO-II 33981311, VDJdb, GLIPH, TCRdist, OLGA, BLOSUM, AIRR standard, etc.).
+- **Citations:** verify every DOI before adding it. External-method references and the
+  original comparison bibliography are retained in the comparison provenance notebook.
 
 ---
 
@@ -235,5 +232,5 @@ Default: pure Python in vdjmatch first; escalate to seqtree C++ only behind a pr
 - seqtree API to build on: `~/vcs/code/seqtree/python/seqtree/__init__.py`, `evalue.py`, `layout.py`; matrix penalty path `src/substitution_matrix.cpp` + `_bindings.cpp`.
 - E-value theory to transfer to the paper: `~/vcs/code/seqtree/appendix/evalue.tex`.
 - Legacy semantics + resources to port: `~/vcs/code/vdjmatch/src/main/groovy/.../ClonotypeDatabase.groovy`, `src/main/resources/{vdjam.txt,score_coef.txt,segm_score.txt}`.
-- Manuscript skeleton: `~/vcs/manuscripts/2026-vdjmatch/oup-authoring-template/oup-authoring-template.tex`; reuse `doc/2018-vdjmatch-old.docx`; data in `test_data/` (+ `immunedetect_results/*.ods`).
+- Manuscript skeleton: `~/vcs/manuscripts/2026-vdjmatch/oup-authoring-template/oup-authoring-template.tex`; reuse `doc/2018-vdjmatch-old.docx`; data in `test_data/` (+ supplied comparison predictions).
 - V-gene/CDR + V-J normalization reference to port: https://github.com/antigenomics/mirpy (tcrtrie → seqtree).

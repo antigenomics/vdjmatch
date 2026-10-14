@@ -5,7 +5,7 @@ Release notes
 -----
 
 Targeted annotation and retained alternatives
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``vdjmatch annotate`` and ``annotate_repertoires`` accept single-chain AIRR,
 paired long/wide AIRR, simple V/J/junction tables, directories and path metadata.

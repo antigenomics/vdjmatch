@@ -1,5 +1,38 @@
-Neighbourhood score: formula and interpretation
-===============================================
+Score definitions
+=================
+
+Current VDJmatch kernel
+-----------------------
+
+The default ``annotate`` model uses the stem4 geometry and the ``v-bounded``
+kernel reducer. All quantities below are computed after the declared exact-match
+policy. Let :math:`N` be the number of eligible target reference keys,
+:math:`t_j` the ordered distance cutoffs, :math:`n_j` and :math:`v_j` the target
+and same-V target counts in shell :math:`j`, and :math:`m_j` the cumulative
+other-peptide background count through that cutoff. The score is
+
+.. math::
+
+   S(q,X)=\frac{1}{N}\sum_j
+   \frac{[0.25n_j+0.75v_j]\exp(-t_j/\tau)}{1+m_j}.
+
+Here :math:`q` is the query, :math:`X` the target peptide–MHC and
+:math:`\tau` the kernel scale in the same distance units. Same-V references
+receive total weight one; other V genes receive weight 0.25. All target keys
+remain in :math:`N`, including distant ones. An unavailable target or background
+population produces unavailable evidence. Higher values indicate stronger
+relative target support; the score is not a P-value.
+
+The ``all-bounded`` reducer weights every reference equally; ``vonly-bounded``
+uses only same-V shell mass. The retained ``rare`` variants replace
+:math:`1+m_j` with :math:`\max(m_j,0.01)`. These are explicit alternatives,
+not a per-query selection of whichever score performs best.
+
+See :doc:`algorithms` for the computation and paired axes, and
+:doc:`explanation` for complete-score calibration. The remaining sections
+document retained historical and experimental statistics; they do not redefine
+the annotation default.
+
 
 Experimental count enrichment
 -----------------------------
@@ -76,7 +109,7 @@ reference pair and other-peptide linked pairs as its joint population. It does
 not multiply independently selected chain matches. Real/generated joint controls
 and paired confidence calibration remain undefined.
 
-An additive TCRdist-like geometry uses clipped BLOSUM costs, explicit
+An additive clipped BLOSUM62 geometry-like geometry uses clipped BLOSUM costs, explicit
 positional weights, a linear gap charge and aligned V loops:
 
 .. math::
@@ -90,9 +123,9 @@ positional weights, a linear gap charge and aligned V loops:
 Here :math:`s` is BLOSUM62, :math:`q,r` are full junctions,
 :math:`d_V` sums aligned CDR1/CDR2/CDR2.5 costs, :math:`A` is an allowed
 single-block alignment, :math:`h` is the length difference, :math:`L`
-the longer length and :math:`w` the positional weight. TCRdist3 uses unit
+the longer length and :math:`w` the positional weight. clipped BLOSUM62 geometry uses unit
 interior weights with three N-terminal and two C-terminal residues excluded.
-The CLI's opt-in ``tcrdist-neighbours --junction-ends trim3`` excludes
+The CLI's opt-in ``neighbours --junction-ends trim3`` excludes
 three residues at each end. Exact exclusion still compares full junctions.
 The existing empirical flank/core profile supplies a separate weighting
 alternative; it is not an exact gene-specific NDN boundary annotation.
@@ -111,7 +144,7 @@ Ambiguous or unmodelled calls are excluded and reported. Present species/locus
 metadata are filtered before gene resolution. With exact exclusion, all keys
 sharing the query full junction are removed from both counts and denominators.
 
-``tcrdist-neighbours --targets-from-sample --background`` writes these counts
+``neighbours --targets-from-sample --background`` writes these counts
 and :math:`E_J` to a separate enrichment table. ``--position-weighting significance``
 uses the shipped full-length empirical decay profile, quantised to 0.01 with a
 minimum weight of 0.01; no additional terminal trim is applied. The default
@@ -179,7 +212,7 @@ therefore length differences above four cannot enter this score.
 Define the historical V factor :math:`a(q,r)` as one for identical
 allele-stripped V genes and :math:`0.25\,\mathrm{vsim}(V_q,V_r)` otherwise.
 It is separate from the distance and is not a calibrated V-loop likelihood.
-This experimental mode does not add TCRdist CDR1/CDR2/CDR2.5 distances.
+This experimental mode does not add clipped BLOSUM62 geometry CDR1/CDR2/CDR2.5 distances.
 
 One kernel and one background predicate
 ---------------------------------------
@@ -318,7 +351,7 @@ comparison fixed. These choices are diagnostic, not an accuracy claim.
 Distance-local rank evidence (experimental)
 -------------------------------------------
 
-``tcrdist-neighbours --neighbour-weighting local-rank --background ...`` uses
+``neighbours --neighbour-weighting local-rank --background ...`` uses
 fixed integer distance cutoffs from zero through ``--radius``. Both populations
 use the same upward distance bins, V-loop geometry and full-junction exclusion.
 The score is separate from the existing ``enrichment`` count ratio.
@@ -363,7 +396,7 @@ unique reference keys, repertoire selection and database ascertainment do not
 automatically support exchangeability. ``rank_model_status`` and the manifest
 retain this restriction; deployment priors cannot be inferred from VDJdb or
 custom benchmark fractions. Target/route selection is not calibrated here.
-Original annotation remains the default; M3 remains deferred.
+This retained experiment does not replace the current kernel default.
 
 The general expectation-one and conservative conversion are discussed by
 `Vovk and Wang <https://arxiv.org/abs/1912.06116>`_. The particular reciprocal-rank
@@ -372,7 +405,7 @@ alternative and censoring construction above are this package's explicit model.
 Uncensored nearest-reference rank (experimental)
 ------------------------------------------------
 
-``tcrdist-neighbours --nearest-rank --unbounded-nearest --background ...``
+``neighbours --nearest-rank --unbounded-nearest --background ...``
 adds a separate ``nearest_rank_score`` using uniform junction/V geometry.
 For each query, controls are counted at its exhaustive nearest target distance,
 including all distance ties. Linked receptors use the alpha+beta distance to
@@ -389,8 +422,8 @@ nearest search. Fixed-radius outputs and the averaged rank score are preserved.
 
 This is a conditional exchangeable-label statistic, not biological confidence,
 an E-value, a selected-label calibration or a replacement deployment cutoff.
-Paired generated/real backgrounds remain undefined. Original annotation stays
-the default; promotion requires all-task and full-reference nonregression.
+Paired generated/real backgrounds remain undefined. This retained experiment does not replace the current kernel default; promotion
+requires all-task and full-reference nonregression.
 
 Nearest-conditioned censored rank (experimental)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -434,7 +467,7 @@ Reference-selected radii do not inherit fixed-radius probability guarantees.
 Conditional J usage diagnostic
 ------------------------------
 
-``tcrdist-neighbours --conditional-j`` requires ``--nearest-rank``,
+``neighbours --conditional-j`` requires ``--nearest-rank``,
 ``--neighbour-weighting local-rank`` and ``--background vdjdb-other``.
 It exports ``j_conditioned_rank_score``: the existing nearest-conditioned
 rank evidence multiplied by a target/control J-usage ratio conditional on
@@ -458,7 +491,7 @@ probabilities describe their original statistic and do not transfer to this scor
 Reference-defined epitope rules (experimental)
 ----------------------------------------------
 
-``tcrdist-neighbours --epitope-rules --background vdjdb-other`` emits
+``neighbours --epitope-rules --background vdjdb-other`` emits
 ``rule_v_score``, ``rule_rank_score`` and four reference-enriched motif scores.
 Spatial and overlap kernels remain diagnostic output fields.
 The V rule is estimated separately for each assayed target from distinct full
@@ -545,7 +578,7 @@ accuracy gain. Its complete selection requires separate null calibration.
 Experimental ordered class alignment
 ------------------------------------
 
-``tcrdist-neighbours --alphabet imgt`` uses the existing alignment engine with
+``neighbours --alphabet imgt`` uses the existing alignment engine with
 the IMGT classes AILV, RHK, CM, ST, DE and NQ; G, F, P, W and Y remain separate.
 The cost between two classes is the minimum original clipped BLOSUM62 cost
 between their members, with zero within a class. Ambiguous symbols retain their
@@ -564,7 +597,7 @@ accuracy and selected-score calibration are required before adoption.
 Experimental local KF4 chemistry
 --------------------------------
 
-``tcrdist-neighbours --chemistry --background vdjdb-other`` emits a separate
+``neighbours --chemistry --background vdjdb-other`` emits a separate
 local-chemistry component, requiring the existing ``bench`` extra. It preserves
 the original distance and rank outputs. Ordered four-residue windows come from
 full anchored junctions trimmed by three residues at each end. Every reference

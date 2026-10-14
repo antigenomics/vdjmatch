@@ -49,7 +49,7 @@ def test_unavailable_population_cannot_win_selection():
 
 def test_default_annotation_route_selects_measured_geometry():
     import argparse
-    from vdjmatch.cli.tcrdist import register
+    from vdjmatch.cli.neighbours import register
     parser = argparse.ArgumentParser()
     register(parser.add_subparsers(), name='annotate')
     a = parser.parse_args(['annotate', 'sample.tsv', '--vdjdb', 'ref.tsv', '--locus', 'TRB',
@@ -63,7 +63,7 @@ def test_annotation_cli_reproduces_dense_kernel_and_retains_no_hits(tmp_path):
     import json
     import polars as pl
     from vdjmatch.cli.__main__ import main
-    from vdjmatch.match.tcrdist import distance_matrix, distance_units, _substitution_costs
+    from vdjmatch.match.geometry import distance_matrix, distance_units, _substitution_costs
     from vdjmatch.evalue.kernel import ladder_cutoffs
     q = ['CASSLGQAYEQYF', 'WASSLGQAYEQYF']
     r = ['CASSAGQAYEQYF', 'CASSLGQAYEQWF', 'CASSLGQAPAYEQYF']
@@ -138,10 +138,10 @@ def test_paired_annotation_retains_unlinked_marginal_support(tmp_path):
 
 def test_kernel_rejects_missing_background_before_outputs(tmp_path):
     import argparse
-    from vdjmatch.cli.tcrdist import register,main
+    from vdjmatch.cli.neighbours import register,main
     parser=argparse.ArgumentParser()
     register(parser.add_subparsers())
-    a=parser.parse_args(['tcrdist-neighbours','absent.tsv','--vdjdb','absent.zip',
+    a=parser.parse_args(['neighbours','absent.tsv','--vdjdb','absent.zip',
         '--locus','TRB','--neighbour-weighting','kernel','--output-prefix',str(tmp_path/'out')])
     with pytest.raises(ValueError,match='requires.*background'):
         main(a)

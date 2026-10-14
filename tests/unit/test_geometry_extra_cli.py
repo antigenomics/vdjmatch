@@ -3,28 +3,28 @@ import argparse
 
 import pytest
 
-from vdjmatch.cli import tcrdist
+from vdjmatch.cli import neighbours as geometry
 
 
-@pytest.mark.parametrize('extra', tcrdist.GEOMETRY_EXTRAS)
+@pytest.mark.parametrize('extra', geometry.GEOMETRY_EXTRAS)
 def test_geometry_extra_fixed_recipe(extra):
     parser = argparse.ArgumentParser()
-    tcrdist.register(parser.add_subparsers(), name='annotate')
+    geometry.register(parser.add_subparsers(), name='annotate')
     args = parser.parse_args(['annotate', 'unused', '--vdjdb', 'unused',
         '--locus', 'TRB', '--output-prefix', 'unused', '--selection-only',
         '--geometry-extra', extra])
-    tcrdist._apply_geometry_extra(args)
-    assert args.distance_matrix == ('tcrdist' if extra in
+    geometry._apply_geometry_extra(args)
+    assert args.distance_matrix == ('clipped' if extra in
         ('framev', 'framemid', 'framej', 'freegap') else 'blosum62')
     assert args.junction_ends == 'trim3'
     assert args.stem_depth == (4 if extra == 'stem4j' else 0)
     assert args.stem_weight == 1
     args.selection_only = False
     with pytest.raises(ValueError, match='compact uniform'):
-        tcrdist._apply_geometry_extra(args)
+        geometry._apply_geometry_extra(args)
 
 
-@pytest.mark.parametrize('extra', tcrdist.GEOMETRY_EXTRAS)
+@pytest.mark.parametrize('extra', geometry.GEOMETRY_EXTRAS)
 def test_mixed_metadata_cli_fixed_geometry(tmp_path, extra):
     import json
     import polars as pl
@@ -43,12 +43,12 @@ def test_mixed_metadata_cli_fixed_geometry(tmp_path, extra):
     assert manifest['mixed_chain_union'] and manifest['population_service_calls']==3
     assert len(manifest['core_manifests'])==3
     assert all(m['geometry_extra']==extra and m['distance_scale']['matrix']==
-        ('tcrdist' if extra in ('framev','framemid','framej','freegap') else 'blosum62')
+        ('clipped' if extra in ('framev','framemid','framej','freegap') else 'blosum62')
         for m in manifest['core_manifests'])
     queries=pl.read_csv(prefix.with_suffix('.queries.tsv'),separator='\t')
     assert queries.height==217  # 73 standalone observations/chain +71 source pairs.
     assert queries['query_id'].n_unique()==217
-    if extra in tcrdist.J_GEOMETRY_EXTRAS:
+    if extra in geometry.J_GEOMETRY_EXTRAS:
         assert all('literal J families' in m['background_enrichment']['background']['observation_unit']
             for m in manifest['core_manifests'])
 

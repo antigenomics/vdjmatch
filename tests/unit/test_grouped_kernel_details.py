@@ -27,8 +27,8 @@ def inputs(tmp_path,paired):
 @pytest.mark.parametrize('assayed',[False,True])
 @pytest.mark.parametrize('exclude',[False,True])
 def test_detailed_old_new_all_fields_and_native_batch_budget(tmp_path,monkeypatch,paired,assayed,exclude):
-    from vdjmatch.cli import tcrdist as cli
-    from vdjmatch.match import tcrdist as td
+    from vdjmatch.cli import neighbours as cli
+    from vdjmatch.match import geometry as td
     from vdjmatch.cli.__main__ import main
     from vdjmatch.evalue import kernel
     sample,reference=inputs(tmp_path,paired)
@@ -79,7 +79,7 @@ def test_sparse_union_keeps_different_source_targets_and_skips_unrequested_chunk
     from vdjmatch.evalue import kernel
     from types import SimpleNamespace
     import numpy as np
-    from vdjmatch.match import tcrdist as td
+    from vdjmatch.match import geometry as td
     meta={'mhc_a':'A','mhc_b':'B2M','mhc_class':'MHCI'}
     q=pl.DataFrame({'query_id':range(72),'cdr3':['CASSLGQAYEQYF']*3+[str(i) for i in range(69)],
         '_allele':['TRBV19*01']*72})
