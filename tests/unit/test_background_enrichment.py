@@ -6,6 +6,17 @@ from vdjmatch.cli.__main__ import main
 from vdjmatch.evalue.control import raw_gene_background
 
 
+def test_gene_control_population_ignores_j_conflicts_but_preserves_consensus_inputs(tmp_path):
+    path=tmp_path/'control.tsv'
+    pl.DataFrame({'junction_aa':['CASSLGQAYEQYF']*3,'v_call':['TRBV19']*3,
+                  'j_call':['TRBJ1-1','TRBJ2-1','TRBJ1-1']}).write_csv(path,separator='\t')
+    keys,report=raw_gene_background(path,include_j=True)
+    assert sorted(keys['j'].to_list())==['TRBJ1-1','TRBJ2-1']
+    assert report['unique_keys']==report['population_size']==1
+    draws,report=raw_gene_background(path,include_j=True,deduplicate=False)
+    assert draws.height==report['population_size']==3 and report['unique_keys']==1
+
+
 def test_gene_controls_keep_distinct_v_keys_and_report_unavailable(tmp_path):
     p=tmp_path/'b.tsv'
     pl.DataFrame({'junction_aa':['CASSLGQAYEQYF']*5+['INVALID!'],

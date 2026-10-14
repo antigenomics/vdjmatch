@@ -1232,9 +1232,15 @@ Zero supported motifs, invalid queries and absent references have explicit statu
 This command supplies a candidate component, not a switched scorer, joint paired
 likelihood, P-value or specificity probability. Pairing remains in the output IDs;
 run both loci and join by the original linkage to compare genuine paired queries.
+``--threads`` sets a positive table-thread budget (default ``1``); BLAS stays
+serial. Output tables and the manifest must not overlap inputs or lie inside
+the reference directory.
 
 Global evidence combination
 ---------------------------
+
+Both commands accept a positive ``--threads`` table budget (default ``1``),
+respect a smaller parent table cap, and keep numerical BLAS work serial.
 
 ``fit-evidence TABLE --model MODEL`` fits one experimental logistic formula from
 ``likelihood_score``, ``conditional_rank_score``, ``reference_coverage``,

@@ -8,6 +8,7 @@ def register(subparsers):
         p.add_argument('evidence', help='TSV of component scores and reference structure')
         p.add_argument('--model', required=command == 'fit-evidence')
         p.add_argument('--group-column', default='epitope', help='held-out group identity')
+        p.add_argument('--threads',type=int,default=1,help='positive table thread budget (default: 1); BLAS stays serial')
         if command == 'fit-evidence':
             p.add_argument('--label-column', default='label')
             p.add_argument('--weight-column')
@@ -23,6 +24,14 @@ def register(subparsers):
 
 
 def main(a):
+    # Load both NumPy and SciPy BLAS before limiting an already initialized runtime.
+    from ..aggregate import combination
+    from threadpoolctl import threadpool_limits
+    with threadpool_limits(limits=1):
+        return _main(a)
+
+
+def _main(a):
     import json
     import numpy as np
     import polars as pl

@@ -10,6 +10,7 @@ def register(subparsers):
     p.add_argument('--species',default='HomoSapiens')
     p.add_argument('--exclude-exact',action='store_true',help='benchmark-only full-junction exclusion from all counts')
     p.add_argument('--output-prefix',required=True)
+    p.add_argument('--threads',type=int,default=1,help='positive table thread budget (default: 1); BLAS stays serial')
     p.set_defaults(func=main)
 
 
@@ -24,6 +25,8 @@ def main(a):
     from ..io.airr import _read_table
     from ..match.motifs import vdjbet_motif_scores
     from .historical import assayed_targets
+    from ..runner.annotation import _validate_output_paths
+    prefix=_validate_output_paths(a.output_prefix, [a.sample,a.vdjdb])
     raw=_read_table(a.sample)
     if 'query_id' not in raw.columns:raw=raw.with_row_index('query_id')
     queries,ingestion=io.read_rearrangement(a.sample,source='airr',valid_aa=False,return_report=True)
@@ -63,7 +66,7 @@ def main(a):
         .otherwise(pl.lit('scored')).alias('status'),pl.col('supported_motifs').fill_null(0))
     q=q.with_columns(pl.when(pl.col('status').is_in(['scored','no_supported_motif']))
         .then(pl.col('motif_score').fill_null(0)).otherwise(None).alias('motif_score')).drop('_valid','_has_reference')
-    prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
+    prefix.parent.mkdir(parents=True,exist_ok=True)
     q.write_csv(str(prefix)+'.scores.tsv',separator='\t')
     provenance=db.provenance(a.vdjdb)
     report={'sample_sha256':sha256(Path(a.sample)),'reference':provenance,

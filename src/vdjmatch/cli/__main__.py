@@ -807,7 +807,10 @@ def main(argv: list[str] | None = None) -> int:
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
-    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support"}:
+    evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence"}
+    kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
+    previous_kernels = {key: os.environ.get(key) for key in kernel_env} if a.cmd in evidence_commands else {}
+    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support"} | evidence_commands:
         import os
         import json
 
@@ -816,6 +819,8 @@ def main(argv: list[str] | None = None) -> int:
             threads = json.loads(Path(a.config).read_text()).get("threads", 1)
         if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
             p.error("threads must be a nonnegative integer")
+        if a.cmd in evidence_commands and threads < 1:
+            p.error("threads must be positive")
         if threads > 0:
             try:
                 table_threads = int(previous_threads) if previous_threads is not None else threads
@@ -824,6 +829,7 @@ def main(argv: list[str] | None = None) -> int:
             if table_threads < 1:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
             os.environ["POLARS_MAX_THREADS"] = str(min(threads, table_threads))
+    os.environ.update(dict.fromkeys(previous_kernels, "1"))
     try:
         return a.func(a)
     except (ValueError, FileNotFoundError, RuntimeError) as exc:
@@ -833,6 +839,11 @@ def main(argv: list[str] | None = None) -> int:
             os.environ.pop("POLARS_MAX_THREADS", None)
         else:
             os.environ["POLARS_MAX_THREADS"] = previous_threads
+        for key, value in previous_kernels.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 if __name__ == "__main__":

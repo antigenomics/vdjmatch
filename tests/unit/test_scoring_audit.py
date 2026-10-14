@@ -11,6 +11,37 @@ import pytest
 from vdjmatch.match import scoring_audit as audit
 
 
+@pytest.mark.parametrize('source', ['pmhc', 'legacy', 'retention', 'significance', 'structural-inc'])
+def test_scoring_audit_protects_every_supplied_input_before_reading(tmp_path, source):
+    import argparse
+    from vdjmatch.cli.scoring_audit import register
+    prefix=tmp_path/'result'; raw=tmp_path/'raw.tsv'; raw.write_text('raw reference')
+    protected=tmp_path/'result.provenance.json'; protected.write_text('raw model or reference')
+    parser=argparse.ArgumentParser(); register(parser.add_subparsers())
+    args=['scoring-audit','--task','matrix','--pmhc',str(protected if source=='pmhc' else raw),
+          '--locus','TRB','--output-prefix',str(prefix)]
+    if source!='pmhc': args+=['--'+source,str(protected)]
+    parsed=parser.parse_args(args)
+    with pytest.raises(ValueError, match='output path conflicts'): parsed.func(parsed)
+    assert protected.read_text()=='raw model or reference'
+    assert raw.read_text()=='raw reference'
+    assert not (tmp_path/'result.matrix.tsv').exists()
+
+
+@pytest.mark.parametrize('task,model', [('matrix','vdjam.txt'),
+    ('loo','trimming/human_vj_retention.tsv'),('loo','trimming/position_significance.tsv')])
+def test_scoring_audit_protects_bundled_models_from_output_aliases(tmp_path, task, model):
+    import argparse
+    from importlib.resources import files
+    from vdjmatch.cli.scoring_audit import register
+    raw=tmp_path/'raw.tsv'; raw.write_text('raw reference')
+    (tmp_path/'result.provenance.json').symlink_to(files('vdjmatch.resources')/model)
+    parser=argparse.ArgumentParser(); register(parser.add_subparsers())
+    args=parser.parse_args(['scoring-audit','--task',task,'--pmhc',str(raw),
+                           '--locus','TRB','--output-prefix',str(tmp_path/'result')])
+    with pytest.raises(ValueError,match='output path conflicts'): args.func(args)
+
+
 def _legacy(name):
     # Oracle source is intentionally available only in the repository test.
     path = Path(__file__).resolve().parents[2] / 'bench' / (name+'.py')

@@ -34,6 +34,7 @@ def main(a):
     from .. import db
     from ..match import regions, scoring_audit as legacy
     from ..db.cache import sha256
+    from ..runner.annotation import _validate_output_paths
 
     for name in ('threads', 'min_epi', 'top', 'max_queries'):
         if getattr(a, name) < 1:
@@ -50,11 +51,12 @@ def main(a):
                      significance=Path(a.significance or root / 'trimming' / 'position_significance.tsv'))
         if a.structural_inc:
             paths['structural'] = Path(a.structural_inc)
+    prefix = _validate_output_paths(a.output_prefix, [a.pmhc,*paths.values(),*[path for path in
+        (a.legacy,a.retention,a.significance,a.structural_inc) if path]])
     models = {name: {'path': str(path.resolve()), 'sha256': sha256(path)} for name, path in paths.items()}
     raw = db.load(a.pmhc, species=a.species, gene=a.locus)
     # The legacy estimators use standard-residue sanitation, not modern curation.
     valid = legacy.valid_cdr3(raw)
-    prefix = Path(a.output_prefix)
     prefix.parent.mkdir(parents=True, exist_ok=True)
     if a.task == 'matrix':
         matrices, correlations = legacy.matrix_audit(raw, min_epi=a.min_epi, vlen=a.vlen,

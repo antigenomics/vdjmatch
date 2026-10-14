@@ -8,6 +8,33 @@ import pytest
 from vdjmatch.match.motifs import vdjbet_motif_scores
 
 
+@pytest.mark.parametrize('source', ['sample', 'reference', 'directory', 'symlink', 'hardlink', 'prefix_symlink'])
+def test_motif_cli_rejects_output_input_overlap_before_reading(tmp_path, source):
+    from argparse import Namespace
+    from vdjmatch.cli.motifs import main
+    sample=tmp_path/'sample.tsv'; reference=tmp_path/'reference.tsv'; prefix=tmp_path/'result'
+    sample.write_text('raw sample'); reference.write_text('raw reference')
+    if source=='sample':
+        sample=tmp_path/'result.scores.tsv'; sample.write_text('raw sample')
+    elif source=='reference':
+        reference=tmp_path/'result.manifest.json'; reference.write_text('raw reference')
+    elif source=='directory':
+        reference=tmp_path/'reference'; reference.mkdir(); prefix=reference/'result'
+    elif source=='symlink':
+        (tmp_path/'result.scores.tsv').symlink_to(sample)
+    elif source=='hardlink':
+        import os
+        os.link(sample, tmp_path/'result.scores.tsv')
+    else:
+        prefix.symlink_to(tmp_path/'elsewhere')
+        sample=tmp_path/'result.scores.tsv'; sample.write_text('raw sample')
+    before=sample.read_bytes()
+    with pytest.raises(ValueError, match='output path conflicts'):
+        main(Namespace(sample=str(sample),vdjdb=str(reference),locus='TRB',species='human',
+                       exclude_exact=False,output_prefix=str(prefix)))
+    assert sample.read_bytes()==before
+
+
 def test_vdjbet_counts_masks_and_full_junction_puncture():
     groups=('AILV','RHK','CM','ST','DE','NQ','G','F','P','W','Y')
     classes={a:g[0] for g in groups for a in g}

@@ -9,6 +9,36 @@ from vdjmatch.config import Params
 from vdjmatch.cli import __main__ as cli
 
 
+@pytest.mark.parametrize('command', ['motif-evidence', 'fit-evidence', 'combine-evidence'])
+@pytest.mark.parametrize('threads', [None, 1, 2])
+def test_evidence_cli_caps_table_and_blas_threads_before_import(command, threads):
+    import os
+    import subprocess
+    import sys
+    env=dict(os.environ, OPENBLAS_NUM_THREADS='8', OMP_NUM_THREADS='8')
+    env.pop('POLARS_MAX_THREADS',None)
+    args=([command,'unused','--vdjdb','unused','--locus','TRB','--output-prefix','unused']
+          if command=='motif-evidence' else
+          [command,'unused',*(['--model','unused'] if command=='fit-evidence' else ['--fixed','--output','unused'])])
+    code=f'''import json,os
+from vdjmatch.cli import motifs,combination
+def probe(a):
+    import numpy,scipy.linalg,polars as pl
+    from threadpoolctl import threadpool_info
+    print(json.dumps({{'table':pl.thread_pool_size(),'blas':[p['num_threads'] for p in threadpool_info() if p['user_api']=='blas'],
+                      'kernel_env':[os.environ[k] for k in ('OPENBLAS_NUM_THREADS','OMP_NUM_THREADS','MKL_NUM_THREADS','VECLIB_MAXIMUM_THREADS')]}}))
+    return 0
+motifs.main=combination.main=probe
+from vdjmatch.cli.__main__ import main
+main({args!r}+{(['--threads',str(threads)] if threads is not None else [])!r})
+'''
+    result=subprocess.run([sys.executable,'-c',code],env=env,capture_output=True,text=True,check=True,timeout=15)
+    observed=json.loads(result.stdout)
+    assert observed['table']==(threads or 1)
+    # Accelerate on macOS is not reported by threadpoolctl; its environment cap is checked too.
+    assert all(n==1 for n in observed['blas']) and observed['kernel_env']==['1']*4
+
+
 def test_cli_fresh_raw_control_and_exact_exclusion(tmp_path):
     reference, query, control = (tmp_path / name for name in ("reference.tsv", "query.tsv", "control.tsv"))
     pl.DataFrame({"cdr3": ["CASSF", "CATSF"], "gene": ["TRB"] * 2,

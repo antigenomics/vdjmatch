@@ -130,7 +130,9 @@ def raw_gene_background(path, locus="TRB", species="human", *, deduplicate=True,
     rows by abundance. Distinct V assignments for the same junction are distinct
     keys when deduplicating; generated draw multiplicities can be retained.
     Present species/locus columns are filtered; absent columns require the
-    caller's explicit declaration.
+    caller's explicit declaration. With ``include_j``, returned annotation rows
+    retain conflicting J calls for boundary consensus; population counts still
+    use junction/V keys, and callers collapse annotation rows before counting.
     """
     from pathlib import Path
     import polars as pl
@@ -176,8 +178,8 @@ def raw_gene_background(path, locus="TRB", species="human", *, deduplicate=True,
     valid = frame.filter(pl.col("cdr3").str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]{8,}$").fill_null(False))
     eligible = valid.filter(pl.col("_allele").is_not_null())
     keys = eligible.select("cdr3", "_allele", *(["j"] if include_j else []))
-    unique_keys = keys.unique()
-    keys = (unique_keys if deduplicate else keys).sort("cdr3", "_allele")
+    unique_keys = keys.select("cdr3", "_allele").unique()
+    keys = (keys.unique() if deduplicate else keys).sort("cdr3", "_allele")
     if not keys.height:
         raise ValueError("control has no eligible junction/V-allele keys")
     return keys, {
@@ -189,7 +191,7 @@ def raw_gene_background(path, locus="TRB", species="human", *, deduplicate=True,
         "excluded_sequence_rows": frame.height-valid.height,
         "excluded_gene_rows": valid.height-eligible.height,
         "eligible_rows": eligible.height, "unique_keys": unique_keys.height,
-        "population_size": keys.height, "deduplicated": deduplicate,
+        "population_size": unique_keys.height if deduplicate else keys.height, "deduplicated": deduplicate,
         "observation_unit": ("distinct full junction + resolved V allele; abundance ignored" if deduplicate else
                              "eligible generated receptor draw; repeated junction/V keys retained"),
         **({"j_column":j,"j_annotation_policy":"retained for boundary consensus; conflicts never select a first call"} if include_j else {}),
