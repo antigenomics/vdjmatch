@@ -1,8 +1,21 @@
 Work with releases and repertoires
 ==================================
 
-Choose or pin a reference
--------------------------
+Current annotation CLI
+----------------------
+
+``vdjmatch annotate`` is the current cohort entry point. Its default
+``--reference-population all-valid`` uses every valid source observation, retains
+exact evidence and combines linked paired references with unlinked marginal
+support. Choose ``--reference-population curated-benchmark`` explicitly for the
+source-curated benchmark population. See :doc:`tutorial` and :doc:`examples` for
+raw inputs and reproducible offline commands.
+
+Legacy Annotator API: choose a reference
+----------------------------------------
+
+The following ``Annotator`` examples describe the retained candidate/E-value API,
+which is separate from the targeted stem4 CLI kernel and its final-call calibration.
 
 .. code-block:: python
 
@@ -29,6 +42,13 @@ available in the latest public release.
 Reference rows with an invalid amino-acid junction are retained with
 ``reference_valid=False`` and excluded from the search index. The reference report
 states retained/excluded counts. Inspect that report when assessing reference coverage.
+
+The legacy ``Annotator`` API reference curation excludes KLGGALQAK and the engineered phage-library study
+PMID 40498839 from search and background populations. Source rows remain available
+with ``reference_exclusion_reason``; natural SLLMWITQV observations from other
+studies remain searchable. This legacy policy uses peptide/study identity, never a
+sequence-frequency or motif filter on natural receptors. It is not the current
+``annotate`` CLI all-valid default.
 
 An HF mirror is selected explicitly with ``source="hf"``; it is distinct from the
 GitHub latest/pinned release source. Reuse an ``Annotator`` to keep one explicit
@@ -149,8 +169,8 @@ Hard V/J matching can be requested for uncalibrated annotation with
 are rejected because sequence-only control indexes cannot apply the same V/J
 predicate.
 
-Run the command line
---------------------
+Legacy matching command line
+----------------------------
 
 .. code-block:: bash
 
@@ -167,3 +187,13 @@ CLI matching requests background calibration by default; ``--no-evalue`` selects
 uncalibrated ranking. The command writes detailed hits, all candidates, calls,
 descriptive count summaries, ingestion counts and a manifest. See :doc:`cli` for
 options and :doc:`explanation` before interpreting the summaries.
+
+Run a reproducible CLI comparison
+---------------------------------
+
+Use :doc:`examples` for offline raw-input scripts and two output-free notebooks.
+The comparison runs fresh ``annotate --exclude-exact --details`` invocations with
+default stem4 and retained advanced vcdr12, then joins CLI tables on source IDs
+and complete pMHC keys. Use ordinary annotation without ``--exclude-exact`` when
+exact observations belong in the evidence. Choose a new output directory for each
+run; keep raw inputs and requested final tables, never computed feature caches.

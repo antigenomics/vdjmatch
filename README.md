@@ -24,22 +24,184 @@
 reporting peptide–MHC candidates, competing evidence and optional background calibration.
 Native sequence search uses [`seqtree`](https://github.com/antigenomics/seqtree);
 repertoire ingestion reuses published `vdjtools` readers.
+The minimum `vdjtools` version is 5.0.1, which validates explicit native thread
+requests against the process CPU allocation.
 
 The Python implementation follows the legacy Java/Groovy package, preserved on the
 `legacy-java` branch. See the [tutorial](https://antigenomics.github.io/vdjmatch/tutorial.html),
 [workflow guide](https://antigenomics.github.io/vdjmatch/how-to.html) and
 [score explanation](https://antigenomics.github.io/vdjmatch/explanation.html).
 
+## Pick an entry point
+
+| Task | Entry point | Guide |
+| --- | --- | --- |
+| Annotate a repertoire or cohort | `vdjmatch annotate` | [Tutorial](https://antigenomics.github.io/vdjmatch/tutorial.html) |
+| Compare retained geometries from raw inputs | `sh examples/compare.sh NEW_DIRECTORY` | [CLI examples](https://antigenomics.github.io/vdjmatch/examples.html) |
+| Calibrate the final selected-call event | `reference-calls`, then `calibrate-calls` | [CLI reference](https://antigenomics.github.io/vdjmatch/cli.html) |
+| Choose a pinned or offline reference | `--vdjdb LOCAL_REFERENCE` or `vdjmatch update` | [Workflow guide](https://antigenomics.github.io/vdjmatch/how-to.html) |
+
+## Runnable offline examples
+
+The [examples directory](examples/) contains tiny raw synthetic inputs, a pinned
+offline reference, [annotation](examples/annotate.sh) and
+[comparison](examples/compare.sh) shell scripts, and output-free
+[annotation](examples/annotation.ipynb) and
+[comparison](examples/comparison.ipynb) notebooks. Activate your installed
+environment and run from the repository root:
+
+```sh
+sh examples/annotate.sh annotation-demo
+sh examples/compare.sh comparison-demo
+```
+
+Both use one native thread, reject existing output directories and fail on CLI
+errors. The comparison explicitly runs exact-excluded detailed stem4 and advanced
+vcdr12; notebooks analyze only fresh CLI tables. `DEMO_A`/`DEMO_B` labels are
+synthetic software examples, not binding truth. See the
+[example guide](https://antigenomics.github.io/vdjmatch/examples.html).
+
 ## Features
 
 - Latest/pinned GitHub releases and offline legacy, rich or AIRR reference inputs.
 - Source-aware junction ingestion, stable row identities and explicit ingestion counts.
 - Native batched searches by locus, with retained reference observations.
+- Targeted stem4 kernel annotation; original and advanced scorers remain available.
 - All peptide–MHC candidates, NED-v1 ranking and competing-label support.
 - Optional finite-background calibration with a stated counting unit and search predicate.
-- Paired-reference evidence requiring both chains in the same reference complex.
+- Paired evidence from linked reference complexes plus unlinked same-target chain marginals.
 - CLI hit/candidate/call/summary/ingestion tables and a reproducibility manifest.
 - Separate precursor-frequency APIs and their established worked examples.
+
+### Targeted annotation
+
+```console
+$ vdjmatch annotate sample.tsv --threads 4 -o annotation
+$ vdjmatch annotate airr_directory/ --threads 4 -o cohort
+$ vdjmatch annotate --metadata samples.tsv --vdjdb reference.zip --threads 4 -o cohort
+```
+
+The reference is fetched automatically; `--vdjdb` selects a pinned offline table
+or archive. A metadata TSV has `path` and optional `sample_id` columns; relative
+paths resolve beside the metadata file. Directory discovery accepts TSV, CSV,
+text, gzip and Parquet tables. Sample names must be unique.
+
+AIRR input uses anchor-inclusive `junction_aa` and V calls. The default scores all
+peptide–MHC targets with the stem4 BLOSUM62 kernel ladder. `--locus paired` also
+retains independent TRA/TRB evidence from unlinked references. Scores are relative
+evidence; whole-selection null calibration is required for false-call recommendations.
+The original scorer remains available through `historical-density`; advanced
+alternatives remain available through that command and `tcrdist-neighbours`.
+
+| Query format | Required sequence/gene fields | Identity/linkage |
+| --- | --- | --- |
+| Single AIRR | `junction_aa`, `v_call`, `locus` (or locus inferred from V) | Optional `sequence_id`, `query_id`, `clonotype_id`, `clone_id` |
+| Simple repertoire | `junction_aa`, `v`, `locus`; optional `j` | Optional `clonotype_id`, `clone_id` or `cloneid` |
+| Linked AIRR | One TRA/TRB row per linked receptor, `junction_aa`, `v_call`, `locus` | Shared `cell_id`, `pair_id`, `clone_id` or `cloneid`; cell/pair linkage takes priority |
+| Wide paired repertoire | `junction_aa_alpha`, `junction_aa_beta`, `v_alpha`, `v_beta`; optional `j_alpha`, `j_beta` | Optional `clone_id` or `cloneid`; otherwise row identity links the pair |
+
+`--locus auto` infers single or paired populations; `--locus TRA`, `TRB` or
+`paired` selects explicitly. Missing chains and invalid rows retain dispositions;
+multiple chains in one clone/locus require resolution before annotation.
+`clonotype_id` and `clone_id` are retained as separate identities. Bare AIRR
+`cdr3_aa` excludes conserved anchors and cannot replace `junction_aa`.
+For amino-acid clonotype inputs, collapse by the supplied V, junction and J
+calls, summing counts before annotation. Distinct J calls remain distinct
+clonotypes even when their search geometry is shared.
+
+The default writes `.queries.tsv`, `.selection.tsv` and `.manifest.json`, retaining
+sample and source identities, competing scores, ties and no-support rows.
+`--details` additionally writes candidates and per-target evidence; its memory
+grows with queries × targets. `--epitope PEPTIDE` restricts the requested targets.
+`--exclude-exact` is for honest benchmarks; ordinary annotation retains exact hits.
+`--kernel-scorer` selects the advanced `all-bounded`, `vonly-bounded`, `v-rare`,
+`all-rare` or `vonly-rare` alternatives; `v-bounded` is the targeted default.
+The retained `vcdr12` geometry is `--v-regions cdr12 --stem-depth 0
+--distance-matrix tcrdist --junction-ends trim3`; it uses CDR1/CDR2 V similarity.
+Matrix extras use `--distance-matrix pam250`, `mj` or `vdjam`, with
+`--stem-depth 0 --junction-ends trim3`; gaps and ladder cutoffs use that matrix's units.
+The retained `sig` geometry adds `--position-weighting significance-trimmed`
+to the trim3 TCRdist geometry; `sigb62` also uses `--distance-matrix blosum62`.
+These two extras require compact output and retain the recorded rounding before
+V-loop addition. Calibration does not transfer between geometries.
+Additional recorded geometries use `--geometry-extra NAME`. This fixed recipe
+sets its matrix, trim3 ends and stem term; compact output is required.
+
+| NAME | Retained geometry |
+|---|---|
+| `flank` | BLOSUM62 costs for the three residues at each junction end |
+| `framev`, `framemid`, `framej` | Clipped TCRdist with the recorded frame gap prior |
+| `freegap` | Clipped TCRdist without the gap-position prior |
+| `jw`, `stem4j` | J-family mismatch cost, with zero or four stem levels |
+| `jlen`, `vjlen` | J mismatch and length difference; `vjlen` also adds V-family mismatch |
+| `norm`, `jnorm` | V-weighted population normalization, without or with J mismatch |
+| `sw`, `nw` | Native local or global affine alignment with BLOSUM62 |
+
+For example: `vdjmatch annotate repertoire.tsv --geometry-extra stem4j
+--threads 4 --output-prefix results/stem4j`.
+Frame recipes preserve the recorded callback argument ordering. The historical
+`norm`/`jnorm` denominator retains its pre-exclusion same-V target count; with
+`--exclude-exact` these are reproduction diagnostics, not a fully punctured
+benchmark model. Every extra needs its own calibration before confidence calls.
+`--threads N` budgets native compute threads; searches batch queries by population
+and do not create a worker process per receptor or input file.
+Mixed single/paired cohorts share marginal chain searches. V-loop tables are
+prepared once per invocation, including the selected matrix and V regions.
+The library also enforces this ceiling for the Polars table pool. If Polars was
+already imported with a larger pool, start a fresh process with
+`POLARS_MAX_THREADS=N` set before importing Polars; the API fails explicitly
+rather than exceeding the requested budget. Input metadata whose names conflict
+with generated output fields is retained under `input_` prefixes.
+
+```python
+from vdjmatch import annotate_repertoires
+
+result = annotate_repertoires("airr_directory", reference="reference.zip",
+                             output_prefix="cohort", threads=4)
+queries, selections = result["queries"], result["selection"]
+```
+
+The original `Annotator` and `annotate` APIs remain available. Agent usage is
+documented in the repository [vdjmatch skill](skills/vdjmatch/SKILL.md).
+The synthetic library/CLI batch resource gate runs with test/bench extras:
+`python -m pytest tests/test_annotation_resources.py -q`.
+
+For single-chain release calibration, `reference-calls --scorer stem4` runs
+the complete selected score with full junction exclusion. Add
+`--leave-epitope-out` to remove each query's truth peptide from every model
+count, including shared and sparse reference labels:
+
+```console
+$ vdjmatch reference-calls --vdjdb reference.zip --locus TRB --scorer stem4 \
+    --reference-population curated-benchmark --leave-epitope-out --threads 4 \
+    --output-prefix withheld
+$ vdjmatch calibrate-calls withheld.calibration-cases.tsv --target-fpr 0.01 \
+    --input-manifest withheld.manifest.json \
+    --output-prefix calibration
+```
+
+This produces an empirical operating point for that pinned pipeline and null
+population. Sample recommendations also require matched generated nulls and
+reference policy; paired evidence requires its own joint calibration. The
+`reference-calls` original scorer and curated reference policy remain its defaults.
+
+For paired nulls, use `reference-calls --locus paired --scorer stem4
+--leave-epitope-out`. Both linked and full unlinked chain references contribute.
+The selected `kernel_any_axis_score` is the maximum of the linked, alpha and beta
+scores; each axis retains its own selected labels and ties.
+
+```console
+$ vdjmatch reference-calls --vdjdb reference.zip --locus paired --scorer stem4 \
+    --leave-epitope-out --threads 4 --output-prefix paired-withheld
+$ vdjmatch calibrate-calls paired-withheld.calibration-cases.tsv --target-fpr 0.01 \
+    --score-column kernel_any_axis_score --input-manifest paired-withheld.manifest.json \
+    --output-prefix paired-calibration
+```
+
+This fits the declared any-axis event for the supplied null population.
+Repertoire recommendations also require matched generated paired nulls. Keep the
+reference population and exact-hit policy identical when applying a recipe;
+single-chain or linked-only calibration cannot be applied to the paired event.
 
 ### Precursor frequency
 

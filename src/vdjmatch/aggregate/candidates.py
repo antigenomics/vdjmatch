@@ -81,6 +81,10 @@ def candidates(
     match_j=False,
     control_counts=None,
     distance_column="edits",
+    background_mass=False,
+    control_totals=None,
+    exclude_exact=False,
+    control_sizes=None,
 ):
     """Reduce independent observations to candidate evidence for each stable query_id.
 
@@ -89,6 +93,8 @@ def candidates(
     ``control_size=None`` requests explicitly uncalibrated ranking. Soft V uses existing
     germline-loop similarity (weight 0.25 across families); unknown/missing calls are neutral.
     """
+    if background_mass and (control_size is None or soft_v):
+        raise ValueError("background-mass scoring requires controls and soft_v=False")
     if distance_column not in {"edits", "score"}:
         raise ValueError("distance_column must be edits or score")
     if controls is not None and control_counts is not None:
@@ -168,6 +174,10 @@ def candidates(
             / (pl.col("_nc") + 1)
         ).alias("_w")
     )
+    if background_mass:
+        # One vote per statistical search key, independent of gene/record multiplicity.
+        u = u.with_columns(
+            (1.0 / ((pl.col("_nc") + 1) * pl.len().over([*groups, "db_cdr3"]))).alias("_w"))
     out = u.group_by(groups).agg(
         pl.len().alias("n_clonotypes"),
         pl.col("db_cdr3").n_unique().alias("n_target"),
@@ -225,7 +235,29 @@ def candidates(
         .rename({"len": "n_reference"})
     )
     out = out.join(coverage, on=joinkeys, how="left", nulls_equal=True, validate="m:1")
-    if controls is not None:
+    if exclude_exact:
+        exact = r.select(*joinkeys, pl.col("db_cdr3").alias("query_cdr3")).unique()
+        out = out.join(exact.with_columns(pl.lit(1, dtype=pl.UInt32).alias("_excluded")),
+                       on=[*joinkeys, "query_cdr3"], how="left", nulls_equal=True,
+                       validate="m:1").with_columns(
+            (pl.col("n_reference") - pl.col("_excluded").fill_null(0)).alias("n_reference")
+        ).drop("_excluded")
+    if control_size is not None:
+        if control_sizes is not None:
+            out = out.join(control_sizes, on="query_id", how="left", validate="m:1")
+            if out["_control_size"].null_count():
+                raise ValueError("control sizes must cover every candidate query")
+        else:
+            out = out.with_columns(pl.lit(control_size).alias("_control_size"))
+        if (out["_control_size"] < 0).any():
+            raise ValueError("control population sizes must be nonnegative")
+    if background_mass:
+        out = out.with_columns((pl.col("ned_score") * pl.col("_control_size") / pl.col("n_reference")).alias("ned_score"))
+    if control_totals is not None:
+        out = out.join(control_totals, on="query_id", how="left", validate="m:1")
+        if out["n_control"].null_count():
+            raise ValueError("control totals must cover every candidate query")
+    elif controls is not None:
         counts = controls.group_by("query_id").len().rename({"len": "n_control"})
         out = out.join(counts, on="query_id", how="left").with_columns(
             pl.col("n_control").fill_null(0)
@@ -235,17 +267,21 @@ def candidates(
     # Public upstream statistics; no target re-search. One reduction per candidate.
     if control_size is not None:
         stats = [
-            evalue_result(nt, nc, nr, control_size)
-            for nt, nc, nr in out.select(
-                "n_target", "n_control", "n_reference"
+            evalue_result(nt, nc, nr, size) if size > 0 else
+            {"E": None, "p_enrichment": None, "p_any": None, "rule_of_three": False}
+            for nt, nc, nr, size in out.select(
+                "n_target", "n_control", "n_reference", "_control_size"
             ).iter_rows()
         ]
         out = out.with_columns(
             *[
                 pl.Series(c, [s[c] for s in stats])
                 for c in ["E", "p_enrichment", "p_any", "rule_of_three"]
-            ]
-        )
+            ],
+            pl.when(pl.col("_control_size") == 0).then(pl.lit("unavailable_empty_control"))
+            .otherwise(pl.lit("fixed_ball_punctured" if exclude_exact else "fixed_ball"))
+            .alias("calibration"),
+        ).drop("_control_size")
     else:
         out = out.with_columns(
             *[
@@ -253,6 +289,7 @@ def candidates(
                 for c in ["E", "p_enrichment", "p_any"]
             ],
             pl.lit(False).alias("rule_of_three"),
+            pl.lit("uncalibrated").alias("calibration"),
         )
     out = out.sort(
         ["query_id", "ned_score", "nearest_score", *PMHC],
@@ -262,10 +299,7 @@ def candidates(
     out = out.with_columns(
         pl.int_range(1, pl.len() + 1).over("query_id").cast(pl.UInt32).alias("rank"),
         pl.col("n_records").sum().over("query_id").cast(pl.UInt32).alias("n_hits"),
-        pl.lit(ESTIMATOR).alias("estimator"),
-        pl.lit("fixed_ball" if control_size is not None else "uncalibrated").alias(
-            "calibration"
-        ),
+        pl.lit("background-mass-v1" if background_mass else ESTIMATOR).alias("estimator"),
     )
     # Best alternative to each candidate; margin can be negative for non-top candidates.
     best = out.group_by("query_id").agg(

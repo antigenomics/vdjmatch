@@ -147,3 +147,59 @@ def aligned_score(aligned_query: str, aligned_ref: str, ops: str, v: str | None,
         elif op == "D":          # deletion from query: consumes a ref residue only
             total += gap
     return total
+
+
+def annotate_ndn_boundaries(frame, *, species):
+    """ARDA half-open boundaries on unchanged junction/V keys, with explicit fallback.
+
+    Supplied J calls must agree for a key. Missing/ambiguous calls and repaired or
+    unusable boundaries retain the row with uniform full substitution weight.
+    One existing ARDA batch annotates unique supported keys; no sequence is repaired.
+    """
+    import polars as pl
+    try:
+        from arda.cdr3fix import markup_batch
+    except ImportError as exc:
+        raise RuntimeError('NDN annotation requires installed arda.cdr3fix.markup_batch') from exc
+    keys=['cdr3','_allele']
+    if 'j' not in frame.columns:
+        frame=frame.with_columns(pl.lit(None,dtype=pl.String).alias('j'))
+    calls=frame.with_columns(pl.col('j').str.strip_chars().str.to_uppercase().alias('_boundary_j'))
+    calls=calls.with_columns(pl.when(pl.col('_boundary_j').str.contains(r'[,;+|*]') | (pl.col('_boundary_j')==''))
+        .then(pl.col('_boundary_j')).otherwise(pl.col('_boundary_j')+'*01').alias('_boundary_j'))
+    catalog=calls.group_by(keys,maintain_order=True).agg(pl.col('_boundary_j').unique().alias('_j_calls'))
+    catalog=catalog.with_columns(
+        pl.when(pl.col('_j_calls').list.len()==1).then(pl.col('_j_calls').list.first()).alias('_j'),
+        pl.when(pl.col('_j_calls').list.len()!=1).then(pl.lit('conflicting_j_uniform'))
+        .when(pl.col('_j_calls').list.first().is_null() | (pl.col('_j_calls').list.first()==''))
+        .then(pl.lit('missing_call_uniform')).otherwise(pl.lit('pending')).alias('boundary_status'))
+    catalog=catalog.with_columns(
+        pl.when(pl.col('boundary_status')=='pending').then(
+            pl.when(pl.col('_j').str.contains(r'[,;+|]') | pl.col('_allele').str.contains(r'[,;+|]'))
+            .then(pl.lit('ambiguous_call_uniform')).otherwise(pl.lit('pending')))
+        .otherwise(pl.col('boundary_status')).alias('boundary_status'))
+    supported=catalog.filter(pl.col('boundary_status')=='pending')
+    if supported.height:
+        marks=markup_batch(supported,cdr3='cdr3',v='_allele',j='_j',organism=species,max_replace=0)
+        if marks.height!=supported.height:
+            raise RuntimeError('ARDA batch changed boundary row count')
+        supported=pl.concat([supported,marks.select('cdr3_repaired','v_end','j_start',pl.col('v_call').alias('_markup_v'),pl.col('j_call').alias('_markup_j'))],how='horizontal')
+        supported=supported.with_columns(
+            pl.when(pl.col('cdr3')!=pl.col('cdr3_repaired')).then(pl.lit('annotation_changed_uniform'))
+            .when((pl.col('_markup_v')!=pl.col('_allele')) |
+                  (pl.col('_markup_j')!=pl.when(pl.col('_j').str.contains(r'\*')).then(pl.col('_j')).otherwise(pl.col('_j')+'*01')))
+            .then(pl.lit('gene_changed_uniform'))
+            .when(pl.col('v_end').is_null() | pl.col('j_start').is_null() |
+                  (pl.col('v_end')<0) | (pl.col('j_start')<pl.col('v_end')) |
+                  (pl.col('j_start')>pl.col('cdr3').str.len_chars()))
+            .then(pl.lit('unavailable_uniform')).otherwise(pl.lit('annotated')).alias('boundary_status'))
+        catalog=catalog.join(supported.select(*keys,'v_end','j_start',pl.col('boundary_status').alias('_status')),
+            on=keys,how='left',validate='1:1',maintain_order='left').with_columns(
+                pl.coalesce('_status','boundary_status').alias('boundary_status'))
+    else:
+        catalog=catalog.with_columns(pl.lit(None,dtype=pl.Int64).alias('v_end'),
+                                     pl.lit(None,dtype=pl.Int64).alias('j_start'))
+    result=catalog.select(*keys,'v_end','j_start','boundary_status').with_columns(
+        *(pl.when(pl.col('boundary_status')=='annotated').then(pl.col(c)).otherwise(None).alias(c)
+          for c in ('v_end','j_start')))
+    return frame.join(result,on=keys,how='left',validate='m:1',maintain_order='left')

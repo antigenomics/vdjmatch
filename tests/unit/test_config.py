@@ -9,6 +9,36 @@ from vdjmatch.config import Params
 from vdjmatch.cli import __main__ as cli
 
 
+@pytest.mark.parametrize('command', ['motif-evidence', 'fit-evidence', 'combine-evidence'])
+@pytest.mark.parametrize('threads', [None, 1, 2])
+def test_evidence_cli_caps_table_and_blas_threads_before_import(command, threads):
+    import os
+    import subprocess
+    import sys
+    env=dict(os.environ, OPENBLAS_NUM_THREADS='8', OMP_NUM_THREADS='8')
+    env.pop('POLARS_MAX_THREADS',None)
+    args=([command,'unused','--vdjdb','unused','--locus','TRB','--output-prefix','unused']
+          if command=='motif-evidence' else
+          [command,'unused',*(['--model','unused'] if command=='fit-evidence' else ['--fixed','--output','unused'])])
+    code=f'''import json,os
+from vdjmatch.cli import motifs,combination
+def probe(a):
+    import numpy,scipy.linalg,polars as pl
+    from threadpoolctl import threadpool_info
+    print(json.dumps({{'table':pl.thread_pool_size(),'blas':[p['num_threads'] for p in threadpool_info() if p['user_api']=='blas'],
+                      'kernel_env':[os.environ[k] for k in ('OPENBLAS_NUM_THREADS','OMP_NUM_THREADS','MKL_NUM_THREADS','VECLIB_MAXIMUM_THREADS')]}}))
+    return 0
+motifs.main=combination.main=probe
+from vdjmatch.cli.__main__ import main
+main({args!r}+{(['--threads',str(threads)] if threads is not None else [])!r})
+'''
+    result=subprocess.run([sys.executable,'-c',code],env=env,capture_output=True,text=True,check=True,timeout=15)
+    observed=json.loads(result.stdout)
+    assert observed['table']==(threads or 1)
+    # Accelerate on macOS is not reported by threadpoolctl; its environment cap is checked too.
+    assert all(n==1 for n in observed['blas']) and observed['kernel_env']==['1']*4
+
+
 def test_cli_fresh_raw_control_and_exact_exclusion(tmp_path):
     reference, query, control = (tmp_path / name for name in ("reference.tsv", "query.tsv", "control.tsv"))
     pl.DataFrame({"cdr3": ["CASSF", "CATSF"], "gene": ["TRB"] * 2,
@@ -36,6 +66,31 @@ def test_cli_fresh_raw_control_and_exact_exclusion(tmp_path):
     manifest = json.loads((tmp_path / "ball.query.manifest.json").read_text())
     assert manifest["radii"] == [1, 2, 3, 4, 5]
     assert "ranked_model" not in manifest and "top_k" not in manifest
+    unified=tmp_path/'unified'
+    assert cli.main(arguments+['--search-mode','unified','-o',str(unified)])==0
+    assert json.loads((tmp_path/'unified.params.json').read_text())['matrix']=='none'
+    with pytest.raises(SystemExit):
+        cli.main(arguments+['--search-mode','unified','--matrix','vdjam'])
+    config=tmp_path/'matrix.json';config.write_text(json.dumps({'matrix':'vdjam'}))
+    with pytest.raises(SystemExit):
+        cli.main(arguments+['--search-mode','unified','--config',str(config)])
+
+
+def test_cli_graded_hard_v_filters_and_remains_uncalibrated(tmp_path):
+    reference, query = (tmp_path / name for name in ("reference.tsv", "query.tsv"))
+    pl.DataFrame({"cdr3": ["CASSF", "CASRF"], "gene": ["TRB"] * 2,
+                  "v.segm": ["TRBV19", "TRBV5-1"], "species": ["HomoSapiens"] * 2,
+                  "antigen.epitope": ["E"] * 2}).write_csv(reference, separator="\t")
+    pl.DataFrame({"sequence_id": ["input"], "junction_aa": ["CASSF"],
+                  "v_call": ["TRBV19*01"], "locus": ["TRB"]}).write_csv(query, separator="\t")
+    arguments = ["match", str(query), "--vdjdb", str(reference), "--search-mode", "ball",
+                 "--match-v", "--no-evalue", "--no-align", "-o", str(tmp_path / "out")]
+    assert cli.main(arguments) == 0
+    candidates = pl.read_csv(tmp_path / "out.query.candidates.txt", separator="\t")
+    assert candidates["n_clonotypes"].to_list() == [1] * 5
+    assert candidates["n_reference"].to_list() == [1] * 5
+    assert candidates["calibration"].to_list() == ["uncalibrated"] * 5
+    assert candidates["p_enrichment"].null_count() == 5
 
 
 
@@ -144,3 +199,41 @@ def test_raw_airr_control_rejects_bare_cdr3_with_only_j_call(tmp_path):
     )
     with pytest.raises(ValueError, match="requires junction_aa"):
         raw_background("TRB", "human", path)
+
+
+@pytest.mark.parametrize("command,module", [("historical-density","historical"),("annotate","tcrdist")])
+@pytest.mark.parametrize("limit,expected", [("4", 4), (None, 12), ("99", 12)])
+def test_cli_preserves_parent_table_thread_cap(limit,expected,command,module):
+    import os
+    import subprocess
+    import sys
+    env=dict(os.environ)
+    if limit is None:env.pop("POLARS_MAX_THREADS",None)
+    else:env["POLARS_MAX_THREADS"]=limit
+    code=f"""from vdjmatch.cli import {module} as historical
+import json,os
+def probe(a):
+    import polars as pl
+    print(json.dumps({{'table_threads':pl.thread_pool_size(),'native_threads':a.threads}}))
+    return 0
+historical.main=probe
+from vdjmatch.cli.__main__ import main
+if '{command}'=='annotate':
+    import vdjmatch.cli.__main__ as cli
+    cli._cmd_annotate=probe
+main(['{command}','unused','--vdjdb','unused','--locus','TRB',
+      '--threads','12','--output-prefix','unused'])
+"""
+    output=subprocess.run([sys.executable,'-c',code],env=env,text=True,
+                          capture_output=True,check=True,timeout=15)
+    assert json.loads(output.stdout)=={'table_threads':expected,'native_threads':12}
+
+
+@pytest.mark.parametrize("limit", ["0", "invalid"])
+def test_cli_rejects_invalid_parent_table_thread_cap(monkeypatch,capsys,limit):
+    monkeypatch.setenv("POLARS_MAX_THREADS",limit)
+    with pytest.raises(SystemExit) as error:
+        cli.main(['historical-density','unused','--vdjdb','unused','--locus','TRB',
+                  '--threads','12','--output-prefix','unused'])
+    assert error.value.code==2
+    assert 'POLARS_MAX_THREADS must be a positive integer' in capsys.readouterr().err

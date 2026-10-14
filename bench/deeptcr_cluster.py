@@ -32,6 +32,12 @@ TIMEOUT = 1500  # seconds per set (hard cap; best-effort)
 
 
 def run_deeptcr(payload):
+    from vdjtools.cores import available_cores, kernel_threads
+    threads = payload.get("threads", 1)
+    if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
+        raise ValueError("threads must be a positive integer")
+    payload = dict(payload, threads=kernel_threads(threads),
+                   allocated_cpu_budget=available_cores())
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
         inp = td / "in.json"; inp.write_text(json.dumps(payload))

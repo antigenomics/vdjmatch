@@ -187,3 +187,19 @@ observations in the single-chain rank test. Paired assumptions and calibration
 remain separate and unchanged.
 Global enrichment is separate from per-pMHC ranking; it is not the probability
 that the winning epitope assignment is correct.
+
+External clustering evaluation
+------------------------------
+
+`ClusterEval <https://github.com/qimmuno/clustereval>`_ evaluates the
+homogeneity–parsimony trade-off using information-theoretic, set-matching and
+pair-counting scores. These assess agreement between cluster assignments and
+known classes, separately from receptor annotation accuracy and null-call rates.
+Benchmark comparisons must retain the same input nodes and treatment of
+unclustered nodes; the recorded evaluation gives each unclustered node its own
+singleton cluster. Calculate these downstream metrics from fresh CLI outputs.
+
+Reference: Andreas Tiffeau-Mayer (2026), *External Clustering Validation by the
+Homogeneity-Parsimony Trade-off*,
+`arXiv:2607.20799 <https://arxiv.org/abs/2607.20799>`_,
+`doi:10.48550/arXiv.2607.20799 <https://doi.org/10.48550/arXiv.2607.20799>`_.

@@ -23,11 +23,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install pinned seqtree candidate and vdjmatch test deps
+      - name: Install released dependencies and vdjmatch test deps
         run: |
           python -m pip install --upgrade pip
-          # Candidate prerequisite until seqtree 1.0.2 is published; remove after release.
-          pip install "seqtree @ git+https://github.com/antigenomics/seqtree.git@5f4518c6f2cd61729572388ee072048f3e708bac"
           pip install -e ".[test,bench]"
       - name: Import must not need the precursor extra
         run: python -c "import vdjmatch; print(vdjmatch.__version__)"
@@ -35,3 +33,5 @@ jobs:
         run: pip install -e ".[precursor]"
       - name: Run unit tests
         run: pytest -m "not slow" -ra
+      - name: Verify cohort CLI/library parallelism and process-tree memory
+        run: pytest tests/test_annotation_resources.py -q

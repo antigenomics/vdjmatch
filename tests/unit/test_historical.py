@@ -1,0 +1,803 @@
+"""PSSM density reproduces the original formula without collapsing query identity."""
+import math
+import pytest
+from pathlib import Path
+import polars as pl
+from seqtree import Index
+from vdjmatch.api import Annotator, _prepare
+from vdjmatch.match.historical import density, germline_prior, unpaired_score, paired_score
+from vdjmatch.match.regions import significance_pssm
+from seqtree import SearchParams
+
+
+
+
+
+@pytest.mark.parametrize('name',['score','cdr3a','status','cohort_size','pair_id','species',
+    'v_call','junction_aa','binder','germline_lr_alpha','unpaired_score_beta','status_alpha',
+    'rank_germline_prior','n_reference_alpha','control_size_beta','estimator_alpha',
+    'query_ida','countb','_locus'])
+def test_cli_rejects_reserved_cohort_column_before_pair_parsing(tmp_path,monkeypatch,capsys,name):
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch import io,db
+    from vdjmatch.evalue import control
+    raw,sample,_,args=_paired_cli_inputs(tmp_path)
+    if name not in raw.columns:
+        raw=raw.with_columns(pl.lit('A').alias(name))
+    raw.write_csv(sample,separator='\t')
+    def forbidden(*args,**kwargs):
+        raise AssertionError('reserved cohort name must fail before pairing or scoring')
+    monkeypatch.setattr(io,'read_cell',forbidden)
+    monkeypatch.setattr(db,'load',forbidden)
+    monkeypatch.setattr(control,'raw_background',forbidden)
+    args[args.index('--vdjdb')+1]=str(tmp_path/'absent-reference.zip')
+    with pytest.raises(SystemExit) as error:
+        main(args+['--cohort-column',name])
+    assert error.value.code==2
+    assert '--cohort-column collides with a canonical input, parsed or score column' in capsys.readouterr().err
+
+
+def test_cli_cohort_sharing_preserves_independent_ranks_and_unpaired_scores(tmp_path,monkeypatch):
+    import pytest
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.match import historical
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    assert main(args)==0
+    default=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert 'unpaired_score_alpha' not in default.columns
+    raw=raw.with_columns(pl.lit('A').alias('benchmark_cohort'))
+    solo=raw.head(2).with_columns(pl.Series('query_id',['solo-a','solo-b']),
+        pl.lit('solo').alias('clone_id'),pl.lit('B').alias('benchmark_cohort'))
+    isolated=raw.head(1).with_columns(pl.lit('isolated-a').alias('query_id'),
+        pl.lit('isolated').alias('clone_id'),pl.lit('chain-view').alias('benchmark_cohort'))
+    combined=pl.concat([raw,solo,isolated]);combined.write_csv(sample,separator='\t')
+    calls=[];native=historical.density
+    def density(queries,reference,control,**kwargs):
+        calls.append(queries.height)
+        return native(queries,reference,control,**kwargs)
+    monkeypatch.setattr(historical,'density',density)
+    assert main(args+['--cohort-column','benchmark_cohort'])==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert len(calls)==2 # One shared target union calculation per chain, not per view.
+    assert out['query_id'].to_list()==['one','two','missing','invalid','solo','isolated']
+    assert out['score'].to_list()==default['score'].to_list()+[0,None]
+    assert out['cohort_size'].to_list()==[2,2,2,2,1,0]
+    assert out['benchmark_cohort'].to_list()==['A']*4+['B','chain-view']
+    assert out['status'][-1]=='missing_beta'
+    assert out['status_alpha'][-1]=='scored' and out['status_beta'][-1]=='missing_beta'
+    assert out['unpaired_score_alpha'][-1] is not None and out['unpaired_score_beta'][-1] is None
+    # The chain component equals the shipping single-chain CLI calculation exactly.
+    isolated.write_csv(sample,separator='\t')
+    alpha_control=args[args.index('--alpha-control')+1]
+    single=['historical-density',str(sample),'--vdjdb',args[args.index('--vdjdb')+1],
+        '--locus','TRA','--targets-from-sample','--control',alpha_control,
+        '--germline-background',args[args.index('--germline-background')+1],
+        '--output-prefix',str(prefix)]
+    assert main(single)==0
+    alpha=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert alpha['score'][0]==out['unpaired_score_alpha'][-1]
+    assert alpha['p_enrichment'][0]==out['p_enrichment_alpha'][-1]
+    solo.tail(1).write_csv(sample,separator='\t')
+    beta_args=single.copy();beta_args[beta_args.index('--locus')+1]='TRB'
+    beta_args[beta_args.index('--control')+1]=args[args.index('--control')+1]
+    assert main(beta_args)==0
+    beta=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert beta['score'][0]==out['unpaired_score_beta'][-2]
+    assert beta['p_enrichment'][0]==out['p_enrichment_beta'][-2]
+    # Cohort is linked metadata: conflicts or missing values are errors.
+    conflict=combined.with_columns(pl.when(pl.col('query_id')=='b1').then(pl.lit('B'))
+                                   .otherwise(pl.col('benchmark_cohort')).alias('benchmark_cohort'))
+    conflict.write_csv(sample,separator='\t')
+    with pytest.raises(SystemExit):main(args+['--cohort-column','benchmark_cohort'])
+    combined.with_columns(pl.when(pl.col('query_id')=='b1').then(pl.lit(None,dtype=pl.String))
+                          .otherwise(pl.col('benchmark_cohort')).alias('benchmark_cohort')).write_csv(sample,separator='\t')
+    with pytest.raises(SystemExit):main(args+['--cohort-column','benchmark_cohort'])
+
+
+def test_cli_single_prior_missing_genes_keep_ids_and_density_only_contract(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    q,r='CASSLGQAYEQYF','CASSLGRAYEQYF'
+    sample,reference,control,prior,prefix=[tmp_path/n for n in ('q.tsv','r.tsv','c.tsv','prior.tsv','out')]
+    raw=pl.DataFrame({'query_id':['null-v','blank-j','null-j','unknown','valid','invalid'],
+        'junction_aa':[q]*5+['CAXF'],'locus':['TRB']*6,
+        'v_call':[None,'TRBV19','TRBV19','TRBVunknown','TRBV19',None],
+        'j_call':['TRBJ1-1','   ',None,'TRBJunknown','TRBJ1-1','TRBJ1-1'],
+        'species':['human']*6,'epitope':['E']*6,'mhc_a':['HLA-A*02']*6,
+        'mhc_b':['B2M']*6,'mhc_class':['MHCI']*6,'binder':[0,1,0,1,0,1]})
+    raw.write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':[r],'gene':['TRB'],'v':['TRBV19'],'j':['TRBJ1-1'],
+        'species':['HomoSapiens'],'epitope':['E'],'mhc_a':['HLA-A*02'],'mhc_b':['B2M'],
+        'mhc_class':['MHCI']}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':[q,r]}).write_csv(control,separator='\t')
+    pl.DataFrame({'cdr3':[q],'v':['TRBV19'],'j':['TRBJ1-1']}).write_csv(prior,separator='\t')
+    args=['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+          '--targets-from-sample','--control',str(control),'--output-prefix',str(prefix)]
+    assert main(args+['--germline-background',str(prior)])==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['query_id'].to_list()==raw['query_id'].to_list()
+    assert out['binder'].to_list()==raw['binder'].to_list()
+    assert out['status'].to_list()==['missing_v_or_j']*3+['scored','scored','invalid_query']
+    assert out['germline_lr'][:3].to_list()==out['score'][:3].to_list()==[None]*3
+    assert out['density_score'][:5].null_count()==0
+    assert out['germline_lr'][3] is not None and out['score'][3] is not None
+    assert main(args)==0
+    density_only=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert density_only['status'].to_list()==['scored']*5+['invalid_query']
+    assert density_only['score'][:5].to_list()==out['density_score'][:5].to_list()
+    # Explicit pooled selection has the same missing-gene full-score disposition.
+    explicit=[a for a in args if a!='--targets-from-sample']+['--pool-reference','--epitope','E','--mhc-a','HLA-A*02',
+                                                              '--germline-background',str(prior)]
+    assert main(explicit)==0
+    pooled=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert pooled['query_id'].to_list()==raw['query_id'][:5].to_list()
+    assert pooled['status'].to_list()==['missing_v_or_j']*3+['scored']*2
+    assert pooled['score'][:3].to_list()==[None]*3
+    raw.head(3).write_csv(sample,separator='\t')
+    assert main(args+['--germline-background',str(prior),'--gapped-extension'])==0
+    missing=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert missing['query_id'].to_list()==['null-v','blank-j','null-j']
+    assert missing['status'].to_list()==['missing_v_or_j']*3
+    for name in ('score','germline_lr','historical_score'):
+        assert missing[name].to_list()==[None]*3
+
+
+def test_cli_paired_missing_genes_excluded_from_prior_and_fusion(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    alpha=raw.head(2).with_columns(pl.Series('query_id',['a-null','b-null']),pl.lit('null-alpha').alias('clone_id'),
+        pl.when(pl.col('locus')=='TRA').then(pl.lit(None,dtype=pl.String)).otherwise(pl.col('v_call')).alias('v_call'))
+    beta=raw.head(2).with_columns(pl.Series('query_id',['a-blank','b-blank']),pl.lit('blank-beta').alias('clone_id'),
+        pl.when(pl.col('locus')=='TRB').then(pl.lit('  ')).otherwise(pl.col('j_call')).alias('j_call'))
+    raw=raw.with_columns(pl.when(pl.col('query_id').is_in(['a3','a4'])).then(pl.lit(None,dtype=pl.String))
+                        .otherwise(pl.col('v_call')).alias('v_call'))
+    pl.concat([raw,alpha,beta]).write_csv(sample,separator='\t')
+    assert main(args)==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['query_id'].to_list()==['one','two','missing','invalid','null-alpha','blank-beta']
+    assert out['status'].to_list()==['scored','scored','missing_beta','invalid_alpha',
+                                    'missing_v_or_j_alpha','missing_v_or_j_beta']
+    assert out['score'].to_list()==[1.5,1.5,None,None,None,None]
+    assert out['cohort_size'].to_list()==[2]*6
+    assert out['query_id_alpha'][-2:].to_list()==['a-null','a-blank']
+    assert out['query_id_beta'][-2:].to_list()==['b-null','b-blank']
+    assert out['germline_lr_alpha'][-2] is None and out['germline_lr_beta'][-1] is None
+    assert out['germline_lr'][-2:].to_list()==[None,None]
+    pl.concat([alpha,beta]).write_csv(sample,separator='\t')
+    assert main(args)==0
+    missing=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert missing.columns==out.columns
+    assert missing['status'].to_list()==['missing_v_or_j_alpha','missing_v_or_j_beta']
+    assert missing['cohort_size'].to_list()==[0,0]
+    assert missing['score'].to_list()==missing['rank_germline_prior'].to_list()==[None,None]
+
+
+def test_historical_density_formula_and_duplicate_queries():
+    q='CASSLGQAYEQYF'; r='CASSLGRAYEQYF'
+    ann=Annotator.from_frame(pl.DataFrame({'gene':['TRB','TRB'],'cdr3':[r,r],
+        'v':['TRBV19','TRBV19'],'epitope':['E','E']}))
+    _,queries=_prepare(pl.DataFrame({'query_id':['positive','negative'],'cdr3':[q,q],
+                                   'v':['TRBV19','TRBV19'],'locus':['TRB','TRB']}))
+    p=SearchParams(max_subs=5,max_ins=0,max_dels=0,max_total_edits=5,engine='seqtm')
+    p.pos_matrix=significance_pssm(len(q))
+    score=Index.build([r]).search(q,p)[0].score
+    got=density(queries,ann._index.records_for('TRB'),Index.build([q,r]),threads=1)
+    expected=math.exp(-score/400)/.5
+    assert got['query_id'].to_list()==['positive','negative']
+    assert all(math.isclose(x,expected) for x in got['score'])
+    assert got['n_reference'].to_list()==[1,1]
+    assert all(math.isclose(x,1-math.exp(-.5),rel_tol=1e-14) for x in got['p_enrichment'])
+
+
+def test_target_first_controls_equal_full_cdf_and_skip_unsupported_queries():
+    from vdjmatch.match.historical import control_histograms
+    q='CASSLGQAYEQYF';r='CASSLGRAYEQYF';unsupported='CWWWWWWWWWWWF'
+    reference=Annotator.from_frame(pl.DataFrame({'gene':['TRB'],'cdr3':[r],
+        'v':['TRBV19'],'epitope':['E']}))._index.records_for('TRB')
+    _,queries=_prepare(pl.DataFrame({'cdr3':[q,unsupported],'v':['TRBV19']*2,'locus':['TRB']*2}))
+    index=Index.build([q,r,unsupported])
+    full=control_histograms(index,[q,unsupported])
+    class ObservedControl:
+        calls=[]
+        def __len__(self):return len(index)
+        def edit_histogram_batch(self,sequences,params,threads,exclude_exact):
+            self.calls.append((list(sequences),params.max_total_edits))
+            return index.edit_histogram_batch(sequences,params,threads,exclude_exact)
+    control=ObservedControl()
+    narrow=density(queries,reference,control,pool_reference=True)
+    expected=density(queries,reference,index,pool_reference=True,control_counts=full)
+    assert narrow.equals(expected)
+    assert control.calls==[([q],1)]
+
+
+def test_shared_control_cdf_preserves_target_scores_and_batches_overlap():
+    from vdjmatch.match.historical import shared_control_histograms
+    q='CASSLGQAYEQYF'; r1='CASSLGRAYEQYF'; r2='CASSLGKAYEQHF'
+    reference=Annotator.from_frame(pl.DataFrame({'gene':['TRB']*2,'cdr3':[r1,r2],
+        'v':['TRBV19']*2,'epitope':['ONE','TWO']}))._index.records_for('TRB')
+    _,queries=_prepare(pl.DataFrame({'query_id':['a','b'],'cdr3':[q,q],
+                                    'v':['TRBV19']*2,'locus':['TRB']*2}))
+    index=Index.build([q,r1,r2])
+    class ObservedControl:
+        def __init__(self): self.calls=[]
+        def __len__(self): return len(index)
+        def edit_histogram_batch(self,sequences,params,threads,exclude_exact):
+            self.calls.append((list(sequences),params.max_total_edits))
+            return index.edit_histogram_batch(sequences,params,threads,exclude_exact)
+    batches=[(queries,reference.filter(pl.col('epitope')==ep)) for ep in ['ONE','TWO']]
+    control=ObservedControl()
+    shared=shared_control_histograms(control,batches)
+    assert control.calls==[([q],2)]
+    expected=pl.concat([density(queries,ref,index,pool_reference=True) for _,ref in batches])
+    got=pl.concat([density(queries,ref,control,pool_reference=True,control_counts=shared) for _,ref in batches])
+    assert got.equals(expected) and len(control.calls)==1
+    # The general multi-target API takes the same shared path without a CLI adapter.
+    observed=ObservedControl()
+    assert density(queries,reference,observed).sort('epitope','query_id').equals(expected.sort('epitope','query_id'))
+    assert observed.calls==[([q],2)]
+
+
+def test_cli_rejects_missing_target_before_control_loading(tmp_path, capsys):
+    import pytest
+    from vdjmatch.cli.__main__ import main
+    q=tmp_path/'q.tsv';r=tmp_path/'r.tsv'
+    pl.DataFrame({'junction_aa':['CASSLGQAYEQYF'],'locus':['TRB']}).write_csv(q,separator='\t')
+    pl.DataFrame({'cdr3':['CASSLGRAYEQYF'],'gene':['TRB'],'species':['HomoSapiens'],
+                  'epitope':['E'],'mhc_a':['HLA-A*02:01']}).write_csv(r,separator='\t')
+    with pytest.raises(SystemExit) as error:
+        main(['historical-density',str(q),'--vdjdb',str(r),'--locus','TRB',
+              '--epitope','E','--epitope','missing','--mhc-a','HLA-A*02:01',
+              '--control',str(tmp_path/'nonexistent'),'--output-prefix',str(tmp_path/'out')])
+    assert error.value.code==2
+    assert 'absent under the selected reference restriction: missing' in capsys.readouterr().err
+
+
+def test_reference_pooling_is_explicit_and_preserves_default():
+    q, r = 'CASSLGQAYEQYF', 'CASSLGRAYEQYF'
+    ann = Annotator.from_frame(pl.DataFrame({'gene': ['TRB', 'TRB'], 'cdr3': [r, r],
+        'v': ['TRBV19', 'TRBV19'], 'epitope': ['E', 'E'],
+        'mhc_a': ['HLA-A*02', 'HLA-A*02:01']}))
+    _, queries = _prepare(pl.DataFrame({'cdr3': [q], 'v': ['TRBV19'], 'locus': ['TRB']}))
+    reference = ann._index.records_for('TRB')
+    control = Index.build([q, r])
+    separate = density(queries, reference, control)
+    pooled = density(queries, reference, control, pool_reference=True)
+    assert separate.height == 2 and pooled.height == 1
+    assert pooled['mhc_a'].to_list() == [None]
+    assert pooled['n_reference'].to_list() == [1]
+    assert all(math.isclose(s, pooled['score'][0]) for s in separate['score'])
+    import pytest
+    with pytest.raises(ValueError, match='one epitope'):
+        density(queries, reference.with_columns(pl.Series('epitope', ['E', 'F'])),
+                control, pool_reference=True)
+
+
+def test_original_prior_counts_raw_background_and_reference_representatives():
+    queries = pl.DataFrame({'query_id': ['positive', 'negative'], 'cdr3': ['CAAF', 'CAAF'],
+                            'v': ['TRBV1*02', 'TRBV1'], 'j': ['TRBJ1', 'TRBJ1']})
+    reference = pl.DataFrame({'cdr3': ['CAGF', 'CAGF'], 'v': ['TRBV1', 'TRBV2'],
+                              'j': ['TRBJ1', 'TRBJ2']})
+    background = pl.DataFrame({'cdr3': ['CATF', 'CATF', 'CAAF'],
+                               'v': ['TRBV2', 'TRBV2', 'TRBV1'],
+                               'j': ['TRBJ2', 'TRBJ2', 'TRBJ1']})
+    got = germline_prior(queries, reference, background)
+    expected = 2 * math.log((1.5 / 31) / (1.5 / 33)) + math.log((1.5 / 31) / (3.5 / 33))
+    assert got['query_id'].to_list() == ['positive', 'negative']
+    assert got['n_reference'].to_list() == [1, 1]
+    assert got['background_size'].to_list() == [3, 3]
+    assert all(math.isclose(x, expected) for x in got['germline_lr'])
+    # Alpha's original denominator is deliberately the same beta raw background.
+    alpha_q = queries.with_columns(pl.lit('TRAV1').alias('v'), pl.lit('TRAJ1').alias('j'))
+    alpha_r = reference.with_columns(pl.lit('TRAV1').alias('v'), pl.lit('TRAJ1').alias('j'))
+    alpha = germline_prior(alpha_q, alpha_r, background, include_length=False)
+    assert all(math.isclose(x, 2 * math.log((1.5 / 31) / (.5 / 33))) for x in alpha['germline_lr'])
+
+
+def test_original_sparse_boundary_and_paired_average_rank_fusion():
+    sparse = unpaired_score([0, 2], [1, -1], 499)
+    assert math.isclose(sparse[0], math.log(1e-6) + 1)
+    assert math.isclose(sparse[1], math.log(2 + 1e-6) - 1)
+    assert unpaired_score([0, 2], [1, -1], 500).to_list() == [0, 2]
+    assert unpaired_score([0, 2], [1, -1], pl.Series([499, 500])).to_list() == [sparse[0], 2]
+    assert paired_score([0, 0, 2], [2, 0, 0], [0, 1, 2]).to_list() == [2.5, 2, 4.5]
+    import pytest
+    with pytest.raises(ValueError, match='finite'):
+        paired_score([0], [float('nan')], [0])
+    with pytest.raises(ValueError, match='aligned'):
+        paired_score([0], [0, 1], [0])
+
+
+def test_candidate_prior_exact_puncture_matches_physical_removal():
+    queries = pl.DataFrame({'query_id': ['a', 'different_genes', 'b', 'absent'],
+        'cdr3': ['CAAF', 'CAAF', 'CAGF', 'CASGF'],
+        'v': ['TRBV1*02', 'TRBV2', 'TRBV2', 'TRBV1'],
+        'j': ['TRBJ1', 'TRBJ2', 'TRBJ2', 'TRBJ1']})
+    reference = pl.DataFrame({'cdr3': ['CAAF', 'CAAF', 'CAGF', 'CATF'],
+        'v': ['TRBV1', 'TRBV2', 'TRBV2', 'TRBV1'],
+        'j': ['TRBJ1', 'TRBJ2', 'TRBJ2', 'TRBJ1']})
+    background = pl.DataFrame({'cdr3': ['CAAF', 'CAAF', 'CAGF', 'CASGF', 'CATF'],
+        'v': ['TRBV2', 'TRBV1', 'TRBV1', 'TRBV1', 'TRBV2'],
+        'j': ['TRBJ2', 'TRBJ1', 'TRBJ1', 'TRBJ1', 'TRBJ2']})
+    for length in [False, True]:
+        got = germline_prior(queries, reference, background,
+            include_length=length, exclude_exact=True)
+        for i, row in enumerate(queries.iter_rows(named=True)):
+            expected = germline_prior(queries.slice(i, 1),
+                reference.filter(pl.col('cdr3') != row['cdr3']),
+                background.filter(pl.col('cdr3') != row['cdr3']), include_length=length)
+            assert got.row(i) == expected.row(0)
+    empty = germline_prior(queries.head(1), reference.head(2), background.head(2), exclude_exact=True)
+    assert empty['n_reference'].to_list() == [0]
+    assert empty['background_size'].to_list() == [0]
+    assert empty['germline_lr'].to_list() == [None]
+
+
+def test_candidate_density_population_puncture_matches_physical_removal():
+    q, r = 'CASSLGQAYEQYF', 'CASSLGRAYEQYF'
+    reference = Annotator.from_frame(pl.DataFrame({'gene': ['TRB']*3,
+        'cdr3': [q, q, r], 'v': ['TRBV19']*3, 'epitope': ['E']*3}))._index.records_for('TRB')
+    _, queries = _prepare(pl.DataFrame({'query_id': ['a', 'b'], 'cdr3': [q, r],
+        'v': ['TRBV19']*2, 'locus': ['TRB']*2}))
+    controls = [q, q, r]
+    index = Index.build(controls)
+    class BatchedControl:
+        def __len__(self):return len(index)
+        def edit_histogram_batch(self,*args):return index.edit_histogram_batch(*args)
+        def ref_seqs(self):raise AssertionError('do not expand the whole control population per target')
+    got = density(queries, reference, BatchedControl(), puncture_populations=True)
+    for i, s in enumerate([q, r]):
+        expected = density(queries.slice(i, 1), reference.filter(pl.col('cdr3') != s),
+            Index.build([x for x in controls if x != s]))
+        assert got.drop('estimator').row(i) == expected.drop('estimator').row(0)
+    empty = density(queries.head(1), reference.filter(pl.col('cdr3') == q),
+        Index.build([q]), puncture_populations=True)
+    assert empty['n_reference'].to_list() == empty['control_size'].to_list() == [0]
+    assert empty['score'].to_list() == empty['p_enrichment'].to_list() == [None]
+
+
+def test_cli_assayed_targets_preserve_rows_restrictions_and_statuses(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    q, r = 'CASSLGQAYEQYF', 'CASSLGRAYEQYF'
+    sample, reference, control, prefix = [tmp_path / n for n in ('q.tsv', 'r.tsv', 'c.tsv', 'out')]
+    pl.DataFrame({'query_id': ['pos', 'neg', 'missing_ref', 'bad', 'empty'],
+        'junction_aa': [q, q, q, 'CAXF', None], 'locus': ['TRB']*5,
+        'v_call': ['TRBV19']*5, 'j_call': ['TRBJ1-1']*5,
+        'species': ['human']*5, 'epitope': ['E', 'E', 'absent', 'E', 'E'],
+        'mhc_a': ['HLA-A*02']*5, 'mhc_b': ['B2M']*5, 'mhc_class': ['MHCI']*5,
+        'binder': [1, 0, 1, 0, 0]}).write_csv(sample, separator='\t')
+    pl.DataFrame({'cdr3': [r, r, 'CASSLGQSYEQYF'], 'gene': ['TRB']*3,
+        'v': ['TRBV19']*3, 'j': ['TRBJ1-1']*3, 'species': ['HomoSapiens']*3,
+        'epitope': ['E']*3, 'mhc_a': ['HLA-A*02', 'HLA-A*02:01', 'HLA-A*02:01'],
+        'mhc_b': ['B2M', 'B2M', 'other'], 'mhc_class': ['MHCI']*3}).write_csv(reference, separator='\t')
+    pl.DataFrame({'junction_aa': [q, r]}).write_csv(control, separator='\t')
+    assert main(['historical-density', str(sample), '--vdjdb', str(reference),
+                 '--locus', 'TRB', '--species', 'human', '--targets-from-sample',
+                 '--control', str(control), '--output-prefix', str(prefix)]) == 0
+    out = pl.read_csv(str(prefix)+'.scores.tsv', separator='\t')
+    assert out['query_id'].to_list() == ['pos', 'neg', 'missing_ref', 'bad', 'empty']
+    assert out['binder'].to_list() == [1, 0, 1, 0, 0]
+    assert out['status'].to_list() == ['scored', 'scored', 'no_reference', 'invalid_query', 'invalid_query']
+    assert out['n_reference'].to_list()[:2] == [1, 1]
+    assert out['mhc_a'].to_list() == ['HLA-A*02']*5
+    assert math.isclose(out['score'][0], out['score'][1])
+
+
+def test_cli_sample_targets_reject_explicit_selector(tmp_path, capsys):
+    import pytest
+    from vdjmatch.cli.__main__ import main
+    with pytest.raises(SystemExit) as error:
+        main(['historical-density', str(tmp_path/'absent.tsv'), '--vdjdb', str(tmp_path/'r.tsv'),
+              '--locus', 'TRB', '--targets-from-sample', '--epitope', 'E',
+              '--output-prefix', str(tmp_path/'out')])
+    assert error.value.code == 2
+    assert 'mutually exclusive' in capsys.readouterr().err
+
+
+def test_cli_sample_targets_all_invalid_keep_score_schema(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    sample, reference, control, prefix = [tmp_path / n for n in ('q.tsv', 'r.tsv', 'c.tsv', 'out')]
+    pl.DataFrame({'query_id': ['bad'], 'junction_aa': ['CAXF'], 'locus': [None],
+        'v_call': ['TRBV19'], 'j_call': ['TRBJ1-1'], 'species': ['human'],
+        'epitope': ['E'], 'mhc_a': ['HLA-A*02'], 'mhc_b': ['B2M'],
+        'mhc_class': ['MHCI']}).write_csv(sample, separator='\t')
+    pl.DataFrame({'cdr3': ['CASSLGRAYEQYF'], 'gene': ['TRB'], 'v': ['TRBV19'],
+        'species': ['HomoSapiens'], 'epitope': ['E'], 'mhc_a': ['HLA-A*02'],
+        'mhc_b': ['B2M'], 'mhc_class': ['MHCI']}).write_csv(reference, separator='\t')
+    pl.DataFrame({'junction_aa': ['CASSLGRAYEQYF']}).write_csv(control, separator='\t')
+    assert main(['historical-density', str(sample), '--vdjdb', str(reference),
+                 '--locus', 'TRB', '--targets-from-sample', '--control', str(control),
+                 '--output-prefix', str(prefix)]) == 0
+    out = pl.read_csv(str(prefix)+'.scores.tsv', separator='\t')
+    assert out['query_id'].to_list() == ['bad']
+    assert out['status'].to_list() == ['invalid_query']
+    assert out['score'].to_list() == [None]
+
+
+def _paired_cli_inputs(tmp_path):
+    import polars as pl
+    alpha, alpha_mut = 'CAVRDSNYQLIW', 'CAVRDTNYQLIW'
+    beta, beta_mut = 'CASSLGQAYEQYF', 'CASSLGRAYEQYF'
+    sample, reference, control, alpha_control, prior, prefix = [tmp_path/n for n in
+        ('pairs.tsv','r.tsv','c.tsv','ca.tsv','prior.tsv','out')]
+    raw=pl.DataFrame({'query_id':['a1','b1','a2','b2','a3','a4','b4'],
+        'clone_id':['one','one','two','two','missing','invalid','invalid'],
+        'junction_aa':[alpha,beta_mut,alpha_mut,beta,alpha,'CAXF',beta_mut],
+        'locus':['TRA','TRB','TRA','TRB','TRA','TRA','TRB'],
+        'v_call':['TRAV1','TRBV19','TRAV1','TRBV19','TRAV1','TRAV1','TRBV19'],
+        'j_call':['TRAJ1','TRBJ1-1','TRAJ1','TRBJ1-1','TRAJ1','TRAJ1','TRBJ1-1'],
+        'species':['human']*7,'epitope':['E']*7,'mhc_a':['HLA-A*02']*7,
+        'mhc_b':['B2M']*7,'mhc_class':['MHCI']*7,'binder':[1,1,0,0,1,1,1]})
+    raw.write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':[alpha,beta], 'gene':['TRA','TRB'], 'v':['TRAV1','TRBV19'],
+        'j':['TRAJ1','TRBJ1-1'],'species':['HomoSapiens']*2,'epitope':['E']*2,
+        'mhc_a':['HLA-A*02:01']*2,'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':[beta,beta_mut]}).write_csv(control,separator='\t')
+    pl.DataFrame({'junction_aa':[alpha,alpha_mut]}).write_csv(alpha_control,separator='\t')
+    pl.DataFrame({'cdr3':[beta,beta_mut,beta_mut],'v':['TRBV19']*3,'j':['TRBJ1-1']*3}).write_csv(prior,separator='\t')
+    args=['historical-density',str(sample),'--vdjdb',str(reference),'--locus','paired',
+          '--targets-from-sample','--control',str(control),'--alpha-control',str(alpha_control),
+          '--germline-background',str(prior),'--output-prefix',str(prefix)]
+    return raw,sample,prefix,args
+
+
+def test_cli_candidate_puncture_keeps_ids_and_reports_empty_populations(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    assert main(args)==0
+    baseline=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert main(args+['--puncture-populations'])==0
+    paired=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert paired['query_id'].to_list()==baseline['query_id'].to_list()
+    assert paired['status'].to_list()==['no_reference_alpha','no_reference_beta','missing_beta','invalid_alpha']
+    assert paired['score'].to_list()==[None]*4
+    assert paired['n_reference_alpha'].to_list()[:2]==[0,1]
+    assert paired['n_reference_beta'].to_list()[:2]==[1,0]
+    assert main(args)==0
+    assert pl.read_csv(str(prefix)+'.scores.tsv',separator='\t').equals(baseline)
+    raw.filter(pl.col('locus')=='TRB').write_csv(sample,separator='\t')
+    single=list(args)
+    single[single.index('--locus')+1]='TRB'
+    i=single.index('--alpha-control');del single[i:i+2]
+    for selection in ['sample','pooled']:
+        options=list(single)
+        if selection=='pooled':
+            options.remove('--targets-from-sample')
+            options+=['--pool-reference','--epitope','E','--mhc-a','HLA-A*02','--mhc-match','compatible']
+        assert main(options+['--puncture-populations'])==0
+        out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+        assert out['query_id'].to_list()==['b1','b2','b4']
+        assert out['status'].to_list()==['scored','no_reference','scored']
+        assert out['n_reference'].to_list()==[1,0,1]
+        assert out['score'][1] is None and out['score'][0] is not None
+    prior=Path(single[single.index('--germline-background')+1])
+    pl.read_csv(prior,separator='\t').tail(2).write_csv(prior,separator='\t')
+    assert main(single+['--puncture-populations'])==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['status'].to_list()==['no_prior_evidence','no_reference','no_prior_evidence']
+    assert out['score'].to_list()==[None]*3
+
+
+def test_cli_shared_cdf_preserves_paired_and_single_target_outputs(tmp_path, monkeypatch):
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.match import historical
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    copied=raw.with_columns((pl.lit('other-')+pl.col('query_id')).alias('query_id'),
+        (pl.lit('other-')+pl.col('clone_id')).alias('clone_id'),pl.lit('F').alias('epitope'))
+    pl.concat([raw,copied]).write_csv(sample,separator='\t')
+    reference=Path(args[args.index('--vdjdb')+1])
+    ref=pl.read_csv(reference,separator='\t')
+    pl.concat([ref,ref.with_columns(pl.lit('F').alias('epitope'))]).write_csv(reference,separator='\t')
+    native=historical.shared_control_histograms
+    for locus in ['paired','TRA']:
+        options=list(args)
+        if locus=='TRA':
+            options[options.index('--locus')+1]='TRA'
+            options[options.index('--control')+1]=options[options.index('--alpha-control')+1]
+        monkeypatch.setattr(historical,'shared_control_histograms',lambda *a,**k:None)
+        assert main(options)==0
+        expected=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t',infer_schema_length=0)
+        calls=[]
+        def observed(*a,**k):
+            calls.append(1)
+            return native(*a,**k)
+        monkeypatch.setattr(historical,'shared_control_histograms',observed)
+        assert main(options)==0
+        actual=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t',infer_schema_length=0)
+        assert actual.equals(expected)
+        assert len(calls)==(2 if locus=='paired' else 1)
+
+
+def test_cli_original_paired_rank_ties_independent_exact_exclusion_and_missing(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    _,_,prefix,args=_paired_cli_inputs(tmp_path)
+    assert main(args)==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['query_id'].to_list()==['one','two','missing','invalid']
+    assert out['pair_id'].to_list()==['one','two','missing','invalid']
+    assert out['binder'].to_list()==[1,0,1,1]
+    assert out['status'].to_list()==['scored','scored','missing_beta','invalid_alpha']
+    assert out['query_id_alpha'].to_list()==['a1','a2','a3','a4']
+    assert out['query_id_beta'].to_list()==['b1','b2',None,'b4']
+    assert out['density_score_alpha'][0]==0 and out['density_score_beta'][0]>0
+    assert out['density_score_beta'][1]==0 and out['density_score_alpha'][1]>0
+    assert out['p_enrichment_alpha'][0]==1 and out['p_enrichment_beta'][1]==1
+    assert out['score'].to_list()==[1.5,1.5,None,None]
+    assert out['rank_germline_prior'].to_list()[:2]==[.5,.5]
+    assert 'p_enrichment' not in out.columns
+    import json
+    manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
+    assert 'beta raw background' in manifest['paired_contract']['alpha_prior_background']
+
+
+def test_cli_original_paired_rejects_linked_metadata_conflict(tmp_path,capsys):
+    import pytest
+    from vdjmatch.cli.__main__ import main
+    raw,sample,_,args=_paired_cli_inputs(tmp_path)
+    raw.with_columns(pl.when(pl.col('query_id')=='b1').then(pl.lit('different'))
+                     .otherwise(pl.col('epitope')).alias('epitope')).write_csv(sample,separator='\t')
+    with pytest.raises(SystemExit) as error:
+        main(args)
+    assert error.value.code==2
+    assert 'conflicting' in capsys.readouterr().err
+
+
+def test_cli_extension_retains_original_score_and_source_identities(tmp_path):
+    import json
+    from vdjmatch.cli.__main__ import main
+    q='CASSLGQAYEQYF';r=q+'F'
+    sample,reference,control,prefix=[tmp_path/n for n in ('q.tsv','r.tsv','c.tsv','out')]
+    pl.DataFrame({'query_id':['a'],'junction_aa':[q],'locus':['TRB'],
+                  'v_call':['TRBV19'],'j_call':['TRBJ1-1']}).write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':[r],'gene':['TRB'],'species':['HomoSapiens'],
+                  'epitope':['E'],'mhc_a':['HLA-A*02:01'],'v':['TRBV19']}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':[q]}).write_csv(control,separator='\t')
+    assert main(['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+                 '--epitope','E','--mhc-a','HLA-A*02:01','--pool-reference',
+                 '--control',str(control),'--gapped-extension','--output-prefix',str(prefix)])==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['historical_density'].to_list()==[0.0]
+    assert out['gapped_density'][0]>0 and out['score'][0]==out['gapped_density'][0]
+    info=json.loads(Path(str(prefix)+'.manifest.json').read_text())['gapped_extension']
+    assert all(len(info[k])==64 for k in ['source_sha256','distance_source_sha256','model_sha256'])
+    manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
+    assert len(manifest['software']['seqtree_native_sha256'])==64
+
+
+
+def test_cli_sample_targets_retains_unselected_species_rows(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    sample, reference, control, prefix = [tmp_path/n for n in ('q.tsv','r.tsv','c.tsv','out')]
+    q, r = 'CASSLGQAYEQYF', 'CASSLGRAYEQYF'
+    pl.DataFrame({'query_id':['selected','unselected'], 'junction_aa':[q,q], 'locus':['TRB','TRB'],
+        'v_call':['TRBV19','TRBV19'], 'j_call':['TRBJ1-1','TRBJ1-1'], 'species':['human','mouse'],
+        'epitope':['E','E'], 'mhc_a':['HLA-A*02','H-2-Kb'], 'mhc_b':['B2M','B2M'],
+        'mhc_class':['MHCI','MHCI'], 'binder':[1,0]}).write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':[r], 'gene':['TRB'], 'v':['TRBV19'], 'species':['HomoSapiens'],
+        'epitope':['E'], 'mhc_a':['HLA-A*02'], 'mhc_b':['B2M'], 'mhc_class':['MHCI']}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':[q,r]}).write_csv(control,separator='\t')
+    assert main(['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+        '--targets-from-sample','--control',str(control),'--output-prefix',str(prefix)])==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['query_id'].to_list()==['selected','unselected']
+    assert out['binder'].to_list()==[1,0]
+    assert out['status'].to_list()==['scored','unselected_species']
+    assert out['score'][1] is None
+    assert out['mhc_a'].to_list()==['HLA-A*02','H-2-Kb']
+
+
+def test_cli_original_paired_retains_unselected_species_and_chain_ids(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    mouse=raw.head(2).with_columns(pl.Series('query_id',['ma','mb']),pl.lit('mouse-pair').alias('clone_id'),
+                                 pl.lit('mouse').alias('species'),pl.lit('H-2-Kb').alias('mhc_a'))
+    pl.concat([raw,mouse]).write_csv(sample,separator='\t')
+    assert main(args)==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['query_id'].to_list()==['one','two','missing','invalid','mouse-pair']
+    assert out['status'][-1]=='unselected_species' and out['score'][-1] is None
+    assert out['query_id_alpha'][-1]=='ma' and out['query_id_beta'][-1]=='mb'
+    assert out['species'][-1]=='mouse' and out['mhc_a'][-1]=='H-2-Kb'
+
+
+def test_cli_all_invalid_extension_prior_has_complete_null_schema(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    sample,reference,control,prior,prefix=[tmp_path/n for n in ('q.tsv','r.tsv','c.tsv','prior.tsv','out')]
+    q='CASSLGQAYEQYF'
+    pl.DataFrame({'query_id':['invalid'], 'junction_aa':['CAXF'], 'locus':['TRB'],
+        'v_call':['TRBV19'], 'j_call':['TRBJ1-1'], 'species':['human'], 'epitope':['E'],
+        'mhc_a':['HLA-A*02'], 'mhc_b':['B2M'], 'mhc_class':['MHCI']}).write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':[q], 'gene':['TRB'], 'v':['TRBV19'], 'j':['TRBJ1-1'],
+        'species':['HomoSapiens'], 'epitope':['E'], 'mhc_a':['HLA-A*02'],
+        'mhc_b':['B2M'], 'mhc_class':['MHCI']}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':[q]}).write_csv(control,separator='\t')
+    pl.DataFrame({'cdr3':[q], 'v':['TRBV19'], 'j':['TRBJ1-1']}).write_csv(prior,separator='\t')
+    assert main(['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+        '--targets-from-sample','--control',str(control),'--germline-background',str(prior),
+        '--gapped-extension','--output-prefix',str(prefix)])==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out['status'].to_list()==['invalid_query']
+    required={'historical_score','historical_density','gapped_density','density_score','germline_lr',
+              'availability','gapped_status','M_gap','n_reference_unavailable','score','p_enrichment',
+              'gapped_density_same_v_unweighted','gapped_density_cross_v_unweighted',
+              'gapped_edges_same_v','gapped_edges_cross_v','gapped_floor_density',
+              'gapped_best_total_distance','gapped_best_cdr3_distance','gapped_best_vloop_distance'}
+    assert required<=set(out.columns)
+    assert all(out[name].to_list()==[None] for name in required)
+
+    # A valid query with no compatible target reference keeps the same null schema.
+    pl.DataFrame({'query_id':['no-reference'], 'junction_aa':[q], 'locus':['TRB'],
+        'v_call':['TRBV19'], 'j_call':['TRBJ1-1'], 'species':['human'], 'epitope':['other'],
+        'mhc_a':['HLA-A*02'], 'mhc_b':['B2M'], 'mhc_class':['MHCI']}).write_csv(sample,separator='\t')
+    assert main(['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+        '--targets-from-sample','--control',str(control),'--germline-background',str(prior),
+        '--gapped-extension','--output-prefix',str(prefix)])==0
+    empty=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert empty['status'].to_list()==['no_reference']
+    assert required<=set(empty.columns)
+    assert all(empty[name].to_list()==[None] for name in required)
+
+
+def test_original_blosum_kernel_is_self_normalised_likelihood():
+    from seqtree import SubstitutionMatrix
+    from vdjmatch.match.regions import significance_weights
+    q, r = 'CASSLGQAYEQYF', 'CASSLAQAYEQYF'
+    matrix = SubstitutionMatrix.blosum62()
+    weights = [max(1, round(100*w))/100 for w in significance_weights(len(q))]
+    def similarity(x, y):
+        return sum(w*matrix.similarity(a,b) for w,a,b in zip(weights,x,y))
+    params = SearchParams(max_subs=5,max_ins=0,max_dels=0,max_total_edits=5,engine='seqtm')
+    params.pos_matrix = significance_pssm(len(q))
+    hit = Index.build([r], 'aa').search_batch([q], params, 1)[0][0]
+    centred = similarity(q,r)-(similarity(q,q)+similarity(r,r))/2
+    assert hit.score == pytest.approx(-200*centred)
+    log_normalised_lr = math.log(2)*centred/2
+    assert math.exp(-hit.score/400) == pytest.approx(math.exp(log_normalised_lr/math.log(2)))
+
+
+def test_original_likelihood_scale_preserves_single_order_and_pair_identity():
+    density_values=[0.,2.,10.];priors=[1.,-1.,.5]
+    sparse=unpaired_score(density_values,priors,499)
+    assert unpaired_score(density_values,priors,499,log_scale=True).equals(sparse)
+    dense=unpaired_score(density_values,priors,500,log_scale=True)
+    assert dense.to_list()==pytest.approx([math.log(x+1e-6) for x in density_values])
+    assert dense.rank().equals(unpaired_score(density_values,priors,500).rank())
+    mixed=unpaired_score(density_values,priors,pl.Series([499,500,500]),log_scale=True)
+    assert mixed.to_list()==pytest.approx([sparse[0],dense[1],dense[2]])
+    pair=unpaired_score([2.,0.],[.5,-.5],499,log_scale=True)+unpaired_score([3.,1.],[0.,0.],500,log_scale=True)
+    assert pair[0]==pytest.approx(math.log(2+1e-6)+math.log(3+1e-6)+.5)
+    # Unlike a cohort rank, the same receptor's log evidence is unchanged by another query.
+    extended=unpaired_score([2.,0.,100.],[.5,-.5,10.],499,log_scale=True)+unpaired_score([3.,1.,100.],[0.,0.,0.],500,log_scale=True)
+    assert extended.head(2).equals(pair)
+
+
+def test_likelihood_prior_diagnostics_are_common_formulas_without_size_switch(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    raw.with_columns(pl.lit('one').alias('cohort')).write_csv(sample,separator='\t')
+    assert main(args+['--likelihood-score','--cohort-column','cohort'])==0
+    q=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    for side in ('alpha','beta'):
+        valid=q.filter(pl.col('status_'+side)=='scored')
+        density=(valid['density_score_'+side]+1e-6).log()
+        assert valid['likelihood_density_only_'+side].to_list()==pytest.approx(density.to_list())
+        assert valid['likelihood_full_prior_'+side].to_list()==pytest.approx((density+valid['germline_lr_'+side]).to_list())
+    valid=q.filter(pl.col('status')=='scored')
+    assert valid['likelihood_full_prior'].equals(valid['likelihood_score'])
+    assert valid['likelihood_density_only'].to_list()==pytest.approx(((valid['density_score_alpha']+1e-6).log()+(valid['density_score_beta']+1e-6).log()).to_list())
+
+
+def test_cli_likelihood_adds_evidence_without_changing_historical_fields(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    _,_,prefix,args=_paired_cli_inputs(tmp_path)
+    assert main(args)==0
+    original=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert main(args+['--likelihood-score'])==0
+    enriched=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert enriched.select(original.columns).equals(original)
+    valid=enriched.filter(pl.col('status')=='scored')
+    expected=paired_score(valid['density_score_beta'],valid['density_score_alpha'],
+                          valid['germline_lr'],log_scale=True)
+    assert valid['likelihood_score'].to_list()==expected.to_list()
+    assert enriched.filter(pl.col('status')!='scored')['likelihood_score'].null_count()==2
+
+
+@pytest.mark.parametrize('pooled',[False,True])
+def test_cli_likelihood_keeps_each_target_row_without_prior(tmp_path,pooled):
+    from vdjmatch.cli.__main__ import main
+    sample,reference,control,prefix=[tmp_path/n for n in ('q.tsv','r.tsv','c.tsv','out')]
+    q='CASSLGQAYEQYF'
+    pl.DataFrame({'query_id':['q'],'junction_aa':[q],'locus':['TRB'],
+                  'v_call':['TRBV19'],'j_call':['TRBJ1-1']}).write_csv(sample,separator='\t')
+    pl.DataFrame({'cdr3':['CASSLGRAYEQYF','CASSLAQAYEQYF'],'gene':['TRB']*2,
+        'v':['TRBV19']*2,'j':['TRBJ1-1']*2,'species':['HomoSapiens']*2,
+        'epitope':['E','F'],'mhc_a':['HLA-A*02']*2,'mhc_b':['B2M']*2,
+        'mhc_class':['MHCI']*2}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':[q,'CASSLGRAYEQYF']}).write_csv(control,separator='\t')
+    args=['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+          '--control',str(control),'--output-prefix',str(prefix),
+          '--epitope','E','--epitope','F','--mhc-a','HLA-A*02']
+    if pooled:args+=['--pool-reference']
+    assert main(args)==0
+    original=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert main(args+['--likelihood-score'])==0
+    enriched=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert enriched.select(original.columns).equals(original)
+    assert enriched.height==2
+    assert enriched['likelihood_score'].to_list()==pytest.approx((original['score']+1e-6).log().to_list())
+
+
+def test_all_target_likelihood_reuses_original_paired_components_without_query_labels(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    reference=Path(args[args.index('--vdjdb')+1])
+    r=pl.read_csv(reference,separator='\t')
+    pl.concat([r,r.with_columns(pl.lit('F').alias('epitope'),pl.lit('HLA-A*01:01').alias('mhc_a'))]).write_csv(reference,separator='\t')
+    assert main(args+['--likelihood-score'])==0
+    baseline=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    raw.drop('epitope','mhc_a','mhc_b','mhc_class','binder').write_csv(sample,separator='\t')
+    all_args=[v for v in args if v!='--targets-from-sample']+['--all-targets','--likelihood-score']
+    assert main(all_args)==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out.height==8 and set(out['epitope'])=={'E','F'}
+    assert 'binder' not in out.columns
+    for epitope in ('E','F'):
+        part=out.filter(pl.col('epitope')==epitope).sort('query_id')
+        old=baseline.sort('query_id')
+        for c in ('likelihood_score','density_score_alpha','density_score_beta','germline_lr','status'):
+            assert part[c].equals(old[c]),c
+    raw.with_columns(pl.lit('bogus').alias('epitope'),pl.lit(0).alias('binder')).write_csv(sample,separator='\t')
+    assert main(all_args)==0
+    assert pl.read_csv(str(prefix)+'.scores.tsv',separator='\t').equals(out)
+    assert main(all_args+['--withhold-epitope','E'])==0
+    folded=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert set(folded['epitope'])=={'F'}
+    assert folded.equals(out.filter(pl.col('epitope')=='F'))
+    full=pl.read_csv(reference,separator='\t')
+    full.filter(pl.col('epitope')!='E').write_csv(reference,separator='\t')
+    assert main(all_args)==0
+    assert pl.read_csv(str(prefix)+'.scores.tsv',separator='\t').equals(folded)
+
+
+def test_all_target_single_likelihood_preserves_nohits_and_invalid_query_ids(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    reference=Path(args[args.index('--vdjdb')+1]);r=pl.read_csv(reference,separator='\t')
+    pl.concat([r,r.with_columns(pl.lit('F').alias('epitope'),pl.lit('HLA-A*01:01').alias('mhc_a'))]).write_csv(reference,separator='\t')
+    beta=raw.filter(pl.col('locus')=='TRB').drop('epitope','mhc_a','mhc_b','mhc_class','binder')
+    invalid=beta.head(1).with_columns(pl.lit('bad').alias('query_id'),pl.lit('CAXF').alias('junction_aa'))
+    missing=invalid.with_columns(pl.lit('missing').alias('query_id'),pl.lit(None,dtype=pl.String).alias('junction_aa'))
+    pl.concat([beta,invalid,missing]).write_csv(sample,separator='\t')
+    cli=['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB','--all-targets',
+        '--likelihood-score','--control',args[args.index('--control')+1],
+        '--germline-background',args[args.index('--germline-background')+1],'--output-prefix',str(prefix)]
+    assert main(cli)==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out.height==10
+    assert set(out['query_id'])=={'b1','b2','b4','bad','missing'}
+    invalid=out.filter(pl.col('query_id').is_in(['bad','missing']))
+    assert invalid['status'].to_list()==['invalid_query']*4
+    assert invalid['likelihood_score'].null_count()==4
+    for epitope in ('E','F'):
+        part=out.filter((pl.col('epitope')==epitope)&(pl.col('status')=='scored'))
+        assert part.height==3
+        assert part['likelihood_score'].is_finite().all()
+
+
+def test_all_target_single_species_and_empty_reference_preserve_query_population(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    reference=Path(args[args.index('--vdjdb')+1]);r=pl.read_csv(reference,separator='\t')
+    beta=raw.filter(pl.col('locus')=='TRB').with_columns(pl.lit('mouse').alias('species'))
+    beta.write_csv(sample,separator='\t')
+    cli=['historical-density',str(sample),'--vdjdb',str(reference),'--locus','TRB','--all-targets',
+         '--likelihood-score','--control',args[args.index('--control')+1],
+         '--germline-background',args[args.index('--germline-background')+1],'--output-prefix',str(prefix)]
+    assert main(cli)==0
+    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert out.height==3 and out['status'].to_list()==['unselected_species']*3
+    assert out['likelihood_score'].null_count()==3
+    beta.drop('species').write_csv(sample,separator='\t')
+    r.with_columns(pl.lit('KLGGALQAK').alias('epitope')).write_csv(reference,separator='\t')
+    assert main(cli)==0
+    empty=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert empty.height==3 and empty['status'].to_list()==['no_reference']*3
+    assert empty['likelihood_score'].null_count()==3

@@ -495,6 +495,7 @@ def load(
     epitope: str | list[str] | None = None,
     mhc_a: str | list[str] | None = None,
     mhc_b: str | list[str] | None = None,
+    mhc_match: str = "exact",
     reference_id: str | list[str] | None = None,
     exclude_reference_ids: str | list[str] | None = None,
     evidence_type: str | list[str] | None = None,
@@ -512,7 +513,12 @@ def load(
     each selector, AND across selectors). Evidence selects any matching observation
     attached to the record and retains all of that record's chain/evidence metadata.
     A requested evidence predicate requires a supplied evidence_type field.
+    ``mhc_match="compatible"`` matches family/allele restrictions with intersecting
+    declared resolution, retaining original restriction labels. Exact matching is
+    the default for backwards compatibility.
     """
+    if mhc_match not in {"exact", "compatible"}:
+        raise ValueError("mhc_match must be exact or compatible")
     path = (
         Path(source)
         if source is not None
@@ -568,7 +574,9 @@ def load(
             not isinstance(value, str) for value in values
         ):
             raise ValueError(f"{name} must be a string or list of strings")
-        if name == "exclude_reference_ids":
+        if name in {"mhc_a", "mhc_b"} and mhc_match == "compatible":
+            df = df.filter(pl.any_horizontal(*(schema.mhc_compatible(name, v) for v in values)) if values else pl.lit(False))
+        elif name == "exclude_reference_ids":
             df = df.filter(~pl.col("reference_id").is_in(values).fill_null(False))
         elif name == "evidence_type":
             if "evidence_type" in df.columns:
@@ -609,15 +617,35 @@ def load(
     return df
 
 
-def replicated(df: pl.DataFrame, min_refs: int = 2) -> pl.DataFrame:
-    """Unique receptor/epitope keys supported by at least min_refs distinct references."""
+def replicated(df: pl.DataFrame, min_refs: int = 2, *, gene_level: bool = False) -> pl.DataFrame:
+    """Curated clonotype/pMHC keys supported by distinct nonempty reference IDs.
+
+    Retain species and complete MHC fields when present. Repeated rows from one
+    source do not establish replication; distinct IDs do not prove independent
+    experiments or biological binding. Junction/V/J identities are exact source
+    values; ``gene_level=True`` explicitly strips V/J allele suffixes. Missing
+    receptor fields cannot establish replicated clonotype support.
+    """
+    if isinstance(min_refs, bool) or not isinstance(min_refs, int) or min_refs < 1:
+        raise ValueError('min_refs must be a positive integer')
     key = ["gene", "cdr3", "v", "j", "epitope"]
-    ref = pl.col("reference_id")
-    keep = (
-        df.group_by(key)
+    if missing := set([*key, 'reference_id']) - set(df.columns):
+        raise ValueError('replicated support requires ' + ', '.join(sorted(missing)))
+    if 'reference_valid' in df.columns:
+        df = df.filter(pl.col('reference_valid').fill_null(False))
+    if gene_level:
+        df = df.filter(
+            pl.col('v').str.contains(r'^TR[AB]V[0-9]+(?:-[0-9]+)?(?:/DV[0-9]+|/OR[0-9]+-[0-9]+)?(?:\*[0-9]+)?$').fill_null(False)
+            & pl.col('j').str.contains(r'^TR[AB]J[0-9]+(?:-[0-9]+)?(?:\*[0-9]+)?$').fill_null(False)
+            & pl.col('v').str.starts_with(pl.col('gene')+'V').fill_null(False)
+            & pl.col('j').str.starts_with(pl.col('gene')+'J').fill_null(False))
+        df = df.with_columns(pl.col('v', 'j').str.replace(r'\*.*$', ''))
+    df = df.filter(pl.all_horizontal(
+        pl.col(c).is_not_null() & (pl.col(c).cast(pl.String).str.strip_chars() != '') for c in key))
+    key += [c for c in ('species', 'mhc_a', 'mhc_b', 'mhc_class') if c in df.columns]
+    ref = pl.col("reference_id").cast(pl.String).str.strip_chars()
+    return (
+        df.group_by(key, maintain_order=True)
         .agg(ref.filter(ref.is_not_null() & (ref != "")).n_unique().alias("n_refs"))
         .filter(pl.col("n_refs") >= min_refs)
-    )
-    return (
-        df.join(keep, on=key, how="inner").select(*key, "mhc_class", "n_refs").unique()
     )

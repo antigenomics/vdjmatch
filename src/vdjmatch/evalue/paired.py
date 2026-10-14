@@ -26,6 +26,8 @@ def build_paired_ref(df: pl.DataFrame) -> pl.DataFrame:
     required = {"complex_id", "gene", "cdr3", "epitope"}
     if missing := required - set(df.columns):
         raise ValueError(f"paired reference requires {sorted(missing)}")
+    if 'reference_valid' in df.columns:
+        df = df.filter(pl.col('reference_valid').fill_null(False))
     nz = df.filter(
         ~pl.col("complex_id").cast(pl.String).fill_null("0").is_in(["", "0"])
     )
@@ -59,10 +61,12 @@ def build_paired_ref(df: pl.DataFrame) -> pl.DataFrame:
         & pl.col("cdr3").str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$")
     )
     a = chains.filter(pl.col("gene") == "TRA").select(
-        "complex_id", pl.col("cdr3").alias("alpha"), *annotations
+        "complex_id", pl.col("cdr3").alias("alpha"), *annotations,
+        *[pl.col(c).alias(c+"_alpha") for c in ("v", "j") if c in chains.columns]
     )
     b = chains.filter(pl.col("gene") == "TRB").select(
-        "complex_id", pl.col("cdr3").alias("beta")
+        "complex_id", pl.col("cdr3").alias("beta"),
+        *[pl.col(c).alias(c+"_beta") for c in ("v", "j") if c in chains.columns]
     )
     return a.join(b, on="complex_id", how="inner", validate="1:1").sort("complex_id")
 

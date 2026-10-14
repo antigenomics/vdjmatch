@@ -8,13 +8,28 @@ The public API is re-exported from the top-level :mod:`vdjmatch` package —
 :class:`vdjmatch.api.Annotator` and the module-level :func:`vdjmatch.annotate` shortcut. The
 submodules below expose the building blocks (VDJdb access, the search index, E-values, I/O).
 
-Automatic calibration derives the background organism from the queried reference loci;
-mixed species or an explicit mismatch raises an error, and missing metadata requires
-``species="human"`` or ``species="mouse"``. Supplied control mappings must cover every
-active locus (both TRA and TRB for paired queries); their organism is caller-owned.
+Batch repertoire annotation
+---------------------------
+
+``annotate_repertoires`` accepts a table, directory, list of paths or a metadata
+TSV with ``path`` and optional ``sample_id``. It preserves sample/source identities
+and batches single or linked populations. Compact kernel selection is the default;
+``selection_only=False`` also exports full candidate/per-target evidence.
+``threads`` also bounds the Polars pool. Set ``POLARS_MAX_THREADS`` before importing
+Polars if that library has already initialized its pool; a larger existing pool
+raises an error before input loading. Generated-field collisions retain input
+metadata under ``input_`` prefixes.
+
+.. autofunction:: vdjmatch.annotate_repertoires
 
 vdjmatch.api
 ------------
+
+The original ``Annotator`` API's automatic calibration derives the background
+organism from the queried reference loci; mixed species or an explicit mismatch
+raises an error, and missing metadata requires ``species="human"`` or
+``species="mouse"``. Supplied control mappings must cover every active locus
+(both TRA and TRB for paired queries); their organism is caller-owned.
 
 .. automodule:: vdjmatch.api
    :members:
@@ -134,3 +149,33 @@ set. Mixing two-tuple and three-tuple hits is rejected.
    :members: build_paired_ref, paired_scan, pvalue
    :undoc-members:
    :show-inheritance:
+
+Experimental local-rank evidence
+--------------------------------
+
+.. autofunction:: vdjmatch.evalue.local_rank.local_rank_evidence
+
+Curated source replication
+--------------------------
+
+:func:`vdjmatch.db.replicated` retains source provenance and complete pMHC
+identity when selecting corroborated records.
+
+Experimental V-conditioned motif evidence
+-----------------------------------------
+
+.. autofunction:: vdjmatch.match.motifs.vdjbet_motif_scores
+
+Targeted kernel evidence
+------------------------
+
+.. automodule:: vdjmatch.evalue.kernel
+   :members: ladder_cutoffs, kernel_ladder, select_kernel
+
+.. autofunction:: vdjmatch.match.tcrdist.precompute_v_loop_distances
+
+Legacy calculation reproduction
+--------------------------------
+
+.. automodule:: vdjmatch.match.scoring_audit
+   :members: matrix_audit, loo_audit

@@ -183,6 +183,8 @@ class Annotator:
         soft_v=True,
         exclude_exact=False,
         radii=None,
+        background_mass=False,
+        exclude_epitopes=None,
     ):
         if match_v and q.height and q["v"].null_count():
             raise ValueError("match_v requires a V call on every retained query")
@@ -192,6 +194,10 @@ class Annotator:
 
         if not math.isfinite(score_scale) or score_scale <= 0:
             raise ValueError("score_scale must be finite and positive")
+        if exclude_epitopes is not None:
+            if (exclude_epitopes["query_id"].n_unique() != exclude_epitopes.height
+                or exclude_epitopes.select(pl.any_horizontal(pl.all().is_null()).any()).item()):
+                raise ValueError("epitope exclusions require one non-null peptide per query")
         if (calibrate or control is not None) and (match_v or match_j):
             raise ValueError(
                 "V/J-restricted calibration requires V/J-labelled controls; sequence-only controls cannot apply that predicate"
@@ -221,27 +227,35 @@ class Annotator:
                 progress=progress,
                 exclude_exact=exclude_exact,
             )
+            if exclude_epitopes is not None:
+                h = h.join(exclude_epitopes, on=["query_id", "epitope"], how="anti")
             ctrl = control.get(gene) if isinstance(control, dict) else control
             if calibrate and ctrl is None:
                 from .evalue.control import background
 
                 ctrl = background(gene, species)
             ctrl_hits = None
+            control_sizes = None
             if ctrl is not None:
                 if len(ctrl) == 0:
                     raise ValueError("control index is empty")
                 results = _search_unique_junctions(ctrl, gq["cdr3"].to_list(), sp, threads)
                 rows = [
-                    (qid, h.n_subs + h.n_ins + h.n_dels)
+                    (qid, h.n_subs + h.n_ins + h.n_dels,
+                     exclude_exact and ctrl.ref_seq(h.ref_id) == junction)
                     for qid, junction, hl in zip(gq["query_id"], gq["cdr3"], results)
                     for h in hl
-                    if not exclude_exact or ctrl.ref_seq(h.ref_id) != junction
                 ]
                 ctrl_hits = pl.DataFrame(
                     rows,
-                    schema={"query_id": q.schema["query_id"], "edits": pl.UInt32},
+                    schema={"query_id": q.schema["query_id"], "edits": pl.UInt32, "_self": pl.Boolean},
                     orient="row",
                 )
+                if exclude_exact:
+                    removed = ctrl_hits.group_by("query_id").agg(pl.col("_self").sum().alias("_removed"))
+                    control_sizes = gq.select("query_id").join(removed, on="query_id", how="left").select(
+                        "query_id", (pl.lit(len(ctrl)) - pl.col("_removed").fill_null(0)).alias("_control_size"))
+                ctrl_hits = ctrl_hits.filter(~pl.col("_self")).drop("_self")
             for radius in radii if radii is not None else [None]:
                 distance = pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") + pl.col("n_dels")
                 selected = h if radius is None else h.filter(distance <= radius)
@@ -252,7 +266,8 @@ class Annotator:
                     selected, self._index.records_for(gene), selected_controls,
                     control_size=len(ctrl) if ctrl is not None else None,
                     score_scale=score_scale, soft_v=soft_v,
-                    match_v=match_v, match_j=match_j,
+                    match_v=match_v, match_j=match_j, background_mass=background_mass,
+                    exclude_exact=exclude_exact, control_sizes=control_sizes,
                 )
                 if radius is not None:
                     c = c.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius"))
@@ -270,12 +285,14 @@ class Annotator:
     def graded_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
                           threads=1, control=None, calibrate=False, species=None,
                           matrix=None, sequence_convention=None, exclude_exact=False,
-                          return_hits=False):
+                          return_hits=False, match_v=False, match_j=False):
         """Five fixed edit balls with radius-constrained weighted rankings.
 
         Unit-cost balls share one minimum-edit search. Weighted search may choose
         a cheaper alignment with more edits, so each weighted radius is searched
         in one complete query batch. No best-radius P-value is selected.
+        Hard V/J predicates are supported for uncalibrated ranking; sequence-only
+        controls cannot calibrate these predicates and are rejected.
         """
         _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
         gap = DEFAULT_SCALE if matrix is not None else 1
@@ -284,7 +301,7 @@ class Annotator:
             h, c = self._evidence(q, sp, threads=threads, control=control,
                                   calibrate=calibrate, species=species,
                                   score_scale=1.0, exclude_exact=exclude_exact,
-                                  radii=range(1, 6))
+                                  radii=range(1, 6), match_v=match_v, match_j=match_j)
             h = h.with_columns((pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") +
                                 pl.col("n_dels")).alias("minimum_radius"))
         else:
@@ -294,12 +311,28 @@ class Annotator:
                                    matrix=matrix, gap_open=gap, gap_extend=gap)
                 rh, rc = self._evidence(q, sp, threads=threads, control=control,
                                        calibrate=calibrate, species=species,
-                                       score_scale=400.0, exclude_exact=exclude_exact)
+                                       score_scale=400.0, exclude_exact=exclude_exact,
+                                       match_v=match_v, match_j=match_j)
                 hs.append(rh.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius")))
                 cs.append(rc.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius")))
             h, c = pl.concat(hs, how="diagonal_relaxed"), pl.concat(cs, how="diagonal_relaxed")
         if "radius" not in c.columns:
             c = c.with_columns(pl.lit(None, dtype=pl.UInt16).alias("radius"))
+        return (h, c) if return_hits else c
+
+    def unified_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
+                           threads=1, control=None, species=None, exclude_exact=False,
+                           sequence_convention=None, return_hits=False, distance="edit"):
+        """Experimental fixed-ball background-mass evidence for a selected distance.
+
+        Both edit and anchored BLOSUM62 gap-block distances cover all query lengths.
+        No length switch, label-dependent route or top-K cap.
+        Sequence-only controls do not provide V-conditioned or paired calibration.
+        """
+        from .match.unified import unified_evidence
+        _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
+        h, c = unified_evidence(self, q, threads=threads, control=control,
+                                species=species, exclude_exact=exclude_exact, distance=distance)
         return (h, c) if return_hits else c
 
     def ranked_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,

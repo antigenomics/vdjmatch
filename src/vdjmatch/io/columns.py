@@ -19,7 +19,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
         "readcount",
         "uniquetagcountmolecule",
     ),
-    "pair_id": ("pair_id", "cell_id", "clone_id", "complex.id"),
+    "pair_id": ("pair_id", "cell_id", "clone_id", "cloneid", "complex.id", "clonotype_id"),
 }
 
 
@@ -112,7 +112,8 @@ def normalize_query(
     validate_counts(df)
     n_input = df.height
     # Select aliases instead of renaming: both junction_aa and legacy cdr3 may coexist.
-    identity = [c for c in ("query_id", "sequence_id") if c in df.columns]
+    identity = [c for c in ("query_id", "sequence_id", "clone_id", "cloneid", "clonotype_id",
+                            "source_query_id", "source_sequence_id") if c in df.columns]
     df = df.select(
         [pl.col(src).alias(canon) for canon, src in found.items()] + identity
     )

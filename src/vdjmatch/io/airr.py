@@ -25,8 +25,133 @@ def _read_table(path: str | os.PathLike) -> pl.DataFrame:
     )
 
 
-def _read_query(path, *, valid_aa, source, sequence_convention):
-    raw = _read_table(path)
+def _is_wide(raw):
+    return bool({c.lower() for c in raw.columns} & {
+        "junction_aa_alpha", "junction_aa_beta", "cdr3_aa_alpha", "cdr3_aa_beta"
+    })
+
+
+def _annotation_frame(raw, *, source="auto", sequence_convention=None):
+    """Adapt supported raw rows without filtering or dropping source metadata."""
+    names = {c.lower(): c for c in raw.columns}
+    wide = _is_wide(raw)
+    reserved = {"source_query_id", "source_sequence_id", "source_clone_id", "source_pair_id", "_population", "_service_query_id"}
+    if reserved & names.keys():
+        raise ValueError(f"input contains reserved identity fields: {sorted(reserved & names.keys())}")
+    if wide:
+        if "junction_aa" in names or "cdr3" in names or "cdr3_aa" in names:
+            raise ValueError("ambiguous mixed long and wide sequence columns")
+        if not {"junction_aa_alpha", "junction_aa_beta"} <= names.keys():
+            raise ValueError("wide input requires junction_aa_alpha and junction_aa_beta; no anchors are fabricated")
+        for identity in ("query_id", "sequence_id"):
+            if identity in raw.columns:
+                saved = "source_" + identity
+                if saved in raw.columns:
+                    raise ValueError(f"wide input reserves {saved} for the original {identity}")
+                raw = raw.with_columns(pl.col(identity).alias(saved))
+        if "query_id" in raw.columns:
+            if raw["query_id"].null_count() or raw["query_id"].cast(pl.String).str.strip_chars().eq("").any():
+                raise ValueError("wide query_id must be nonempty and non-null")
+            if raw["query_id"].n_unique() != raw.height:
+                raise ValueError("wide query_id must be unique")
+    found = columns._resolve(raw)
+    # A cell barcode and a clonotype ID can legitimately name different units.
+    # Only alternate spellings of the requested clone ID must agree.
+    links = [names[c] for c in ("clone_id", "cloneid") if c in names]
+    if not links and "pair_id" in found:
+        links = [found["pair_id"]]
+    if links:
+        chosen = pl.col(links[0]).cast(pl.String)
+        for other in links[1:]:
+            if raw.select((~chosen.eq_missing(pl.col(other).cast(pl.String))).any()).item():
+                raise ValueError("conflicting pair/clone identity aliases")
+        raw = raw.with_columns(chosen.alias("clone_id"))
+    if "pair_id" in found:
+        raw = raw.with_columns(pl.col(found["pair_id"]).cast(pl.String).alias("pair_id"))
+    if wide:
+        if "clone_id" not in raw.columns:
+            raw = raw.with_columns(
+                (pl.col("query_id").cast(pl.String) if "query_id" in raw.columns else
+                 pl.int_range(pl.len()).cast(pl.String)).alias("clone_id")
+            )
+        if "pair_id" not in raw.columns:
+            raw = raw.with_columns(pl.col("clone_id").alias("pair_id"))
+        if raw["pair_id"].null_count() or raw["pair_id"].str.strip_chars().eq("").any():
+            raise ValueError("wide pair identity must be nonempty and non-null")
+        if raw["pair_id"].n_unique() != raw.height:
+            raise ValueError("wide pair identity must be unique; multiple pairs cannot be selected arbitrarily")
+        row_column = "_vdjmatch_input_row"
+        if row_column in raw.columns:
+            raise ValueError(f"input reserves {row_column}")
+        raw = raw.with_row_index(row_column)
+        lanes = []
+        for offset, (lane, locus) in enumerate((("alpha", "TRA"), ("beta", "TRB"))):
+            expressions = [pl.col(names["junction_aa_" + lane]).cast(pl.String).alias("junction_aa"),
+                           pl.lit(locus).alias("locus"),
+                           (pl.col(row_column) * 2 + offset).alias("query_id")]
+            for gene in ("v", "j"):
+                name = names.get(gene + "_" + lane)
+                expressions.append((pl.col(name).cast(pl.String) if name else
+                                    pl.lit(None, dtype=pl.String)).alias(gene + "_call"))
+            if "sequence_id_" + lane in names:
+                expressions.append(pl.col(names["sequence_id_" + lane]).cast(pl.String).alias("sequence_id"))
+            lanes.append(raw.with_columns(expressions))
+        raw = pl.concat(lanes, how="diagonal_relaxed").sort("query_id").drop(row_column)
+    else:
+        # Existing normalization owns source conventions and count validation.
+        columns.normalize_query(raw, valid_aa=False, source=source,
+                                sequence_convention=sequence_convention)
+        expressions = [pl.col(found["cdr3"]).cast(pl.String).alias("junction_aa")]
+        for gene in ("v", "j"):
+            expressions.append((pl.col(found[gene]).cast(pl.String) if gene in found else
+                                pl.lit(None, dtype=pl.String)).alias(gene + "_call"))
+        locus = pl.col(found["locus"]).cast(pl.String) if "locus" in found else (
+            pl.col(found["v"]).cast(pl.String).str.slice(0, 3) if "v" in found else
+            pl.lit(None, dtype=pl.String))
+        expressions.append(locus.str.to_uppercase().alias("locus"))
+        raw = raw.with_columns(expressions)
+        if "query_id" not in raw.columns:
+            raw = raw.with_row_index("query_id")
+        if raw["query_id"].null_count() or raw["query_id"].cast(pl.String).str.strip_chars().eq("").any():
+            raise ValueError("query_id must be nonempty and non-null")
+        if raw["query_id"].n_unique() != raw.height:
+            raise ValueError("query_id must be unique")
+    if wide:
+        columns.normalize_query(raw, valid_aa=False, source=source,
+                                sequence_convention=sequence_convention)
+    return raw
+
+
+def normalize_annotation_input(path: str | os.PathLike, *, source="auto", sequence_convention=None):
+    """Return canonical raw long rows and ingestion diagnostics, without dropping rows.
+
+    AIRR and simple junction tables retain source columns, identities and metadata.
+    Wide ``junction_aa_alpha/beta`` rows expand to TRA/TRB rows in input order;
+    original wide IDs remain in ``source_query_id``/``source_sequence_id`` and
+    computational chain IDs are unique row offsets. Missing chains remain present.
+    Explicit pair/cell links take priority over clone IDs and identify one wide pair
+    each; omitted links use the
+    supplied unique query ID or source row offset. No anchors are fabricated.
+    ``source_rows`` counts physical input rows; ``input_rows`` and sequence
+    diagnostics count expanded chain rows, and ``output_rows`` counts raw rows
+    returned, including missing/invalid sequences.
+    """
+    original = _read_table(path)
+    raw = _annotation_frame(original, source=source, sequence_convention=sequence_convention)
+    _, report = columns.normalize_query(raw, source="airr", return_report=True)
+    original_names = {c.lower() for c in original.columns}
+    report.update(source_rows=original.height, output_rows=raw.height,
+                  wide_input=_is_wide(original),
+                  paired_input=_is_wide(original) or bool(original_names & {
+                      "pair_id", "cell_id", "clone_id", "cloneid", "complex.id"}))
+    return raw, report
+
+
+def _read_query(path, *, valid_aa, source, sequence_convention, raw=None):
+    raw = _read_table(path) if raw is None else raw
+    if _is_wide(raw):
+        raw = _annotation_frame(raw, source=source, sequence_convention=sequence_convention)
+        return columns.normalize_query(raw, valid_aa=valid_aa, source="airr", return_report=True)
     if "query_id" not in raw.columns:
         raw = raw.with_row_index("query_id")
     # Validate original counts/convention before upstream readers can default counts.
@@ -68,8 +193,7 @@ def _read_query(path, *, valid_aa, source, sequence_convention):
     if fmt != "custom":
         # Some readers cast numeric-looking source IDs. Keep original identifiers
         # and linkage from the raw rows, whose order is guaranteed by these readers.
-        extras = [c for c in ("query_id", "sequence_id") if c in raw.columns]
-        frame = frame.with_columns(raw[c] for c in extras)
+        extras = [c for c in ("query_id", "sequence_id", "clone_id", "cloneid", "clonotype_id") if c in raw.columns]
         targets = (
             ("pair_id", "count", "v", "j", "locus")
             if fmt in {"airr", "airr_cell", "arda", "vdjtools"}
@@ -90,6 +214,9 @@ def _read_query(path, *, valid_aa, source, sequence_convention):
                     if alias in frame.columns:
                         frame = frame.drop(alias)
                 frame = frame.with_columns(raw[original].alias(target))
+        # Link aliases were removed above to select the canonical pair ID; retain
+        # their original spellings and values as source identities too.
+        frame = frame.with_columns(raw[c] for c in extras)
     return columns.normalize_query(
         frame,
         valid_aa=valid_aa,
@@ -142,14 +269,24 @@ def read_cell(
     ``link`` selects the original linkage column. Multiple rows for one cell/locus
     raise by default; ``ambiguity='first'`` explicitly selects the first. Missing
     chains have typed null fields and ``pair_status='missing_alpha'/'missing_beta'``.
+    Wide ``junction_aa_alpha/beta`` input also retains wholly missing pairs and
+    exposes original wide IDs as ``source_query_ida/b``/``source_sequence_ida/b``.
     """
     if ambiguity not in {"error", "first"}:
         raise ValueError("ambiguity must be 'error' or 'first'")
-    df, report = _read_query(
-        path, valid_aa=valid_aa, source=source, sequence_convention=sequence_convention
-    )
+    raw = _read_table(path)
+    wide_input = _is_wide(raw)
+    if wide_input:
+        raw = _annotation_frame(raw, source=source, sequence_convention=sequence_convention)
+        df, report = columns.normalize_query(raw, valid_aa=valid_aa, source="airr", return_report=True)
+    else:
+        if link == "clone_id" and "clone_id" not in raw.columns:
+            original = columns._resolve(raw).get("pair_id")
+            if original is not None:
+                raw = raw.with_columns(pl.col(original).cast(pl.String).alias("clone_id"))
+        df, report = _read_query(path, valid_aa=valid_aa, source=source,
+                                 sequence_convention=sequence_convention, raw=raw)
     if link is not None:
-        raw = _read_table(path)
         if link not in raw.columns:
             raise ValueError(f"link column {link!r} is absent")
         # Reader-created IDs are row offsets, but user-supplied IDs need not be.
@@ -178,9 +315,10 @@ def read_cell(
             f"ambiguous cell input: {n_ambiguous} cell/locus groups have multiple chains"
         )
     fields = ["cdr3", "v", "j", "count", "query_id"]
-    if "sequence_id" in df.columns:
-        fields.append("sequence_id")
-    wide = df.select("pair_id").unique(maintain_order=True)
+    fields.extend(c for c in ("sequence_id", "source_query_id", "source_sequence_id",
+                             "clone_id", "cloneid", "clonotype_id") if c in df.columns)
+    wide = (raw.select(pl.col(link or "pair_id").alias("pair_id")).unique(maintain_order=True)
+            if wide_input else df.select("pair_id").unique(maintain_order=True))
     for locus, suffix in (("TRA", "a"), ("TRB", "b")):
         chain = df.filter(pl.col("locus") == locus).unique(
             "pair_id", maintain_order=True

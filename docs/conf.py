@@ -5,6 +5,7 @@ author = "ISALGO laboratory"
 copyright = "2026, ISALGO laboratory"
 
 extensions = [
+    "sphinx.ext.mathjax",
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.intersphinx",

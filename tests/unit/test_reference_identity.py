@@ -6,9 +6,107 @@ from vdjmatch.db import schema
 from vdjmatch.match import VdjdbIndex
 
 
+def test_replicated_support_preserves_pmhc_species_and_curation():
+    from vdjmatch import db
+    raw = pl.DataFrame({
+        'gene':['TRB']*8, 'cdr3':['CASSF']*8,
+        'v':['TRBV5-1']*8, 'j':['TRBJ1-1']*8,
+        'epitope':['PEP']*8, 'species':['HomoSapiens']*6+['MusMusculus']*2,
+        'mhc_a':['A*02:01']*3+['A*01:01']*3+['A*02:01']*2,
+        'mhc_b':['B2M']*8, 'mhc_class':['MHCI']*8,
+        'reference_id':[' PMID:1 ','PMID:1','PMID:2','PMID:3','PMID:4','   ','PMID:5','PMID:6'],
+        'reference_valid':[True,True,True,True,False,True,True,True],
+    })
+    out = db.replicated(raw)
+    assert out.select('species','mhc_a','mhc_b','n_refs').sort('species').rows() == [
+        ('HomoSapiens','A*02:01','B2M',2), ('MusMusculus','A*02:01','B2M',2)]
+    assert db.replicated(raw, min_refs=1).height == 3
+
+
+@pytest.mark.parametrize('value',[0,-1,True,1.5])
+def test_replicated_rejects_invalid_reference_count(value):
+    from vdjmatch import db
+    with pytest.raises(ValueError, match='positive integer'):
+        db.replicated(pl.DataFrame(), min_refs=value)
+
+
+def test_reference_support_cli(tmp_path):
+    import subprocess
+    import sys
+    raw = pairs(v=['TRAV1-2','TRBV5-1'],j=['TRAJ33','TRBJ1-1']).with_columns(
+        pl.lit('HomoSapiens').alias('species'),pl.lit('A*02:01').alias('mhc_a'),
+        pl.lit('B2M').alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
+    raw = pl.concat([raw.with_columns(pl.lit('PMID:1').alias('reference_id')),
+                     raw.with_columns(pl.lit('PMID:2').alias('reference_id'))])
+    source, output = tmp_path/'reference.tsv', tmp_path/'support.tsv'
+    raw.write_csv(source, separator='\t')
+    result = subprocess.run([sys.executable,'-m','vdjmatch.cli','reference-support',
+        '--vdjdb',str(source),'--output',str(output)],capture_output=True,text=True,timeout=20)
+    assert result.returncode == 0, result.stderr
+    out = pl.read_csv(output, separator='\t')
+    assert out['n_refs'].to_list() == [2,2]
+    assert {'species','mhc_a','mhc_b','mhc_class'} <= set(out.columns)
+    before=source.read_bytes()
+    result = subprocess.run([sys.executable,'-m','vdjmatch.cli','reference-support',
+        '--vdjdb',str(source),'--output',str(source)],capture_output=True,text=True,timeout=20)
+    assert result.returncode!=0 and source.read_bytes()==before
+
+
+@pytest.mark.parametrize('gene',['TRBV5-1','TRBV21/OR9-2'])
+def test_replicated_gene_resolution_is_explicit(gene):
+    from vdjmatch import db
+    raw = pl.DataFrame({'gene':['TRB']*2,'cdr3':['CASSF']*2,
+        'v':[gene+'*01',gene+'*02'],'j':['TRBJ1-1*01','TRBJ1-1*02'],
+        'epitope':['PEP']*2,'reference_id':['PMID:1','PMID:2']})
+    assert db.replicated(raw).is_empty()
+    out = db.replicated(raw, gene_level=True)
+    assert out.select('v','j','n_refs').rows() == [(gene,'TRBJ1-1',2)]
+
+
+def test_replicated_gene_resolution_cannot_turn_ambiguous_calls_into_support():
+    from vdjmatch import db
+    raw = pl.DataFrame({'gene':['TRB']*4,'cdr3':['CASSF']*4,
+        'v':['TRBV5-1*01,TRBV7-9*01']*2+['TRAV1-2*01']*2,
+        'j':['TRBJ1-1*01']*4,'epitope':['PEP']*4,
+        'reference_id':['PMID:1','PMID:2']*2})
+    assert db.replicated(raw, gene_level=True).is_empty()
+
+
 def pairs(**extra):
     return pl.DataFrame({'gene':['TRA','TRB'],'cdr3':['CAVVF','CASSF'],
                          'epitope':['PEP','PEP'],**extra})
+
+
+def test_reference_curation_preserves_rows_and_natural_same_peptide():
+    raw = pl.DataFrame({
+        'gene': ['TRB'] * 5, 'cdr3': ['CASSF'] * 5,
+        'epitope': ['KLGGALQAK', 'SLLMWITQV', 'SLLMWITQV', 'SLLMWITQV', 'PEP'],
+        'reference.id': [None, 'PMID:40498839', 'PMID:32102902',
+                         '["https://pubmed.ncbi.nlm.nih.gov/40498839/"]', 'PMID:140498839'],
+    })
+    normalized = schema.normalize(raw)
+    assert normalized.height == raw.height
+    assert normalized['reference_valid'].to_list() == [False, False, True, False, True]
+    assert normalized['reference_exclusion_reason'].to_list() == [
+        'KLGGALQAK_artifact', 'engineered_phage_library_PMID40498839', None,
+        'engineered_phage_library_PMID40498839', None]
+    assert schema.normalize(normalized).equals(normalized)
+    idx = VdjdbIndex.build(raw)
+    assert idx.records_for('TRB')['epitope'].to_list() == ['SLLMWITQV', 'PEP']
+
+
+def test_paired_builder_applies_curation_to_targets_and_complement():
+    from vdjmatch.evalue.paired import build_paired_ref
+    raw=pl.concat([
+        pairs(complex_id=['artifact']*2).with_columns(pl.lit('KLGGALQAK').alias('epitope'),pl.lit(None,dtype=pl.String).alias('reference.id')),
+        pairs(complex_id=['engineered']*2).with_columns(pl.lit('SLLMWITQV').alias('epitope'),pl.Series('reference.id',['PMID:40498839','PMID:32102902'])),
+        pairs(complex_id=['natural']*2).with_columns(pl.lit('SLLMWITQV').alias('epitope'),pl.lit('PMID:32102902').alias('reference.id')),
+    ])
+    ref=schema.normalize(raw)
+    assert ref.height==6  # Keep all source observations and exclusion reasons.
+    out=build_paired_ref(ref)
+    assert out['complex_id'].to_list()==['natural']
+    assert out['epitope'].to_list()==['SLLMWITQV']
 
 
 def test_string_complex_without_record_ids_survives_index_and_joint_query():
