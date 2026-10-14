@@ -4,6 +4,7 @@ From the repository root: python examples/check_gallery.py NEW_OUTPUT_DIRECTORY
 Install examples/requirements-notebooks.txt in an isolated environment first.
 """
 import json
+import argparse
 import os
 from pathlib import Path
 import subprocess
@@ -19,7 +20,11 @@ import nbformat
 from nbclient import NotebookClient
 
 root = Path(__file__).resolve().parents[1]
-output = Path(sys.argv[1]).resolve()
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('output', type=Path)
+parser.add_argument('--scientific', action='store_true', help='also run biological notebooks from local raw mirrors')
+args = parser.parse_args()
+output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=False)
 os.environ["VDJMATCH_CACHE"] = str(output / "reference")
 os.environ["HF_HOME"] = str(output / "huggingface")
@@ -60,7 +65,7 @@ def notebook(path):
     nb = nbformat.read(root / path, as_version=4)
     try:
         NotebookClient(nb, timeout=300, kernel_name="gallery",
-                       resources={"metadata": {"path": str(root)}},
+                       resources={"metadata": {"path": str(root)}}, record_timing=True,
                        on_cell_start=lambda cell, cell_index: print(
                            path, "cell", cell_index + 1, flush=True)).execute()
     finally:
@@ -70,6 +75,9 @@ def notebook(path):
 for path in ("examples/annotation.ipynb", "examples/comparison.ipynb",
              "docs/notebooks/precursor.ipynb"):
     run(path, lambda path=path: notebook(path))
+if args.scientific:
+    for name in ('accuracy', 'vaccination', 'precursor_estimates'):
+        run(f'examples/{name}.ipynb', lambda name=name: notebook(f'examples/{name}.ipynb'))
 # Export a source-identical copy so marimo session files stay with this fresh run.
 compendium = output / "precursor_compendium.py"
 compendium.write_bytes((root / "docs/notebooks/precursor_compendium.py").read_bytes())

@@ -59,11 +59,31 @@ sh examples/annotate.sh annotation-demo
 sh examples/compare.sh comparison-demo
 ```
 
-Both use one native thread, reject existing output directories and fail on CLI
+Both use four native threads, reject existing output directories and fail on CLI
 errors. The comparison explicitly runs exact-excluded detailed stem4 and advanced
 vcdr12; notebooks analyze only fresh CLI tables. `DEMO_A`/`DEMO_B` labels are
 synthetic software examples, not binding truth. See the
 [example guide](https://docs.isalgo.dev/vdjmatch/examples.html).
+
+## Scientific worked examples
+
+Three longer notebooks connect raw biological inputs to fresh CLI tables and
+publication-size figures, with editable PDF/SVG and 300-dpi PNG exports:
+
+| Question | Notebook |
+| --- | --- |
+| How do common epitopes separate supplied positives and controls? | [ROC/PR, score overlap and TP/FP counts](examples/accuracy.ipynb) |
+| How does baseline repertoire abundance relate to LLW candidate evidence? | [Vaccination dataset walkthrough](examples/vaccination.ipynb) |
+| How do model mass, precursor frequency and expected cells differ? | [Precursor estimates](examples/precursor_estimates.ipynb) |
+
+Install `vdjmatch[bench,precursor,notebook]` plus `ipykernel`; keep the complete
+`examples` directory together. Inputs remain in the local `airr_benchmark` and
+`airr_yfv19` mirrors, configured through `AIRR_BENCHMARK` and `AIRR_YFV19`.
+The notebooks preserve supplied labels and never reuse predictions as inputs.
+Browse the [rendered gallery](https://docs.isalgo.dev/vdjmatch/notebooks.html)
+and [measured laptop resource table](https://docs.isalgo.dev/vdjmatch/performance.html).
+Four threads sped up the 2,670-query example from 13.71 to 4.69 seconds
+(2.92×), with identical evidence and about 0.85 GB peak CLI process-tree RSS.
 
 ## Features
 
@@ -322,9 +342,9 @@ queries = pl.DataFrame({
     "junction_aa": ["CASSIRSSYEQYF", "CWWWWF"],
     "locus": ["TRB", "TRB"],
 })
-calls = ann.annotate(queries, threads=1)  # every input row remains
-candidates = ann.candidates(queries, threads=1)  # all peptide–MHC alternatives
-calibrated = ann.annotate(queries, calibrate=True, species="human", threads=1)
+calls = ann.annotate(queries, threads=4)  # every input row remains
+candidates = ann.candidates(queries, threads=4)  # all peptide–MHC alternatives
+calibrated = ann.annotate(queries, calibrate=True, species="human", threads=4)
 ```
 
 AIRR `junction_aa` contains the conserved anchors; AIRR `cdr3_aa` excludes them.
@@ -346,7 +366,7 @@ separate alpha and beta top labels alone does not establish paired-reference evi
 
 ```console
 vdjmatch update --asset default --cache reference-inputs
-vdjmatch match --input-format airr --threads 1 -o results/run sample.tsv
+vdjmatch match --input-format airr --threads 4 -o results/run sample.tsv
 vdjmatch match --vdjdb reference.zip --no-evalue -o results/offline sample.tsv
 vdjmatch match --vdjdb reference.zip --paired --link cell_id -o results/cells cells.tsv
 vdjmatch match --vdjdb reference.zip --search-mode ball -o results/balls sample.tsv

@@ -1,7 +1,7 @@
 Examples gallery
 ================
 
-Two offline workflows show the path from raw inputs to CLI tables. Start with
+Two offline workflows and three biological notebooks show the path from raw inputs to CLI tables. Start with
 annotation, then compare detailed evidence. Open :doc:`notebooks` for rendered
 previews and notebook source downloads.
 
@@ -30,7 +30,7 @@ There are no persisted feature inputs, skip/resume paths or reused predictions.
 or clone the repository and use its complete ``examples`` directory, keeping
 its ``inputs`` directory beside the scripts and notebooks. The source distribution
 also includes these files. Install vdjmatch in an isolated environment and activate
-it so ``vdjmatch`` is on ``PATH``. Both scripts default to one native thread.
+it so ``vdjmatch`` is on ``PATH``. Both scripts default to four native threads.
 
 Annotation tutorial
 -------------------
@@ -86,3 +86,12 @@ execute notebooks.
 For input formats and operational choices, see :doc:`how-to`; for the meaning of
 scores and the distinction from binding probabilities, see :doc:`explanation`.
 For all flags and library signatures, see :doc:`cli` and :doc:`api`.
+
+Biological walkthroughs
+-----------------------
+
+The :doc:`notebooks` gallery adds longer ROC/PR, vaccination-repertoire and
+precursor-frequency lessons. They use the local ``airr_benchmark`` and
+``airr_yfv19`` raw-input mirrors, rebuild core calculations through the CLI,
+and export publication-size PDF/SVG/PNG figures. The :doc:`performance` page
+reports measured workload sizes, elapsed time, process-tree RAM and CPU use.

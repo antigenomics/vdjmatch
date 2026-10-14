@@ -21,7 +21,7 @@ Version |release|. Install the published package and annotate your AIRR table:
 .. code-block:: sh
 
    python -m pip install vdjmatch
-   vdjmatch annotate sample.tsv --threads 1 -o annotation
+   vdjmatch annotate sample.tsv --threads 4 -o annotation
 
 The reference is fetched on first use. Choose ``--vdjdb reference.tsv`` for an
 offline run, or start with the tiny synthetic inputs in :doc:`examples`.
@@ -87,6 +87,7 @@ ingestion uses `vdjtools <https://github.com/antigenomics/vdjtools>`_.
 
    Workflows <how-to>
    Examples <examples>
+   Laptop resources <performance>
 
 .. toctree::
    :hidden:

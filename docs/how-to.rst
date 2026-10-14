@@ -87,7 +87,7 @@ Read AIRR and custom tables
    queries, report = read_rearrangement(
        "repertoire.tsv.gz", source="airr", return_report=True,
    )
-   calls = local.annotate(queries, threads=1)
+   calls = local.annotate(queries, threads=4)
 
 AIRR ``junction_aa`` includes the conserved anchors and is preferred even when
 ``cdr3_aa`` is also present. AIRR ``cdr3_aa`` excludes them; a true AIRR table that
@@ -126,7 +126,7 @@ Pair chains by a cell identifier
    cells, report = read_cell(
        "cell-rearrangements.tsv", link="cell_id", return_report=True,
    )
-   calls = local.annotate_paired(cells, cdr3a="cdr3a", cdr3b="cdr3b", threads=1)
+   calls = local.annotate_paired(cells, cdr3a="cdr3a", cdr3b="cdr3b", threads=4)
 
 ``link`` can name a custom source column. Every retained chain must have a linkage
 value and a TRA/TRB locus. Multiple retained alpha or beta rows for a cell raise by
@@ -141,7 +141,7 @@ not establish this paired-reference evidence. Request paired calibration explici
 
    calls = local.annotate_paired(
        cells, cdr3a="cdr3a", cdr3b="cdr3b", calibrate=True,
-       species="human", threads=1,
+       species="human", threads=4,
    )
 
 For user-supplied paired controls, pass ``control={"TRA": alpha_index,
@@ -156,7 +156,7 @@ Supply a background explicitly
    from seqtree import Index
 
    controls = {"TRB": Index.build(["CWWWWF", "CYYYYF"], alphabet="aa")}
-   candidates = local.candidates(queries, control=controls, threads=1)
+   candidates = local.candidates(queries, control=controls, threads=4)
 
 This tiny background illustrates the interface; use an appropriate versioned
 background for an application. The API uses uncalibrated ranking unless
@@ -175,7 +175,7 @@ Legacy matching command line
 .. code-block:: bash
 
    vdjmatch update --asset default --cache reference-inputs
-   vdjmatch match --vdjdb reference.zip --input-format airr --threads 1 \
+   vdjmatch match --vdjdb reference.zip --input-format airr --threads 4 \
        --no-evalue -o results/run repertoire.tsv
    vdjmatch match --vdjdb reference-directory --asset primary \
        --input-format custom --sequence-convention junction --no-evalue \
@@ -197,3 +197,12 @@ default stem4 and retained advanced vcdr12, then joins CLI tables on source IDs
 and complete pMHC keys. Use ordinary annotation without ``--exclude-exact`` when
 exact observations belong in the evidence. Choose a new output directory for each
 run; keep raw inputs and requested final tables, never computed feature caches.
+
+Choose a practical thread budget
+--------------------------------
+
+The examples request ``--threads 4``; the library/CLI default remains one.
+Use a smaller explicit budget when the process CPU allocation is below four.
+Sequence search is internally batched: samples run sequentially and no outer
+pool wraps the native engine. See :doc:`performance` for one/four-thread equality,
+measured occupied cores and whole-invocation RAM on the worked examples.

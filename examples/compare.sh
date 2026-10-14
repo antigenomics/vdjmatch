@@ -8,8 +8,8 @@ command -v "$CLI" >/dev/null
 if [ -e "$OUT" ]; then echo "Choose a fresh output directory: $OUT" >&2; exit 1; fi
 mkdir -p "$OUT"
 "$CLI" annotate "$HERE/inputs/cohort/sample_a.tsv" --vdjdb "$HERE/inputs/reference.tsv" \
-  --threads 1 --exclude-exact --details --output-prefix "$OUT/stem4"
+  --threads 4 --exclude-exact --details --output-prefix "$OUT/stem4"
 "$CLI" annotate "$HERE/inputs/cohort/sample_a.tsv" --vdjdb "$HERE/inputs/reference.tsv" \
-  --threads 1 --exclude-exact --details --v-regions cdr12 --stem-depth 0 \
+  --threads 4 --exclude-exact --details --v-regions cdr12 --stem-depth 0 \
   --distance-matrix tcrdist --junction-ends trim3 --output-prefix "$OUT/vcdr12"
 printf 'Fresh comparison tables written under %s\n' "$OUT"

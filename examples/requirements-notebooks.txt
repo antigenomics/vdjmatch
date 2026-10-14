@@ -1,4 +1,4 @@
 # Published package and tools for running every gallery notebook.
-vdjmatch[precursor,notebook]==0.4.0
+vdjmatch[bench,precursor,notebook]==0.4.0
 nbclient>=0.10
 ipykernel>=6

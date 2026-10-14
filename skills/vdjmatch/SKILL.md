@@ -94,6 +94,38 @@ annotation/comparison shell commands and fresh-kernel notebooks. Run
 `sh examples/annotate.sh NEW_DIRECTORY` or
 `sh examples/compare.sh NEW_DIRECTORY` with the installed CLI on PATH.
 All computed results come from CLI tables; preserve source identity and full
-pMHC keys in downstream joins. Scripts default to threads1, reject an existing
+pMHC keys in downstream joins. Scripts default to threads4, reject an existing
 output directory and propagate errors. DEMO labels are not experimental truth.
 Do not add computed caches or use old notebook outputs as prediction inputs.
+
+## CLI-first scientific examples and measured resources
+
+Use [the notebook gallery](../../examples/README.md) for labelled TRB ROC/PR,
+TP/FP trajectories, baseline vaccination repertoire abundance, and precursor
+frequency. Keep the complete examples bundle, including `profile_cli.py`.
+Configure local raw mirrors with `AIRR_BENCHMARK` and `AIRR_YFV19`;
+`YFV_INPUT` chooses a specific baseline table. Do not publish original sample
+names, donor identifiers or source-identifiable raw/execution tables.
+
+Run core calculations through the installed CLI; plot only its final tables.
+Assayed-target ROC/AP uses full pMHC joins, supplied labels, exact exclusion,
+and all source observations including unsupported scores. It is distinct from
+all-label selected-call calibration. Never infer experimental negatives or
+vaccine expansion from unlabelled baseline annotation. Keep read-count abundance,
+model precursor frequency and expected cells as separate quantities.
+
+Four native threads are the worked-example setting; the runtime default remains
+one. Limit numerical helper pools before imports, run one native batch per
+population and no outer search pool. Profile whole-invocation wall time and
+summed concurrent CLI process-tree RSS, with CPU seconds and live-thread counts;
+live idle threads alone do not demonstrate oversubscription. Compare serial and
+parallel final evidence for equality. Report host, versions, raw/reference hashes,
+query/target counts and timing scope; do not extrapolate laptop measurements to
+other hardware or a full manuscript gate. See [performance](../../docs/performance.rst).
+
+For notebook figures, state the estimand, class balance/counts and caption before
+polishing. Keep colour/line meanings consistent, use log axes for broad positive
+score ranges, export editable PDF/SVG and 300-dpi PNG, and inspect the final-size
+render. Execute from a clean kernel, then commit only reviewed aggregate figures and counts;
+complete logs and identifier mappings stay private. Documentation builds never
+execute the notebooks.

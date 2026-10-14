@@ -21,7 +21,7 @@ complete repository ``examples`` directory, including its raw ``inputs`` files.
    sh examples/annotate.sh annotation-demo
 
 The script submits the metadata cohort and the wide paired population as separate
-CLI invocations with ``--threads 1`` and the supplied local reference. Four
+CLI invocations with ``--threads 4`` and the supplied local reference. Four
 single-chain rows retain their sample/source IDs; two paired receptors retain
 clone identities, including the incomplete pair. ``DEMO_A`` and ``DEMO_B`` are
 synthetic software labels, not claims of antigen binding.

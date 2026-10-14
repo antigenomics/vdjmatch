@@ -1,0 +1,5 @@
+date	workflow	observation_unit	observations	native_threads	seconds	peak_tree_rss_GB	cpu_seconds	mean_cpu_cores	peak_sampled_cpu_cores	peak_live_threads	sample_interval_seconds	hardware	logical_cpus	physical_cores	host_RAM_GB	vdjmatch	seqtree	vdjtools	polars	python
+2026-10-14	Assayed TRB	query rows	2670	1	13.714477249999618	0.840761344	13.595364544	0.991314819819354	1.1101407117645676	6	0.05	Apple M3 Max	16	16	51.539607552	0.4.0	1.1.1	5.1.0	1.41.2	3.13.7
+2026-10-14	Assayed TRB	query rows	2670	4	4.69011225000213	0.84647936	14.1398496	3.0148211484690113	4.19190915981551	7	0.05	Apple M3 Max	16	16	51.539607552	0.4.0	1.1.1	5.1.0	1.41.2	3.13.7
+2026-10-14	Baseline targeted TRB	selected clonotypes	10000	4	21.758029250002437	3.530244096	76.01480428800001	3.4936438137195487	4.463035419034708	9	0.05	Apple M3 Max	16	16	51.539607552	0.4.0	1.1.1	5.1.0	1.41.2	3.13.7
+2026-10-14	Three precursor sets	usable unique junctions	22164	4	70.81109716699939	1.049214976	239.936376352	3.3884007726379264	4.465137156001261	10	0.05	Apple M3 Max	16	16	51.539607552	0.4.0	1.1.1	5.1.0	1.41.2	3.13.7
