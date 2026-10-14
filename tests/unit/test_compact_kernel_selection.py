@@ -97,3 +97,29 @@ def test_numeric_source_id_dtype_retained(native_inputs,dtype):
     assert state['query_id'].dtype==dtype
     assert set(state['query_id'])==set(range(queries.height))
     assert hits<=set(range(queries.height))
+
+
+@pytest.mark.parametrize('assayed',[False,True])
+def test_native_chunk_budget_preserves_scores_duplicates_and_source_order(native_inputs,monkeypatch,assayed):
+    from vdjmatch.match import geometry
+    queries,refs,groups,context=native_inputs
+    queries=queries.reverse()
+    groups=[(task,queries,part) for task,_,part in groups]
+    native=geometry.grouped_total_distance_count_batch
+    outputs=[];hits=[];budgets=[]
+    for small in (True,False):
+        def counted(*args,**kwargs):
+            budgets.append(kwargs['chunk_size'])
+            if small:kwargs['chunk_size']=64
+            return native(*args,**kwargs)
+        monkeypatch.setattr(geometry,'grouped_total_distance_count_batch',counted)
+        state,supported=kernel.grouped_kernel_selection(queries,refs,groups,
+            query_keys=['cdr3','_allele'],search_keys=['cdr3','_allele'],paired=False,
+            cutoffs=[0,4,8,13],radius=4,kernel_scale=22.5,scorer='v-bounded',assayed=assayed,
+            threads=4,matrix='blosum62',ctrim=3,stem_depth=4,exclude_exact=True,
+            v_loop_distances=context)
+        outputs.append(kernel.finish_kernel_selection(queries.select('query_id'),state));hits.append(supported)
+    assert budgets==[65536,65536]
+    assert_frame_equal(outputs[0],outputs[1],check_exact=True)
+    assert outputs[1]['query_id'].to_list()==queries['query_id'].to_list()
+    assert hits[0]==hits[1]

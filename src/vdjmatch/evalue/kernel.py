@@ -204,11 +204,15 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         paired=paired,position_weighting=position_weighting,geometry_preset=geometry_preset,reference_target_offsets=offsets,
         reference_target_ids=members['_target'].to_numpy(),target_peptide_ids=target_peptides,
         reference_exclusive_peptide_ids=exclusive,
-        chunk_size=min(64,max(1,256*1024**2//bytes_per_query)),**folds,**geometry)
+        chunk_size=min(65536,max(1,256*1024**2//bytes_per_query)),**folds,**geometry)
     mapping=queries.select('query_id',*query_keys).join(unique,on=query_keys,how='left',validate='m:1',nulls_equal=True,
         **({'maintain_order':'left'} if _detailed else {}))
     if _detailed:
         mapping=mapping.with_row_index('_query_order')
+    # Native chunks span contiguous search-key rows. Sort once, then slice;
+    # rescanning the complete source map per chunk is quadratic in cohort size.
+    mapping=mapping.sort('_row')
+    mapped_rows=mapping['_row'].to_numpy()
     allowed=None
     if assayed:
         allowed=pl.concat([part.select('query_id').with_columns(pl.lit(i).alias('_target'))
@@ -216,6 +220,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     sparse=_detailed and assayed
     requested=(mapping.select('query_id','_row').join(allowed,on='query_id',how='inner')
         .select('_row','_target').unique().sort('_row','_target') if sparse else None)
+    requested_rows=requested['_row'].to_numpy() if sparse else None
     states=[];hit_ids=set();T=len(groups)
     compact_all=not _detailed and allowed is None
     if compact_all:
@@ -225,14 +230,17 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         ordered=[names[i] for i in permutation]
         starts=np.asarray([i for i,e in enumerate(ordered) if i==0 or e!=ordered[i-1]])
         peptide_names=[ordered[i] for i in starts]
-        mapped_rows=mapping['_row'].to_numpy();mapped_ids=mapping['query_id'].to_numpy()
+        mapped_ids=mapping['query_id'].to_numpy()
     for chunk in iterator:
         C=chunk.stop-chunk.start
+        first,last=np.searchsorted(mapped_rows,[chunk.start,chunk.stop])
+        chunk_mapping=mapping.slice(int(first),int(last-first))
         curves=np.asarray(chunk.counts);sizes=np.asarray(chunk.sizes)
         # Convert directly to contiguous numerical rows; advanced-cut indexing
         # otherwise transposes and recopies every query x target x cutoff array.
         if sparse:
-            pairs=requested.filter(pl.col('_row').is_between(chunk.start,chunk.stop-1))
+            first,last=np.searchsorted(requested_rows,[chunk.start,chunk.stop])
+            pairs=requested.slice(int(first),int(last-first))
             if not pairs.height:
                 continue
             row=pairs['_row'].to_numpy();target=pairs['_target'].to_numpy();qrow=row-chunk.start
@@ -281,9 +289,8 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         if compact_all:
             selected=_compact_kernel_selection(scores['kernel_score'].reshape(C,T),exact,
                 permutation,starts,peptide_names)
-            observations=(mapped_rows>=chunk.start)&(mapped_rows<chunk.stop)
-            local_rows=mapped_rows[observations]-chunk.start
-            ids=mapped_ids[observations]
+            local_rows=mapped_rows[first:last]-chunk.start
+            ids=mapped_ids[first:last]
             states.append(pl.DataFrame({'query_id':pl.Series(ids.tolist(),dtype=mapping.schema['query_id']),
                 'selected_epitope':pl.Series(selected['selected_epitope'][local_rows].tolist(),dtype=pl.String),
                 **{name:pl.Series(value[local_rows],nan_to_null=True) for name,value in selected.items()
@@ -319,7 +326,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
             values=values.with_columns((pl.col('reference_weight')/pl.col('expected_count')).alias('enrichment'),
                 (pl.col('n_control')==0).alias('zero_control_hits'),
                 (pl.col('control_weight')==0).alias('zero_control_weight'))
-            observations=mapping.filter(pl.col('_row').is_between(chunk.start,chunk.stop-1)).select(
+            observations=chunk_mapping.select(
                 'query_id','_query_order','_row')
             for part in observations.iter_slices(max(1,65536//T)):
                 expanded=(part.join(allowed,on='query_id',how='inner').join(values,on=['_row','_target'],how='inner')
@@ -327,7 +334,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
                 expanded=expanded.join(targets,on='_target',how='left',validate='m:1')
                 states.append(expanded.drop('_row','_radius_hit'))
             continue
-        chunk_mapping=mapping.filter(pl.col('_row').is_between(chunk.start,chunk.stop-1)).select('query_id','_row')
+        chunk_mapping=chunk_mapping.select('query_id','_row')
         columns=['selected_epitope','kernel_score','kernel_competing_score','tied_peptides','exact_peptides']
         # Source observations can repeat one search key arbitrarily often.
         # Restrict assay memberships before joining curves; bound even the
