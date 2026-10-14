@@ -56,7 +56,7 @@ Read ``presence.database.tsv``:
    * - ``database_exact_junction``
      - Does this complete anchor-inclusive junction occur in the database? A boolean lookup, ignoring V/J and antigen labels.
    * - ``database_exact_gene_clonotype``
-     - Does the same junction/V-gene/J-gene combination occur? Alleles are pooled; missing or ambiguous gene calls remain unavailable.
+     - Does a complete recorded junction/V-gene/J-gene key match? Alleles are pooled; missing or ambiguous query gene calls remain unavailable.
    * - ``database_nearest_edits``
      - How many unit edits separate it from the closest database junction within the declared search limits?
    * - ``database_p``

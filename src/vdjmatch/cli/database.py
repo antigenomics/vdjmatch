@@ -30,13 +30,16 @@ def prepare(path,a):
     raw=raw.with_row_index('_database_row').with_columns(
         pl.col('junction_aa').str.strip_chars().str.to_uppercase().alias('database_junction'))
     species_ok=pl.lit(True)
-    if 'species' in raw.columns:
+    for column in ('species','organism'):
+        if column not in raw.columns:
+            continue
         aliases={}
-        for value in raw['species'].drop_nulls().unique():
+        for value in raw[column].drop_nulls().unique():
             try: aliases[value]=_organism(value)==_organism(a.species)
             except ValueError: aliases[value]=False
-        species_ok=pl.col('species').replace_strict(aliases,default=False,return_dtype=pl.Boolean)
-    locus_ok=pl.col('locus').is_null() | pl.col('locus').eq(a.locus)
+        species_ok=species_ok & pl.col(column).replace_strict(aliases,default=False,return_dtype=pl.Boolean)
+    locus=pl.col('locus').replace({'ALPHA':'TRA','BETA':'TRB'})
+    locus_ok=locus.is_null() | locus.eq(a.locus)
     seq=pl.col('database_junction')
     raw=raw.with_columns(pl.when(seq.is_null() | seq.eq('')).then(pl.lit('missing_sequence'))
         .when(~seq.str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$')).then(pl.lit('invalid_sequence'))

@@ -71,3 +71,7 @@ def test_presence_and_null_tail_use_one_batch_and_retain_every_draw(tmp_path,mon
     pl.read_csv(sample,separator='\t').with_columns(pl.lit('source metadata').alias('_database_v')).write_csv(sample,separator='\t')
     with pytest.raises(ValueError,match='reserved _database_'):
         prepare(sample,Namespace(input_format='auto',sequence_convention=None,species='human',locus='TRB'))
+    pl.DataFrame({'junction_aa':['CASSF']*2,'locus':['BETA']*2,
+        'species':['human']*2,'organism':['HomoSapiens','MusMusculus']}).write_csv(sample,separator='\t')
+    prepared,_=prepare(sample,Namespace(input_format='auto',sequence_convention=None,species='human',locus='TRB'))
+    assert prepared['database_status'].to_list()==['ready','species_mismatch']

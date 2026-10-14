@@ -1405,7 +1405,9 @@ The command writes ``presence.database.tsv`` with every original query row,
 ``database_exact_junction``, ``database_exact_gene_clonotype``,
 ``database_nearest_edits``, ``database_p`` and ``database_status``.
 ``database_exact_gene_clonotype`` pools alleles and requires single supplied V/J
-calls. It is unavailable for missing/ambiguous query gene calls. The P-value uses
+calls. It is unavailable for missing/ambiguous query gene calls. A false flag
+means no complete matching gene key was found; an exact junction can still
+occur in records with incomplete reference gene annotations. The P-value uses
 full-junction Levenshtein distance with unit substitution/insertion/deletion
 costs and ignores V/J and antigen labels. A no-hit query receives P = 1;
 invalid/mismatched query rows retain unavailable diagnostics.
