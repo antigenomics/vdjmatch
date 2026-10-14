@@ -1,39 +1,23 @@
-Examples gallery
-================
+Examples
+========
 
-Two offline workflows and three biological notebooks show the path from raw inputs to CLI tables. Start with
-annotation, then compare detailed evidence. Open :doc:`notebooks` for rendered
-previews and notebook source downloads.
+Run two small offline workflows from raw inputs to CLI tables. For longer
+lessons with rendered code, figures and results, continue to :doc:`notebooks`.
 
-.. raw:: html
+Setup
+-----
 
-   <div class="proj-card-grid">
-     <a class="proj-card" href="#annotation-tutorial">
-       <span class="proj-card__type">Tutorial · four rows and two pairs</span>
-       <h3>Annotate a cohort</h3>
-       <p>Run metadata and linked-pair inputs. Inspect identities, selections,
-       invalid genes and the incomplete pair.</p>
-     </a>
-     <a class="proj-card" href="#geometry-comparison-how-to">
-       <span class="proj-card__type">How-to · matched query identities</span>
-       <h3>Compare geometries</h3>
-       <p>Export fresh stem4 and vcdr12 evidence and join their full pMHC keys.</p>
-     </a>
-   </div>
+Install vdjmatch in an isolated environment and obtain the complete
+`examples directory <https://github.com/antigenomics/vdjmatch/tree/master/examples>`_,
+keeping ``inputs`` beside the scripts. Activate the environment so
+``vdjmatch`` is on ``PATH``. Both scripts use four native threads and a supplied
+offline reference.
 
-These examples run tiny synthetic raw inputs against a supplied offline reference.
-``DEMO_A`` and ``DEMO_B`` are demonstration labels, not experimental binding truth.
-Every result is produced by the installed CLI; notebooks analyze only its final tables.
-There are no persisted feature inputs, skip/resume paths or reused predictions.
+The inputs are synthetic software fixtures. ``DEMO_A`` and ``DEMO_B`` are
+demonstration labels, rather than experimental binding labels.
 
-`Download the release source ZIP <https://github.com/antigenomics/vdjmatch/archive/refs/tags/v0.4.0.zip>`_
-or clone the repository and use its complete ``examples`` directory, keeping
-its ``inputs`` directory beside the scripts and notebooks. The source distribution
-also includes these files. Install vdjmatch in an isolated environment and activate
-it so ``vdjmatch`` is on ``PATH``. Both scripts default to four native threads.
-
-Annotation tutorial
--------------------
+Annotate a cohort
+-----------------
 
 From the repository root, choose a new output directory:
 
@@ -41,57 +25,58 @@ From the repository root, choose a new output directory:
 
    sh examples/annotate.sh annotation-demo
 
-The metadata cohort has four single-chain rows across two samples. The wide paired
-input has two receptors, including one missing beta chain. Source identities and
-missing/invalid dispositions remain in ``*.queries.tsv`` and ``*.selection.tsv``.
-``*.manifest.json`` records the reference, scoring and resources.
+The cohort contains four single-chain rows across two samples and two paired
+receptors, including an incomplete pair. Inspect these outputs:
 
-* :download:`Annotation shell script <../examples/annotate.sh>`
-* :download:`Annotation notebook <../examples/annotation.ipynb>`
-* :doc:`Read the annotation notebook <notebooks/annotation>`
-* :download:`Offline synthetic reference <../examples/inputs/reference.tsv>`
-* :download:`Sample metadata <../examples/inputs/samples.tsv>`
-* :download:`First AIRR sample <../examples/inputs/cohort/sample_a.tsv>`
-* :download:`Second AIRR sample <../examples/inputs/cohort/sample_b.tsv>`
-* :download:`Wide paired sample <../examples/inputs/paired.tsv>`
+.. list-table:: Annotation outputs
+   :header-rows: 1
 
-Geometry comparison how-to
---------------------------
+   * - File
+     - What it shows
+   * - ``*.queries.tsv``
+     - Source identities and ingestion dispositions
+   * - ``*.selection.tsv``
+     - Selected evidence, ambiguity and unsupported queries
+   * - ``*.manifest.json``
+     - Reference identity, scoring options and resources
+
+* :doc:`Read the rendered notebook <notebooks/annotation>`
+* :download:`Notebook source <../examples/annotation.ipynb>` · :download:`Shell script <../examples/annotate.sh>`
+* :download:`Offline reference <../examples/inputs/reference.tsv>` · :download:`Sample metadata <../examples/inputs/samples.tsv>`
+* :download:`First AIRR sample <../examples/inputs/cohort/sample_a.tsv>` · :download:`Second AIRR sample <../examples/inputs/cohort/sample_b.tsv>`
+* :download:`Paired sample <../examples/inputs/paired.tsv>`
+
+Compare geometries
+------------------
 
 .. code-block:: sh
 
    sh examples/compare.sh comparison-demo
 
-This runs default stem4 and the retained advanced ``vcdr12`` geometry, both with
-``--exclude-exact --details`` and separate fresh output prefixes. The notebook
-joins detailed ``*.enrichment.tsv`` rows by source identity and complete pMHC key,
-then displays their continuous scores. Any arithmetic score delta is a geometry
-diagnostic, not an accuracy gain or calibrated comparison of score scales.
-It does not calculate scientific accuracy
-from demonstration labels or transfer calibration between geometries.
+This calculates fresh, exact-excluded evidence for default stem4 and the
+advanced ``vcdr12`` geometry. The notebook joins ``*.enrichment.tsv`` by source
+identity and full peptide–MHC key, then displays the score differences.
+These are geometry diagnostics: synthetic labels cannot establish biological
+accuracy, and score scales do not share calibration.
 
-* :download:`Comparison shell script <../examples/compare.sh>`
-* :download:`Comparison notebook <../examples/comparison.ipynb>`
-* :doc:`Read the comparison notebook <notebooks/comparison>`
+* :doc:`Read the rendered notebook <notebooks/comparison>`
+* :download:`Notebook source <../examples/comparison.ipynb>` · :download:`Shell script <../examples/compare.sh>`
 
-Both scripts fail on nonzero CLI exit and reject an existing output directory.
-For another fresh run, choose another directory. Notebooks use a new temporary
-output directory each time and execute ``sys.executable -m vdjmatch.cli``
-with ``check=True`` and
-a 120-second timeout. Open them from the repository root or ``examples`` directory.
-The notebook kernel and CLI therefore use the same Python environment and do not
-require a POSIX shell. Their committed cells contain no execution outputs. Documentation builds never
-execute notebooks.
+Continue with biological data
+-----------------------------
 
-For input formats and operational choices, see :doc:`how-to`; for the meaning of
-scores and the distinction from binding probabilities, see :doc:`explanation`.
-For all flags and library signatures, see :doc:`cli` and :doc:`api`.
+The :doc:`notebooks` gallery covers ROC/PR and true/false positives, baseline
+vaccination-repertoire evidence, and precursor-frequency estimates. Its setup
+section lists the required local mirrors. See :doc:`performance` for measured
+workload sizes, runtime and memory.
 
-Biological walkthroughs
------------------------
+Execution notes
+---------------
 
-The :doc:`notebooks` gallery adds longer ROC/PR, vaccination-repertoire and
-precursor-frequency lessons. They use the local ``airr_benchmark`` and
-``airr_yfv19`` raw-input mirrors, rebuild core calculations through the CLI,
-and export publication-size PDF/SVG/PNG figures. The :doc:`performance` page
-reports measured workload sizes, elapsed time, process-tree RAM and CPU use.
+Every run rebuilds CLI tables in a fresh directory. The scripts reject an
+existing output directory and propagate CLI failures. Notebooks invoke the
+CLI with their kernel's interpreter and a bounded timeout; documentation
+builds render saved outputs without executing them.
+
+Use :doc:`how-to` for your own formats, :doc:`explanation` to interpret evidence,
+and :doc:`cli`/:doc:`api` for command and library details.

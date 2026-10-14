@@ -63,7 +63,7 @@ Explore a worked example
      </a>
      <a class="proj-card" href="notebooks.html">
        <h3>Notebooks gallery</h3>
-       <p>Browse rendered annotation, comparison and precursor notebooks; download their source.</p>
+       <p>Read worked notebooks with figures, results and downloadable source.</p>
      </a>
    </div>
 
@@ -78,7 +78,6 @@ ingestion uses `vdjtools <https://github.com/antigenomics/vdjtools>`_.
    :caption: Tutorials
 
    Getting started <tutorial>
-   Notebooks <notebooks>
 
 .. toctree::
    :hidden:
@@ -87,6 +86,7 @@ ingestion uses `vdjtools <https://github.com/antigenomics/vdjtools>`_.
 
    Workflows <how-to>
    Examples <examples>
+   Notebooks <notebooks>
    Laptop resources <performance>
 
 .. toctree::

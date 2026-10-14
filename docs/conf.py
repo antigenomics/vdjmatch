@@ -39,7 +39,15 @@ html_theme_options = {
     "navigation_depth": 3,
     "collapse_navigation": False,
     "header_links_before_dropdown": 4,
+    "navbar_center": [],
     "show_toc_level": 2,
 }
 html_sidebars = {"**": ["site-nav"], "index": []}
 nbsphinx_execute = "never"
+
+# Every notebook is a full docs page, with its source available in the same view.
+nbsphinx_prolog = r"""
+.. container:: notebook-source
+
+   :doc:`All notebooks </notebooks>` · :download:`Download this notebook <{{ env.docname.split('/')[-1] }}.ipynb>`
+"""
