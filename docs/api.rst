@@ -179,3 +179,8 @@ Legacy calculation reproduction
 
 .. automodule:: vdjmatch.match.scoring_audit
    :members: matrix_audit, loo_audit
+
+Reference graph morphology
+--------------------------
+
+.. autofunction:: vdjmatch.aggregate.structure.graph_profiles

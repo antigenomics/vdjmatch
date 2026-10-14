@@ -53,7 +53,7 @@ def test_cli_help_uses_only_package_names(capsys):
     policy = json.loads((ROOT/'examples/comparison-provenance.ipynb').read_text())
     pattern = re.compile('|'.join(policy['metadata']['forbidden_package_patterns']), re.I)
     for command in ([], ['annotate'], ['neighbours'], ['evidence'],
-                    ['historical-density'], ['reference-calls'], ['reference-radius'], ['motif-evidence']):
+                    ['historical-density'], ['reference-calls'], ['reference-radius'], ['reference-structure'], ['motif-evidence']):
         with pytest.raises(SystemExit) as stopped:
             main([*command, '--help'])
         assert stopped.value.code == 0

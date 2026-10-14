@@ -1329,3 +1329,38 @@ composition caps, first-label assignment and tied-score balanced trapezoidal
 PR area. This metric is distinct from average precision and the current
 full-VDJdb source-record eligibility rule. Supply ``--structural-inc`` to
 include the structural matrix; without that model its row is omitted.
+
+vdjmatch reference-structure
+----------------------------
+
+Inspect the reference composition that can guide chainwise scoring weights:
+
+.. code-block:: sh
+
+   vdjmatch reference-structure --vdjdb reference.zip --species human --locus TRB \
+     --epitope NLVPMVATV --threads 4 --output-prefix structure
+
+The command writes ``structure.structures.tsv`` with one row per full peptide–MHC
+population and ``structure.punctures.tsv`` with the corresponding features after
+removing each full reference junction. ``--targets-from-sample AIRR_TABLE`` instead
+uses the compatible restriction unions declared by that table. ``--reference-population``
+selects ``curated-benchmark`` (default) or ``all-valid``.
+
+The graph has one vertex per unique anchor-inclusive junction and an edge for
+one amino-acid substitution, with no indels. One native batch searches the entire
+selected reference population. The component summaries are calculated from that
+batch, with exact connectivity after each vertex removal, including articulation
+vertices. Removing a junction also removes all its V annotations and source-record
+contributions from the reported composition.
+
+Outputs report exact source-record, junction, clonotype-key, component, isolated-
+junction and edge counts; largest-component and clustered fractions; component
+entropy; size-weighted component size; junction-length mean/SD/entropy; and V-gene
+entropy/effective diversity. Entropies use natural logarithms. Lengths include the
+conserved junction anchors. V usage counts unique junction/resolved-V-allele keys
+with allele-stripped gene categories. Missing or unmodelled records are counted
+explicitly. An empty population has unavailable composition fractions and entropies.
+
+These are reference morphology features. The command fits no weights, makes no
+recognition claim and supplies no P-value. Its manifest records population policy,
+raw reference identity, feature definitions, source hashes and output hashes.

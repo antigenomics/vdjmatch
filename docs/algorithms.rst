@@ -95,3 +95,28 @@ The null asks whether an unrelated query would achieve at least this selected
 score. All searched labels, ties and unsupported null queries belong in that
 calculation. Paired any-axis calls require a null for the maximum over linked,
 alpha and beta evidence. See :doc:`explanation` for the output fields.
+
+Reference structure for scoring weights
+---------------------------------------
+
+.. graphviz::
+
+   digraph structure {
+     graph [rankdir=TB, bgcolor="transparent"];
+     node [shape=box, style=rounded, fontname="Helvetica", fontsize=11, color="#0072B2"];
+     input [label="Reference full junctions, V genes and pMHC\nDeclared species, chain and population policy"];
+     search [label="One native Hamming-one batch\nUnique full junctions; no indels"];
+     target [label="Partition edges by target membership\nPreserve source records and V annotations"];
+     connectivity [label="Components and articulation fragments\nExact full-junction removal profiles"];
+     usage [label="Junction-length and V-usage composition\nRemove the same junction contributions"];
+     tables [label="Full and punctured feature tables\nGraph morphology, length and V diversity"];
+     future [label="Proposed harmonized score sum\nReference-derived chainwise weights",style="rounded,dashed",color="#777777"];
+     input -> search -> target -> connectivity -> tables;
+     target -> usage -> tables;
+     tables -> future [style=dashed];
+   }
+
+``reference-structure`` implements the solid arrows. It characterizes reference
+neighbourhoods and exact exclusion effects without reading query binding labels.
+The dashed stage is the structure-guided scoring investigation: weights and final
+selection calibration require separate verification before adoption.

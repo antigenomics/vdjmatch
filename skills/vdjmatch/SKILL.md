@@ -129,3 +129,17 @@ score ranges, export editable PDF/SVG and 300-dpi PNG, and inspect the final-siz
 render. Execute from a clean kernel, then commit only reviewed aggregate figures and counts;
 complete logs and identifier mappings stay private. Documentation builds never
 execute the notebooks.
+
+## Reference morphology for structure-guided score investigation
+
+`reference-structure --vdjdb REFERENCE --species human --locus TRA|TRB --threads 4
+--output-prefix OUT` exports full-pMHC Hamming-one graph, junction-length and V-usage
+features. `--targets-from-sample RAW_AIRR` uses declared compatible pMHC unions.
+Each vertex is a unique full junction. The puncture table removes that complete
+junction, including all associated V keys/records, and computes articulation
+fragments exactly. Keep the graph-node, clonotype-key and source-record units
+separate; entropies are in nats and lengths include anchors. Empty structure is
+unavailable, not negative recognition evidence. One native population batch feeds
+all target graphs; no per-query/target native pool or persisted feature cache.
+These features do not fit fusion weights or calibrate recognition. Any harmonized
+score sum still needs matched component identities and final-selection calibration.

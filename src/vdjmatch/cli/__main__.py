@@ -811,6 +811,8 @@ def main(argv: list[str] | None = None) -> int:
     register_radius(sub)
     from .support import register as register_support
     register_support(sub)
+    from .structure import register as register_structure
+    register_structure(sub)
 
     a = p.parse_args(argv)
     import os
@@ -819,7 +821,7 @@ def main(argv: list[str] | None = None) -> int:
     evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence"}
     kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
     previous_kernels = {key: os.environ.get(key) for key in kernel_env} if a.cmd in evidence_commands else {}
-    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "neighbours", "evidence", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support"} | evidence_commands:
+    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "neighbours", "evidence", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support", "reference-structure"} | evidence_commands:
         import os
         import json
 
