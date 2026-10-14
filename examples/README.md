@@ -2,6 +2,14 @@
 
 Run from a fresh installation with `vdjmatch` on PATH:
 
+Browse the [examples gallery](https://docs.isalgo.dev/vdjmatch/examples.html) and
+[notebooks gallery](https://docs.isalgo.dev/vdjmatch/notebooks.html).
+
+| Workflow | Read online | Notebook source | Shell script |
+| --- | --- | --- | --- |
+| Cohort and paired annotation | [Preview](https://docs.isalgo.dev/vdjmatch/notebooks/annotation.html) | [annotation.ipynb](annotation.ipynb) | [annotate.sh](annotate.sh) |
+| Geometry comparison | [Preview](https://docs.isalgo.dev/vdjmatch/notebooks/comparison.html) | [comparison.ipynb](comparison.ipynb) | [compare.sh](compare.sh) |
+
 ```sh
 sh examples/annotate.sh NEW_ANNOTATION_DIRECTORY
 sh examples/compare.sh NEW_COMPARISON_DIRECTORY

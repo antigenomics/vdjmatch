@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://pypi.org/project/vdjmatch/"><img alt="PyPI" src="https://img.shields.io/pypi/v/vdjmatch"></a>
   <a href="https://github.com/antigenomics/vdjmatch/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/antigenomics/vdjmatch/actions/workflows/tests.yml/badge.svg"></a>
-  <a href="https://antigenomics.github.io/vdjmatch/"><img alt="docs" src="https://github.com/antigenomics/vdjmatch/actions/workflows/docs.yml/badge.svg"></a>
+  <a href="https://docs.isalgo.dev/vdjmatch/"><img alt="docs" src="https://github.com/antigenomics/vdjmatch/actions/workflows/docs.yml/badge.svg"></a>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPLv3-green"></a>
 </p>
@@ -28,20 +28,24 @@ The minimum `vdjtools` version is 5.0.1, which validates explicit native thread
 requests against the process CPU allocation.
 
 The Python implementation follows the legacy Java/Groovy package, preserved on the
-`legacy-java` branch. See the [tutorial](https://antigenomics.github.io/vdjmatch/tutorial.html),
-[workflow guide](https://antigenomics.github.io/vdjmatch/how-to.html) and
-[score explanation](https://antigenomics.github.io/vdjmatch/explanation.html).
+`legacy-java` branch. See the [tutorial](https://docs.isalgo.dev/vdjmatch/tutorial.html),
+[workflow guide](https://docs.isalgo.dev/vdjmatch/how-to.html) and
+[score explanation](https://docs.isalgo.dev/vdjmatch/explanation.html).
 
 ## Pick an entry point
 
 | Task | Entry point | Guide |
 | --- | --- | --- |
-| Annotate a repertoire or cohort | `vdjmatch annotate` | [Tutorial](https://antigenomics.github.io/vdjmatch/tutorial.html) |
-| Compare retained geometries from raw inputs | `sh examples/compare.sh NEW_DIRECTORY` | [CLI examples](https://antigenomics.github.io/vdjmatch/examples.html) |
-| Calibrate the final selected-call event | `reference-calls`, then `calibrate-calls` | [CLI reference](https://antigenomics.github.io/vdjmatch/cli.html) |
-| Choose a pinned or offline reference | `--vdjdb LOCAL_REFERENCE` or `vdjmatch update` | [Workflow guide](https://antigenomics.github.io/vdjmatch/how-to.html) |
+| Annotate a repertoire or cohort | `vdjmatch annotate` | [Tutorial](https://docs.isalgo.dev/vdjmatch/tutorial.html) |
+| Compare retained geometries from raw inputs | `sh examples/compare.sh NEW_DIRECTORY` | [CLI examples](https://docs.isalgo.dev/vdjmatch/examples.html) |
+| Calibrate the final selected-call event | `reference-calls`, then `calibrate-calls` | [CLI reference](https://docs.isalgo.dev/vdjmatch/cli.html) |
+| Choose a pinned or offline reference | `--vdjdb LOCAL_REFERENCE` or `vdjmatch update` | [Workflow guide](https://docs.isalgo.dev/vdjmatch/how-to.html) |
 
 ## Runnable offline examples
+
+Browse the [examples gallery](https://docs.isalgo.dev/vdjmatch/examples.html) or
+the [notebooks gallery](https://docs.isalgo.dev/vdjmatch/notebooks.html) for
+rendered previews, source downloads and raw inputs.
 
 The [examples directory](examples/) contains tiny raw synthetic inputs, a pinned
 offline reference, [annotation](examples/annotate.sh) and
@@ -59,7 +63,7 @@ Both use one native thread, reject existing output directories and fail on CLI
 errors. The comparison explicitly runs exact-excluded detailed stem4 and advanced
 vcdr12; notebooks analyze only fresh CLI tables. `DEMO_A`/`DEMO_B` labels are
 synthetic software examples, not binding truth. See the
-[example guide](https://antigenomics.github.io/vdjmatch/examples.html).
+[example guide](https://docs.isalgo.dev/vdjmatch/examples.html).
 
 ## Features
 
@@ -356,7 +360,7 @@ Use `--input-format custom --sequence-convention junction` for an ambiguous cust
 table. `--scope s,i,d,t` sets substitution/insertion/deletion/total budgets. Hard
 `--match-v` or `--match-j` requests require `--no-evalue` with sequence-only backgrounds.
 Native search defaults to one thread. See `vdjmatch match -h` and the
-[CLI reference](https://antigenomics.github.io/vdjmatch/cli.html).
+[CLI reference](https://docs.isalgo.dev/vdjmatch/cli.html).
 
 Ranked mode scans the complete eligible reference with a native restricted gap-block scorer,
 retaining at most K unique junctions or genuine paired keys before expanding observations.

@@ -16,6 +16,8 @@ complete repository ``examples`` directory, including its raw ``inputs`` files.
    python -m venv .venv
    . .venv/bin/activate
    python -m pip install vdjmatch
+   git clone --depth 1 https://github.com/antigenomics/vdjmatch.git
+   cd vdjmatch
    sh examples/annotate.sh annotation-demo
 
 The script submits the metadata cohort and the wide paired population as separate
