@@ -34,3 +34,22 @@ There is no RNG or fit and no accuracy or calibration claim.
 Offline reference SHA256: `3ed6c1baafe2ec51bac658a02fa806d4a866ffcffc1ff7e1a391188050bcb76d`.
 The Git version of this directory pins the raw inputs; CLI manifests record the
 reference and scoring configuration of each fresh invocation.
+
+## Verify the complete gallery against PyPI
+
+From the repository root, create an isolated environment and run every shell
+example, all three Jupyter notebooks and the marimo compendium:
+
+```sh
+uv venv .venv-gallery
+uv pip install --python .venv-gallery/bin/python --index-url https://pypi.org/simple --no-cache -r examples/requirements-notebooks.txt
+.venv-gallery/bin/python examples/check_gallery.py NEW_GALLERY_OUTPUT_DIRECTORY
+```
+
+The checker creates a kernel for that interpreter, keeps executed notebooks and
+the HTML export in the new output directory, and exits nonzero on any failure.
+Shell examples have a 120-second timeout; notebook cells and the marimo export
+have a 300-second timeout. The precursor tutorial downloads the pinned public
+Hugging Face VDJdb snapshot and uses four native threads. The compendium downloads
+its documented public tables and reference. Reference downloads stay in the
+output directory; computed results are rebuilt on every invocation.

@@ -4,11 +4,15 @@ A marimo notebook. Run it with::
 
     marimo edit docs/notebooks/precursor_compendium.py
 
-Nothing here recomputes a `Pgen`: both tables come from the HuggingFace mirror, so the notebook
-opens in a second on any machine with `vdjmatch[precursor]` installed.
+The measured and predicted comparison tables come from the Hugging Face mirror.
+The interactive ball census and Pgen diagnostics run freshly on the selected reference
+junctions, using one native thread. Install `vdjmatch[precursor,notebook]` first.
 """
 
 import marimo
+import os
+
+os.environ["POLARS_MAX_THREADS"] = "1"
 
 __generated_with = "0.24.0"
 app = marimo.App(width="medium")
@@ -248,8 +252,8 @@ def _(chain_pick, epitope_census, pl):
                     .unique().to_list())
     _js = sorted(set(_js))
     _model = _load_model(chain_pick.value, source="arda", organism="human")
-    u = _union_mass(_model, _js, r=1, count_members=True)
-    obs = _observed_mass(_model, _js)
+    u = _union_mass(_model, _js, r=1, count_members=True, threads=1)
+    obs = _observed_mass(_model, _js, threads=1)
     return _check, _db, _frame, _js, _load_model, _model, _observed_mass, _union_mass, obs, u
 
 
@@ -319,7 +323,7 @@ def _(chain_pick, epitope, np, pl):
     js = (frame.filter(pl.col("epitope") == epitope.value)["cdr3"].unique().to_list())
     js, dropped = check_junctions(js)
     model = load_model(chain_pick.value, source="arda", organism="human")
-    p = np.asarray(pgen(model, sorted(set(js))), dtype=float)
+    p = np.asarray(pgen(model, sorted(set(js)), threads=1), dtype=float)
     p_nz = p[p > 0]
     return check_junctions, db, dropped, frame, js, load_model, model, p, p_nz, pgen
 

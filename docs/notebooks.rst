@@ -3,8 +3,9 @@ Notebooks gallery
 
 Browse the notebooks before downloading them. Annotation and comparison use the
 small offline inputs from :doc:`examples`; all tables come from the installed CLI.
-Committed notebooks have no execution outputs, and documentation builds never
-execute them.
+The annotation and comparison notebooks have no committed execution outputs.
+The precursor tutorial retains its curated illustration outputs; documentation
+builds never execute notebooks.
 
 Annotation and comparison
 -------------------------
@@ -59,6 +60,29 @@ Precursor frequency
 
 The precursor workflow is separate from antigen annotation. Its setup and
 reference-data requirements are described in :doc:`compendium`.
+
+Run the complete gallery
+------------------------
+
+Use an isolated environment containing the published package and notebook tools.
+From the repository root:
+
+.. code-block:: sh
+
+   uv venv .venv-gallery
+   uv pip install --python .venv-gallery/bin/python --index-url https://pypi.org/simple --no-cache -r examples/requirements-notebooks.txt
+   .venv-gallery/bin/python examples/check_gallery.py NEW_GALLERY_OUTPUT_DIRECTORY
+
+This executes both shell examples, all three Jupyter notebooks with fresh kernels,
+and the marimo compendium. It records results and executed outputs in the new
+directory and returns a failure status if any workflow fails. The precursor
+tutorial uses four native threads and fetches its pinned public Hugging Face
+snapshot; the compendium uses one native thread and fetches
+its documented tables and reference. Documentation builds still do not execute
+notebooks.
+
+* :download:`Notebook dependency recipe <../examples/requirements-notebooks.txt>`
+* :download:`Gallery verification script <../examples/check_gallery.py>`
 
 .. toctree::
    :hidden:

@@ -1,0 +1,81 @@
+"""Run shell examples and gallery notebooks with this environment's installed package.
+
+From the repository root: python examples/check_gallery.py NEW_OUTPUT_DIRECTORY
+Install examples/requirements-notebooks.txt in an isolated environment first.
+"""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+# Budget numerical pools before imports and before starting any notebook kernel.
+for name in ("POLARS_MAX_THREADS", "OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS",
+             "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ[name] = "1"
+
+import nbformat
+from nbclient import NotebookClient
+
+root = Path(__file__).resolve().parents[1]
+output = Path(sys.argv[1]).resolve()
+output.mkdir(parents=True, exist_ok=False)
+os.environ["VDJMATCH_CACHE"] = str(output / "reference")
+os.environ["HF_HOME"] = str(output / "huggingface")
+os.environ["MPLCONFIGDIR"] = str(output / "matplotlib")
+os.environ["VDJMATCH"] = str(Path(sys.executable).with_name("vdjmatch"))
+os.environ["PATH"] = str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"]
+# A local kernel specification ensures that Jupyter uses the same installed package.
+kernel = output / "jupyter/kernels/gallery"
+kernel.mkdir(parents=True)
+(kernel / "kernel.json").write_text(json.dumps({
+    "argv": [sys.executable, "-m", "ipykernel_launcher", "-f", "{connection_file}"],
+    "display_name": "Gallery verification", "language": "python",
+}))
+os.environ["JUPYTER_PATH"] = str(output / "jupyter")
+results = []
+
+
+def run(name, action):
+    start = time.perf_counter()
+    record = {"workflow": name, "status": "passed"}
+    try:
+        action()
+    except Exception as error:
+        record.update(status="failed", error=str(error))
+    record["seconds"] = round(time.perf_counter() - start, 3)
+    results.append(record)
+    (output / "results.json").write_text(json.dumps(results, indent=2) + "\n")
+    print(name, record["status"], record["seconds"], flush=True)
+
+
+for name in ("annotate", "compare"):
+    run(name, lambda name=name: subprocess.run(
+        ["sh", str(root / f"examples/{name}.sh"), str(output / name)],
+        cwd=root, check=True, timeout=120))
+
+
+def notebook(path):
+    nb = nbformat.read(root / path, as_version=4)
+    try:
+        NotebookClient(nb, timeout=300, kernel_name="gallery",
+                       resources={"metadata": {"path": str(root)}},
+                       on_cell_start=lambda cell, cell_index: print(
+                           path, "cell", cell_index + 1, flush=True)).execute()
+    finally:
+        nbformat.write(nb, output / (Path(path).stem + ".ipynb"))
+
+
+for path in ("examples/annotation.ipynb", "examples/comparison.ipynb",
+             "docs/notebooks/precursor.ipynb"):
+    run(path, lambda path=path: notebook(path))
+# Export a source-identical copy so marimo session files stay with this fresh run.
+compendium = output / "precursor_compendium.py"
+compendium.write_bytes((root / "docs/notebooks/precursor_compendium.py").read_bytes())
+run("precursor_compendium", lambda: subprocess.run(
+    [sys.executable, "-m", "marimo", "export", "html",
+     str(compendium),
+     "-o", str(output / "precursor_compendium.html")],
+    cwd=root, check=True, timeout=300))
+sys.exit(any(record["status"] == "failed" for record in results))
