@@ -65,6 +65,32 @@ accuracy, and score scales do not share calibration.
 Continue with biological data
 -----------------------------
 
+Compare three retained scores from the terminal:
+
+.. code-block:: sh
+
+   python examples/accuracy.py --benchmark /path/to/airr_benchmark \
+     --reference reference.zip --germline-background raw-prior.airr.tsv \
+     --sorted-input original-sorted.tsv --threads 4 --output accuracy-run
+
+The raw prior supplies junction/V/J observations for original density scoring.
+The optional original sorted table supplies LLW and LLL population labels in
+``source_epitope``, ``epitope`` or ``antigen.epitope`` and its original gene calls.
+Omitting it uses the mirror's sorted observations and labels that contrast
+explicitly. The complete mirror panels remain separate positive/control tasks.
+
+``accuracy.tsv`` gives counts, ROC-AUC and average precision for original,
+gap-block and stem4 evidence. ``observations.tsv`` retains all three scores;
+``rank-cases.tsv`` identifies individual ranking errors, and
+``operating-counts.tsv`` gives TP/FP/FN/TN at observed score thresholds.
+Each case's rank loss is the fraction of opposite-class rows that rank in the
+wrong order, counting a tie as one half. Its task mean equals 1 minus ROC-AUC;
+larger values identify worse rankings. Source labels stay unchanged.
+``resources.tsv`` records each complete CLI stage's runtime, sampled process-tree
+RAM, occupied cores and live threads. SVG/PDF/PNG figures are exported alongside
+the tables. Every invocation rebuilds from raw inputs in a new output directory.
+These comparisons rank declared assay targets; they do not calibrate a call.
+
 The :doc:`notebooks` gallery covers ROC/PR and true/false positives, baseline
 vaccination-repertoire evidence, and precursor-frequency estimates. Its setup
 section lists the required local mirrors. See :doc:`performance` for measured

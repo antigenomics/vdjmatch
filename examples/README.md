@@ -56,6 +56,21 @@ output directory; computed results are rebuilt on every invocation.
 
 ## Biological examples
 
+Run the three-score accuracy comparison entirely from the terminal:
+
+```sh
+python examples/accuracy.py --benchmark /path/to/airr_benchmark \
+  --reference reference.zip --germline-background raw-prior.airr.tsv \
+  --sorted-input original-sorted.tsv --threads 4 --output accuracy-run
+```
+
+The optional sorted input preserves original LLW/LLL labels and V/J calls.
+Without it, the contrast uses explicitly labelled mirror gene calls. The raw
+germline background supplies original scoring's junction/V/J prior population.
+Outputs include all three source-row scores, exact counts, ROC-AUC/AP, individual
+opposite-class rank losses, TP/FP trajectories, figures and per-stage resources.
+The complete mirror control tasks remain separate from the sorted contrast.
+
 | Notebook | Raw inputs | Figures |
 | --- | --- | --- |
 | [accuracy.ipynb](accuracy.ipynb) | Complete dataset 1/2 TRB panels, pinned VDJdb | ROC/PR, score ECDFs, exact TP/FP trajectories |
