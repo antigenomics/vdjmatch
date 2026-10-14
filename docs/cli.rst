@@ -1389,3 +1389,37 @@ explicitly. An empty population has unavailable composition fractions and entrop
 These are reference morphology features. The command fits no weights, makes no
 recognition claim and supplies no P-value. Its manifest records population policy,
 raw reference identity, feature definitions, source hashes and output hashes.
+
+vdjmatch database-evidence
+--------------------------
+
+Report literal database presence separately from epitope scoring:
+
+.. code-block:: sh
+
+   vdjmatch database-evidence query.airr.tsv --vdjdb reference.zip \
+     --locus TRB --species human --null-sample null-junctions.airr.tsv \
+     --max-edits 5 --threads 4 --output-prefix presence
+
+The command writes ``presence.database.tsv`` with every original query row,
+``database_exact_junction``, ``database_exact_gene_clonotype``,
+``database_nearest_edits``, ``database_p`` and ``database_status``.
+``database_exact_gene_clonotype`` pools alleles and requires single supplied V/J
+calls. It is unavailable for missing/ambiguous query gene calls. The P-value uses
+full-junction Levenshtein distance with unit substitution/insertion/deletion
+costs and ignores V/J and antigen labels. A no-hit query receives P = 1;
+invalid/mismatched query rows retain unavailable diagnostics.
+
+``--null-sample`` accepts one or more matching raw null-draw tables. Each source
+must contain valid anchor-inclusive junctions of the declared species and chain.
+Repeated draws and no-hits remain in the denominator. One native population
+batch searches unique query/null junctions, then restores all row multiplicities.
+Exact reference junctions are retained; no study-support or benchmark curation
+cutoff applies. Native workers use ``--threads``; table/BLAS helpers stay serial.
+The maximum edit limit is applied identically to queries and nulls.
+
+``presence.null.tsv`` exports every null distance, ``presence.null-tails.tsv``
+exports source-specific counts/tails, and ``presence.manifest.json`` pins raw
+identities, metric, population and implementation hashes. See :doc:`explanation`
+for the distinct meanings of presence, database-level significance and the
+scoring pipeline's selected-label ``p_null``.

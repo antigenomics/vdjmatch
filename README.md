@@ -39,6 +39,7 @@ The Python implementation follows the legacy Java/Groovy package, preserved on t
 | Annotate a repertoire or cohort | `vdjmatch annotate` | [Tutorial](https://docs.isalgo.dev/vdjmatch/tutorial.html) |
 | Compare retained geometries from raw inputs | `sh examples/compare.sh NEW_DIRECTORY` | [CLI examples](https://docs.isalgo.dev/vdjmatch/examples.html) |
 | Calibrate the final selected-call event | `reference-calls`, then `calibrate-calls` | [CLI reference](https://docs.isalgo.dev/vdjmatch/cli.html) |
+| Check literal database presence and unusual resemblance | `vdjmatch database-evidence` | [Score explanation](https://docs.isalgo.dev/vdjmatch/explanation.html) |
 | Choose a pinned or offline reference | `--vdjdb LOCAL_REFERENCE` or `vdjmatch update` | [Workflow guide](https://docs.isalgo.dev/vdjmatch/how-to.html) |
 
 ## Runnable offline examples

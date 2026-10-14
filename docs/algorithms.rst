@@ -128,3 +128,30 @@ Reference structure for scoring weights
 weights. Solid stages are implemented. Dashed stages remain the scoring
 investigation: the reference-to-weight rule and final selection calibration need
 verification before adoption. Neither command reads query binding labels.
+
+Database presence and a label-independent P-value
+-------------------------------------------------
+
+.. graphviz::
+
+   digraph database {
+     graph [rankdir=TB, bgcolor="white"];
+     node [shape=box, style=rounded, fontname="Helvetica", fontsize=11, color="#0072B2"];
+     reference [label="All valid junctions of one species/chain\nPool specificity labels; retain exact records"];
+     rows [label="Query receptors and declared null draws\nKeep repeated draws and original query identities"];
+     join [shape=point,label="",width=.04,color="#555555"];
+     search [label="One native nearest-junction batch\nUnit Levenshtein distance, maximum edits fixed"];
+     lookup [label="Exact junction and V/J-gene presence\nBoolean lookups; separate from significance"];
+     tail [label="P_database = max source (k+1)/(N+1)\nk: null draws at least as close; N: all null draws"];
+     output [label="Presence flags + nearest edits + P_database\nNo antigen label is selected"];
+     reference -> join; rows -> join;
+     join -> search; join -> lookup;
+     search -> tail -> output; lookup -> output;
+   }
+
+``database-evidence`` tests unusual junction resemblance to any database entry
+under the supplied null law. It retains exact matches and includes the full
+database search in the null statistic. Its P-value ignores V/J and cannot be
+transferred to epitope or paired recognition; the exact gene-clonotype flag is a
+separate lookup. The chosen scoring pipeline's ``p_null`` answers a different
+question about its selected evidence score.

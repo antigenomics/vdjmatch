@@ -153,3 +153,23 @@ assay labels or epitope lookup. Missing components contribute zero without weigh
 redistribution; entirely unsupported weighted evidence stays unavailable. The
 automatic weighting law is not implemented. Input scorer/reference/exclusion/null
 identities must match. Component tails are not the final fused P-value.
+
+## Database-level diagnostic
+
+`database-evidence SAMPLE --vdjdb REFERENCE --locus TRA|TRB --species human
+--null-sample RAW_NULL_DRAWS --threads 4 --output-prefix OUT` separates a literal
+`database_exact_junction` lookup from `database_p`: the matching-null probability
+of being at least as close to any database junction. It ignores antigen labels,
+V/J and source-study support cutoffs, retains ordinary exact records, and uses
+one native population batch for query/null nearest full-junction edit distances.
+Null repetitions and no-hits remain in the denominator; invalid/mismatched null
+rows are rejected. For multiple supplied sources, retain the largest tail.
+An invalid query has unavailable diagnostics; a valid no-hit has P=1. State the
+fixed reference, search limits and null law/exchangeability assumption. This is
+a junction-level diagnostic, not epitope confidence, V/J-clonotype membership or
+a paired P-value. Do not substitute the legacy `p_any` or a component tail.
+
+`database_exact_gene_clonotype` separately checks a complete junction/V-gene/
+J-gene key with alleles pooled; missing/ambiguous query calls remain unavailable.
+The P-value still ignores V/J. `--max-edits` bounds full-junction Levenshtein
+distance (default5); native workers follow `--threads`, Polars/BLAS helpers use1.

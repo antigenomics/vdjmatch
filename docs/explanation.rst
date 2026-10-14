@@ -33,6 +33,63 @@ Which output should I read?
 The :doc:`tutorial` shows actual single-chain and paired input/output rows.
 The :doc:`algorithms` page explains how each route produces its evidence.
 
+Is this junction present or unusually close to the database?
+-------------------------------------------------------------
+
+Literal presence is a lookup. ``database-evidence`` separately reports the
+significance of similarity to *any* valid database junction, pooling specificity
+labels within the declared species and chain:
+
+.. code-block:: sh
+
+   vdjmatch database-evidence query.airr.tsv --vdjdb reference.zip \
+     --species human --locus TRB --null-sample null-junctions.airr.tsv \
+     --threads 4 --output-prefix presence
+
+Read ``presence.database.tsv``:
+
+.. list-table:: Database-level diagnostics
+   :header-rows: 1
+
+   * - Column
+     - Question answered
+   * - ``database_exact_junction``
+     - Does this complete anchor-inclusive junction occur in the database? A boolean lookup, ignoring V/J and antigen labels.
+   * - ``database_exact_gene_clonotype``
+     - Does the same junction/V-gene/J-gene combination occur? Alleles are pooled; missing or ambiguous gene calls remain unavailable.
+   * - ``database_nearest_edits``
+     - How many unit edits separate it from the closest database junction within the declared search limits?
+   * - ``database_p``
+     - Would a matching null receptor be at least as close to any database junction? Smaller values indicate more unusual resemblance.
+   * - ``database_status``
+     - ``matched`` means a neighbour exists within the edit limit; it is not a calibrated call. Other values report no-hit, missing/invalid sequence or species/chain mismatch.
+
+For a fixed reference, let :math:`d(x)` be a query's nearest admissible junction
+edit distance. For :math:`N` supplied null draws, :math:`k` counts draws with
+:math:`d(z) \leq d(x)`. Then :math:`p_{\mathrm{database}}=(k+1)/(N+1)`.
+Exact ties count against the query; repeated draws and null no-hits remain in
+the denominator. A query with no hit receives P = 1. Invalid query rows retain
+unavailable diagnostics. Every null row must be valid for the declared species
+and chain; the command rejects a null table that would silently lose rows.
+With multiple ``--null-sample`` files, it reports the largest source-specific
+tail. ``presence.null.tsv`` and ``presence.null-tails.tsv`` retain the null
+distances and each source's numerator/denominator.
+For a query no-hit, no finite radius is tested: its tail numerator is unavailable
+and P = 1 is the conservative no-evidence convention.
+
+This calculation retains exact records, applies no study-support cutoff, and
+does not select an epitope. It uses the same complete database search for queries
+and nulls, so selection over database junctions is included in its null statistic.
+Its P-value assumes query/null exchangeability under the declared null and a
+fixed reference. A common exact junction can have a large P-value; an unusual
+neighbour can have a small one. Neither identifies the correct antigen.
+``--max-edits`` sets the full-junction Levenshtein search limit (default 5);
+substitutions, insertions and deletions each cost one. The diagnostic is separate
+from ``kernel_score`` and the scoring pipeline's
+``p_null``. TRA and TRB diagnostics remain separate; they cannot supply a
+paired-receptor P-value. Its P-value ignores V/J; the gene-clonotype lookup is
+a separate exact-presence flag.
+
 Obtain a calibrated decision
 ----------------------------
 

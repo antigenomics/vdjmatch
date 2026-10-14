@@ -760,6 +760,8 @@ def main(argv: list[str] | None = None) -> int:
     from .first_hit import register
 
     register(sub)
+    from .database import register as register_database
+    register_database(sub)
     from .search import register as register_search
 
     register_search(sub)
@@ -818,10 +820,10 @@ def main(argv: list[str] | None = None) -> int:
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
-    evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence"}
+    evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
     previous_kernels = {key: os.environ.get(key) for key in kernel_env} if a.cmd in evidence_commands else {}
-    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "neighbours", "evidence", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support", "reference-structure"} | evidence_commands:
+    if a.cmd in {"match", "update", "first-hit", "database-evidence", "search", "historical-density", "neighbours", "evidence", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support", "reference-structure"} | evidence_commands:
         import os
         import json
 
@@ -839,6 +841,8 @@ def main(argv: list[str] | None = None) -> int:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
             if table_threads < 1:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
+            if a.cmd == 'database-evidence':
+                table_threads = 1
             os.environ["POLARS_MAX_THREADS"] = str(min(threads, table_threads))
     os.environ.update(dict.fromkeys(previous_kernels, "1"))
     try:
