@@ -20,9 +20,10 @@ def test_evidence_cli_caps_table_and_blas_threads_before_import(command, threads
     args=([command,'unused','--vdjdb','unused','--locus','TRB','--output-prefix','unused']
           if command=='motif-evidence' else
           [command,'unused',*(['--model','unused'] if command=='fit-evidence' else ['--fixed','--output','unused'])])
-    code=f'''import json,os
+    code=f'''import json,os,sys
 from vdjmatch.cli import motifs,combination
 def probe(a):
+    assert 'polars' not in sys.modules, 'CLI parser imported Polars before thread budgets'
     import numpy,scipy.linalg,polars as pl
     from threadpoolctl import threadpool_info
     print(json.dumps({{'table':pl.thread_pool_size(),'blas':[p['num_threads'] for p in threadpool_info() if p['user_api']=='blas'],

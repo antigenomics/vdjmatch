@@ -44,7 +44,7 @@ def test_empty_singleton_and_bad_edges():
 
 def test_composition_punctures_all_v_annotations():
     import polars as pl
-    from vdjmatch.cli.structure import composition
+    from vdjmatch.aggregate.structure import composition
     records=pl.DataFrame({'cdr3':['CAAF','CAAF','CAAF','CAAAF','CAAAAAF'],
         '_allele':['TRBV19*01','TRBV20-1*01','TRBV19*01','TRBV19*02','TRBV20-1*01']})
     junctions=records.select('cdr3').unique(maintain_order=True)

@@ -261,8 +261,9 @@ selection. A sum-distance ball against one fixed reference pair instead uses
 the convolution :math:`\int F_\beta(r-u)\,dF_\alpha(u)`, where :math:`r` is
 the total radius and :math:`F_\alpha,F_\beta` are independent chain-distance
 distributions to that pair. The union across reference pairs still needs its
-overlap handled by the complete native batch. The full-score, selected-label
-and paired search adapters remain separate implementation gates.
+overlap handled by the complete native batch. The ``annotate --control``
+adapter repeats these full-score and selection operations. Whole-cohort runtime
+and scientific nonregression remain separate acceptance gates.
 
 Changing evidence filters or supplying a custom labelled table changes
 :math:`R`, its size and its target compositions. Recalibrate both directions

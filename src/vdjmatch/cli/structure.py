@@ -1,8 +1,6 @@
 """Reference-only graph, junction-length and V-usage composition."""
 from pathlib import Path
 
-from ..aggregate.structure import composition
-
 
 def register(subparsers):
     p = subparsers.add_parser('reference-structure', help=__doc__)
@@ -26,7 +24,7 @@ def main(a):
     import seqtree._core as native_core
     from .. import db
     from ..aggregate.candidates import PMHC
-    from ..aggregate.structure import graph_profiles
+    from ..aggregate.structure import composition, graph_profiles
     from ..cluster import overlap
     from ..db.cache import sha256
     from ..evalue.control import _organism

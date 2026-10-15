@@ -179,7 +179,11 @@ def apply_calibration(frame, calibration, *, input_manifest=None):
 
 
 
-from ..evalue.directional import null_tail_probabilities
+def null_tail_probabilities(frame, nulls, *, higher_is_better=True, score_column="score"):
+    """Load numerical code only after the CLI has set its thread budgets."""
+    from ..evalue.directional import null_tail_probabilities as compute
+
+    return compute(frame, nulls, higher_is_better=higher_is_better, score_column=score_column)
 
 
 def apply_main(args):
