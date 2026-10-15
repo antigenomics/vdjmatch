@@ -68,6 +68,10 @@ Each mock reference has its own model, built once rather than refitted per query
 The current complete-score adapter permits at most five million receptor--target
 combinations, including the internal normalization and query-null banks. Larger
 requests fail before scoring. Whole-cohort calibration scaling remains pending.
+Query-direction tails are reduced to counts before reference randomizations;
+wide real-score and query-null tables are then released. Each mock's score tables
+are released after its tail counts are updated. Requested observed detail,
+complete case identities and all no-hit denominators remain retained.
 
 The event being tested
 ----------------------

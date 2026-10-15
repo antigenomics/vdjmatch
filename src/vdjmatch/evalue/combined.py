@@ -163,19 +163,6 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
     exceed = np.zeros(observed.height, dtype=np.int64)
     reference_hit_draws = np.zeros(observed.height, dtype=np.int64)
     observed_queries = pl.concat([tagged, normalizers.drop('replicate')], how='diagonal_relaxed')
-    for model in iter_mock_models(reference, {chain: controls[chain] for chain in chains},
-            pgen=probabilities, replicates=replicates, seed=int(reference_seed.generate_state(1)[0])):
-        raw = components(observed_queries, model)
-        mock_norm = raw.join(normalizers.select('query_id'), on='query_id', how='semi')
-        mock = combine_components(raw.drop('pgen_bin'), mock_norm.drop('pgen_bin'), model, observed_queries, species=species, locus=locus,
-            threads=threads, exclude_exact=exclude_exact).join(tagged.select('query_id'), on='query_id', how='semi')
-        mock_cases = _with_overall(mock)
-        _same_cases(observed, mock_cases)
-        compared = observed.join(mock_cases.rename({'score': '_null_score'}), on=case_keys,
-            how='left', nulls_equal=True, validate='1:1', maintain_order='left')
-        reference_hit_draws += compared['_null_score'].is_not_null().cast(pl.Int64).to_numpy()
-        exceed += compared.select((pl.col('score').is_null() |
-            (pl.col('_null_score') >= pl.col('score')).fill_null(False)).cast(pl.Int64)).to_series().to_numpy()
     test = _with_overall(combined.join(test_queries.select('query_id'), on='query_id', how='semi')).join(
         test_queries.select('query_id', 'pgen_bin'), on='query_id', validate='m:1')
     lookup_keys = ['pgen_bin', *PMHC, 'test_scope']
@@ -195,6 +182,23 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
         counts[np.isnan(scores)] = replicates
         query_exceed[part['_case'].to_numpy()] = counts
         query_hit_draws[part['_case'].to_numpy()] = len(values)
+    # Retain requested observed detail and compact tail counts only. Wide
+    # real/bank frames must not overlap every subsequent mock population.
+    del real, norm, combined, bank, all_queries, test, tagged_observed, test_queries, distributions
+    for model in iter_mock_models(reference, {chain: controls[chain] for chain in chains},
+            pgen=probabilities, replicates=replicates, seed=int(reference_seed.generate_state(1)[0])):
+        raw = components(observed_queries, model)
+        mock_norm = raw.join(normalizers.select('query_id'), on='query_id', how='semi')
+        mock = combine_components(raw.drop('pgen_bin'), mock_norm.drop('pgen_bin'), model, observed_queries, species=species, locus=locus,
+            threads=threads, exclude_exact=exclude_exact).join(tagged.select('query_id'), on='query_id', how='semi')
+        mock_cases = _with_overall(mock)
+        _same_cases(observed, mock_cases)
+        compared = observed.join(mock_cases.rename({'score': '_null_score'}), on=case_keys,
+            how='left', nulls_equal=True, validate='1:1', maintain_order='left')
+        reference_hit_draws += compared['_null_score'].is_not_null().cast(pl.Int64).to_numpy()
+        exceed += compared.select((pl.col('score').is_null() |
+            (pl.col('_null_score') >= pl.col('score')).fill_null(False)).cast(pl.Int64)).to_series().to_numpy()
+        del raw, mock_norm, mock, mock_cases, compared
     tails = observed.drop('_case').with_columns(pl.Series('reference_exceedances', exceed),
         pl.Series('query_exceedances', query_exceed), pl.lit(replicates).alias('reference_draws'),
         pl.lit(replicates).alias('query_draws'), pl.Series('reference_hit_draws', reference_hit_draws),

@@ -3,7 +3,9 @@ import polars as pl
 
 
 def test_complete_score_two_directions_keep_source_roles_and_nohits(monkeypatch):
+    import weakref
     from vdjmatch.evalue import combined as module
+    from vdjmatch.runner import combined as runner
     from vdjmatch.evalue.mock_reference import control_events, iter_mock_models
     query = pl.DataFrame({'query_id': ['q', 'far'],
         'cdr3': ['CASSMGQETQYF', 'W' * 200], 'v': ['TRBV1'] * 2,
@@ -18,8 +20,27 @@ def test_complete_score_two_directions_keep_source_roles_and_nohits(monkeypatch)
         return pl.concat([ref.select('junction_aa'), control.select('junction_aa')]).unique().with_columns(
             pl.lit(0.01).alias('pgen'))
     monkeypatch.setattr(module, 'compute_pgen', pgen)
+    transient = []
+    released = []
+    def track(function):
+        def call(*args, **kwargs):
+            result = function(*args, **kwargs)
+            transient.append(weakref.ref(result))
+            return result
+        return call
+    def models(*args, **kwargs):
+        for model in iter_mock_models(*args, **kwargs):
+            assert all(ref() is None for ref in transient), 'wide scores retained across calibration models'
+            transient.clear()
+            released.append(True)
+            yield model
+        assert all(ref() is None for ref in transient), 'last mock scores retained during tail export'
+    monkeypatch.setattr(runner, 'score_components', track(runner.score_components))
+    monkeypatch.setattr(runner, 'combine_components', track(runner.combine_components))
+    monkeypatch.setattr(module, 'iter_mock_models', models)
     detail, tails = module.calibrate_combined(query, reference, raw,
         species='human', locus='TRB', replicates=2, seed=7, exclude_exact=True)
+    assert len(released) == 2
     assert detail.height == 4 and tails.height == 6
     assert tails.filter(pl.col('query_id') == 'far')['p_both'].to_list() == [1.] * 3
     assert tails['reference_draws'].to_list() == [2] * 6
