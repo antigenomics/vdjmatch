@@ -101,10 +101,11 @@ Do not add computed caches or use old notebook outputs as prediction inputs.
 ## CLI-first scientific examples and measured resources
 
 Use [the notebook gallery](../../examples/README.md) for labelled TRB ROC/PR,
-TP/FP trajectories, baseline vaccination repertoire abundance, and precursor
+TP/FP trajectories, complete vaccination-repertoire evidence, and precursor
 frequency. Keep the complete examples bundle, including `profile_cli.py`.
-Configure local raw mirrors with `AIRR_BENCHMARK` and `AIRR_YFV19`;
-`YFV_INPUT` chooses a specific baseline table. Do not publish original sample
+Configure local raw mirrors with `AIRR_BENCHMARK` and `AIRR_YFV19`.
+The vaccination driver retains every locally available repertoire named in
+`metadata.txt`, with donor/day/technical-replicate identities and complete counts. Do not publish original sample
 names, donor identifiers or source-identifiable raw/execution tables.
 
 Run core calculations through the installed CLI; plot only its final tables.
@@ -167,7 +168,10 @@ rows are rejected. For multiple supplied sources, retain the largest tail.
 An invalid query has unavailable diagnostics; a valid no-hit has P=1. State the
 fixed reference, search limits and null law/exchangeability assumption. This is
 a junction-level diagnostic, not epitope confidence, V/J-clonotype membership or
-a paired P-value. Do not substitute the legacy `p_any` or a component tail.
+a paired P-value. Run `sh examples/database.sh NEW_DIRECTORY` for a complete
+offline synthetic input/output demonstration (P=0.4/0.8/1.0 for exact/near/no-hit).
+Its four artificial null draws demonstrate software behavior, not a biological
+null law. Do not substitute the legacy `p_any` or a component tail.
 
 `database_exact_gene_clonotype` separately checks a complete junction/V-gene/
 J-gene key with alleles pooled; missing/ambiguous query calls remain unavailable.

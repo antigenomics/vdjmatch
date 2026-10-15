@@ -123,3 +123,29 @@ def test_native_chunk_budget_preserves_scores_duplicates_and_source_order(native
     assert_frame_equal(outputs[0],outputs[1],check_exact=True)
     assert outputs[1]['query_id'].to_list()==queries['query_id'].to_list()
     assert hits[0]==hits[1]
+
+
+def test_complete_single_assay_reuses_compact_reducer_without_mask_joins(native_inputs,monkeypatch,capsys):
+    queries,refs,groups,context=native_inputs
+    task,_,part=groups[0]
+    options=dict(query_keys=['cdr3','_allele'],search_keys=['cdr3','_allele'],paired=False,
+        cutoffs=[0,4,8,13],radius=4,kernel_scale=22.5,scorer='v-bounded',
+        threads=4,matrix='blosum62',ctrim=3,stem_depth=4,v_loop_distances=context)
+    state,hits=kernel.grouped_kernel_selection(queries,refs,[(task,queries,part)],**options)
+    expected=kernel.finish_kernel_selection(queries.select('query_id'),state)
+    original=kernel.select_kernel
+    def forbidden(*args,**kwargs):
+        raise AssertionError('complete single-target scope must not rebuild source-mask joins')
+    monkeypatch.setattr(kernel,'select_kernel',forbidden)
+    actual,supported=kernel.grouped_kernel_selection(queries,refs,[(task,queries.reverse(),part)],assayed=True,progress=True,**options)
+    assert_frame_equal(kernel.finish_kernel_selection(queries.select('query_id'),actual),expected,check_exact=True)
+    assert supported==hits
+    log=capsys.readouterr().err
+    assert 'reference-key visits' in log and 'Kernel counted' in log
+    # An incomplete assay mask must retain unavailable rows, never use the fast path.
+    monkeypatch.setattr(kernel,'select_kernel',original)
+    mask=queries.head(5)
+    actual,supported=kernel.grouped_kernel_selection(queries,refs,[(task,mask,part)],assayed=True,**options)
+    expected=kernel.finish_kernel_selection(queries.select('query_id'),state.filter(pl.col('query_id').is_in(mask['query_id'].implode())))
+    assert_frame_equal(kernel.finish_kernel_selection(queries.select('query_id'),actual),expected,check_exact=True)
+    assert supported==hits & set(mask['query_id'])

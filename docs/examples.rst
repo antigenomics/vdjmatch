@@ -1,7 +1,7 @@
 Examples
 ========
 
-Run two small offline workflows from raw inputs to CLI tables. For longer
+Run three small offline workflows from raw inputs to CLI tables. For longer
 lessons with rendered code, figures and results, continue to :doc:`notebooks`.
 
 Setup
@@ -10,7 +10,7 @@ Setup
 Install vdjmatch in an isolated environment and obtain the complete
 `examples directory <https://github.com/antigenomics/vdjmatch/tree/master/examples>`_,
 keeping ``inputs`` beside the scripts. Activate the environment so
-``vdjmatch`` is on ``PATH``. Both scripts use four native threads and a supplied
+``vdjmatch`` is on ``PATH``. The scripts use four native threads and a supplied
 offline reference.
 
 The inputs are synthetic software fixtures. ``DEMO_A`` and ``DEMO_B`` are
@@ -62,6 +62,50 @@ accuracy, and score scales do not share calibration.
 * :doc:`Read the rendered notebook <notebooks/comparison>`
 * :download:`Notebook source <../examples/comparison.ipynb>` · :download:`Shell script <../examples/compare.sh>`
 
+Check database presence
+-----------------------
+
+.. code-block:: sh
+
+   sh examples/database.sh database-demo
+
+The supplied three-query table and four synthetic null draws produce these
+columns in ``database-demo/presence.database.tsv``:
+
+.. list-table:: Exact CLI output for the synthetic diagnostic
+   :header-rows: 1
+
+   * - Query
+     - Exact junction
+     - Nearest edits
+     - Database P
+     - Status
+   * - ``exact``
+     - true
+     - 0
+     - 0.4
+     - matched
+   * - ``near``
+     - false
+     - 1
+     - 0.8
+     - matched
+   * - ``unsupported``
+     - false
+     - unavailable
+     - 1.0
+     - no_hit
+
+One of four null draws is exact, so the exact query has P = (1+1)/(4+1) = 0.4.
+Three draws are within one edit, giving P = 0.8 for ``near``. Repeated draws count
+separately. Exact presence is certain here even though it is common under this
+synthetic null. These fixtures demonstrate the calculation; biological use needs
+a declared matching null population. No antigen is selected.
+
+* :download:`Shell script <../examples/database.sh>`
+* :download:`Queries <../examples/inputs/database_queries.tsv>` · :download:`Synthetic null draws <../examples/inputs/database_null.tsv>`
+* :doc:`Interpret database evidence <explanation>`
+
 Continue with biological data
 -----------------------------
 
@@ -91,8 +135,25 @@ RAM, occupied cores and live threads. SVG/PDF/PNG figures are exported alongside
 the tables. Every invocation rebuilds from raw inputs in a new output directory.
 These comparisons rank declared assay targets; they do not calibrate a call.
 
-The :doc:`notebooks` gallery covers ROC/PR and true/false positives, baseline
-vaccination-repertoire evidence, and precursor-frequency estimates. Its setup
+Score all locally available vaccination repertoires with their metadata:
+
+.. code-block:: sh
+
+   python examples/vaccination.py --dataset /path/to/airr_yfv19 \
+     --reference reference.zip --threads 4 --memory-gb 24 --output vaccination-run
+
+This retains every eligible TRB junction/V/J clonotype and technical replicate,
+using the author-declared A*02 restriction. ``coverage.tsv`` preserves complete
+read denominators and exclusion counts. Valid-amino-acid junctions with
+noncanonical anchor residues remain present and flagged; functionality is not
+supplied by these inputs. ``observations.tsv`` joins fresh CLI
+scores back to each replicate; ``support.tsv`` counts radius/exact-junction
+support. Neither support flag is a binding call. ``evidence-coverage.tsv`` ranks
+by LLW evidence with all score ties entering together, rather than selecting
+the most abundant clonotypes. Raw identities and detailed outputs stay private.
+
+The :doc:`notebooks` gallery covers ROC/PR and true/false positives,
+vaccination-repertoire neighbourhood evidence, and precursor-frequency estimates. Its setup
 section lists the required local mirrors. See :doc:`performance` for measured
 workload sizes, runtime and memory.
 

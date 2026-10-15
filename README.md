@@ -74,10 +74,11 @@ publication-size figures, with editable PDF/SVG and 300-dpi PNG exports:
 | Question | Notebook |
 | --- | --- |
 | How do common epitopes separate supplied positives and controls? | [ROC/PR, score overlap and TP/FP counts](examples/accuracy.ipynb) |
-| How does baseline repertoire abundance relate to LLW candidate evidence? | [Vaccination dataset walkthrough](examples/vaccination.ipynb) |
+| How does LLW neighbourhood evidence rank clonotypes across donors? | [Vaccination dataset walkthrough](examples/vaccination.ipynb) |
 | How do model mass, precursor frequency and expected cells differ? | [Precursor estimates](examples/precursor_estimates.ipynb) |
 
-Install `vdjmatch[bench,precursor,notebook]` plus `ipykernel`; keep the complete
+Install the matching checkout from its repository root with
+`python -m pip install -r examples/requirements-notebooks.txt`; keep the complete
 `examples` directory together. Inputs remain in the local `airr_benchmark` and
 `airr_yfv19` mirrors, configured through `AIRR_BENCHMARK` and `AIRR_YFV19`.
 The notebooks preserve supplied labels and never reuse predictions as inputs.

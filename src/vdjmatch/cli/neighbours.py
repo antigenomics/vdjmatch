@@ -53,6 +53,7 @@ def register(subparsers, name='neighbours'):
     p.add_argument('--all-targets',action='store_true',help='emit separate evidence for every full pMHC; query target labels are ignored')
     p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep the full background model fixed')
     p.add_argument('--threads',type=int,default=1)
+    p.add_argument('--verbose',action='store_true',help='report grouped query/reference workload and count progress')
     p.add_argument('--distance-matrix',choices=['clipped','blosum62','pam250','mj','vdjam'],default='clipped',
                    help='clipped BLOSUM62 costs or retained unclipped BLOSUM62/PAM250/MJ/VDJAM Gram penalties')
     p.add_argument('--alphabet',choices=['full','imgt'],default='full',
@@ -566,6 +567,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 cutoffs=kernel_cutoffs,radius=a.radius,kernel_scale=22.5*matrix_scale,
                 scorer=a.kernel_scorer,assayed=a.targets_from_sample,
                 geometry_preset=geometry_extra,
+                progress=getattr(a,'verbose',False),
                 **{k:v for k,v in options.items() if k!='linear_mass'})
             background_costs['native_count_batches']+=time.perf_counter()-count_start
             background_provenance['reduction']='one grouped reference traversal; whole search-key counts minus keys exclusive to target peptide; shared-label keys retained'
@@ -575,6 +577,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             evidence=grouped_kernel_enrichment(q,r,groups,query_keys=query_keys,search_keys=search_keys,
                 paired=paired,cutoffs=kernel_cutoffs,radius=a.radius,kernel_scale=22.5*matrix_scale,
                 scorer=a.kernel_scorer,assayed=a.targets_from_sample,
+                progress=getattr(a,'verbose',False),
                 **{k:v for k,v in options.items() if k!='linear_mass'})
             if evidence is not None:
                 enrichment_rows.append(evidence)

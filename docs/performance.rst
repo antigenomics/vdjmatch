@@ -45,7 +45,7 @@ mirror; its SHA256 is
      - 0.846
      - 3.01
      - 7
-   * - Baseline repertoire, LLW target
+   * - Earlier baseline abundance subset, LLW target
      - 10,000 selected clonotypes
      - 4
      - 21.76
@@ -64,10 +64,18 @@ Bold identifies the better measured value only within the two comparable TRB
 rows. These are measured examples, not fitted extrapolations or benchmark medians.
 The precursor input contains 34,162 source observations and 22,171 distinct
 raw junctions across three peptides; seven fail the model's junction check.
-The vaccination example selects the 10,000 most abundant V/junction/J clonotypes
+The earlier vaccination measurement selected the 10,000 most abundant V/junction/J clonotypes
 from 578,812 eligible unique clonotypes in one baseline table, representing
 124,390 / 833,386 eligible read counts (14.93%). This abundance-enriched subset
 does not establish cost or specificity prevalence for a complete cohort.
+The current ``examples/vaccination.py`` runner retains valid-amino-acid junctions
+across every locally available donor/replicate, including flagged noncanonical
+anchor residues. Complete-cohort timing remains unverified: the earlier
+canonical-residue subset did not finish the four-worker workflow within
+1,800 seconds. A twelve-worker subset probe was stopped to correct its input
+retention; it was not a completed cohort measurement. The host was contended.
+Its sampled process-tree RAM ceiling defaults to 24 decimal
+GB and rejects settings above 32 GB; it fails explicitly if the ceiling is exceeded.
 
 The one/four-thread TRB evidence tables are exactly equal, including source
 identities, pMHC, all six component scores and unsupported observations.
@@ -86,6 +94,10 @@ baseline annotation and 4.47 for the precursor run. Short samples include timing
 and CPU-accounting granularity; these measurements cannot establish a strict
 instantaneous four-core ceiling. They show useful multi-core work without a
 sustained whole-run excess over the requested native worker budget.
+These historical peaks are raw short-window CPU-accounting ratios. The helper
+now uses one-second CPU windows; delayed OS accounting can make 50-ms ratios
+exceed the physical core count. Mean occupied cores remains the primary usage
+measure. A run shorter than one second has an unavailable peak.
 
 Live-thread counts also include main, runtime-helper and idle native/table-pool
 threads. Seven to ten live threads therefore do not alone imply seven to ten
@@ -110,6 +122,8 @@ same cost on an x86 laptop, a four-core host or a smaller-memory machine.
 Re-measure on the intended hardware with the same raw inputs and CLI recipe.
 Every biological notebook writes a fresh resource TSV beside its final tables;
 complete local run logs and source-identifier mappings remain private.
+The helper also writes resource sidecars for failed runs, with ``completed=false``,
+exit code and failure kind. An incomplete run never establishes the cohort gate.
 
 * :download:`Exact aggregate resource observations <../examples/resources.tsv>`
 * :download:`Process-tree measurement helper <../examples/profile_cli.py>`

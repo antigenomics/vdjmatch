@@ -118,7 +118,7 @@ def _compact_kernel_selection(scores, exact, permutation, starts, peptides):
 
 def grouped_kernel_selection(queries, references, groups, *, query_keys, search_keys,
         paired, cutoffs, radius, kernel_scale, scorer, assayed=False, withheld_column=None,
-        position_weighting='uniform', geometry_preset=None, _detailed=False, **geometry):
+        position_weighting='uniform', geometry_preset=None, _detailed=False, progress=False, **geometry):
     """Compact all-label selection from one bounded native reference traversal.
 
     Memberships deduplicate search keys separately from pMHC annotations. Other
@@ -131,8 +131,14 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         raise ValueError('unknown kernel scorer')
     if not groups or not queries.height:
         return None,set()
+    if progress:
+        import sys,time
+        progress_started=time.monotonic()
     unique=queries.select(query_keys).unique(maintain_order=True).with_row_index('_row')
     whole=references.unique(search_keys,maintain_order=True).with_row_index('_ref')
+    if progress:
+        print(f'Kernel batch: {unique.height} unique query keys, {whole.height} reference keys; '
+              f'{unique.height*whole.height} reference-key visits',file=sys.stderr,flush=True)
     normalise=geometry_preset in ('norm','jnorm')
     same_v_totals=None
     if normalise:
@@ -222,7 +228,10 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         .select('_row','_target').unique().sort('_row','_target') if sparse else None)
     requested_rows=requested['_row'].to_numpy() if sparse else None
     states=[];hit_ids=set();T=len(groups)
-    compact_all=not _detailed and allowed is None
+    shared_single_scope=(not _detailed and allowed is not None and T==1 and allowed.height==queries.height and
+        allowed['query_id'].n_unique()==queries.height and
+        allowed.select('query_id').join(queries.select('query_id'),on='query_id',how='anti').is_empty())
+    compact_all=not _detailed and (allowed is None or shared_single_scope)
     if compact_all:
         # The same peptide restrictions and lexical order apply to every chunk.
         names=[task['epitope'] for task,_,_ in groups]
@@ -231,8 +240,14 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         starts=np.asarray([i for i,e in enumerate(ordered) if i==0 or e!=ordered[i-1]])
         peptide_names=[ordered[i] for i in starts]
         mapped_ids=mapping['query_id'].to_numpy()
+    reported=-1
     for chunk in iterator:
         C=chunk.stop-chunk.start
+        milestone=10*chunk.stop//unique.height
+        if progress and (reported<0 or milestone>reported):
+            print(f'Kernel counted {chunk.stop}/{unique.height} query keys '
+                  f'in {time.monotonic()-progress_started:.1f}s',file=sys.stderr,flush=True)
+            reported=milestone
         first,last=np.searchsorted(mapped_rows,[chunk.start,chunk.stop])
         chunk_mapping=mapping.slice(int(first),int(last-first))
         curves=np.asarray(chunk.counts);sizes=np.asarray(chunk.sizes)

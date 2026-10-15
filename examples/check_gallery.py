@@ -1,4 +1,4 @@
-"""Run shell examples and gallery notebooks with this environment's installed package.
+"""Run shell examples and gallery notebooks with this checkout's installed package.
 
 From the repository root: python examples/check_gallery.py NEW_OUTPUT_DIRECTORY
 Install examples/requirements-notebooks.txt in an isolated environment first.
@@ -55,7 +55,7 @@ def run(name, action):
     print(name, record["status"], record["seconds"], flush=True)
 
 
-for name in ("annotate", "compare"):
+for name in ("annotate", "compare", "database"):
     run(name, lambda name=name: subprocess.run(
         ["sh", str(root / f"examples/{name}.sh"), str(output / name)],
         cwd=root, check=True, timeout=120))
@@ -64,7 +64,10 @@ for name in ("annotate", "compare"):
 def notebook(path):
     nb = nbformat.read(root / path, as_version=4)
     try:
-        NotebookClient(nb, timeout=300, kernel_name="gallery",
+        timeout=nb.metadata.get('execution_timeout_seconds',300)
+        if not isinstance(timeout,int) or not 0<timeout<=1800:
+            raise ValueError('notebook execution budget must be between 1 and 1800 seconds')
+        NotebookClient(nb, timeout=timeout, kernel_name="gallery",
                        resources={"metadata": {"path": str(root)}}, record_timing=True,
                        on_cell_start=lambda cell, cell_index: print(
                            path, "cell", cell_index + 1, flush=True)).execute()
