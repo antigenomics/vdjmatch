@@ -122,6 +122,12 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     assert compared.filter(pl.col('segment')=='V')['gene_bits'].to_list() == [1.] * 4
     assert information['length_information_bits'].to_list() == [0.] * 8
     assert m['selection_information']['units'] == 'log2 likelihood-ratio bits per junction/gene key'
+    motifs = pl.read_csv(str(controlled)+'.motifs.tsv', separator='\t')
+    assert 'controlled.motifs.tsv' in m['tables'] and motifs.height == m['motif_information']['rows']
+    assert set(motifs['epitope']) == {'A','B'}
+    assert motifs['reference_keys'].unique().to_list() == [2]
+    assert motifs['control_keys'].unique().to_list() == [1]
+    assert 'motif_information_bits' in motifs.columns
     targets=tmp_path/'targets.tsv'
     pl.DataFrame({'query_id':[0,1],'epitope':['A','B'],'species':['human']*2,
         'mhc_a':['HLA-A*02']*2,'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(targets,separator='\t')

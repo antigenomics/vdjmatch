@@ -105,6 +105,22 @@ The implementation takes the maximum supported length-stratum contribution per t
 
 In benchmark mode only exact-hit contributions are filtered from the numerator: replace :math:`x_{V_qe}(t)` there by the remaining hit count. The support set, :math:`x(t)`, :math:`X`, priors, graph and all fitted weights remain fixed. No-hit token contributions vanish; no reference model is refitted for an individual query. The motif score can expose a useful sequence axis, but selecting it for an epitope still requires evidence that this axis differs from the declared control.
 
+Control-relative information in a motif projection
+--------------------------------------------------
+
+For a fixed masked token :math:`t`, define the binary feature :math:`Z_t(x)=\mathbf1\{t\in\mathcal T(x)\}`. Within a V-gene/length stratum :math:`(v,l)`, let :math:`n,N` be reference keys with the motif and all reference keys, and :math:`m,M` the corresponding control counts. Each population uses distinct full-junction/V-gene keys; repeated windows, V alleles and alternative J annotations do not multiply a key. With :math:`p=n/N` and :math:`q=m/M`, the presence contribution and binary information are
+
+.. math::
+
+   \begin{aligned}
+    i_t^+(v,l)&=\log_2\frac{p}{q},\\
+    D_t(v,l)&=p\log_2\frac{p}{q}+(1-p)\log_2\frac{1-p}{1-q}.
+   \end{aligned}
+
+The first can be negative for a depleted motif; the second is the Kullback–Leibler divergence of one Bernoulli projection, in bits per conditional junction/V key. Zero target-probability terms contribute zero by continuity. An empty control stratum, unobserved control motif with positive target mass, or unobserved control absence with positive target absence leaves the corresponding empirical comparison unavailable; the counts remain explicit. The all-length scope conditions on V only, while the exact-length scope also controls the opportunity to contain more windows in a longer junction. J usage and motif position are not additional conditioning variables in this diagnostic.
+
+The shipping ``reference-structure --control`` command writes these reference-observed token projections to ``.motifs.tsv``. It reuses the existing tokenizer in bounded blocks and reduces once-per-key presence counts, with one control model per species/locus and one fixed model per target. Tables are written one target at a time without retaining every target’s motif rows. Overlapping tokens are dependent: their binary divergences are not an additive estimate of joint sequence information. These descriptive projections help identify informative families and motifs; the retained MF–IKF retrieval score, final rule selection and complete-score calibration remain distinct calculations.
+
 Geometry as a projection of selection
 -------------------------------------
 

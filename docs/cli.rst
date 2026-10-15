@@ -1556,6 +1556,22 @@ These descriptive information estimates do not select a score or supply a
 P-value. See :doc:`selection-information` for the likelihood and chain-rule
 interpretation, and :doc:`control-calibration` for final-score tails.
 
+The same control-aware run writes ``structure.motifs.tsv`` with reduced
+single-wildcard four-mer presence within V genes, both pooled over lengths and
+at each exact junction length. Each row retains motif-present counts and full
+key denominators on both sides, ``presence_bits`` and the binary
+``motif_information_bits``. The fixed eleven-class alphabet, all four masks and
+full-junction windows match ``motif-evidence``. Repeated windows count once per
+key; V alleles and alternative J annotations do not multiply a key. Only
+reference-observed tokens are listed. Empty control strata and unobserved motif
+presence/absence are explicit unavailable states; no infinite evidence or
+pseudocount replaces them. The manifest counts short reference keys without a
+four-residue window. J usage and motif position are not conditioned here.
+The tokenizer runs in bounded blocks, and each target table is written directly
+to the final output. Overlapping motif information is not added as independent
+evidence or used to change the current scorer. See :doc:`selection-information`
+for the Bernoulli likelihood-ratio interpretation.
+
 The graph has one vertex per unique anchor-inclusive junction and an edge for
 one amino-acid substitution, with no indels. One native batch searches the entire
 selected reference population. The complete reference graph and its composition

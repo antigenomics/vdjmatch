@@ -151,6 +151,14 @@ def composition(records, junctions, *, include_punctures=True):
     return row(), [row(sequence) for sequence in seqs] if include_punctures else []
 
 
+def _gene_expression(locus, segment):
+    """One shared allele-pooled gene projection; unresolved calls stay null."""
+    import polars as pl
+    gene = pl.col(segment.lower()).cast(pl.String).str.strip_chars().str.to_uppercase()
+    resolved = gene.str.contains('^' + locus + segment + r'[A-Z0-9/.-]+(?:\*[A-Z0-9]+)?$').fill_null(False)
+    return pl.when(resolved).then(gene.str.split('*').list.first()).otherwise(None)
+
+
 def reference_gene_usage(records, *, locus):
     """Count fixed-reference V/J usage overall and within each junction length.
 
@@ -167,10 +175,8 @@ def reference_gene_usage(records, *, locus):
         raise ValueError('gene usage requires valid full amino-acid junctions')
     parts = []
     for segment in ('V', 'J'):
-        gene = pl.col(segment.lower()).cast(pl.String).str.strip_chars().str.to_uppercase()
-        resolved = gene.str.contains('^' + locus + segment + r'[A-Z0-9/.-]+(?:\*[A-Z0-9]+)?$').fill_null(False)
         frame = records.select('cdr3', pl.col('cdr3').str.len_chars().alias('junction_length'),
-            pl.when(resolved).then(gene.str.split('*').list.first()).otherwise(None).alias('gene'))
+            _gene_expression(locus, segment).alias('gene'))
         for scope in ('all_lengths', 'exact_length'):
             selected = frame.with_columns(pl.lit(None, dtype=pl.UInt32).alias('junction_length')) if scope == 'all_lengths' else frame
             counts = selected.group_by('junction_length', 'gene').agg(

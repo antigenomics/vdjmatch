@@ -57,3 +57,43 @@ def masked_motif_scores(queries, reference, *, exclude_exact=False, target_refer
     return (hits.group_by('query_id',*PMHC,'t0').agg(pl.col('_mfikf').max(),pl.col('seq0').first())
         .group_by('query_id',*PMHC).agg((pl.col('_mfikf').sum()/pl.col('seq0').first().str.len_chars()).alias('motif_score'),
             pl.len().alias('supported_motifs')))
+
+
+def masked_motif_presence_counts(frame):
+    """Bounded counts of existing reduced masked-4-mer presence by integer v0.
+
+    ``_id,seq0,v0`` identify unique input keys, full junctions and nonnegative
+    contiguous stratum IDs. Repeated windows count once per input key. Return
+    an int64 stratum/token histogram and its fixed 5,324-token vocabulary.
+    Uses the existing tokenizer in blocks; no per-sequence Python/search calls.
+    """
+    from itertools import product
+    import numpy as np
+    from ..evalue.epitope_rules import IMGT_CLASSES
+
+    if (not frame.schema['v0'].is_integer() or frame['_id'].null_count() or
+            frame['_id'].n_unique() != frame.height or frame['v0'].null_count() or
+            frame.filter((pl.col('v0') < 0) | ~pl.col('seq0').str.contains(
+                r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)).height):
+        raise ValueError('motif counts require unique IDs, valid full junctions and nonnegative strata')
+    letters = list(dict.fromkeys(IMGT_CLASSES.values()))
+    tokens = []
+    for mask in range(4):
+        for parts in product(letters, repeat=3):
+            word = ''.join(parts)
+            tokens.append(word[:mask] + 'X' + word[mask:])
+    vocabulary = pl.DataFrame({'t0': tokens}).with_row_index('_token_id')
+    groups = int(frame['v0'].max()) + 1 if frame.height else 0
+    if groups * len(tokens) * 8 > 256 * 1024**2:
+        raise ValueError('motif histogram exceeds the 256 MiB count-buffer budget')
+    counts = np.zeros((groups, len(tokens)), dtype=np.int64)
+    longest = frame['seq0'].str.len_chars().max() or 0
+    # Measured expanded-token memory is below 256 B/row; budget a full 256 MiB
+    # block, including its tokenizer joins/unique/group reduction temporaries.
+    rows = min(65536, max(1, (256 * 1024**2) // (4 * max(1, longest - 3) * 256)))
+    for part in frame.iter_slices(rows):
+        frequencies = _tokens(part, [0], 'imgt_wild4', full_junction=True,
+            wildcard_positions=(0, 1, 2, 3)).group_by('v0', 't0').len().join(
+                vocabulary, on='t0', validate='m:1')
+        counts[frequencies['v0'].to_numpy(), frequencies['_token_id'].to_numpy()] += frequencies['len'].to_numpy()
+    return counts, vocabulary

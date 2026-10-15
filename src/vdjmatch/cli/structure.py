@@ -25,11 +25,14 @@ def main(a):
     import seqtree._core as native_core
     from .. import db
     from ..aggregate.candidates import PMHC
+    from ..aggregate.motif_information import motif_population, motif_selection_information
     from ..aggregate.structure import composition, graph_profiles, reference_gene_usage, control_gene_usage, compare_gene_usage, gene_selection_information
     from ..cluster import overlap
     from ..db.cache import sha256
     from ..evalue.control import _organism
     from ..match.geometry import load_v_loops, resolve_v_alleles
+    from ..match.motifs import masked_motif_presence_counts
+    from ..evalue.epitope_rules import _tokens
     from ..runner.annotation import _validate_output_paths
 
     start = time.monotonic()
@@ -39,13 +42,17 @@ def main(a):
     prefix = _validate_output_paths(a.output_prefix, protected)
     organism = _organism(a.species)
     species = {'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
-    control_usage, control_info = None, None
+    control_usage, control_info, control_motifs = None, None, None
+    motif_path, motif_rows, motif_written = None, 0, False
     if a.control:
         from .combined import _raw_control
         from ..evalue.mock_reference import control_events
         control_raw, control_info = _raw_control(a.control)
         events = control_events(control_raw, species=organism, locus=a.locus)
         control_usage = control_gene_usage(events, locus=a.locus)
+        control_motifs = motif_population(events.rename({'junction_aa': 'cdr3'}), locus=a.locus)
+        prefix.parent.mkdir(parents=True, exist_ok=True)
+        motif_path = Path(str(prefix)+'.motifs.tsv')
         control_info.update(path=str(Path(a.control).resolve()), sha256=sha256(Path(a.control)),
             event_keys=events.height, total_events=int(events['event_weight'].sum()),
             reader_sha256=sha256(Path(_raw_control.__code__.co_filename)),
@@ -130,6 +137,14 @@ def main(a):
         gene_context = {k: v for k, v in context.items() if k != '_mixture_group'}
         gene_tables.append(reference_gene_usage(source.filter(mixture_available), locus=a.locus).with_columns(
             *[pl.lit(value).alias(key) for key, value in gene_context.items()]))
+        if control_motifs is not None:
+            motifs = motif_selection_information(source.filter(mixture_available), control_motifs, locus=a.locus).with_columns(
+                *[pl.lit(value).alias(key) for key, value in gene_context.items()])
+            with motif_path.open('ab' if motif_written else 'wb') as stream:
+                motifs.write_csv(stream, separator='\t', include_header=not motif_written)
+            motif_written = True
+            motif_rows += motifs.height
+            del motifs
         n = selected_nodes[group_id].unique().height
         endpoints = degree_edges[group_id].to_numpy().ravel() if group_id in degree_edges else np.array([], dtype=np.int64)
         degrees = np.bincount(endpoints, minlength=n)
@@ -205,7 +220,7 @@ def main(a):
         control_path = Path(str(prefix)+'.control-genes.tsv')
         control_usage.with_columns(pl.lit(species).alias('species'), pl.lit(a.locus).alias('locus')).write_csv(
             control_path, separator='\t')
-        tables.append(control_path)
+        tables.extend([control_path, motif_path])
     gene_usage.write_csv(gene_path, separator='\t')
     pl.DataFrame(degree_rows, schema_overrides={'degree': pl.Int64, 'junction_count': pl.Int64},
         infer_schema_length=None).write_csv(degree_path, separator='\t')
@@ -234,6 +249,17 @@ def main(a):
         control=control_info,
         gene_control_comparison=('reference record/key fractions divided by control event fractions; no smoothing; unresolved genes, absent control genes and absent control lengths explicit; descriptive composition only'
             if control_info is not None else None),
+        motif_information=(dict(rows=motif_rows, k=4, masks=[0,1,2,3],
+            alphabet='11 IMGT classes', token_scope='full junction; once-per-key presence',
+            sampling_unit='distinct full-junction/V-gene keys on both sides',
+            scopes='within V, pooled lengths and exact length',
+            statistic='presence log2 likelihood ratio and binary presence/absence KL; overlapping tokens are not independent',
+            row_policy='reference-observed tokens only; no automatic scorer/threshold; missing control support stays unavailable',
+            reference_keys_without_fourmer=int(gene_usage.filter((pl.col("segment")=="V") &
+                (pl.col("length_scope")=="exact_length") & (pl.col("junction_length")<4))["junction_gene_keys"].sum()),
+            reducer_sha256=sha256(Path(motif_selection_information.__code__.co_filename)),
+            counter_sha256=sha256(Path(masked_motif_presence_counts.__code__.co_filename)),
+            tokenizer_sha256=sha256(Path(_tokens.__code__.co_filename))) if control_info is not None else None),
         selection_information=(dict(sampling_unit='distinct full-junction/segment-gene keys in both populations; V and J separate',
             units='log2 likelihood-ratio bits per junction/gene key',
             decomposition='I(length,gene)=I(length)+I(gene|length); marginal gene information also reported',

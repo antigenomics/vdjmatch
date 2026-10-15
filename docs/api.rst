@@ -199,3 +199,7 @@ Reference graph morphology
 .. autofunction:: vdjmatch.aggregate.structure.graph_profiles
 
 .. autofunction:: vdjmatch.aggregate.structure.gene_selection_information
+
+.. autofunction:: vdjmatch.aggregate.motif_information.motif_population
+
+.. autofunction:: vdjmatch.aggregate.motif_information.motif_selection_information
