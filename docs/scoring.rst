@@ -1,6 +1,12 @@
 Score definitions
 =================
 
+See :doc:`selection-information` for selection factors, likelihood ratios,
+information in bits, masked-four-mer weighting, geometry and comparable tails.
+Benchmark exact exclusion filters hit contributions only: model populations,
+priors, motifs and graphs stay fixed. Historical population-puncturing recipes
+below do not define the current selection procedure.
+
 Current VDJmatch kernel
 -----------------------
 
