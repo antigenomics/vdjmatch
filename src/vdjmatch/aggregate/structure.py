@@ -254,3 +254,66 @@ def compare_gene_usage(usage, control):
         pl.col(source) / pl.col('control_event_fraction')).otherwise(None).alias(name)
         for source, name in [('record_fraction', 'record_to_control_event_ratio'),
                              ('key_fraction', 'key_to_control_event_ratio')]])
+
+
+def gene_selection_information(comparison):
+    """Pointwise selection bits and conditional V/J--length information.
+
+    Consume :func:`compare_gene_usage` output with species, locus and full pMHC
+    columns. Both populations use distinct full-junction/segment-gene keys;
+    V and J are separate projections, not independent evidence to add.
+    Return the unchanged input rows/columns plus pointwise log2 ratios, and one
+    summary per context/segment/length scope. ``all_lengths`` measures marginal
+    gene information; ``exact_length`` decomposes joint information into length
+    and target-weighted conditional gene information. Null restrictions remain
+    valid grouping keys. Zero/missing control support or unresolved reference
+    genes retain their original mass and make affected information unavailable;
+    no pseudocount, renormalization, score selection or confidence is introduced.
+    """
+    import polars as pl
+    from .candidates import PMHC
+
+    context = ['species', 'locus', *PMHC, 'segment']
+    keys = [*context, 'length_scope', 'junction_length', 'gene']
+    required = {*keys, 'junction_gene_keys', 'total_junction_gene_keys',
+                'total_control_junction_gene_keys', 'reference_records', 'key_fraction', 'control_key_fraction'}
+    if required - set(comparison.columns):
+        raise ValueError('selection information requires compared V/J gene counts and full pMHC context')
+    if comparison.select(keys).is_duplicated().any():
+        raise ValueError('selection information requires unique context/gene/length rows')
+    if (comparison.filter(~pl.col('length_scope').is_in(['all_lengths', 'exact_length']).fill_null(False)).height or
+            comparison.filter((pl.col('junction_gene_keys') <= 0) |
+                              (pl.col('total_junction_gene_keys') < pl.col('junction_gene_keys'))).height):
+        raise ValueError('selection information requires fixed positive gene counts and declared length scopes')
+    frame = comparison.with_row_index('_selection_row')
+    totals = frame.filter(pl.col('length_scope') == 'all_lengths').select(*context,
+        pl.col('total_junction_gene_keys').alias('reference_total'),
+        pl.col('total_control_junction_gene_keys').alias('control_total')).unique()
+    rows = frame.join(totals, on=context, how='left', nulls_equal=True, validate='m:1', maintain_order='left')
+    if rows['reference_total'].null_count():
+        raise ValueError('selection information requires an all-length marginal for every context')
+    rows = rows.with_columns(
+        (pl.col('total_junction_gene_keys') / pl.col('reference_total')).alias('reference_length_fraction'),
+        (pl.col('total_control_junction_gene_keys') / pl.col('control_total')).alias('control_length_fraction'))
+    rows = rows.with_columns(
+        (pl.col('reference_length_fraction') / pl.col('control_length_fraction')).log(2).alias('length_bits'),
+        pl.when((pl.col('control_key_fraction') > 0) & pl.col('gene').is_not_null()).then(
+            (pl.col('key_fraction') / pl.col('control_key_fraction')).log(2)).otherwise(None).alias('gene_bits'),
+        (pl.col('key_fraction') * pl.col('reference_length_fraction')).alias('joint_reference_fraction'))
+    rows = rows.with_columns((pl.col('length_bits') + pl.col('gene_bits')).alias('joint_bits'))
+    summary = rows.group_by(*context, 'length_scope').agg(
+        pl.col('reference_records').sum(), pl.col('junction_gene_keys').sum().alias('reference_keys'),
+        pl.col('control_total').first().alias('control_keys'),
+        pl.col('junction_gene_keys').filter(pl.col('gene_bits').is_null()).sum().alias('unresolved_comparison_keys'),
+        pl.col('junction_gene_keys').filter(pl.col('length_bits').is_null()).sum().alias('unavailable_length_keys'),
+        (pl.col('joint_reference_fraction') * pl.col('length_bits')).sum().alias('length_information_bits'),
+        (pl.col('joint_reference_fraction') * pl.col('gene_bits')).sum().alias('gene_information_bits'),
+        (pl.col('joint_reference_fraction') * pl.col('joint_bits')).sum().alias('joint_information_bits'))
+    complete_gene = pl.col('unresolved_comparison_keys') == 0
+    complete_length = pl.col('unavailable_length_keys') == 0
+    summary = summary.with_columns(
+        pl.when(complete_length).then(pl.col('length_information_bits')).otherwise(None).alias('length_information_bits'),
+        pl.when(complete_gene).then(pl.col('gene_information_bits')).otherwise(None).alias('gene_information_bits'),
+        pl.when(complete_gene & complete_length).then(pl.col('joint_information_bits')).otherwise(None).alias('joint_information_bits'),
+        pl.when(complete_gene & complete_length).then(pl.lit('available')).otherwise(pl.lit('incomplete_support')).alias('information_status'))
+    return rows.sort('_selection_row').drop('_selection_row'), summary.sort(*context, 'length_scope', nulls_last=True)

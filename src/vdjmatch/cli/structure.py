@@ -25,7 +25,7 @@ def main(a):
     import seqtree._core as native_core
     from .. import db
     from ..aggregate.candidates import PMHC
-    from ..aggregate.structure import composition, graph_profiles, reference_gene_usage, control_gene_usage, compare_gene_usage
+    from ..aggregate.structure import composition, graph_profiles, reference_gene_usage, control_gene_usage, compare_gene_usage, gene_selection_information
     from ..cluster import overlap
     from ..db.cache import sha256
     from ..evalue.control import _organism
@@ -198,6 +198,10 @@ def main(a):
     gene_usage = pl.concat(gene_tables, how='vertical_relaxed')
     if control_usage is not None:
         gene_usage = compare_gene_usage(gene_usage, control_usage)
+        gene_usage, information = gene_selection_information(gene_usage)
+        information_path = Path(str(prefix)+'.information.tsv')
+        information.write_csv(information_path, separator='\t')
+        tables.append(information_path)
         control_path = Path(str(prefix)+'.control-genes.tsv')
         control_usage.with_columns(pl.lit(species).alias('species'), pl.lit(a.locus).alias('locus')).write_csv(
             control_path, separator='\t')
@@ -230,6 +234,11 @@ def main(a):
         control=control_info,
         gene_control_comparison=('reference record/key fractions divided by control event fractions; no smoothing; unresolved genes, absent control genes and absent control lengths explicit; descriptive composition only'
             if control_info is not None else None),
+        selection_information=(dict(sampling_unit='distinct full-junction/segment-gene keys in both populations; V and J separate',
+            units='log2 likelihood-ratio bits per junction/gene key',
+            decomposition='I(length,gene)=I(length)+I(gene|length); marginal gene information also reported',
+            missing_support='all original mass retained; incomplete expectations null; no smoothing or renormalization',
+            reducer_sha256=sha256(Path(gene_selection_information.__code__.co_filename))) if control_info is not None else None),
         entropy_units='natural logarithms', length_units='amino-acid residues, conserved anchors included',
         exclusion='none: model composition and weights use the fixed full reference; benchmark exclusion applies only to hit lists',
         interpretation='reference-only morphology and fixed graph-mixture heuristic; no label fit, recognition probability or P/E-value',

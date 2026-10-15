@@ -114,6 +114,14 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     assert m['control']['control_source_rows']==3 and m['control']['control_valid_rows']==2
     assert m['control']['event_keys']==2 and m['control']['total_events']==4
     assert 'controlled.control-genes.tsv' in m['tables']
+    assert 'controlled.information.tsv' in m['tables']
+    information = pl.read_csv(str(controlled)+'.information.tsv', separator='\t')
+    assert information.height == 8
+    assert information.filter(pl.col('segment')=='V')['gene_information_bits'].to_list() == [1.] * 4
+    assert information.filter(pl.col('segment')=='J')['gene_information_bits'].to_list() == [0.] * 4
+    assert compared.filter(pl.col('segment')=='V')['gene_bits'].to_list() == [1.] * 4
+    assert information['length_information_bits'].to_list() == [0.] * 8
+    assert m['selection_information']['units'] == 'log2 likelihood-ratio bits per junction/gene key'
     targets=tmp_path/'targets.tsv'
     pl.DataFrame({'query_id':[0,1],'epitope':['A','B'],'species':['human']*2,
         'mhc_a':['HLA-A*02']*2,'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(targets,separator='\t')
@@ -257,3 +265,64 @@ def test_gene_usage_control_preserves_event_weights_unknowns_and_missing_lengths
     assert missing['control_events'] is None and missing['control_status'] == 'no_control_length'
     with pytest.raises(ValueError, match='positive integer'):
         control_gene_usage(events.with_columns(pl.lit(1.5).alias('event_weight')), locus='TRB')
+    from vdjmatch.aggregate.structure import gene_selection_information
+    contextual = result.with_columns(pl.lit('human').alias('species'), pl.lit('TRB').alias('locus'),
+        pl.lit('TEST').alias('epitope'), pl.lit(None, dtype=pl.String).alias('mhc_a'),
+        pl.lit('B2M').alias('mhc_b'), pl.lit('MHCI').alias('mhc_class'))
+    factors, information = gene_selection_information(contextual)
+    assert factors.height == result.height
+    v = information.filter(pl.col('segment') == 'V')
+    assert v['reference_keys'].to_list() == [4, 4]
+    assert v['unresolved_comparison_keys'].to_list() == [2, 3]
+    assert v['unavailable_length_keys'].to_list() == [0, 1]
+    assert v['gene_information_bits'].null_count() == 2
+    assert v['joint_information_bits'].null_count() == 2
+    assert v['information_status'].to_list() == ['incomplete_support'] * 2
+
+
+def test_selection_information_matches_count_likelihood_and_conditional_chain_rule():
+    import polars as pl
+    from vdjmatch.aggregate.structure import (reference_gene_usage, control_gene_usage,
+        compare_gene_usage, gene_selection_information)
+    probabilities = ([.1, .3, .2, .4], [.3, .2, .4, .1])
+    populations = []
+    for weights in probabilities:
+        rows = []
+        for cell, weight in enumerate(weights):
+            length = 10 + cell // 2
+            for i in range(round(10 * weight)):
+                rows.append({'cdr3': 'C' + 'A' * (length - 3) + 'ACDE'[i] + 'F',
+                    'v': 'TRBV' + str(1 + cell % 2), 'j': 'TRBJ1-1', 'event_weight': 1 + i})
+        populations.append(pl.DataFrame(rows))
+    usage = reference_gene_usage(populations[0], locus='TRB')
+    control = control_gene_usage(populations[1].rename({'cdr3': 'junction_aa'}), locus='TRB')
+    comparison = compare_gene_usage(usage, control).with_columns(pl.lit('human').alias('species'),
+        pl.lit('TRB').alias('locus'), pl.lit('TEST').alias('epitope'),
+        pl.lit(None, dtype=pl.String).alias('mhc_a'), pl.lit('B2M').alias('mhc_b'), pl.lit('MHCI').alias('mhc_class'))
+    factors, information = gene_selection_information(comparison)
+    assert factors.select(comparison.columns).sort('segment', 'length_scope', 'junction_length', 'gene').equals(
+        comparison.sort('segment', 'length_scope', 'junction_length', 'gene'))
+    p, q = probabilities
+    joint = sum(a * math.log2(a/b) for a,b in zip(p,q))
+    length = sum(sum(p[i:i+2]) * math.log2(sum(p[i:i+2])/sum(q[i:i+2])) for i in (0,2))
+    marginal = sum(sum(p[i::2]) * math.log2(sum(p[i::2])/sum(q[i::2])) for i in (0,1))
+    row = information.filter((pl.col('segment') == 'V') & (pl.col('length_scope') == 'exact_length')).row(0, named=True)
+    assert row['reference_keys'] == 10
+    assert row['length_information_bits'] == pytest.approx(length)
+    assert row['joint_information_bits'] == pytest.approx(joint)
+    assert row['gene_information_bits'] == pytest.approx(joint - length)
+    full = information.filter((pl.col('segment') == 'V') & (pl.col('length_scope') == 'all_lengths')).row(0, named=True)
+    assert full['gene_information_bits'] == pytest.approx(marginal)
+    assert full['joint_information_bits'] == pytest.approx(marginal)
+    assert factors.filter(pl.col('gene_bits') < 0).height > 0
+    assert information.height == 4 and information['mhc_a'].null_count() == 4
+    assert information['unresolved_comparison_keys'].to_list() == [0] * 4
+    # Identical key distributions carry zero information despite event-weight imbalance.
+    identical = compare_gene_usage(usage, control_gene_usage(
+        populations[0].rename({'cdr3': 'junction_aa'}), locus='TRB'))
+    for c in ('species', 'locus', 'epitope', 'mhc_a', 'mhc_b', 'mhc_class'):
+        identical = identical.with_columns(pl.lit(comparison[c][0], dtype=comparison.schema[c]).alias(c))
+    _, zero = gene_selection_information(identical)
+    assert zero['joint_information_bits'].to_list() == pytest.approx([0.] * 4)
+    with pytest.raises(ValueError, match='unique'):
+        gene_selection_information(pl.concat([comparison, comparison.head(1)]))

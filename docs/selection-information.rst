@@ -5,7 +5,7 @@ Selection evidence as information
 
 **Scope and status.**
 
-The objective is to identify which receptor features distinguish a pMHC-specific repertoire from the declared control, and use those features to choose the scoring rule. The equations below define this objective and its calibration contract; they do not promote a new default or establish superiority over other predictors. The V-conditioned masked-four-mer score and reference/control gene counts are implemented diagnostics. A complete information-directed selector and its whole-cohort calibration remain to be established. The original/general score is retained when the available features do not support a more specific rule.
+The objective is to identify which receptor features distinguish a pMHC-specific repertoire from the declared control, and use those features to choose the scoring rule. The equations below define this objective and its calibration contract; they do not promote a new default or establish superiority over other predictors. The V-conditioned masked-four-mer score and the reference/control gene–length information decomposition are implemented diagnostics. A complete information-directed selector and its whole-cohort calibration remain to be established. The original/general score is retained when the available features do not support a more specific rule.
 
 Likelihood ratios, selection factors and bits
 ---------------------------------------------
@@ -164,7 +164,7 @@ With :math:`B=199`, a plus-one tail cannot be smaller than :math:`1/200=0.005`. 
 Implementation entry points
 ---------------------------
 
-Use :doc:`cli` for ``motif-evidence`` and ``reference-structure --control``.
+Use :doc:`cli` for ``motif-evidence`` and ``reference-structure --control``. The latter produces pointwise selection bits in ``.genes.tsv`` and conditional/marginal information in ``.information.tsv``.
 See :doc:`scoring` for the current default reducers and :doc:`control-calibration`
 for the two control directions. The information-directed selector described here
 is a mathematical development objective, not an additional CLI mode.

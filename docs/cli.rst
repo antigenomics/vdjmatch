@@ -1522,6 +1522,40 @@ establish antigen selection, structural contacts, binding confidence or a scorer
 assignment. The manifest records the raw-control identity, retained/excluded rows,
 event counts and normalizer source identity.
 
+With the same ``--control`` option, ``structure.genes.tsv`` also reports
+``gene_bits``, ``length_bits`` and ``joint_bits``. These use distinct
+junction/gene keys on **both** sides, rather than the event fractions used by
+the two ratios above. Positive pointwise bits indicate enrichment and negative
+bits indicate depletion. The companion ``structure.information.tsv`` contains
+one row per full-pMHC/species/locus/segment and length scope:
+
+.. list-table:: Information fields (bits per junction/gene key)
+   :header-rows: 1
+
+   * - Field
+     - ``all_lengths``
+     - ``exact_length``
+   * - ``length_information_bits``
+     - Zero
+     - :math:`D_{\rm KL}(P_e(L)\Vert P_0(L))`
+   * - ``gene_information_bits``
+     - :math:`D_{\rm KL}(P_e(G)\Vert P_0(G))`
+     - :math:`\mathbb E_{P_e(L)}D_{\rm KL}(P_e(G\mid L)\Vert P_0(G\mid L))`
+   * - ``joint_information_bits``
+     - Marginal gene information
+     - Sum of length and conditional gene information
+
+Here :math:`G` is V or J, :math:`L` is anchor-inclusive junction length,
+:math:`P_e` is the target distribution and :math:`P_0` the empirical control.
+V and J are separate projections. Counts include all original mass; unresolved
+genes or zero/missing control support leave affected expectations null, with
+``unresolved_comparison_keys``, ``unavailable_length_keys`` and
+``information_status`` explaining coverage. Missing MHC fields remain explicit
+context values. Reference/key/control counts and the sampling units are retained.
+These descriptive information estimates do not select a score or supply a
+P-value. See :doc:`selection-information` for the likelihood and chain-rule
+interpretation, and :doc:`control-calibration` for final-score tails.
+
 The graph has one vertex per unique anchor-inclusive junction and an edge for
 one amino-acid substitution, with no indels. One native batch searches the entire
 selected reference population. The complete reference graph and its composition

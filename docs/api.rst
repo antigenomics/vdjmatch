@@ -197,3 +197,5 @@ Reference graph morphology
 --------------------------
 
 .. autofunction:: vdjmatch.aggregate.structure.graph_profiles
+
+.. autofunction:: vdjmatch.aggregate.structure.gene_selection_information
