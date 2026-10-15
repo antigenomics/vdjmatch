@@ -164,7 +164,9 @@ are not benchmark scoring inputs and must not define an “honest” scorer pool
 --output-prefix OUT` exports full-pMHC Hamming-one graph, junction-length and V-usage
 features. `--targets-from-sample RAW_AIRR` uses declared compatible pMHC unions.
 Each vertex is a unique full junction. The command exports the complete fixed
-reference graph and degree histogram; no query-specific graph is rebuilt or
+reference graph, degree histogram and `.lengths.tsv` exact-length coverage table;
+the latter separates valid source records, modeled records and unique graph
+junctions, retaining short junctions and unresolved V genes. No query-specific graph is rebuilt or
 exported. Keep graph-node, clonotype-key and source-record units separate;
 entropies are in nats and lengths include anchors. Empty reference structure is
 unavailable. One native population batch feeds all target graphs, without a

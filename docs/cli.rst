@@ -1481,7 +1481,8 @@ Inspect the reference composition that can guide chainwise scoring weights:
      --epitope NLVPMVATV --threads 4 --output-prefix structure
 
 The command writes ``structure.structures.tsv`` with one row per full peptide–MHC
-population and ``structure.degrees.tsv`` with its degree histogram.
+population, ``structure.degrees.tsv`` with its degree histogram, and
+``structure.lengths.tsv`` with coverage at each exact junction length.
 ``--targets-from-sample AIRR_TABLE`` uses the compatible restriction unions declared
 by that table. ``--reference-population`` selects ``curated-benchmark`` (default)
 or ``all-valid``.
@@ -1506,6 +1507,18 @@ table adds ``hamming_`` counts, mean/variance/maximum degree, median, 10th and 9
 percentiles, and isolated fraction for that population. Quantiles use linear
 interpolation. These degree distributions describe the fixed full reference; the existing modeled connectivity columns retain their stated
 V-resolution and length requirements.
+
+``structure.lengths.tsv`` reuses those same fixed graph nodes and edges. Each row
+reports one exact ``junction_length`` in amino acids, ``valid_reference_records``,
+``modeled_reference_records``, unique ``junctions``, ``graph_edges``,
+``isolated_junctions``, ``mean_degree`` and ``isolated_fraction``. Duplicate source
+records count separately from graph nodes; valid short junctions and unresolved
+V genes remain in the graph. Modeled records additionally require a resolved V
+allele and junction length of at least eight. The inherited ``source_observations``
+and invalid/unavailable counts describe the whole pMHC population, not the length
+stratum. An empty population has one row with null length, zero counts and null
+degree/fraction. Hamming edges never connect unequal lengths. Thus a rare length
+can have neighbours, and a missing neighbourhood does not establish nonrecognition.
 
 These are reference morphology features. The command fits no weights, makes no
 recognition claim and supplies no P-value. Its manifest records population policy,

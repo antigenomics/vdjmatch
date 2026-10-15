@@ -103,7 +103,9 @@ def main(a):
         joined = edges.join(left, on='a_idx', validate='m:m').join(
             right, on=['b_idx', '_group'], validate='m:1')
         degree_edges = {key[0]: part.select('a', 'b') for key, part in joined.group_by('_group')}
-    summaries, degree_rows = [], []
+    degree_nodes = {key[0]: part.sort('_local') for key, part in
+                    degree_membership.group_by('_group')} if degree_membership is not None else {}
+    summaries, degree_rows, length_tables = [], [], []
     for group_id, (task, source) in enumerate(groups):
         retained = source.filter(available)
         junctions = memberships[group_id]
@@ -127,6 +129,28 @@ def main(a):
                            for d, c in zip(values, counts))
         if not n:
             degree_rows.append(degree_context | dict(degree=None, junction_count=0))
+        # Local node indices, not join order, align junction lengths with degrees.
+        length_graph = degree_nodes[group_id].select(
+            pl.col('cdr3').str.len_chars().alias('junction_length')).with_columns(
+                pl.Series('degree', degrees)).group_by('junction_length').agg(
+                    pl.len().alias('junctions'),
+                    (pl.col('degree').sum() // 2).alias('graph_edges'),
+                    (pl.col('degree') == 0).sum().alias('isolated_junctions'),
+                    pl.col('degree').mean().alias('mean_degree'),
+                    (pl.col('degree') == 0).mean().alias('isolated_fraction')) if n else None
+        length_counts = source.filter(mixture_available).with_columns(
+            pl.col('cdr3').str.len_chars().alias('junction_length'), available.alias('_modeled')
+        ).group_by('junction_length').agg(pl.len().alias('valid_reference_records'),
+                                        pl.col('_modeled').sum().alias('modeled_reference_records'))
+        length_context = {k: v for k, v in degree_context.items() if k not in ('junctions', 'graph_edges')}
+        if n:
+            length_table = length_graph.join(length_counts, on='junction_length', validate='1:1')
+        else:
+            length_table = pl.DataFrame(dict(junction_length=[None], junctions=[0], graph_edges=[0],
+                isolated_junctions=[0], mean_degree=[None], isolated_fraction=[None],
+                valid_reference_records=[0], modeled_reference_records=[0]))
+        length_tables.append(length_table.with_columns(
+            *[pl.lit(value).alias(key) for key, value in length_context.items()]))
         degree_summary = dict(hamming_junctions=n, hamming_graph_edges=edge_count,
             hamming_mean_degree=float(degrees.mean()) if n else None,
             hamming_degree_variance=float(degrees.var()) if n else None,
@@ -138,6 +162,7 @@ def main(a):
     prefix.parent.mkdir(parents=True,exist_ok=True)
     summary_path = Path(str(prefix)+'.structures.tsv')
     degree_path = Path(str(prefix)+'.degrees.tsv')
+    length_path = Path(str(prefix)+'.lengths.tsv')
     if not summaries:
         raise ValueError('no declared reference targets')
     summary = pl.DataFrame(summaries, infer_schema_length=None).with_columns(pl.col('_mixture_group').cast(pl.UInt32))
@@ -154,6 +179,8 @@ def main(a):
     summary.drop('_mixture_group').write_csv(summary_path, separator='\t')
     pl.DataFrame(degree_rows, schema_overrides={'degree': pl.Int64, 'junction_count': pl.Int64},
         infer_schema_length=None).write_csv(degree_path, separator='\t')
+    pl.concat(length_tables, how='vertical_relaxed').sort('species', 'locus', *PMHC, 'junction_length').write_csv(
+        length_path, separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(dict(reference=db.provenance(a.vdjdb),
         reference_population=a.reference_population, species=species,locus=a.locus,threads=a.threads,
         epitope=a.epitope, targets_sha256=sha256(Path(a.targets_from_sample)) if a.targets_from_sample else None,
@@ -172,9 +199,10 @@ def main(a):
         graph_node_unit='unique full junction', v_usage_unit='unique full junction/resolved V allele keys; gene-level categories',
         degree_population='all valid full junctions, including unresolved V; fixed full reference',
         degree_quantiles='linear interpolation of the unique-junction degree distribution',
+        length_coverage='exact junction length; all valid reference records and unique junctions; modeled records counted separately; no cross-length Hamming edges',
         entropy_units='natural logarithms', length_units='amino-acid residues, conserved anchors included',
         exclusion='none: model composition and weights use the fixed full reference; benchmark exclusion applies only to hit lists',
         interpretation='reference-only morphology and fixed graph-mixture heuristic; no label fit, recognition probability or P/E-value',
         source_sha256=sha256(Path(__file__)), reducer_sha256=sha256(Path(graph_profiles.__code__.co_filename)),
-        tables={str(p.name):sha256(p) for p in (summary_path,degree_path)}, seconds=time.monotonic()-start),indent=2)+'\n')
+        tables={str(p.name):sha256(p) for p in (summary_path,degree_path,length_path)}, seconds=time.monotonic()-start),indent=2)+'\n')
     return 0

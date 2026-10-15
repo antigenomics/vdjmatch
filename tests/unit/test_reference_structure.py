@@ -91,7 +91,7 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     assert full['hamming_isolated_fraction'].to_list()==[0.,0.]
     manifest=json.loads((tmp_path/'profile.manifest.json').read_text())
     assert manifest['native_batches']==1
-    assert set(manifest['tables'])=={'profile.structures.tsv','profile.degrees.tsv'}
+    assert set(manifest['tables'])=={'profile.structures.tsv','profile.degrees.tsv','profile.lengths.tsv'}
     assert all(len(manifest[key])==64 for key in ('native_sha256','v_model_sha256','loader_sha256','search_source_sha256'))
     targets=tmp_path/'targets.tsv'
     pl.DataFrame({'query_id':[0,1],'epitope':['A','B'],'species':['human']*2,
@@ -143,3 +143,38 @@ def test_full_graph_identity_survives_unordered_node_join(tmp_path, monkeypatch)
     assert full['graph_edges'].item()==2 and full['components'].item()==1
     degrees=pl.read_csv(str(prefix)+'.degrees.tsv',separator='\t')
     assert degrees.select('degree','junction_count').rows()==[(1,2),(2,1)]
+
+
+def test_length_coverage_keeps_short_unknown_v_and_duplicate_records(tmp_path, monkeypatch):
+    import polars as pl
+    import vdjmatch.cluster as cluster
+    from vdjmatch.cli.__main__ import main
+    reference = tmp_path / 'reference.tsv'
+    sequences = ['CAAF', 'CAAF', 'CACF', 'CASSLAAAYEQYF', 'CASSLCAAYEQYF',
+                 'CASSLACAYEQYF', 'CASSLAAAAYEQYF', 'C?F']
+    pl.DataFrame({'cdr3': sequences, 'v': ['TRBV19'] * 4 + ['unknown'] + ['TRBV19'] * 3,
+        'j': ['TRBJ2-7'] * 8, 'epitope': ['E'] * 8,
+        'species': ['HomoSapiens'] * 8, 'gene': ['TRB'] * 8}).write_csv(reference, separator='\t')
+    calls = []; native = cluster.overlap
+    def batched(*args, **kwargs):
+        calls.append(len(args[0])); return native(*args, **kwargs)
+    monkeypatch.setattr(cluster, 'overlap', batched)
+    # Reverse joins to ensure degrees are aligned by local node identity.
+    join = pl.DataFrame.join
+    def unordered(self, other, *args, **kwargs):
+        result = join(self, other, *args, **kwargs)
+        return result.reverse() if kwargs.get('on') == 'cdr3' and '_local' in self.columns else result
+    monkeypatch.setattr(pl.DataFrame, 'join', unordered)
+    prefix = tmp_path / 'profile'
+    assert main(['reference-structure', '--vdjdb', str(reference), '--locus', 'TRB',
+                 '--output-prefix', str(prefix)]) == 0
+    lengths = pl.read_csv(str(prefix) + '.lengths.tsv', separator='\t').sort('junction_length')
+    assert calls == [6]
+    assert lengths.select('junction_length', 'valid_reference_records', 'modeled_reference_records',
+                          'junctions', 'graph_edges', 'isolated_junctions').rows() == [
+        (4, 3, 0, 2, 1, 0), (13, 3, 2, 3, 2, 0), (14, 1, 1, 1, 0, 1)]
+    assert lengths['mean_degree'].to_list() == [1., 4/3, 0.]
+    assert lengths['isolated_fraction'].to_list() == [0., 0., 1.]
+    full = pl.read_csv(str(prefix) + '.structures.tsv', separator='\t')
+    assert lengths['junctions'].sum() == full['hamming_junctions'].item()
+    assert lengths['graph_edges'].sum() == full['hamming_graph_edges'].item()
