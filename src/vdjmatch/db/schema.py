@@ -136,7 +136,7 @@ def normalize(df: pl.DataFrame) -> pl.DataFrame:
     if df.filter(
         pl.any_horizontal(
             *(
-                pl.col(c).is_null() | (pl.col(c).cast(pl.String) == "")
+                pl.col(c).is_null() | (pl.col(c).cast(pl.String).str.strip_chars() == "")
                 for c in ("gene", "epitope")
             )
         )

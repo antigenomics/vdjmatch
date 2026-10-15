@@ -324,3 +324,15 @@ def test_clone_metadata_does_not_merge_declared_observation_pairs(identity):
     assert schema.normalize(out).equals(out)
     explicit = raw.with_columns(pl.Series('pair_id', ['explicit-one'] * 2 + ['explicit-two'] * 2))
     assert schema.normalize(explicit)['complex_id'].to_list() == ['explicit-one'] * 2 + ['explicit-two'] * 2
+
+
+@pytest.mark.parametrize('column', ['locus', 'epitope'])
+def test_whitespace_only_reference_annotation_is_missing(column):
+    raw = pairs().rename({'gene': 'locus'}).with_columns(pl.lit(' \t\n ').alias(column))
+    with pytest.raises(ValueError, match='missing junction, locus or peptide annotation'):
+        schema.normalize(raw)
+
+
+def test_nonblank_reference_annotation_source_values_are_retained():
+    raw = pairs().with_columns(pl.lit(' PEP ').alias('epitope'))
+    assert schema.normalize(raw)['epitope'].to_list() == [' PEP '] * 2
