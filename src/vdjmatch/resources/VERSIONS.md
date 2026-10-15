@@ -12,4 +12,6 @@ without code changes.
 | `segm_score.txt` | legacy `src/main/resources/segm_score.txt` | TSV V/J + CDR1/CDR2 pairwise scores | segment similarity terms S(V), S(J) |
 
 `vdjam.txt` similarity → penalty follows seqtree's convention `pen(a,b)=s_aa+s_bb−2·s_ab`,
-which equals the legacy "subtract self-score" rule.
+the residue-level Gram transform. This is distinct from the legacy SM2
+sequence-alignment score `S(q,r)−max(S(q,q),S(r,r))`; the two conventions must not
+be substituted when reproducing the original fitted score.

@@ -38,7 +38,7 @@ The Python implementation follows the legacy Java/Groovy package, preserved on t
 | --- | --- | --- |
 | Annotate a repertoire or cohort | `vdjmatch annotate` | [Tutorial](https://docs.isalgo.dev/vdjmatch/tutorial.html) |
 | Compare retained geometries from raw inputs | `sh examples/compare.sh NEW_DIRECTORY` | [CLI examples](https://docs.isalgo.dev/vdjmatch/examples.html) |
-| Calibrate the final selected-call event | `reference-calls`, then `calibrate-calls` | [CLI reference](https://docs.isalgo.dev/vdjmatch/cli.html) |
+| Calibrate the combined score from one control | `vdjmatch annotate --control CONTROL` | [Calibration guide](https://docs.isalgo.dev/vdjmatch/control-calibration.html) |
 | Check literal database presence and unusual resemblance | `vdjmatch database-evidence` | [Score explanation](https://docs.isalgo.dev/vdjmatch/explanation.html) |
 | Choose a pinned or offline reference | `--vdjdb LOCAL_REFERENCE` or `vdjmatch update` | [Workflow guide](https://docs.isalgo.dev/vdjmatch/how-to.html) |
 
@@ -92,7 +92,8 @@ Four threads sped up the 2,670-query example from 13.71 to 4.69 seconds
 - Latest/pinned GitHub releases and offline legacy, rich or AIRR reference inputs.
 - Source-aware junction ingestion, stable row identities and explicit ingestion counts.
 - Native batched searches by locus, with retained reference observations.
-- Targeted stem4 kernel annotation; original and advanced scorers remain available.
+- Targeted stem4 kernel annotation; PSSM-density, fixed-scope unit-edit distance
+  and neighbor counts, and other retained scorers remain comparison options.
 - All peptide–MHC candidates, NED-v1 ranking and competing-label support.
 - Optional finite-background calibration with a stated counting unit and search predicate.
 - Paired evidence from linked reference complexes plus unlinked same-target chain marginals.
@@ -140,35 +141,8 @@ sample and source identities, competing scores, ties and no-support rows.
 `--details` additionally writes candidates and per-target evidence; its memory
 grows with queries × targets. `--epitope PEPTIDE` restricts the requested targets.
 `--exclude-exact` is for honest benchmarks; ordinary annotation retains exact hits.
-`--kernel-scorer` selects the advanced `all-bounded`, `vonly-bounded`, `v-rare`,
-`all-rare` or `vonly-rare` alternatives; `v-bounded` is the targeted default.
-The retained `vcdr12` geometry is `--v-regions cdr12 --stem-depth 0
---distance-matrix clipped --junction-ends trim3`; it uses CDR1/CDR2 V similarity.
-Matrix extras use `--distance-matrix pam250`, `mj` or `vdjam`, with
-`--stem-depth 0 --junction-ends trim3`; gaps and ladder cutoffs use that matrix's units.
-The retained `sig` geometry adds `--position-weighting significance-trimmed`
-to the trim3 clipped BLOSUM62 geometry; `sigb62` also uses `--distance-matrix blosum62`.
-These two extras require compact output and retain the recorded rounding before
-V-loop addition. Calibration does not transfer between geometries.
-Additional recorded geometries use `--geometry-extra NAME`. This fixed recipe
-sets its matrix, trim3 ends and stem term; compact output is required.
-
-| NAME | Retained geometry |
-|---|---|
-| `flank` | BLOSUM62 costs for the three residues at each junction end |
-| `framev`, `framemid`, `framej` | Clipped BLOSUM62 geometry with the recorded frame gap prior |
-| `freegap` | Clipped BLOSUM62 geometry without the gap-position prior |
-| `jw`, `stem4j` | J-family mismatch cost, with zero or four stem levels |
-| `jlen`, `vjlen` | J mismatch and length difference; `vjlen` also adds V-family mismatch |
-| `norm`, `jnorm` | V-weighted population normalization, without or with J mismatch |
-| `sw`, `nw` | Native local or global affine alignment with BLOSUM62 |
-
-For example: `vdjmatch annotate repertoire.tsv --geometry-extra stem4j
---threads 4 --output-prefix results/stem4j`.
-Frame recipes preserve the recorded callback argument ordering. The historical
-`norm`/`jnorm` denominator retains its pre-exclusion same-V target count; with
-`--exclude-exact` these are reproduction diagnostics, not a fully punctured
-benchmark model. Every extra needs its own calibration before confidence calls.
+Advanced scorer and geometry recipes remain in the [CLI reference](https://docs.isalgo.dev/vdjmatch/cli.html).
+Calibration is specific to the complete score and selection procedure.
 `--threads N` budgets native compute threads; searches batch queries by population
 and do not create a worker process per receptor or input file.
 Mixed single/paired cohorts share marginal chain searches. V-loop tables are
@@ -187,47 +161,44 @@ result = annotate_repertoires("airr_directory", reference="reference.zip",
 queries, selections = result["queries"], result["selection"]
 ```
 
+### Complete-score calibration from one control
+
+```sh
+vdjmatch annotate sample.tsv --vdjdb reference.zip --control control.tsv --threads 4 -o calibrated
+```
+
+With the default `--background vdjdb-other`, supplying one raw control selects the
+opt-in combined score and computes both conditional randomization tails on demand.
+It writes `.queries.tsv`, `.database.tsv`, `.epitopes.tsv` and `.calibration.tsv`;
+no fitted calibration file or JSON input is needed. `--mock-replicates` defaults
+to 199 and `--seed` to 0. Reference selectors (`--epitope`, MHC,
+`--evidence-type`, `--min-score`) apply before calibration.
+
+The control requires full junctions and unambiguous V/J calls. Productive flags
+and valid amino-acid junctions define eligibility; excluded counts are reported.
+Rearrangement-event weights, rather than read abundance, define sampling.
+Paired populations require both chain controls, randomized independently.
+Missing partners retain their raw rows and use eligible single-chain evidence.
+
+Database tails include label and paired-axis selection; epitope tails test a
+fixed full peptide–MHC group. `p_both = max(p_reference, p_query)` requires evidence
+in both directions. Null match rates are separate `k/B` estimates; none of these
+quantities is a binding probability. This candidate recipe derives the original
+component prior from the matching chain control (TRB for paired queries), which
+differs from historical benchmark model assets. It remains opt-in pending full
+nonregression checks. The no-control stem4 default and older real/generative
+control routes remain available. See the [calibration guide](https://docs.isalgo.dev/vdjmatch/control-calibration.html).
+
 The original `Annotator` and `annotate` APIs remain available. Agent usage is
 documented in the repository [vdjmatch skill](skills/vdjmatch/SKILL.md).
 The synthetic library/CLI batch resource gate runs with test/bench extras:
 `python -m pytest tests/test_annotation_resources.py -q`.
 
-For single-chain release calibration, `reference-calls --scorer stem4` runs
-the complete selected score with full junction exclusion. Add
-`--leave-epitope-out` to remove each query's truth peptide from every model
-count, including shared and sparse reference labels:
-
-```console
-$ vdjmatch reference-calls --vdjdb reference.zip --locus TRB --scorer stem4 \
-    --reference-population curated-benchmark --leave-epitope-out --threads 4 \
-    --output-prefix withheld
-$ vdjmatch calibrate-calls withheld.calibration-cases.tsv --target-fpr 0.01 \
-    --input-manifest withheld.manifest.json \
-    --output-prefix calibration
-```
-
-This produces an empirical operating point for that pinned pipeline and null
-population. Sample recommendations also require matched generated nulls and
-reference policy; paired evidence requires its own joint calibration. The
-`reference-calls` original scorer and curated reference policy remain its defaults.
-
-For paired nulls, use `reference-calls --locus paired --scorer stem4
---leave-epitope-out`. Both linked and full unlinked chain references contribute.
-The selected `kernel_any_axis_score` is the maximum of the linked, alpha and beta
-scores; each axis retains its own selected labels and ties.
-
-```console
-$ vdjmatch reference-calls --vdjdb reference.zip --locus paired --scorer stem4 \
-    --leave-epitope-out --threads 4 --output-prefix paired-withheld
-$ vdjmatch calibrate-calls paired-withheld.calibration-cases.tsv --target-fpr 0.01 \
-    --score-column kernel_any_axis_score --input-manifest paired-withheld.manifest.json \
-    --output-prefix paired-calibration
-```
-
-This fits the declared any-axis event for the supplied null population.
-Repertoire recommendations also require matched generated paired nulls. Keep the
-reference population and exact-hit policy identical when applying a recipe;
-single-chain or linked-only calibration cannot be applied to the paired event.
+Offline call-policy experiments remain available through `reference-calls`,
+`calibrate-calls` and `apply-call-calibration`; see the
+[CLI reference](https://docs.isalgo.dev/vdjmatch/cli.html). Their pinned operating
+points belong to the exact scorer, reference, null population and paired selection
+event used to fit them. They are not inputs to the one-control workflow above.
 
 ### Precursor frequency
 

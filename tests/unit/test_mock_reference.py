@@ -6,6 +6,25 @@ import pytest
 from vdjmatch.evalue.mock_reference import normalize_control, compute_pgen, sample_mock_references, iter_mock_references, pgen_strata
 
 
+def test_mock_event_annotations_stay_joint_with_rearrangement_weights():
+    from vdjmatch.evalue.mock_reference import control_events
+    raw = pl.DataFrame({'junction_aa': ['CAAF', 'CAAF', 'CACF'],
+        'junction': ['AAA', 'CCC', 'GGG'], 'v_call': ['TRBV1', 'TRBV2', 'TRBV3'],
+        'j_call': ['TRBJ1', 'TRBJ2', 'TRBJ1'], 'incidence': [2, 3, 1]})
+    events = control_events(raw)
+    assert events.select('junction_aa', 'v', 'j', 'event_weight').rows() == [
+        ('CAAF', 'TRBV1', 'TRBJ1', 2), ('CAAF', 'TRBV2', 'TRBJ2', 3),
+        ('CACF', 'TRBV3', 'TRBJ1', 1)]
+    reference = pl.DataFrame({'group_id': [1] * 6, 'junction_aa': ['CREF'] * 6})
+    pgen = pl.DataFrame({'junction_aa': ['CAAF', 'CACF', 'CREF'], 'pgen': [0.01] * 3})
+    mock = sample_mock_references(reference, events, replicates=1, pgen=pgen)
+    assert mock.group_by('junction_aa', 'v', 'j').len().sort('junction_aa', 'v')['len'].to_list() == [2, 3, 1]
+    with pytest.raises(ValueError, match='convergence totals'):
+        control_events(raw.drop('junction', 'incidence').with_columns(pl.lit(3).alias('convergence')))
+    with pytest.raises(ValueError, match='requires supplied V/J'):
+        control_events(raw.select('junction_aa'))
+
+
 def test_event_weights_ignore_reads_and_deduplicate_nt_events():
     raw = pl.DataFrame({'junction_aa': ['CASSF'] * 4 + ['CATF'],
         'junction': ['AAA', 'AAA', 'CCC', 'CCC', 'GGG'],
@@ -181,3 +200,24 @@ def test_control_nt_keys_canonicalized_and_incomplete_events_fail():
     assert normalize_control(incomplete.with_columns(pl.lit(3).alias('convergence')))['event_weight'].to_list() == [3]
     # IDs are opaque: case differences remain distinct observed samples.
     assert normalize_control(raw.with_columns(pl.Series('sample_id', ['SampleA', 'samplea', 'SampleA'])))['event_weight'].to_list() == [3]
+
+
+def test_mock_models_restore_identical_linked_roles_without_inventing_pairs():
+    from vdjmatch.evalue.mock_reference import iter_mock_models
+    from vdjmatch.evalue.paired import build_paired_ref
+    reference = pl.DataFrame({'gene': ['TRA', 'TRA', 'TRB', 'TRB', 'TRA', 'TRB'],
+        'cdr3': ['CAAF', 'CAAF', 'CACF', 'CACF', 'CADF', 'CAEF'],
+        'v': ['TRAV1', 'TRAV1', 'TRBV1', 'TRBV1', 'TRAV1', 'TRBV1'],
+        'j': ['TRAJ1', 'TRAJ1', 'TRBJ1', 'TRBJ1', 'TRAJ1', 'TRBJ1'],
+        'complex_id': ['p1', 'p1', 'p1', 'p1', '0', '0'],
+        'epitope': ['A', 'A', 'A', 'A', 'B', 'B']})
+    controls = {chain: pl.DataFrame({'junction_aa': ['CAAF', 'CADF'] if chain == 'TRA' else ['CACF', 'CAEF'],
+        'v': [chain + 'V1'] * 2, 'j': [chain + 'J1'] * 2, 'event_weight': [1, 1]}) for chain in ('TRA', 'TRB')}
+    pgen = {chain: pool.select('junction_aa').with_columns(pl.lit(0.01).alias('pgen')) for chain, pool in controls.items()}
+    assert build_paired_ref(reference).height == 1
+    for mock in iter_mock_models(reference, controls, pgen=pgen, replicates=2, seed=3):
+        assert mock.height == reference.height
+        assert build_paired_ref(mock).height == 1
+        assert mock.group_by('complex_id', 'gene').agg(pl.col('cdr3').n_unique()).filter(
+            pl.col('complex_id') == 'p1')['cdr3'].to_list() == [1, 1]
+        assert mock.group_by('epitope').len().sort('epitope')['len'].to_list() == [4, 2]

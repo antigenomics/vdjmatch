@@ -21,6 +21,20 @@ def normalize_control(frame: pl.DataFrame, *, species='human', locus='TRB') -> p
     Supplied population metadata selects matching rows; unknown/missing metadata
     never inherits the requested population.
     """
+    return _normalize_control(frame, species=species, locus=locus, gene_keys=False)
+
+
+def control_events(frame: pl.DataFrame, *, species='human', locus='TRB') -> pl.DataFrame:
+    """Retain the joint junction/V/J event law for full-score randomization.
+
+    Read counts do not define events. Unlike junction-only scoped searches,
+    V-aware scoring requires supplied unambiguous V/J annotations. Convergence
+    totals shared between conflicting V/J keys cannot reconstruct this law.
+    """
+    return _normalize_control(frame, species=species, locus=locus, gene_keys=True)
+
+
+def _normalize_control(frame, *, species, locus, gene_keys):
     organism = _organism(species)
     locus = locus.upper()
     if locus not in {'TRA', 'TRB'}:
@@ -74,6 +88,22 @@ def normalize_control(frame: pl.DataFrame, *, species='human', locus='TRB') -> p
         raise ValueError('control contains missing or invalid amino-acid junctions')
     if nt:
         frame = frame.with_columns(pl.col(nt).cast(pl.String).str.strip_chars().str.to_uppercase())
+    keys = ['junction_aa']
+    if gene_keys:
+        if not {'v', 'j'}.issubset(fields):
+            raise ValueError('combined-score control requires supplied V/J event annotations')
+        frame = frame.with_columns(pl.col(fields['v']).alias('_control_v'),
+                                   pl.col(fields['j']).alias('_control_j'))
+        for column, kind in [('_control_v', 'V'), ('_control_j', 'J')]:
+            if frame.filter(~pl.col(column).str.contains(
+                    '^' + locus + kind + r'[A-Z0-9/.-]+(?:\*[A-Z0-9]+)?$').fill_null(False)).height:
+                raise ValueError('combined-score control requires unambiguous matching V/J event annotations')
+        keys += ['_control_v', '_control_j']
+        if not nt and 'occurrences' not in lower and 'convergence' in lower:
+            ambiguous = frame.select(*keys, *([sample] if sample else [])).unique().group_by(
+                'junction_aa', *([sample] if sample else [])).len().filter(pl.col('len') > 1)
+            if ambiguous.height:
+                raise ValueError('AA convergence totals cannot resolve conflicting V/J event keys')
     event_columns = [c for c in (nt, *gene_columns, sample) if c]
     incomplete_events = bool(nt) and any(frame[c].null_count() or
         frame[c].cast(pl.String).str.strip_chars().eq('').any() for c in event_columns)
@@ -84,30 +114,32 @@ def normalize_control(frame: pl.DataFrame, *, species='human', locus='TRB') -> p
         frame = frame.with_columns(_integer_count(weight).alias('event_weight'))
         if frame['event_weight'].null_count():
             raise ValueError('occurrences must contain non-negative integer event counts')
-        result = frame.group_by('junction_aa').agg(pl.col('event_weight').sum())
+        result = frame.group_by(keys).agg(pl.col('event_weight').sum())
     elif nt and not incomplete_events:
-        keys = ['junction_aa', *event_columns]
+        event_keys = list(dict.fromkeys([*keys, *event_columns]))
         if sample is None and 'incidence' in lower:
             frame = frame.with_columns(_integer_count(lower['incidence']).alias('event_weight'))
             if frame['event_weight'].null_count():
                 raise ValueError('incidence must contain non-negative integer event counts')
-            result = frame.group_by(keys).agg(pl.col('event_weight').max()).group_by('junction_aa').agg(
+            result = frame.group_by(event_keys).agg(pl.col('event_weight').max()).group_by(keys).agg(
                 pl.col('event_weight').sum())
         else:
-            result = frame.unique(subset=keys).group_by('junction_aa').len(name='event_weight')
+            result = frame.unique(subset=event_keys).group_by(keys).len(name='event_weight')
     elif 'convergence' in lower:
         frame = frame.with_columns(_integer_count(lower['convergence']).alias('event_weight'))
         if frame['event_weight'].null_count():
             raise ValueError('convergence must contain non-negative integer event counts')
-        result = frame.group_by('junction_aa', *([sample] if sample else [])).agg(
-            pl.col('event_weight').max()).group_by('junction_aa').agg(pl.col('event_weight').sum())
+        result = frame.group_by(*keys, *([sample] if sample else [])).agg(
+            pl.col('event_weight').max()).group_by(keys).agg(pl.col('event_weight').sum())
     else:
-        result = frame.select('junction_aa').unique().with_columns(pl.lit(1).alias('event_weight'))
+        result = frame.select(keys).unique().with_columns(pl.lit(1).alias('event_weight'))
     result = result.filter(pl.col('event_weight') > 0).with_columns(
         pl.col('event_weight').cast(pl.Int64), pl.lit(organism).alias('species'), pl.lit(locus).alias('locus'))
     if not result.height:
         raise ValueError('control has no positive-weight junctions')
-    return result.sort('junction_aa')
+    if gene_keys:
+        result = result.rename({'_control_v': 'v', '_control_j': 'j'})
+    return result.sort(['junction_aa', 'v', 'j'] if gene_keys else 'junction_aa')
 
 
 def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='human', locus='TRB', threads=1) -> pl.DataFrame:
@@ -169,20 +201,21 @@ def iter_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, repl
     reference = reference.select('group_id', 'junction_aa')
     if not reference.height or any(reference[c].null_count() for c in reference.columns):
         raise ValueError('reference requires nonempty non-null group_id and junction_aa')
-    if control['junction_aa'].n_unique() != control.height:
-        raise ValueError('control must have unique normalized junctions')
+    event_keys = ['junction_aa', *[c for c in ('v', 'j') if c in control.columns]]
+    if control.select(event_keys).n_unique() != control.height:
+        raise ValueError('control must have unique normalized event keys')
     # Always discard any source-supplied Pgen; only a fresh explicit map is used.
     pgen = compute_pgen(reference, control, species=species, locus=locus, threads=threads) if pgen is None else pgen
     strata = pgen_strata(pgen).rename({'pgen_bin': '_bin'})
     targets = reference.join(strata, on='junction_aa', how='left', validate='m:1')
-    pool = control.select('junction_aa', 'event_weight').join(strata, on='junction_aa', how='left', validate='1:1')
+    pool = control.select(*event_keys, 'event_weight').join(strata, on='junction_aa', how='left', validate='m:1')
     if targets['_bin'].null_count() or pool['_bin'].null_count():
         raise ValueError('Pgen map must cover every reference and control junction')
     pool = pool.with_columns(_integer_count('event_weight').alias('event_weight'))
     if pool['event_weight'].null_count() or (pool['event_weight'] <= 0).any():
         raise ValueError('control event weights must be positive integers')
-    pool = pool.sort('junction_aa')
-    pools = {key[0]: (part['junction_aa'].to_numpy(), part['event_weight'].to_numpy())
+    pool = pool.sort(event_keys)
+    pools = {key[0]: (part.select(event_keys), part['event_weight'].to_numpy())
              for key, part in pool.partition_by('_bin', as_dict=True).items()}
     counts = targets.group_by('group_id', '_bin').len().sort('group_id', '_bin')
     for group, bin_id, count in counts.iter_rows():
@@ -196,11 +229,11 @@ def iter_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, repl
     for replicate in range(replicates):
         results = []
         for group, bin_id, count in counts.iter_rows():
-            sequences, weight = pools[bin_id]
+            events, weight = pools[bin_id]
             multiplicity = rng.multivariate_hypergeometric(weight, count)
-            selected = np.repeat(sequences, multiplicity)
-            results.append(pl.DataFrame({'replicate': replicate, 'group_id': group, 'junction_aa': selected}))
-        yield pl.concat(results).with_columns(pl.col('group_id').cast(reference.schema['group_id'])).sort('group_id', 'junction_aa')
+            selected = events[np.repeat(np.arange(events.height), multiplicity)]
+            results.append(selected.with_columns(pl.lit(replicate).alias('replicate'), pl.lit(group).alias('group_id')))
+        yield pl.concat(results).with_columns(pl.col('group_id').cast(reference.schema['group_id'])).sort('group_id', *event_keys)
 
 
 def sample_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, replicates: int,
@@ -208,6 +241,77 @@ def sample_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, re
     """Collect mock memberships; use ``iter_mock_references`` for bounded memory."""
     return pl.concat(iter_mock_references(reference, control, replicates=replicates,
         seed=seed, pgen=pgen, species=species, locus=locus, threads=threads))
+
+
+def iter_mock_models(reference: pl.DataFrame, controls: dict[str, pl.DataFrame], *,
+                     pgen: dict[str, pl.DataFrame], replicates: int, seed: int = 0):
+    """Randomize a complete long reference, preserving every source-row role.
+
+    Canonical rows have ``gene,cdr3,v,j`` and retain their epitope, MHC and pair
+    linkage. Within each chain/Pgen stratum, sample event slots once without
+    replacement across the entire database and uniformly assign them to source
+    draw roles. Identical linked ``complex_id/gene/cdr3/v/j`` observations
+    share one sampled role and are restored with their original multiplicity;
+    unlinked source rows each remain independent roles. Consequently both total
+    source N and every epitope's source M_i/Pgen histogram are
+    preserved without reusing a control event between distinct roles. The number
+    of event draws is the number of roles, not duplicate evidence source rows. TRA/TRB
+    streams are independent: retained pair linkage joins random chains. Only
+    sequence/gene fields change; evidence filtering must precede randomization.
+    """
+    required = {'gene', 'cdr3', 'v', 'j'}
+    if not required.issubset(reference.columns) or not reference.height or replicates < 1:
+        raise ValueError('mock models require nonempty canonical reference and positive replicates')
+    if reference.filter(~pl.col('gene').is_in(['TRA', 'TRB']).fill_null(False)).height:
+        raise ValueError('mock models require explicit TRA/TRB source roles')
+    indexed = reference.with_row_index('_mock_row')
+    if 'complex_id' in indexed.columns:
+        linked = ~pl.col('complex_id').cast(pl.String).fill_null('0').is_in(['', '0'])
+        role_keys = ['complex_id', 'gene', 'cdr3', 'v', 'j']
+        roles = indexed.filter(linked).group_by(role_keys, maintain_order=True).agg(
+            pl.col('_mock_row').min().alias('_mock_role'))
+        indexed = indexed.join(roles, on=role_keys, how='left', nulls_equal=True, validate='m:1',
+            maintain_order='left').with_columns(pl.col('_mock_role').fill_null(pl.col('_mock_row')))
+    else:
+        indexed = indexed.with_columns(pl.col('_mock_row').alias('_mock_role'))
+    # Identical linked chain observations share one biological draw role. Restore
+    # all original source observations after sampling; unlinked rows stay independent.
+    role_source = indexed.unique('_mock_role', keep='first', maintain_order=True)
+    plans = []
+    streams = np.random.SeedSequence(seed).spawn(2)
+    for locus, stream in zip(('TRA', 'TRB'), streams):
+        source = role_source.filter(pl.col('gene') == locus)
+        if not source.height:
+            continue
+        if locus not in controls or locus not in pgen:
+            raise ValueError(f'missing {locus} control/Pgen population')
+        strata = pgen_strata(pgen[locus])
+        source = source.join(strata, left_on='cdr3', right_on='junction_aa', how='left', validate='m:1')
+        events = controls[locus].join(strata, on='junction_aa', how='left', validate='m:1')
+        if source['pgen_bin'].null_count() or events['pgen_bin'].null_count():
+            raise ValueError('Pgen map must cover every reference/control event')
+        pools = events.partition_by('pgen_bin', as_dict=True)
+        bins = []
+        for key, part in source.partition_by('pgen_bin', as_dict=True).items():
+            pool = pools.get(key)
+            available = int(pool['event_weight'].sum()) if pool is not None else 0
+            if available < part.height:
+                raise ValueError(f'insufficient {locus} control events in Pgen bin {key[0]}: need {part.height}, have {available}')
+            if available >= 10**9:
+                raise ValueError('event stratum exceeds NumPy hypergeometric backend limit')
+            bins.append((part['_mock_role'].to_numpy(), pool.sort('junction_aa', 'v', 'j')))
+        plans.append((np.random.default_rng(stream), bins))
+    for _ in range(replicates):
+        assigned = []
+        for rng, bins in plans:
+            for rows, pool in bins:
+                counts = rng.multivariate_hypergeometric(pool['event_weight'].to_numpy(), len(rows))
+                selection = rng.permutation(np.repeat(np.arange(pool.height), counts))
+                assigned.append(pool[selection].select(pl.col('junction_aa').alias('cdr3'), 'v', 'j')
+                    .with_columns(pl.Series('_mock_role', rows)))
+        replacement = pl.concat(assigned)
+        yield indexed.drop('cdr3', 'v', 'j').join(replacement, on='_mock_role', validate='m:1',
+            maintain_order='left').select(reference.columns)
 
 
 def iter_mock_paired_references(reference: pl.DataFrame, control: pl.DataFrame, *,
@@ -251,7 +355,8 @@ def iter_mock_paired_references(reference: pl.DataFrame, control: pl.DataFrame, 
     for lane, locus, probabilities, stream in zip(('alpha', 'beta'), ('TRA', 'TRB'),
             (pgen_alpha, pgen_beta), streams[:2]):
         raw = reference.select('group_id', pl.col(f'junction_aa_{lane}').alias('junction_aa'))
-        pool = normalize_control(control, species=species, locus=locus)
+        pool = (control_events if {'v', 'j'}.issubset(fields) else normalize_control)(
+            control, species=species, locus=locus)
         if probabilities is None:
             probabilities = compute_pgen(raw, pool, species=species, locus=locus, threads=threads)
         lanes.append(iter_mock_references(raw, pool, replicates=replicates, seed=stream,
@@ -264,8 +369,11 @@ def iter_mock_paired_references(reference: pl.DataFrame, control: pl.DataFrame, 
             other = beta_groups[key]
             if part.height != other.height:
                 raise RuntimeError('paired mock marginal source counts disagree')
-            paired.append(part.select('group_id', 'replicate').with_columns(
-                pl.Series('draw_id', np.arange(part.height, dtype=np.int64)),
-                pl.Series('junction_aa_alpha', alpha_rng.permutation(part['junction_aa'].to_numpy())),
-                pl.Series('junction_aa_beta', beta_rng.permutation(other['junction_aa'].to_numpy()))))
+            a = part[alpha_rng.permutation(part.height)]
+            b = other[beta_rng.permutation(other.height)]
+            columns = [c for c in ('junction_aa', 'v', 'j') if c in a.columns]
+            paired.append(pl.concat([a.select('group_id', 'replicate').with_columns(
+                pl.Series('draw_id', np.arange(part.height, dtype=np.int64))),
+                a.select(*[pl.col(c).alias(c + '_alpha') for c in columns]),
+                b.select(*[pl.col(c).alias(c + '_beta') for c in columns])], how='horizontal'))
         yield pl.concat(paired).sort('group_id', 'draw_id')

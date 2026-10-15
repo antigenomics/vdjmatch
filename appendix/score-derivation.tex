@@ -386,6 +386,11 @@ Agreement with generated-query/Pgen formulas requires the same event unit, condi
 \paragraph{The complete procedure must be repeated.}
 If $T_A$ derives weights $w(R)$ from reference morphology, mock-reference calibration recomputes $w(R^*)$.
 Component normalisation must be symmetric between observed and null instances or fitted on an independent internal split of the same selected control.
+The combined-score implementation draws an independent unconditional normalisation bank internally from the selected control.
+The separate final test-query draws remain matched to the observed chainwise Pgen strata.
+For each reference model, including every mock, each component is mapped to minus the log of its empirical upper tail against that bank.
+The observed receptor and the separate test-query bank never train this normalisation.
+Conditioning on the normalisation bank therefore leaves the same model-dependent statistic in both randomisation directions.
 A selected epitope or paired-axis statistic repeats the same selection inside every null replicate; fixed-target tails cannot be transferred to it.
 Independently sampled target mocks do not define a coherent selected-label null with overlapping reference memberships.
 For the paired null we draw chains independently, $Q_{\alpha\beta}=Q_\alpha Q_\beta$, matching the two Pgen strata separately.
@@ -393,6 +398,27 @@ The paired mock sampler uses separate streams and random within-group pairing pe
 Its score must still search both chains against the same linked reference and retain unlinked same-target marginal support.
 Multiplying two chainwise any-database-match rates allows different reference partners and omits the full linked/marginal selection.
 For one fixed reference pair and independent chain-distance distributions $F_\alpha,F_\beta$, a sum-distance ball of radius $r$ has probability $\int F_\beta(r-u)\,dF_\alpha(u)$; the union across reference pairs still requires overlap handling.
+
+\paragraph{Reference graph weights.}
+The candidate mixture uses two independent uniform draws from distinct full-junction/V-gene keys, pooling alleles.
+Let $L$ denote junction length, $V$ the V gene and $C$ the Hamming-one connected component; each component has one length.
+Writing $p_L,p_{LV},p_{LVC}$ for the corresponding reference key fractions, define
+\[
+ w_{\rm gap}=1-\sum_Lp_L^2,\qquad
+ w_{\rm stem}=\sum_{L,V}p_{LV}^2-\sum_{L,V,C}p_{LVC}^2,\qquad
+ w_{\rm original}=1-w_{\rm gap}-w_{\rm stem}.
+\]
+These nonnegative weights partition length-different, same-length/same-V/disconnected, and remaining key pairs.
+This structural heuristic has no fitted recognition coefficients; preservation of benchmark accuracy remains an empirical gate.
+The score on an axis is the weighted sum of the three independently normalised component evidences.
+Missing components contribute zero without redistributing weights, and an unsupported axis remains unavailable.
+Marginal axes use their same-target chain reference graphs; the linked axis uses the equal mean of those two weight vectors.
+Complete axis scores are maximised only after summation, then the maximum over searched full-pMHC labels is recalibrated as the database statistic.
+Exact benchmark exclusion also punctures component populations, priors and marginal composition graphs, including articulation-induced changes in connected components.
+Linked native scores exclude the complete paired identity; sharing one chain does not delete another reference pair.
+Mock long references retain source labels and linkage while independently replacing TRA/TRB sequence/gene events within Pgen strata.
+Identical duplicate evidence rows for one linked chain role share a draw and retain their source multiplicity; source-record counts and distinct draw-role counts remain separate.
+The one-control candidate derives its density and prior populations from that control; its model context is explicitly distinct from separately pinned historical benchmark assets.
 Changing evidence filters or supplying a custom labelled reference changes $R_i$ and requires both directions to be recalculated.
 The shipping \code{database-evidence --control} adapter currently implements full-junction scoped nearest-distance and distinct-neighbour-count statistics; full V-loop/combined-score, selected-label and paired adapters remain open gates.
 It computes fresh Pgen from bundled models, searches observed and sampled queries in one native batch, streams mock references, and writes flat TSVs without a calibration-file input.

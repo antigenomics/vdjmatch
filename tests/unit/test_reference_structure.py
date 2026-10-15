@@ -84,8 +84,15 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     assert calls==[3] and full['junctions'].to_list()==[2,2]
     assert puncture.height==4 and puncture['junctions'].to_list()==[1]*4
     assert puncture['graph_edges'].to_list()==[0]*4
+    degrees=pl.read_csv(str(prefix)+'.degrees.tsv',separator='\t')
+    assert degrees['degree'].to_list()==[1,1]
+    assert degrees['junction_count'].to_list()==[2,2]
+    assert full['hamming_mean_degree'].to_list()==[1.,1.]
+    assert full['hamming_median_degree'].to_list()==[1.,1.]
+    assert full['hamming_isolated_fraction'].to_list()==[0.,0.]
     manifest=json.loads((tmp_path/'profile.manifest.json').read_text())
     assert manifest['native_batches']==1
+    assert 'profile.degrees.tsv' in manifest['tables']
     assert all(len(manifest[key])==64 for key in ('native_sha256','v_model_sha256','loader_sha256','search_source_sha256'))
     targets=tmp_path/'targets.tsv'
     pl.DataFrame({'query_id':[0,1],'epitope':['A','B'],'species':['human']*2,
@@ -97,3 +104,42 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     assert calls==[2] and selected.height==1
     assert selected['epitope'].to_list()==['A'] and selected['reference_records'].to_list()==[2]
     assert selected['mhc_a'].to_list()==['HLA-A*02']
+
+
+def test_empty_reference_exports_typed_weights_and_zero_node_histogram(tmp_path):
+    import polars as pl
+    from vdjmatch.cli.__main__ import main
+    reference=tmp_path/'invalid.tsv';prefix=tmp_path/'empty'
+    pl.DataFrame({'cdr3':['C?F'], 'v':['TRBV19'], 'j':['TRBJ2-7'],
+        'epitope':['E'], 'species':['HomoSapiens'], 'gene':['TRB']}).write_csv(reference,separator='\t')
+    assert main(['reference-structure','--vdjdb',str(reference),'--locus','TRB',
+        '--output-prefix',str(prefix)])==0
+    punctures=pl.read_csv(str(prefix)+'.punctures.tsv',separator='\t')
+    assert punctures.is_empty()
+    assert {'original_weight','gapblock_weight','stem4_weight','mixture_only_puncture'} <= set(punctures.columns)
+    degrees=pl.read_csv(str(prefix)+'.degrees.tsv',separator='\t')
+    assert degrees['junctions'].item()==0 and degrees['junction_count'].item()==0
+    assert degrees['degree'].item() is None
+
+
+def test_puncture_identity_survives_unordered_node_join(tmp_path, monkeypatch):
+    import polars as pl
+    from vdjmatch.cli.__main__ import main
+    center='CASSLAAAYEQYF';leaves=['CASSLCAAYEQYF','CASSLACAYEQYF']
+    reference=tmp_path/'path.tsv';prefix=tmp_path/'profile'
+    pl.DataFrame({'cdr3':[center,*leaves], 'v':['TRBV19']*3, 'j':['TRBJ2-7']*3,
+        'epitope':['E']*3, 'species':['HomoSapiens']*3, 'gene':['TRB']*3}).write_csv(reference,separator='\t')
+    join=pl.DataFrame.join
+    def unordered(self, other, *args, **kwargs):
+        result=join(self,other,*args,**kwargs)
+        if kwargs.get('on')=='cdr3' and '_local' in self.columns and '_node' in other.columns:
+            return result.reverse()
+        return result
+    monkeypatch.setattr(pl.DataFrame,'join',unordered)
+    assert main(['reference-structure','--vdjdb',str(reference),'--locus','TRB',
+        '--output-prefix',str(prefix)])==0
+    punctures=pl.read_csv(str(prefix)+'.punctures.tsv',separator='\t')
+    hub=punctures.filter(pl.col('excluded_junction')==center)
+    assert hub['graph_edges'].item()==0 and hub['components'].item()==2
+    ends=punctures.filter(pl.col('excluded_junction').is_in(leaves))
+    assert ends['graph_edges'].to_list()==[1,1] and ends['components'].to_list()==[1,1]

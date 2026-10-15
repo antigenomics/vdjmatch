@@ -7,9 +7,7 @@ from seqtree.control import load_control
 
 # query locus -> seqtree control name (bundled human_trb_aa; others via HuggingFace)
 _CONTROL = {
-    "TRB": "human_trb_aa",
     "human:TRB": "human_trb_aa",
-    "TRA": "human_tra_aa",
     "human:TRA": "human_tra_aa",
     "mouse:TRB": "mouse_trb_aa",
     "mouse:TRA": "mouse_tra_aa",

@@ -93,3 +93,55 @@ def graph_profiles(n, edges):
             total_log-size_log(old)+math.fsum(size_log(s) for s in fragments),
             total_square-old*old+sum(s*s for s in fragments)))
     return full, punctured
+
+
+def composition(records, junctions):
+    """Full and exact-junction-punctured length/V summaries; no query labels."""
+    import math
+    import numpy as np
+    import polars as pl
+
+    seqs = junctions['cdr3'].to_list()
+    lengths = np.array([len(s) for s in seqs], dtype=np.float64)
+    keys = records.select('cdr3','_allele').unique().with_columns(
+        pl.col('_allele').str.split('*').list.first().alias('_gene'))
+    counts = keys.group_by('_gene').len().sort('_gene')
+    sizes = counts['len'].to_numpy().astype(float)
+    total = keys.height
+    flog = lambda x: x*math.log(x) if x else 0.
+    v_log = math.fsum(flog(x) for x in sizes)
+    length_counts = dict(zip(*np.unique(lengths, return_counts=True)))
+    length_log = math.fsum(flog(x) for x in length_counts.values())
+    sum_length = lengths.sum(); sum_square = (lengths*lengths).sum()
+    records_per_seq = dict(records.group_by('cdr3').len().iter_rows())
+    removed_keys = dict(keys.group_by('cdr3').len().iter_rows())
+    # Each sequence removes its full contribution from every V category.
+    changes = keys.group_by('cdr3','_gene').len().rename({'len':'_removed'}).join(
+        counts,on='_gene',validate='m:1').sort('cdr3','_gene')
+    v_changes = {}
+    for sequence, part in changes.group_by('cdr3',maintain_order=True):
+        before = part['len'].to_list(); after = (part['len']-part['_removed']).to_list()
+        v_changes[sequence[0]] = (math.fsum(flog(new)-flog(old) for old,new in zip(before,after)),
+                                  sum(x==0 for x in after))
+
+    def row(removed=None):
+        n = len(seqs)-(removed is not None)
+        length = len(removed) if removed is not None else 0
+        k = removed_keys[removed] if removed is not None else 0
+        remain = total-k
+        delta, lost_genes = v_changes[removed] if removed is not None else (0.,0)
+        v_entropy = max(0., math.log(remain)-(v_log+delta)/remain) if remain else None
+        f_length = length_log
+        if removed is not None:
+            count = length_counts[float(length)]
+            f_length += flog(count-1)-flog(count)
+        mean = (sum_length-length)/n if n else None
+        variance = max(0.,(sum_square-length*length)/n-mean*mean) if n else None
+        return dict(clonotype_keys=remain, v_genes=len(sizes)-lost_genes,
+            v_entropy=v_entropy, effective_v_genes=math.exp(v_entropy) if v_entropy is not None else None,
+            length_mean=mean, length_sd=math.sqrt(variance) if variance is not None else None,
+            length_entropy=max(0.,math.log(n)-f_length/n) if n else None,
+            reference_records=records.height-(records_per_seq[removed] if removed is not None else 0),
+            excluded_reference_records=records_per_seq[removed] if removed is not None else 0,
+            excluded_clonotype_keys=k)
+    return row(), [row(sequence) for sequence in seqs]

@@ -118,7 +118,8 @@ def _compact_kernel_selection(scores, exact, permutation, starts, peptides):
 
 def grouped_kernel_selection(queries, references, groups, *, query_keys, search_keys,
         paired, cutoffs, radius, kernel_scale, scorer, assayed=False, withheld_column=None,
-        position_weighting='uniform', geometry_preset=None, _detailed=False, progress=False, **geometry):
+        position_weighting='uniform', geometry_preset=None, _detailed=False, progress=False,
+        _allow_empty_background=False, **geometry):
     """Compact all-label selection from one bounded native reference traversal.
 
     Memberships deduplicate search keys separately from pMHC annotations. Other
@@ -297,8 +298,11 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         # Immutable native curves already satisfy the validated monotone/subset
         # and population contract. Reuse the exact arithmetic without scanning
         # every generated curve again; public kernel_ladder keeps all checks.
+        # The complete-score adapter can use the defined 1+m bounded density
+        # at M=0; its final control randomizations calibrate this case. Reported
+        # population sizes below remain actual zero, with no enrichment claim.
         scores=_kernel_scores(shells,same_shells,
-            control,score_N,(np.maximum(M.reshape(-1),1) if normalise else M.reshape(-1)),np.asarray(cutoffs,dtype=np.float64),
+            control,score_N,(np.maximum(M.reshape(-1),1) if normalise or _allow_empty_background else M.reshape(-1)),np.asarray(cutoffs,dtype=np.float64),
             kernel_scale,.25,.01,scorer,_detailed,_reuse_buffers=not _detailed)
         exact=np.zeros((C,T),dtype=np.uint32) if geometry.get('exclude_exact',False) else np.asarray(chunk.exact_counts)
         if compact_all:

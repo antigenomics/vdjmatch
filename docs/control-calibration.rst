@@ -5,8 +5,50 @@ Select one raw control repertoire. Calibration is computed on demand after
 reference filtering; no fitted calibration file is needed. The
 ``database-evidence --control`` command implements the two directions below
 for full-junction scoped nearest distance or distinct-neighbour count.
-The general construction also specifies how a complete VDJmatch score must be
-calibrated; those score and paired adapters are not implemented by this command.
+For complete-score single, mixed and genuine paired inputs, use the opt-in
+``annotate --control`` route below. The scoped ``database-evidence`` statistics
+remain available separately.
+
+Complete-score annotation
+-------------------------
+
+.. code-block:: bash
+
+   vdjmatch annotate sample.tsv --vdjdb reference.zip --control control.tsv --threads 4 -o calibrated
+
+With default ``--background vdjdb-other``, the control opts into the combined
+reference-weighted score and both on-demand tails. ``--mock-replicates`` defaults
+to 199; ``--seed`` defaults to zero. No fitted calibration file is required.
+Reference epitope/MHC, ``--evidence-type`` and ``--min-score`` filters apply first.
+Ordinary annotation includes every valid selected reference observation; explicit
+``--reference-population curated-benchmark`` retains benchmark curation.
+
+The control must supply full junctions and unambiguous V/J annotations. Counts
+are validated before filtering; false/missing productive tags and invalid or
+missing amino-acid junctions are excluded with separate counts. Without a
+productive column, valid amino-acid junctions remain eligible. Query rows are
+retained even when invalid or from another species. Paired controls require TRA
+and TRB, randomized independently. Incomplete genuine pairs retain the missing
+partner row and calibrate each eligible chain as a marginal query.
+
+Outputs are four flat TSVs: ``.queries.tsv`` preserves every raw chain row and
+calibration identity/status; ``.database.tsv`` tests the maximum across labels
+and available axes; ``.epitopes.tsv`` reports fixed full-pMHC tails and score
+components; ``.calibration.tsv`` records filters, populations, model/native hashes
+and seeds. Original query identifiers remain intact; generated calibration
+identifiers are unique across input files and populations. No JSON input or
+output is required by this route.
+
+The combined statistic uses an independent unconditional normalization bank
+and recomputes reference-derived weights on every mock model. Final query-null
+draws remain matched to the observed Pgen strata in both chains.
+Paired score axes include linked evidence and available unlinked marginals; the
+axis maximum is recomputed within every draw. The original component prior uses
+the matching-chain control for singles and the TRB control for paired scoring.
+This candidate one-control context differs from accepted historical benchmark
+model assets. It remains opt-in pending whole-task nonregression checks; the
+no-control stem4 default and older real/generative control routes are unchanged.
+Nondefault geometry and target-from-sample selection are rejected before mocks.
 
 The event being tested
 ----------------------

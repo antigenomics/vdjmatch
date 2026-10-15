@@ -1,7 +1,5 @@
 """Fixed or fitted combinations of existing evidence, not binding confidence."""
 import numpy as np
-from scipy.optimize import minimize
-from scipy.special import expit
 
 FEATURES=('likelihood_dense','likelihood_sparse','rank_dense','rank_sparse',
           'paired','likelihood_missing','rank_missing')
@@ -67,6 +65,9 @@ def fit_evidence_combination(frame, labels, *, weights=None):
     stabilizes correlated columns; its strength is not tuned on benchmark labels.
     Returned linear margins require complete-pipeline null calibration for P/E.
     """
+    from scipy.optimize import minimize
+    from scipy.special import expit
+
     x,available=evidence_features(frame);y=np.asarray(labels,dtype=float)
     if y.shape!=(len(x),) or not np.isin(y,[0,1]).all() or len(np.unique(y))!=2:
         raise ValueError('aligned two-class binary training labels required')
@@ -109,6 +110,25 @@ THREE_COMPONENTS=('original_score','gapblock_score','stem4_score')
 THREE_WEIGHTS=('original_weight','gapblock_weight','stem4_weight')
 
 
+def weighted_component_support(frame):
+    """Shared three-channel call support; missing flags preserve legacy behavior.
+
+    A declared original_supported flag distinguishes actual original density
+    support from its finite zero-density prior baseline. Positive weighted kernel
+    evidence can independently support an axis. This never redistributes weights.
+    """
+    import polars as pl
+    if 'original_supported' not in frame.columns:
+        return pl.any_horizontal(*[pl.col(score).is_not_null() & (pl.col(weight) > 0)
+            for score, weight in zip(THREE_COMPONENTS, THREE_WEIGHTS)])
+    if frame.schema['original_supported'] not in (pl.Boolean, pl.Null):
+        raise ValueError('original_supported must be Boolean or null')
+    return ((pl.col('original_supported').fill_null(False) & pl.col('original_score').is_not_null() &
+             (pl.col('original_weight') > 0)) |
+            (pl.col('gapblock_score').cast(pl.Float64).gt(0).fill_null(False) & (pl.col('gapblock_weight') > 0)) |
+            (pl.col('stem4_score').cast(pl.Float64).gt(0).fill_null(False) & (pl.col('stem4_weight') > 0)))
+
+
 def null_normalized_evidence(frame, nulls, *, structure_conditioned=False, three_channel=False):
     """Put original/rank evidence on matching empirical null-tail scales.
 
@@ -116,6 +136,8 @@ def null_normalized_evidence(frame, nulls, *, structure_conditioned=False, three
     ranking statistic, not a final P-value: calibrate this complete selection.
     Ties, no-hit nulls and conservative source maxima use the existing helper.
     Each full-pMHC/species/locus group needs its own frozen null population.
+    An optional non-null ``normalization_stratum`` in both tables additionally
+    separates matching strata, without changing behavior when it is absent.
     With structure_conditioned, S=max(-log(p_L), -log(p_R)+log(s)), where
     s=1-c*[1-(1-k)*e] uses reference structure only. Query-local support
     does not switch routes; it already contributes to the component scores. The original tail
@@ -131,8 +153,18 @@ def null_normalized_evidence(frame, nulls, *, structure_conditioned=False, three
     """
     import polars as pl
     from ..aggregate.candidates import PMHC
-    from ..cli.calibration import null_tail_probabilities
+    from ..evalue.directional import null_tail_probabilities
     keys=['species','locus',*PMHC]
+    stratified='normalization_stratum' in frame.columns
+    if stratified != ('normalization_stratum' in nulls.columns):
+        raise ValueError('normalization_stratum must be present in both evidence and nulls')
+    if stratified:
+        if frame['normalization_stratum'].null_count() or nulls['normalization_stratum'].null_count():
+            raise ValueError('normalization strata must be non-null')
+        if frame.select('normalization_stratum').unique().join(
+                nulls.select('normalization_stratum').unique(), on='normalization_stratum', how='anti').height:
+            raise ValueError('missing matching normalization stratum')
+        keys.append('normalization_stratum')
     if three_channel and structure_conditioned:
         raise ValueError('three-channel weights cannot use the two-channel structure gate')
     columns=list(THREE_COMPONENTS) if three_channel else ['likelihood_score','conditional_rank_score']

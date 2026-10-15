@@ -62,6 +62,29 @@ punctures both search hits and population sizes for benchmarking. Combine it
 with ``--reference-population curated-benchmark`` to reproduce the source-curated
 benchmark reference; ordinary annotation defaults to all valid observations.
 
+One-control complete-score mode
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+With the default ``--background vdjdb-other``, ``--control RAW_TABLE`` opts into
+combined-score calibration. The control supplies full junction/V/J events;
+productive and amino-acid eligibility are reported separately. Use
+``--mock-replicates N`` (default199), ``--seed N`` (default0), repeatable
+``--evidence-type TYPE`` and ``--min-score N`` (default0). Reference filters apply
+before the null populations are created. Query and control must be different
+inputs. Unsupported nondefault geometry/selection options raise an error.
+
+The outputs are ``.queries.tsv``, ``.database.tsv``, ``.epitopes.tsv`` and
+``.calibration.tsv``. No JSON or fitted calibration input is needed. Every raw
+chain row survives with a generated calibration identity and disposition;
+genuine incomplete pairs route eligible chains to single-chain calibration.
+Database tails include all-label and available-axis maxima. Fixed full-pMHC
+rows retain components, weights, directional tails and separate null match rates.
+See :doc:`control-calibration` for the conditional laws and candidate prior policy.
+``--background real``/``generative`` retain their existing control behavior.
+
+Default stem4 score
+~~~~~~~~~~~~~~~~~~~
+
 The geometry combines threefold 3/3-trimmed junction distance, aligned V loops,
 and the rounded mean of four hairpin-level costs on untrimmed junctions. All
 terms use unclipped BLOSUM62 Gram penalties. Each level uses the maximum of its
@@ -1355,6 +1378,41 @@ PR area. This metric is distinct from average precision and the current
 full-VDJdb source-record eligibility rule. Supply ``--structural-inc`` to
 include the structural matrix; without that model its row is omitted.
 
+vdjmatch fixed-scope
+----------------------------
+
+Compare naive unit-edit search against declared peptide–MHC targets:
+
+.. code-block:: sh
+
+   vdjmatch fixed-scope assays.tsv --vdjdb reference.zip --scope 1,0,0,1 \
+     --exclude-exact --reference-population curated-benchmark --threads 4 \
+     --output-prefix fixed
+
+The sample contains junction/V/J/locus fields and the assayed ``epitope``,
+``mhc_a``, ``mhc_b`` and ``mhc_class`` columns. Compatible reference restrictions
+are pooled for each declared target. ``--paired`` uses supplied ``pair_id``
+links and retains incomplete pairs with their available chain evidence.
+
+The four scope entries bound substitutions, insertions, deletions and total
+operations. The default admits one substitution and no indels. These are
+operation budgets; a rule based only on unrestricted Levenshtein distance and
+net length difference can admit a different set of matches.
+
+``.scores.tsv`` preserves every case. Nearest negative unit-edit distance and
+neighbor counts are separate scores. Marginal counts distinguish unique full
+junctions, joint junction/V/J clonotypes and source observations; linked counts
+distinguish full junction pairs, paired clonotypes and complexes. Linked and
+TRA/TRB marginal rankings remain separate. ``any_hit`` is their support union;
+missing linked references cannot veto marginal support. No-hit counts are zero
+and nearest distances are unavailable. No V/J similarity, abundance, background
+or fitted probability weights affect these naive scores.
+
+PSSM-density remains available through ``historical-density`` with its declared
+model assets. It is a separate scoring option from fixed-scope distance/counts,
+NED-v1, kernel scores and reference-weighted combinations. Comparisons must
+preserve the same observations, target definitions and exact-exclusion policy.
+
 vdjmatch reference-structure
 ----------------------------
 
@@ -1385,6 +1443,15 @@ entropy/effective diversity. Entropies use natural logarithms. Lengths include t
 conserved junction anchors. V usage counts unique junction/resolved-V-allele keys
 with allele-stripped gene categories. Missing or unmodelled records are counted
 explicitly. An empty population has unavailable composition fractions and entropies.
+
+``structure.degrees.tsv`` reports the exact Hamming-one degree histogram as flat
+``degree,junction_count`` rows for each full reference population. These nodes
+include every valid full junction, even when its V gene is unresolved. The summary
+table adds ``hamming_`` counts, mean/variance/maximum degree, median, 10th and 90th
+percentiles, and isolated fraction for that population. Quantiles use linear
+interpolation. These degree distributions describe the full reference before
+query puncture; the existing modeled connectivity columns retain their stated
+V-resolution and length requirements.
 
 These are reference morphology features. The command fits no weights, makes no
 recognition claim and supplies no P-value. Its manifest records population policy,

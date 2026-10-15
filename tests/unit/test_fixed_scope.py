@@ -1,0 +1,72 @@
+"""Naive fixed-ball counts, exact policy and operation-budget checks."""
+import polars as pl
+from vdjmatch.runner.fixed_scope import fixed_scope_scores
+
+CONTEXT=dict(epitope='E',mhc_a='HLA-A*02',mhc_b='B2M',mhc_class='MHCI')
+
+def test_naive_counts_pool_compatible_restrictions_and_preserve_nohits(monkeypatch):
+    from vdjmatch.runner import fixed_scope
+    queries=pl.DataFrame([dict(query_id=str(i),cdr3=s,v='TRBV1',j='TRBJ1-1',locus='TRB',**CONTEXT)
+        for i,s in enumerate(['CASSF','CWWWF',None])])
+    reference=pl.DataFrame([dict(cdr3=s,v=v,j='TRBJ1-1',gene='TRB',complex_id='0',species='HomoSapiens',
+        **(CONTEXT|{'mhc_a':m})) for s,v,m in [('CASSF','TRBV1','HLA-A*02:01'),('CARSF','TRBV1','HLA-A*02:01'),
+        ('CARSF','TRBV2','HLA-A*02:02'),('CASSFF','TRBV1','HLA-A*02:01')]])
+    scores,report=fixed_scope_scores(queries,reference,exclude_exact=True)
+    assert report['native_batches']==1
+    hit=scores.filter(pl.col('query_id')=='0')
+    assert hit['beta_neighbor_junctions'].item()==1
+    assert hit['beta_neighbor_clonotypes'].item()==2
+    assert hit['beta_nearest_score'].item()==-1
+    assert scores.filter(pl.col('query_id').is_in(['1','2']))['beta_neighbor_junctions'].to_list()==[0,0]
+    assert scores.filter(pl.col('query_id').is_in(['1','2']))['beta_nearest_edits'].null_count()==2
+    ordinary,_=fixed_scope_scores(queries,reference,exclude_exact=False)
+    assert ordinary.filter(pl.col('query_id')=='0')['beta_nearest_score'].item()==0
+    insertion,_=fixed_scope_scores(queries,reference,scope='0,1,1,1',exclude_exact=True)
+    assert insertion.filter(pl.col('query_id')=='0')['beta_neighbor_junctions'].item()==1
+
+
+def test_paired_linked_and_unlinked_axes_have_distinct_count_units():
+    q=pl.DataFrame([dict(query_id=l,pair_id='p',cdr3=s,v=v,j=j,locus=l,**CONTEXT)
+        for l,s,v,j in [('TRA','CCAF','TRAV1','TRAJ1'),('TRB','CASSF','TRBV1','TRBJ1-1')]])
+    r=pl.DataFrame([dict(cdr3=s,v=v,j=j,gene=l,complex_id=c,species='HomoSapiens',**CONTEXT)
+        for l,s,v,j,c in [('TRA','CAAF','TRAV1','TRAJ1','1'),('TRB','CASSF','TRBV1','TRBJ1-1','1'),
+        ('TRB','CARSF','TRBV1','TRBJ1-1','0')]])
+    f,report=fixed_scope_scores(q,r,paired=True,exclude_exact=True)
+    assert report['native_batches']==2 and f['locus'].item()=='paired'
+    assert f['linked_neighbor_junction_pairs'].item()==1
+    assert f['linked_nearest_bottleneck_edits'].item()==1
+    assert f['alpha_neighbor_junctions'].item()==1
+    assert f['beta_neighbor_junctions'].item()==1
+    assert f['any_hit'].item()
+    unlinked,_=fixed_scope_scores(q,r.with_columns(pl.lit('0').alias('complex_id')),paired=True,exclude_exact=True)
+    assert unlinked['linked_neighbor_junction_pairs'].item()==0
+    assert unlinked['alpha_neighbor_junctions'].item()==1 and unlinked['beta_neighbor_junctions'].item()==1
+    assert unlinked['any_hit'].item()
+
+
+def test_shipping_cli_restores_raw_source_and_reports_scope(tmp_path):
+    from argparse import Namespace
+    from vdjmatch.cli.fixed_scope import main
+    q=tmp_path/'query.tsv';r=tmp_path/'reference.tsv';prefix=tmp_path/'naive'
+    pl.DataFrame([dict(query_id='q',junction_aa='CASSF',v_call='TRBV1',j_call='TRBJ1-1',locus='TRB',**CONTEXT)]).write_csv(q,separator='\t')
+    pl.DataFrame([dict(cdr3=s,v='TRBV1',j='TRBJ1-1',gene='TRB',species='HomoSapiens',complex_id='0',**CONTEXT)
+        for s in ['CASSF','CARSF']]).write_csv(r,separator='\t')
+    assert main(Namespace(sample=str(q),vdjdb=str(r),species='human',paired=False,targets_from_sample=True,
+        scope='1,0,0,1',exclude_exact=True,reference_population='all-valid',threads=1,output_prefix=str(prefix)))==0
+    frame=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert frame['naive_neighbor_junctions'].item()==1 and frame['naive_nearest_score'].item()==-1
+    assert frame['beta_full_reference_records'].item()==2 and frame['beta_reference_records'].item()==1
+
+
+def test_empty_reference_and_invalid_source_cases_stay_present(tmp_path):
+    from argparse import Namespace
+    from vdjmatch.cli.fixed_scope import main
+    q=tmp_path/'q.tsv';r=tmp_path/'r.tsv';prefix=tmp_path/'empty'
+    pl.DataFrame([dict(query_id=str(i),junction_aa=s,v_call='TRBV1',j_call='TRBJ1-1',locus='TRB',**CONTEXT)
+        for i,s in enumerate([None,'C?F','CASSF'])]).write_csv(q,separator='\t')
+    pl.DataFrame([dict(cdr3='CASSF',v='TRBV1',j='TRBJ1-1',gene='TRB',species='HomoSapiens',complex_id='0',**(CONTEXT|{'epitope':'other'}))]).write_csv(r,separator='\t')
+    assert main(Namespace(sample=str(q),vdjdb=str(r),species='human',paired=False,scope='1,0,0,1',
+        exclude_exact=True,reference_population='all-valid',threads=1,output_prefix=str(prefix)))==0
+    f=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert f.height==3 and f['naive_neighbor_junctions'].to_list()==[0,0,0]
+    assert f['naive_nearest_score'].null_count()==3 and not f['any_hit'].any()

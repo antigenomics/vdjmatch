@@ -47,45 +47,58 @@ queries, selections = result["queries"], result["selection"]
 - Compact output is the default. `--details` exports continuous evidence per target
   and candidates; its memory grows with queries × targets. `--epitope` restricts
   requested targets. `--kernel-scorer` selects retained advanced kernel variants;
-  `--v-regions cdr12 --stem-depth 0 --distance-matrix clipped
-  --junction-ends trim3` selects the retained `vcdr12` geometry.
-  Matrix extras use `--distance-matrix pam250|mj|vdjam` with stem depth 0 and trim3.
-  `sig` uses compact `--position-weighting significance-trimmed
-  --distance-matrix clipped --stem-depth 0 --junction-ends trim3`; `sigb62` uses
-  blosum62. Preserve their pre-V junction rounding; calibration is geometry specific.
-  `--geometry-extra flank|framev|framemid|framej|freegap|jw|stem4j|jlen|vjlen|norm|jnorm|sw|nw`
-  selects a fixed retained recipe and sets its matrix, trim3 ends and stem term.
-  Require compact uniform full-alphabet geometry and all three V regions.
-  Frame recipes preserve the recorded callback ordering. `norm`/`jnorm` retain
-  pre-exclusion same-V target counts in their denominator, so exact-excluded
-  runs are historical reproduction diagnostics, not fully punctured models.
-  Do not transfer targeted stem4 calibration to any alternative.
-  `historical-density` retains the original scorer and its advanced options.
-  For original held-out components, use `historical-density --legacy-components
-  --reference-population all-valid --germline-background RAW --control RAW`;
-  retain the owning full reference union and supplied prior/control populations.
+  see the CLI documentation for recorded geometry recipes. Calibration does not
+  transfer between scorers, geometries or selection procedures. Preserve the
+  original `historical-density` route and its explicitly supplied model assets.
+  PSSM-density and naive fixed-scope scores are current alternatives, not obsolete
+  methods. `fixed-scope` reports unit-edit distances and neighbor counts separately;
+  use a query table with declared full pMHC targets. State the exact operation
+  budgets and counting unit, and preserve every no-hit and supplied negative.
 - Supply an explicit `--threads` budget. Keep queries in population batches; do not
   wrap annotation/search in a per-receptor or per-file multiprocessing pool.
   For Python, set `POLARS_MAX_THREADS` before importing Polars if its existing pool
   would exceed the requested budget; the API rejects that mismatch before loading.
+
+## One raw control, complete-score calibration
+
+```sh
+vdjmatch annotate sample.tsv --vdjdb reference.zip --control control.tsv --threads 4 -o calibrated
+```
+
+With default `--background vdjdb-other`, this explicitly opts into the combined
+score. No fitted JSON input/output is required. Outputs are `.queries.tsv`
+(every raw chain row with calibration identity/status), `.database.tsv`
+(selected-label/axis tails), `.epitopes.tsv` (fixed full-pMHC tails and score
+components), and `.calibration.tsv` (population, seed/model/native provenance).
+Use `--mock-replicates` (default199) and `--seed` (default0) explicitly when pinning
+reproduction. Reference species/locus/evidence/score/pMHC filtering precedes mocks.
+
+Controls need valid anchor-inclusive junctions and unambiguous V/J calls.
+Productive flags and invalid-AA exclusions are counted. Sampling weights describe
+rearrangement events, not reads. Paired controls require both loci with independent
+randomization; an incomplete genuine pair keeps its missing row and uses eligible
+marginal evidence. Retain generated calibration IDs when joining outputs across
+populations; original query IDs need not be globally unique.
+
+`p_both=max(p_reference,p_query)` tests both conditional directions; match rates
+are separate `k/B` estimates, never binding probabilities. The candidate prior
+comes from the matching-chain control (TRB for paired scoring), distinct from
+historical benchmark assets. Keep this route opt-in until nonregression gates
+pass; ordinary no-control annotation keeps the accepted stem4 scorer.
+Nondefault geometries/target-selection options fail before computation. Legacy
+`--background real/generative --control` routes retain their existing meaning.
+See [the calibration guide](../../docs/control-calibration.rst).
 
 For library/CLI engineering, the synthetic serial/parallel and process-tree memory
 gate is `python -m pytest tests/test_annotation_resources.py -q` with test/bench
 extras installed. Scientific comparisons require matched populations and exact
 exclusion policies; preserve established results and report every task delta.
 
-Single-chain complete-score calibration uses `reference-calls --scorer stem4
---reference-population curated-benchmark --leave-epitope-out`, followed by
-`calibrate-calls` on its `.calibration-cases.tsv`. Pin the reference, model,
-scorer, exclusion policy and generated null source before recommending a cutoff.
-Use `--input-manifest` for fitting and application to enforce the producer binding.
-For genuine paired withheld nulls, add `--locus paired`; fit with
-`--score-column kernel_any_axis_score`. This is the maximum of final selected
-linked, alpha and beta scores; labels and ties stay separate on each axis.
-Include matched generated paired nulls before recommending repertoire calls.
-Do not transfer a single-chain or linked-only cutoff to this any-axis event,
-or a withheld benchmark recipe to an ordinary all-valid exact-retained model.
-The original `reference-calls` mode remains available and is its default.
+For separate offline call-policy experiments, use the documented
+`reference-calls` / `calibrate-calls` / `apply-call-calibration` commands. Preserve
+producer manifests, null identity and exact-hit policy. A single-chain or
+linked-only operating point cannot calibrate the paired any-axis event. These
+advanced recipes do not supply files to the one-control workflow above.
 
 ## CLI-first examples
 

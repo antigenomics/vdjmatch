@@ -33,6 +33,8 @@ def register(subparsers):
     p.add_argument('--likelihood-score',action='store_true',help='also report original components on a common log scale; paired adds chain log-density and original combined germline evidence')
     p.add_argument('--puncture-populations',action='store_true',
                    help='candidate: remove exact full junctions from density and prior population sizes/counts; preserves historical defaults')
+    p.add_argument('--export-punctured',action='store_true',
+                   help='paired cohort likelihood: export the fully punctured candidate alongside fixed-population original evidence, sharing native searches')
     p.add_argument('--gapped-extension',action='store_true',help='experimental gapped density mode; matched-pssm rescores all accepted edges; no combined P-value')
     p.add_argument('--gap-geometry',choices=['clipped','historical-pssm','matched-pssm'],default='clipped',
                    help='geometry/historical-pssm add extension edges; matched-pssm uses one positional kernel and control CDF for all edges')
@@ -100,6 +102,12 @@ def _paired_columns(cohort_column):
             'query_id_alpha','query_id_beta','estimator_alpha','estimator_beta',
             *[c+suffix for c in ['cdr3','v','j','count','query_id','sequence_id'] for suffix in ['a','b']]}
         reserved.update(alias for aliases in io.columns.ALIASES.values() for alias in aliases)
+        reserved.update('likelihood_score_'+name for name in ('alpha','beta'))
+        punctured={'status','likelihood_score','germline_lr'}
+        punctured.update(field+'_'+side for field in
+            ('status','likelihood_score','density_score','germline_lr','n_reference','control_size')
+            for side in ('alpha','beta'))
+        reserved.update('punctured_'+name for name in punctured)
         if cohort_column.lower() in reserved:
             raise ValueError('--cohort-column collides with a canonical input, parsed or score column')
     return fields,score_columns
@@ -116,6 +124,7 @@ def _paired_scores(a, reference, beta_control, prior_background):
     from ..match.vgene import precompute_v_similarities
     fields,score_columns=_paired_columns(a.cohort_column)
     puncture=getattr(a,'puncture_populations',False)
+    export_punctured=getattr(a,'export_punctured',False)
     all_targets=getattr(a,'all_targets',False)
     raw=_read_table(a.sample)
     if 'query_id' not in raw.columns:
@@ -206,15 +215,30 @@ def _paired_scores(a, reference, beta_control, prior_background):
                 scores=density(queries,ref,controls[name],threads=a.threads,pool_reference=True,
                                control_counts=shared_counts.get(name),puncture_populations=puncture,
                                v_similarities=v_similarities[name],
-                               prepared_neighbours=_take_prepared(prepared_batches[name],queries,ref,shared_counts.get(name)))
+                               prepared_neighbours=_take_prepared(prepared_batches[name],queries,ref,shared_counts.get(name)),
+                               **({'export_punctured':True} if export_punctured else {}))
                 prior=germline_prior(queries.filter(pl.all_horizontal(pl.col('v','j').str.strip_chars().ne('').fill_null(False))),
                                      ref,prior_background,include_length=chain=='TRB',exclude_exact=puncture)
                 scores=scores.join(prior.select('query_id','germline_lr'),on='query_id',how='left',
                                    validate='1:1',maintain_order='left').drop(PMHC)
+                if export_punctured:
+                    candidate=germline_prior(queries.filter(pl.all_horizontal(pl.col('v','j').str.strip_chars().ne('').fill_null(False))),
+                        ref,prior_background,include_length=chain=='TRB',exclude_exact=True)
+                    scores=scores.join(candidate.select('query_id',pl.col('germline_lr').alias('punctured_germline_lr')),
+                        on='query_id',how='left',validate='1:1',maintain_order='left')
+                    valid=scores.filter(pl.col('punctured_germline_lr').is_not_null() & pl.col('punctured_score').is_not_null())
+                    candidate=valid.select('query_id').with_columns(unpaired_score(valid['punctured_score'],
+                        valid['punctured_germline_lr'],valid['punctured_n_reference'],log_scale=True).alias('punctured_likelihood_score'))
+                    scores=scores.join(candidate,on='query_id',how='left',validate='1:1',maintain_order='left').rename(
+                        {'punctured_score':'punctured_density_score'})
                 if a.cohort_column:
                     valid=scores.filter(pl.col('germline_lr').is_not_null() & pl.col('score').is_not_null())
                     original=valid.select('query_id').with_columns(unpaired_score(
                         valid['score'],valid['germline_lr'],valid['n_reference'] if puncture else ref.unique('cdr3').height).alias('unpaired_score'))
+                    if a.likelihood_score:
+                        original=original.with_columns(unpaired_score(valid['score'],valid['germline_lr'],
+                            valid['n_reference'] if puncture else ref.unique('cdr3').height,
+                            log_scale=True).alias('likelihood_score'))
                     scores=scores.join(original,on='query_id',how='left',validate='1:1',maintain_order='left')
                 scores=scores.rename({c:('density_score_' if c=='score' else c+'_')+name
                                      for c in scores.columns if c!='query_id'})
@@ -226,6 +250,13 @@ def _paired_scores(a, reference, beta_control, prior_background):
             if not puncture or not (ref.height and queries.height):
                 out=out.with_columns(pl.lit(ref.unique('cdr3').height,dtype=pl.UInt64).alias('n_reference_'+name),
                                      pl.lit(len(controls[name]),dtype=pl.UInt64).alias('control_size_'+name))
+            if export_punctured:
+                empty={'punctured_density_score':(None,pl.Float64),'punctured_germline_lr':(None,pl.Float64),
+                    'punctured_likelihood_score':(None,pl.Float64),
+                    'punctured_n_reference':(ref.unique('cdr3').height,pl.UInt64),
+                    'punctured_control_size':(len(controls[name]),pl.UInt64)}
+                out=out.with_columns(*[pl.lit(value,dtype=dtype).alias(field+'_'+name)
+                    for field,(value,dtype) in empty.items() if field+'_'+name not in out.columns])
         out=out.with_columns(
             pl.when(pl.col('pair_status')!='paired').then(pl.col('pair_status'))
             .when(~pl.col('cdr3a').str.contains(canonical).fill_null(False)).then(pl.lit('invalid_alpha'))
@@ -253,6 +284,12 @@ def _paired_scores(a, reference, beta_control, prior_background):
                     .when(pl.col('control_size_'+name)==0).then(pl.lit('no_control'))
                     .when(pl.col('germline_lr_'+name).is_null()).then(pl.lit('no_prior_evidence'))
                     .otherwise(pl.lit('scored')).alias('status_'+name))
+                if export_punctured:
+                    out=out.with_columns(pl.when(pl.col('status_'+name)!='scored').then(pl.col('status_'+name))
+                        .when(pl.col('punctured_n_reference_'+name)==0).then(pl.lit('no_reference'))
+                        .when(pl.col('punctured_control_size_'+name)==0).then(pl.lit('no_control'))
+                        .when(pl.col('punctured_germline_lr_'+name).is_null()).then(pl.lit('no_prior_evidence'))
+                        .otherwise(pl.lit('scored')).alias('punctured_status_'+name))
         valid=out.filter(pl.col('status')=='scored')
         out=out.with_columns((pl.col('status').eq('scored').sum().over(a.cohort_column)
             if a.cohort_column else pl.lit(valid.height)).cast(pl.UInt64).alias('cohort_size'))
@@ -318,6 +355,9 @@ def main(a):
             or a.targets_from_sample or getattr(a,'all_targets',False) or getattr(a,'withhold_epitope',None)):
         raise ValueError('legacy components require TRA/TRB and germline-background without alternate reducers or withholding')
     a.puncture_populations=getattr(a,'puncture_populations',False)
+    a.export_punctured=getattr(a,'export_punctured',False)
+    if a.export_punctured and (a.locus!='paired' or not a.cohort_column or not a.likelihood_score or a.puncture_populations):
+        raise ValueError('--export-punctured requires paired cohort likelihood with fixed-population primary outputs')
     a.all_targets=getattr(a,'all_targets',False)
     a.withhold_epitope=getattr(a,'withhold_epitope',None)
     if a.withhold_epitope and not (a.all_targets or a.targets_from_sample):
@@ -634,6 +674,22 @@ def main(a):
                 (pl.col('density_score_'+side)+1e-6).log()+(pl.col('germline_lr_'+side) if full else 0.))
                 .otherwise(None).alias('likelihood_'+('full_prior_' if full else 'density_only_')+side)
                 for side in ('alpha','beta') for full in (False,True)])
+            out=out.with_columns(*[pl.lit(None,dtype=pl.Float64).alias('likelihood_score_'+side)
+                for side in ('alpha','beta') if 'likelihood_score_'+side not in out.columns])
+            if a.export_punctured:
+                out=out.with_columns((pl.col('punctured_germline_lr_alpha')+
+                    pl.col('punctured_germline_lr_beta')).alias('punctured_germline_lr'))
+                status=pl.when(pl.col('status')!='scored').then(pl.col('status'))
+                for field,reason in [('n_reference','no_reference'),('control_size','no_control')]:
+                    for side in ('alpha','beta'):
+                        status=status.when(pl.col('punctured_'+field+'_'+side)==0).then(pl.lit(reason+'_'+side))
+                out=out.with_columns(status.when(pl.col('punctured_germline_lr').is_null()).then(pl.lit('no_prior_evidence'))
+                    .otherwise(pl.lit('scored')).alias('punctured_status'))
+                candidate=out.filter(pl.col('punctured_status')=='scored')
+                candidate=candidate.select('query_id').with_columns(paired_score(candidate['punctured_density_score_beta'],
+                    candidate['punctured_density_score_alpha'],candidate['punctured_germline_lr'],
+                    log_scale=True).alias('punctured_likelihood_score'))
+                out=out.join(candidate,on='query_id',how='left',validate='1:1',maintain_order='left')
     prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
     out.write_csv(str(prefix)+'.scores.tsv',separator='\t')
     extension_manifest=None
@@ -689,6 +745,12 @@ def main(a):
                       'log(D+1e-6)+original germline term when sparse; density-only if no prior supplied',
             'components':'original density, V weight, control correction and germline counts unchanged',
             'cohort_dependent':False,'historical_score_preserved':True,'calibration':'requires identical complete selected-score null pipeline'}} if a.likelihood_score else {}),
+        **({'population_comparators':{'primary':'accepted fixed-population density, prior, scores and statuses unchanged',
+            'candidate':'punctured_* removes every query-junction match from target/control/prior populations and feature counts',
+            'execution':'shared native neighbours and control CDF; separate population reductions',
+            'chain_score_columns':['punctured_likelihood_score_alpha','punctured_likelihood_score_beta'],
+            'paired_score_column':'punctured_likelihood_score',
+            'calibration':'no component or selected-score P/E transfer'}} if a.export_punctured else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
         'withheld_reference_chain_records':withheld_records,
         'withholding':'candidate hits only; other target priors and raw controls retained',

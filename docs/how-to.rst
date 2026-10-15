@@ -11,6 +11,17 @@ support. Choose ``--reference-population curated-benchmark`` explicitly for the
 source-curated benchmark population. See :doc:`tutorial` and :doc:`examples` for
 raw inputs and reproducible offline commands.
 
+To compute complete-score tails from one raw control, run:
+
+.. code-block:: bash
+
+   vdjmatch annotate sample.tsv --vdjdb reference.zip --control control.tsv --threads 4 -o calibrated
+
+This opts into the combined candidate score. It produces four flat TSVs without
+a fitted calibration file; see :doc:`control-calibration` for control eligibility,
+paired routing and interpretation. The no-control annotation default remains
+stem4.
+
 Legacy Annotator API: choose a reference
 ----------------------------------------
 

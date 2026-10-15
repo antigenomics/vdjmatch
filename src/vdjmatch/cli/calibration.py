@@ -179,51 +179,7 @@ def apply_calibration(frame, calibration, *, input_manifest=None):
 
 
 
-def null_tail_probabilities(frame, nulls, *, higher_is_better=True, score_column="score"):
-    """Tail of the existing selected score against each frozen null population.
-
-    P=(1+number of null scores at least as extreme)/(1+all null queries),
-    retaining ties and no-hits. It is a conservative rank P-value if query and
-    null scores are exchangeable under the same complete pipeline. E=k/N is
-    the observed expected false calls per query at that score threshold, not a
-    confidence bound. Maxima retain the most conservative represented source.
-    Unsupported queries have P=1/E=0 because they make no call.
-    """
-    import numpy as np
-    import polars as pl
-    if not isinstance(score_column,str) or not score_column.strip():
-        raise ValueError('score_column must name a numeric input column')
-    if {'p_null','E_null'} & set(frame.columns):
-        raise ValueError('null-tail output columns already exist')
-    for part in (frame, nulls):
-        if missing := {'query_id',score_column} - set(part.columns):
-            raise ValueError('missing columns: '+', '.join(sorted(missing)))
-        if part['query_id'].null_count() or part['query_id'].n_unique()!=part.height:
-            raise ValueError('query_id must be unique and non-null; reduce candidate labels first')
-        if not part[score_column].cast(pl.Float64).drop_nulls().is_finite().all():
-            raise ValueError('non-null scores must be finite')
-    if not nulls.height or not {'outcome','null_source'} <= set(nulls.columns):
-        raise ValueError('nonempty null cases require outcome and null_source')
-    if nulls['outcome'].null_count() or not nulls['outcome'].eq('null').all():
-        raise ValueError('only null outcomes define null tails')
-    if nulls['null_source'].null_count() or nulls['null_source'].cast(pl.String).str.strip_chars().eq('').any():
-        raise ValueError('every null query requires a nonempty null_source')
-    sign=1 if higher_is_better else -1
-    values=sign*frame[score_column].cast(pl.Float64).to_numpy()
-    missing=np.isnan(values)
-    p=np.zeros(frame.height); e=np.zeros(frame.height); rows=[]
-    for source in sorted(nulls['null_source'].unique().to_list()):
-        part=nulls.filter(pl.col('null_source')==source)
-        scores=np.sort(sign*part[score_column].cast(pl.Float64).drop_nulls().to_numpy())
-        counts=len(scores)-np.searchsorted(scores,values,side='left')
-        counts[missing]=0
-        tail=np.where(missing,1.,(counts+1)/(part.height+1))
-        rate=counts/part.height
-        p=np.maximum(p,tail); e=np.maximum(e,rate)
-        rows.append(frame.select('query_id').with_columns(
-            pl.lit(source).alias('null_source'), pl.lit(part.height).alias('null_queries'),
-            pl.Series('null_tail_count',counts),pl.Series('p_null',tail),pl.Series('E_null',rate)))
-    return frame.with_columns(pl.Series('p_null',p),pl.Series('E_null',e)),pl.concat(rows)
+from ..evalue.directional import null_tail_probabilities
 
 
 def apply_main(args):

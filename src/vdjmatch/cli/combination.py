@@ -62,15 +62,19 @@ def _main(a):
     if not frame.height:
         raise ValueError('nonempty evidence table required')
     if null_evidence:
-        from ..aggregate.combination import null_normalized_evidence, THREE_COMPONENTS, THREE_WEIGHTS
+        from ..aggregate.combination import null_normalized_evidence, THREE_COMPONENTS, THREE_WEIGHTS, weighted_component_support
         scored=null_normalized_evidence(frame,pl.read_csv(null_evidence,separator='\t',infer_schema_length=None),
                                        structure_conditioned=structure_conditioned,three_channel=three_channel)
         output=Path(a.output);output.parent.mkdir(parents=True,exist_ok=True)
-        scored.with_columns(pl.col('normalized_score').alias('combined_score'),
-            pl.when(pl.col('normalized_score').is_not_null()).then(pl.lit('scored')).otherwise(pl.lit('unsupported')).alias('combined_status')).write_csv(output,separator='\t')
+        supported = weighted_component_support(scored) if three_channel else pl.col('normalized_score').is_not_null()
+        exported = scored.with_columns(pl.when(supported).then(pl.col('normalized_score')).otherwise(None).alias('combined_score'))
+        exported = exported.with_columns(pl.when(pl.col('combined_score').is_not_null()).then(pl.lit('scored'))
+            .otherwise(pl.lit('unsupported')).alias('combined_status'))
+        exported.write_csv(output, separator='\t')
         Path(str(output)+'.manifest.json').write_text(json.dumps({
             'evidence_sha256':evidence_hash,'null_evidence_sha256':sha256(Path(null_evidence)),
-            'rows':frame.height,'unsupported_rows':scored['normalized_score'].null_count(),
+            'rows':frame.height,'unsupported_rows':exported['combined_score'].null_count(),
+            'support_policy':'original_supported plus positive weighted kernels; raw normalized_score retained' if three_channel and 'original_supported' in frame.columns else 'legacy component availability',
             'formula':'sum(w_k * -log(p_k)); missing components contribute zero without weight redistribution' if three_channel else 'max(-log(p_L),-log(p_R)+log(s)); missing L uses -log(p_R)' if structure_conditioned else '-log(min(p_component_likelihood,p_component_rank))',
             'three_channel':three_channel,
             'components':list(THREE_COMPONENTS) if three_channel else ['likelihood_score','conditional_rank_score'],
@@ -78,7 +82,8 @@ def _main(a):
             'structure_conditioned':structure_conditioned,
             'structure_gate':'s=1-reference_coverage*(1-(1-knee_shape)*knee_radius_ratio)' if structure_conditioned else None,
             'normalization':'max source (k+1)/(N+1), exact ties and no-hit null queries retained',
-            'population_keys':['species','locus','epitope','mhc_a','mhc_b','mhc_class'],
+            'population_keys':['species','locus','epitope','mhc_a','mhc_b','mhc_class'] +
+                (['normalization_stratum'] if 'normalization_stratum' in frame.columns else []),
             'query_labels_used':False,'interpretation':'normalized ranking statistic; final selected-score P/E requires complete-pipeline calibration'},indent=2)+'\n')
         return 0
     if a.group_column not in frame.columns or frame[a.group_column].null_count():

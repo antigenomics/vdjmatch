@@ -16,7 +16,7 @@ from seqtree import SearchParams
 @pytest.mark.parametrize('name',['score','cdr3a','status','cohort_size','pair_id','species',
     'v_call','junction_aa','binder','germline_lr_alpha','unpaired_score_beta','status_alpha',
     'rank_germline_prior','n_reference_alpha','control_size_beta','estimator_alpha',
-    'query_ida','countb','_locus'])
+    'query_ida','countb','_locus','likelihood_score_alpha','likelihood_score_beta','punctured_likelihood_score_alpha'])
 def test_cli_rejects_reserved_cohort_column_before_pair_parsing(tmp_path,monkeypatch,capsys,name):
     from vdjmatch.cli.__main__ import main
     from vdjmatch import io,db
@@ -680,6 +680,11 @@ def test_likelihood_prior_diagnostics_are_common_formulas_without_size_switch(tm
         density=(valid['density_score_'+side]+1e-6).log()
         assert valid['likelihood_density_only_'+side].to_list()==pytest.approx(density.to_list())
         assert valid['likelihood_full_prior_'+side].to_list()==pytest.approx((density+valid['germline_lr_'+side]).to_list())
+        expected=unpaired_score(valid['density_score_'+side],valid['germline_lr_'+side],
+            valid['n_reference_'+side],log_scale=True)
+        assert valid['likelihood_score_'+side].equals(expected.rename('likelihood_score_'+side))
+        invalid=q.filter(pl.col('status_'+side)!='scored')
+        assert invalid['likelihood_score_'+side].null_count()==invalid.height
     valid=q.filter(pl.col('status')=='scored')
     assert valid['likelihood_full_prior'].equals(valid['likelihood_score'])
     assert valid['likelihood_density_only'].to_list()==pytest.approx(((valid['density_score_alpha']+1e-6).log()+(valid['density_score_beta']+1e-6).log()).to_list())
@@ -801,3 +806,80 @@ def test_all_target_single_species_and_empty_reference_preserve_query_population
     empty=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
     assert empty.height==3 and empty['status'].to_list()==['no_reference']*3
     assert empty['likelihood_score'].null_count()==3
+
+
+def test_density_exports_punctured_reduction_without_another_neighbour_search(monkeypatch):
+    from vdjmatch.match import historical
+    q,r='CASSLGQAYEQYF','CASSLGRAYEQYF'
+    reference=Annotator.from_frame(pl.DataFrame({'gene':['TRB']*2,'cdr3':[q,r],
+        'v':['TRBV19']*2,'epitope':['E']*2}))._index.records_for('TRB')
+    _,queries=_prepare(pl.DataFrame({'query_id':['q','r'],'cdr3':[q,r],
+        'v':['TRBV19']*2,'locus':['TRB']*2}))
+    control=Index.build([q,q,r])
+    fixed=density(queries,reference,control)
+    punctured=density(queries,reference,control,puncture_populations=True)
+    calls=[];native=historical._density_neighbours
+    def spy(*args,**kwargs):
+        calls.append(1);return native(*args,**kwargs)
+    monkeypatch.setattr(historical,'_density_neighbours',spy)
+    both=density(queries,reference,control,export_punctured=True)
+    assert len(calls)==1
+    assert both.select(fixed.columns).equals(fixed)
+    for field in ('score','n_reference','control_size'):
+        assert both['punctured_'+field].to_list()==punctured[field].to_list()
+
+
+@pytest.mark.parametrize('extra_reference',[False,True])
+@pytest.mark.parametrize('multiple_targets',[False,True])
+def test_paired_export_punctured_preserves_fixed_and_matches_candidate(tmp_path,monkeypatch,extra_reference,multiple_targets):
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.match import historical
+    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
+    raw.with_columns(pl.lit('cohort').alias('cohort')).write_csv(sample,separator='\t')
+    if extra_reference:
+        path=Path(args[args.index('--vdjdb')+1]);ref=pl.read_csv(path,separator='\t')
+        mutants=ref.with_columns(pl.Series('cdr3',['CAVRDTNYQLIW','CASSLGRAYEQYF']))
+        pl.concat([ref,mutants]).write_csv(path,separator='\t')
+    if multiple_targets:
+        raw=pl.read_csv(sample,separator='\t')
+        other=raw.with_columns((pl.lit('f-')+pl.col('query_id')).alias('query_id'),
+            (pl.lit('f-')+pl.col('clone_id')).alias('clone_id'),pl.lit('F').alias('epitope'))
+        pl.concat([raw,other]).write_csv(sample,separator='\t')
+        path=Path(args[args.index('--vdjdb')+1]);ref=pl.read_csv(path,separator='\t')
+        pl.concat([ref,ref.with_columns(pl.lit('F').alias('epitope'))]).write_csv(path,separator='\t')
+    options=args+['--cohort-column','cohort','--likelihood-score']
+    assert main(options)==0
+    fixed=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert main(options+['--puncture-populations'])==0
+    candidate=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    calls=[];native=historical._density_neighbours
+    def spy(*args,**kwargs):
+        calls.append(1);return native(*args,**kwargs)
+    monkeypatch.setattr(historical,'_density_neighbours',spy)
+    assert main(options+['--export-punctured'])==0
+    both=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert len(calls)==(4 if multiple_targets else 2)
+    assert both.select(fixed.columns).equals(fixed)
+    for name in ('status','likelihood_score'):
+        assert both['punctured_'+name].to_list()==candidate[name].to_list()
+    for side in ('alpha','beta'):
+        for name in ('status','likelihood_score','density_score','germline_lr','n_reference','control_size'):
+            actual='punctured_'+name+'_'+side
+            expected=name+'_'+side
+            assert both[actual].to_list()==candidate[expected].to_list(),actual
+
+
+@pytest.mark.parametrize('exclude_exact', [False, True])
+@pytest.mark.parametrize('include_length', [False, True])
+def test_weighted_event_prior_matches_explicit_event_rows(exclude_exact, include_length):
+    from vdjmatch.match.historical import germline_prior
+    background = pl.DataFrame({'cdr3': ['CASSF', 'CATF', 'CASSF'],
+        'v': ['TRBV1', 'TRBV2', 'TRBV3'], 'j': ['TRBJ1-1', 'TRBJ2-1', 'TRBJ1-1'],
+        'event_weight': [2, 3, 4]})
+    expanded = background[[0, 0, 1, 1, 1, 2, 2, 2, 2]].drop('event_weight')
+    reference = background.select('cdr3', 'v', 'j').with_columns(pl.lit(999).alias('event_weight'))
+    query = pl.DataFrame({'query_id': [1, 2, 3], 'cdr3': ['CASSF', 'CAAF', 'CATF'],
+        'v': ['TRBV1', 'TRBV2', 'TRBV2'], 'j': ['TRBJ1-1', 'TRBJ2-1', 'TRBJ2-1']})
+    expected = germline_prior(query, reference, expanded, exclude_exact=exclude_exact, include_length=include_length)
+    actual = germline_prior(query, reference, background, exclude_exact=exclude_exact, include_length=include_length)
+    assert actual.equals(expected)
