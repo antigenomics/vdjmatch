@@ -9,7 +9,7 @@ def register(subparsers):
     p.add_argument('--locus', choices=['TRA', 'TRB', 'paired'], required=True)
     p.add_argument('--epitope', action='append')
     p.add_argument('--targets-from-sample', help='profile compatible pMHC unions declared by this AIRR sample')
-    p.add_argument('--junction-ends', choices=['tcrdist', 'trim3'], default='trim3')
+    p.add_argument('--junction-ends', choices=['trim32', 'trim3'], default='trim3')
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--knee-floor-factor', type=float, default=.5)
     p.add_argument('--coverage-radius-factor', type=float, default=22.5,
@@ -27,7 +27,7 @@ def main(a):
     from ..aggregate.candidates import PMHC
     from ..evalue.control import _organism
     from ..evalue.paired import build_paired_ref
-    from ..match.tcrdist import (load_v_loops, resolve_v_alleles, reference_nearest_distances,
+    from ..match.geometry import (load_v_loops, resolve_v_alleles, reference_nearest_distances,
                                 kneedle_radius, regularize_reference_radii, reference_structure,
                                 distance_units)
 
@@ -72,7 +72,7 @@ def main(a):
         retained = frame.filter(available).drop('_valid', strict=False)
         frame = retained.unique(maintain_order=True)
         distances = reference_nearest_distances(frame, paired=paired, species=organism,
-            threads=a.threads, ctrim=2 if a.junction_ends == 'tcrdist' else 3)
+            threads=a.threads, ctrim=2 if a.junction_ends == 'trim32' else 3)
         finite = np.isfinite(distances)
         radius = kneedle_radius(distances[finite])
         coverage, shape = reference_structure(distances, radius_factor=a.coverage_radius_factor)

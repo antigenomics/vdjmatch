@@ -1,0 +1,4 @@
+# Install from the repository root so notebook commands match this checkout.
+-e .[bench,precursor,notebook]
+nbclient>=0.10
+ipykernel>=6

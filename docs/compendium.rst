@@ -118,8 +118,9 @@ a mass to a number of cells:
    pip install 'vdjmatch[precursor,notebook]'
    marimo edit docs/notebooks/precursor_compendium.py
 
-It recomputes no ``Pgen`` for the comparison itself — both tables come from the mirror — so it opens
-in a second.
+Both comparison tables come from the mirror. The interactive ball census and
+``Pgen`` diagnostics compute freshly from reference junctions with one native
+thread; allow additional time for those cells and the first reference download.
 
 Where the numbers come from
 ---------------------------

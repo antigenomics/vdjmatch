@@ -333,6 +333,96 @@ the original calibration-input hash and exports source-specific counts and tails
 The same full scoring/label-selection pipeline is required; no new scoring model
 or biological binding-probability claim is introduced.
 
+\subsection{On-demand calibration in two directions}\label{sec:directional}
+One raw control repertoire supplies both randomisation directions; the user need not construct calibration files.
+Let $q$ be the observed clonotype, $R_i$ the selected full-pMHC reference, and $R_0$ the whole selected reference, separately for each species and chain.
+Write $T_A(q,R_i)$ for a higher-is-better statistic under the complete search procedure $A$, including scope, geometry, gene restrictions, exact-match policy, weights and label selection.
+Let $t=T_A(q,R_i)$.
+For $B_R$ mock references $R_i^{*(b)}$ with the same reference source-record count and Pgen composition, and $B_Q$ control queries $q^{*(b)}$ of the observed query's Pgen stratum, define
+\[
+ p_R=\frac{1+\sum_{b=1}^{B_R}\mathbf1\{T_A(q,R_i^{*(b)})\ge t\}}{B_R+1},
+ \qquad
+ p_Q=\frac{1+\sum_{b=1}^{B_Q}\mathbf1\{T_A(q^{*(b)},R_i)\ge t\}}{B_Q+1}.
+\]
+The first asks whether a composition-matched random reference supports this query as strongly; the second asks whether a similar-Pgen random clonotype obtains as much support from the actual reference.
+Ties count towards each tail, all no-hit draws remain in the denominators, and an observed no-hit has both tails one.
+The finite-sample rank interpretation requires exchangeability under the respective conditional nulls; approximate Pgen matching is not itself proof of exchangeability.
+The plus-one construction follows the Monte Carlo rank principle of \href{https://doi.org/10.2202/1544-6115.1585}{Phipson and Smyth}.
+
+\begin{proposition}[Evidence in both randomisation directions]
+If $p_R$ and $p_Q$ are valid for their respective nulls $H_R,H_Q$, then
+$p_{\rm both}=\max(p_R,p_Q)$ is valid for $H_R\cup H_Q$, without independence.
+\end{proposition}
+\begin{proof}
+If $H_R$ holds, for every $a\in[0,1]$,
+$\Pr\{p_{\rm both}\le a\}\le\Pr\{p_R\le a\}\le a$.
+The same argument applies if $H_Q$ holds.
+\end{proof}
+The maximum requires unusual support in both directions; multiplication or an independent Fisher reference distribution does not follow from these nulls.
+Neither directional tail nor their maximum is the posterior probability of binding or the false-discovery rate of an assignment.
+Separately, $\widehat\pi_Q=B_Q^{-1}\sum_b\mathbf1\{q^{*(b)}\text{ matches }R_i\}$ estimates the probability of \emph{any} match under the fixed scope, rather than a tail at the observed score.
+It may be zero as a Monte Carlo estimate; the plus-one rank tails cannot be zero.
+
+\paragraph{Event units and analytic checks.}
+The implemented scoped diagnostic uses fixed one-bit rounded log2-Pgen strata, with a separate zero-mass stratum, and preserves source-record counts within strata.
+Within each mock group it samples integer rearrangement-event slots without replacement and separately collapses amino-acid search keys.
+Several independent nucleotide events producing the same amino-acid junction can therefore occur together in a mock.
+Reads do not count as independent rearrangements: pooled occurrences are used when supplied; otherwise distinct nucleotide/V/J events within samples, or pooled nucleotide incidence, supply the available event counts.
+Incidental exact overlap between a random control and the real reference is retained.
+If $n_{ih}$ event slots are sampled without replacement from stratum $h$ with $W_h$ control events, of which $c_h(q)$ match $q$, then
+\[
+ \Pr\{\text{any match}\}=1-\prod_h\frac{\binom{W_h-c_h(q)}{n_{ih}}}{\binom{W_h}{n_{ih}}},
+ \qquad \E[K_i^{\rm events}(q)]=\sum_h n_{ih}\frac{c_h(q)}{W_h}.
+\]
+The expectation counts matched events, not distinct junctions.
+If matching junction $r$ has $w_r$ events in stratum $h(r)$, then
+$\E[K_i^{\rm keys}(q)]=\sum_{r:\,r\text{ matches }q}[1-\binom{W_{h(r)}-w_r}{n_{i,h(r)}}/\binom{W_{h(r)}}{n_{i,h(r)}}]$.
+For independent with-replacement event draws with within-stratum match probabilities $u_h(q)$, the corresponding any-match probability is
+$1-\prod_h(1-u_h(q))^{n_{ih}}$; $1-e^{-\sum_hn_{ih}u_h(q)}$ is its rare-match approximation.
+Integer event-slot sampling has the hypergeometric law above even with unequal amino-acid multiplicities; weighted sampling of unique amino-acid keys would be a different null and suppress convergence.
+For the random-query direction, a native batch estimates the mass of the \emph{union} of the reference balls; summing individual ball masses counts overlaps repeatedly.
+Agreement with generated-query/Pgen formulas requires the same event unit, conditional model, scope and reference; empirical selected controls and a raw recombination model need not have the same law.
+
+\paragraph{The complete procedure must be repeated.}
+If $T_A$ derives weights $w(R)$ from reference morphology, mock-reference calibration recomputes $w(R^*)$.
+Component normalisation must be symmetric between observed and null instances or fitted on an independent internal split of the same selected control.
+The combined-score implementation draws an independent unconditional normalisation bank internally from the selected control.
+The separate final test-query draws remain matched to the observed chainwise Pgen strata.
+For each reference model, including every mock, each component is mapped to minus the log of its empirical upper tail against that bank.
+The observed receptor and the separate test-query bank never train this normalisation.
+Conditioning on the normalisation bank therefore leaves the same model-dependent statistic in both randomisation directions.
+A selected epitope or paired-axis statistic repeats the same selection inside every null replicate; fixed-target tails cannot be transferred to it.
+Independently sampled target mocks do not define a coherent selected-label null with overlapping reference memberships.
+For the paired null we draw chains independently, $Q_{\alpha\beta}=Q_\alpha Q_\beta$, matching the two Pgen strata separately.
+The paired mock sampler uses separate streams and random within-group pairing permutations, preserving the number of source pairs and both chainwise Pgen histograms.
+Its score must still search both chains against the same linked reference and retain unlinked same-target marginal support.
+Multiplying two chainwise any-database-match rates allows different reference partners and omits the full linked/marginal selection.
+For one fixed reference pair and independent chain-distance distributions $F_\alpha,F_\beta$, a sum-distance ball of radius $r$ has probability $\int F_\beta(r-u)\,dF_\alpha(u)$; the union across reference pairs still requires overlap handling.
+
+\paragraph{Reference graph weights.}
+The candidate mixture uses two independent uniform draws from distinct full-junction/V-gene keys, pooling alleles.
+Let $L$ denote junction length, $V$ the V gene and $C$ the Hamming-one connected component; each component has one length.
+Writing $p_L,p_{LV},p_{LVC}$ for the corresponding reference key fractions, define
+\[
+ w_{\rm gap}=1-\sum_Lp_L^2,\qquad
+ w_{\rm stem}=\sum_{L,V}p_{LV}^2-\sum_{L,V,C}p_{LVC}^2,\qquad
+ w_{\rm original}=1-w_{\rm gap}-w_{\rm stem}.
+\]
+These nonnegative weights partition length-different, same-length/same-V/disconnected, and remaining key pairs.
+This structural heuristic has no fitted recognition coefficients; preservation of benchmark accuracy remains an empirical gate.
+The score on an axis is the weighted sum of the three independently normalised component evidences.
+Missing components contribute zero without redistributing weights, and an unsupported axis remains unavailable.
+Marginal axes use their same-target chain reference graphs; the linked axis uses the equal mean of those two weight vectors.
+Complete axis scores are maximised only after summation, then the maximum over searched full-pMHC labels is recalibrated as the database statistic.
+Exact benchmark exclusion also punctures component populations, priors and marginal composition graphs, including articulation-induced changes in connected components.
+Linked native scores exclude the complete paired identity; sharing one chain does not delete another reference pair.
+Mock long references retain source labels and linkage while independently replacing TRA/TRB sequence/gene events within Pgen strata.
+Identical duplicate evidence rows for one linked chain role share a draw and retain their source multiplicity; source-record counts and distinct draw-role counts remain separate.
+The one-control candidate derives its density and prior populations from that control; its model context is explicitly distinct from separately pinned historical benchmark assets.
+Changing evidence filters or supplying a custom labelled reference changes $R_i$ and requires both directions to be recalculated.
+The shipping \code{database-evidence --control} adapter currently implements full-junction scoped nearest-distance and distinct-neighbour-count statistics; full V-loop/combined-score, selected-label and paired adapters remain open gates.
+It computes fresh Pgen from bundled models, searches observed and sampled queries in one native batch, streams mock references, and writes flat TSVs without a calibration-file input.
+
 \textbf{Benchmark baseline scope.} In the AP comparisons below, \code{original\_score} means
 the \code{historical-density} CLI output, not NED-v1 from \code{aggregate.candidates} or the
 paired API exponential sum. For fewer than 500 unique target junctions its unpaired score is

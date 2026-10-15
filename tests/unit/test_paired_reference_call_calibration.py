@@ -7,10 +7,10 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
-from vdjmatch.cli import calibration,reference_calls,tcrdist
+from vdjmatch.cli import calibration,reference_calls,neighbours as geometry
 from vdjmatch.evalue.kernel import grouped_kernel_selection,finish_kernel_selection,ladder_cutoffs
 from vdjmatch.evalue.paired import build_paired_ref
-from vdjmatch.match.tcrdist import precompute_v_loop_distances,resolve_v_alleles
+from vdjmatch.match.geometry import precompute_v_loop_distances,resolve_v_alleles
 
 
 def reference(path):
@@ -107,11 +107,11 @@ def test_native_paired_annotation_binding_and_linked_score_rejection(tmp_path):
     sample=tmp_path/'q.tsv'
     pl.DataFrame([dict(query_id=i,clone_id='pair',junction_aa=row[axis],v_call=row['v_'+axis],
         j_call=row['j_'+axis],locus=locus) for i,(axis,locus) in enumerate([('alpha','TRA'),('beta','TRB')])]).write_csv(sample,separator='\t')
-    p=argparse.ArgumentParser();tcrdist.register(p.add_subparsers(),name='annotate')
+    p=argparse.ArgumentParser();geometry.register(p.add_subparsers(),name='annotate')
     args=p.parse_args(['annotate',str(sample),'--vdjdb',str(tmp_path/'ref.tsv'),'--locus','paired',
         '--distance-matrix','blosum62','--junction-ends','trim3','--stem-depth','4','--kernel-scorer','v-bounded',
         '--selection-only','--all-targets','--output-prefix',str(tmp_path/'generated')])
-    assert tcrdist.main(args)==0
+    assert geometry.main(args)==0
     output=pl.read_csv(tmp_path/'generated.selection.tsv',separator='\t')
     assert output['kernel_any_axis_score'][0]==max(output[c][0] or 0 for c in ['kernel_score','kernel_alpha_score','kernel_beta_score'])
     manifest=json.loads((tmp_path/'out.manifest.json').read_text())

@@ -64,11 +64,16 @@ def _cmd_update(a: argparse.Namespace) -> int:
 
 
 def _cmd_annotate(a: argparse.Namespace) -> int:
+    if a.control and a.background == 'vdjdb-other':
+        from .combined import main
+        return main(a)
+    if a.mock_replicates != 199 or a.seed != 0 or a.evidence_type or a.min_score:
+        raise ValueError('mock-replicates, seed and evidence filters require annotate --control with the default background')
     from ..runner.annotation import annotate_repertoires
 
     options = vars(a).copy()
     for name in ("cmd", "func", "sample", "metadata", "vdjdb", "output_prefix",
-                 "locus", "species", "threads"):
+                 "locus", "species", "threads", "mock_replicates", "seed", "evidence_type", "min_score"):
         options.pop(name, None)
     annotate_repertoires(a.sample, metadata=a.metadata, reference=a.vdjdb,
         output_prefix=a.output_prefix, locus=a.locus, species=a.species,
@@ -760,6 +765,8 @@ def main(argv: list[str] | None = None) -> int:
     from .first_hit import register
 
     register(sub)
+    from .database import register as register_database
+    register_database(sub)
     from .search import register as register_search
 
     register_search(sub)
@@ -769,9 +776,18 @@ def main(argv: list[str] | None = None) -> int:
     register_motifs(sub)
     from .combination import register as register_combination
     register_combination(sub)
-    from .tcrdist import register as register_tcrdist
-    register_tcrdist(sub)
-    annotation = register_tcrdist(sub,name="annotate")
+    from .neighbours import register as register_neighbours
+    register_neighbours(sub)
+    evidence = register_neighbours(sub, name="evidence")
+    annotation = register_neighbours(sub,name="annotate")
+    # Reuse annotation's model without changing the calibrated scorer source.
+    evidence.set_defaults(**annotation._defaults)
+    evidence.description = "VDJmatch neighbourhood evidence for single or paired receptors."
+    for choice in sub._choices_actions:
+        if choice.dest == "evidence":
+            choice.help = "VDJmatch neighbourhood evidence"
+        elif choice.dest == "neighbours":
+            choice.help = "legacy command; use evidence for the current model"
     for action in annotation._actions:
         if action.dest == "sample":
             action.nargs = "?"
@@ -787,6 +803,20 @@ def main(argv: list[str] | None = None) -> int:
     annotation.add_argument("--metadata", help="TSV with path and optional sample_id; paths relative to this TSV")
     annotation.add_argument("--details", dest="selection_only", action="store_false",
                             help="also export per-target evidence and candidates; memory grows with queries × targets")
+    annotation.add_argument('--mock-replicates', type=int, default=199,
+                            help='with --control: fresh draws per direction (default: 199)')
+    annotation.add_argument('--seed', type=int, default=0, help='with --control: reproducible randomization seed')
+    annotation.add_argument('--evidence-type', action='append', help='with --control: filter reference evidence before recalibration')
+    annotation.add_argument('--min-score', type=int, default=0, help='with --control: minimum reference evidence score')
+    annotation._option_string_actions['--control'].help = 'one raw control repertoire; calibrate the complete combined score on demand'
+    basic = {'help', 'vdjdb', 'locus', 'species', 'reference_population', 'epitope', 'mhc_a', 'mhc_b',
+             'mhc_match', 'threads', 'verbose', 'control', 'exclude_exact', 'output_prefix', 'metadata',
+             'mock_replicates', 'seed', 'evidence_type', 'min_score'}
+    advanced = annotation.add_argument_group('Advanced scorer diagnostics')
+    for action in list(annotation._optionals._group_actions):
+        if action.dest not in basic:
+            annotation._optionals._group_actions.remove(action)
+            advanced._group_actions.append(action)
     annotation.set_defaults(func=_cmd_annotate, selection_only=True)
     from .scoring_audit import register as register_scoring_audit
     register_scoring_audit(sub)
@@ -802,15 +832,22 @@ def main(argv: list[str] | None = None) -> int:
     register_radius(sub)
     from .support import register as register_support
     register_support(sub)
+    from .structure import register as register_structure
+    register_structure(sub)
+    from .fixed_scope import register as register_fixed_scope
+    register_fixed_scope(sub)
+    register_fixed_scope(sub, trained=True)
 
     a = p.parse_args(argv)
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
-    evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence"}
+    evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
+    if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
+        evidence_commands.add('annotate')
     kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
     previous_kernels = {key: os.environ.get(key) for key in kernel_env} if a.cmd in evidence_commands else {}
-    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support"} | evidence_commands:
+    if a.cmd in {"match", "update", "first-hit", "database-evidence", "search", "historical-density", "neighbours", "evidence", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support", "reference-structure", "fixed-scope", "trained-score"} | evidence_commands:
         import os
         import json
 
@@ -828,6 +865,8 @@ def main(argv: list[str] | None = None) -> int:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
             if table_threads < 1:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
+            if a.cmd == 'database-evidence' or (a.cmd == 'annotate' and a.cmd in evidence_commands):
+                table_threads = 1
             os.environ["POLARS_MAX_THREADS"] = str(min(threads, table_threads))
     os.environ.update(dict.fromkeys(previous_kernels, "1"))
     try:

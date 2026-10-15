@@ -44,7 +44,7 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
     lacks g, V is neutral and rank uses all V categories. Enriched motifs add a
     bounded correlated sequence bonus, never a calibrated independent likelihood.
     """
-    from ..match.tcrdist import total_distance_count_batch,paired_total_distance_mass_batch,distance_cutoff
+    from ..match.geometry import total_distance_count_batch,paired_total_distance_mass_batch,distance_cutoff
     if not 0<radius<2**28/200:raise ValueError('positive radius below native V barrier required')
     native_radius=distance_cutoff(radius)
     if native_radius==0:raise ValueError('positive radius in native units required')
@@ -97,7 +97,7 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
     # Exhaustive CDR3-only rank uses the same matrix-derived gaps and quantum.
     # This is a finite geometry bound, not a radius/parameter scan.
     from .local_rank import local_rank_evidence
-    from ..match.tcrdist import distance_units
+    from ..match.geometry import distance_units
     matrix_scale,quantum=distance_units();step=3*quantum
     def ranks(part, conditional):
         bound=3*matrix_scale*sum(max((f[f'seq{i}'].str.len_chars().max() or 0) for f in (q,r,b)) for i in axes)

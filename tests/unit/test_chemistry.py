@@ -1,4 +1,4 @@
-"""Independent receptor-mixture oracle, including linked-pair puncturing."""
+"""Independent receptor-mixture oracle, including linked-pair hit exclusion."""
 import itertools
 import math
 
@@ -50,7 +50,9 @@ def test_local_chemistry_matches_scalar_mixture(paired):
             R = windows(tuple(s[3:-3] for s in seqs))
             total += sum(math.exp(-sum((a-b)**2 for a, b in zip(x, y))/2)
                          for x in Q for y in R) / (len(Q)*len(R))
-        return total / len(eligible), len(keys) - (sum(s == tuple(q[f'seq{i}'][0] for i in axes) for s, v in keys) if exclude else 0), len(eligible)
+        n = sum(v == 'TRAV1' for _, v in keys)
+        return total / n, len(keys), n
+    prior_values = []
     for exclude in (False, True):
         out = local_chemistry_evidence(q, r, b, paired=paired, exclude_exact=exclude)
         expected_r, N, n = density(r, exclude)
@@ -60,9 +62,11 @@ def test_local_chemistry_matches_scalar_mixture(paired):
         assert x['chemistry_control_density'] == pytest.approx(expected_b, rel=1e-12)
         assert (x['chemistry_reference_population'], x['chemistry_control_population']) == (N, M)
         assert (x['chemistry_reference_v_keys'], x['chemistry_control_v_keys']) == (n, m)
+        prior_values.append(x['chemistry_log_v_ratio'])
         assert x['chemistry_log_conditional_ratio'] == pytest.approx(math.log(expected_r / expected_b))
         assert out.row(1, named=True)['chemistry_log_score'] == pytest.approx(x['chemistry_log_score'])
         assert out['chemistry_status'][2] == 'no_core_window'
+    assert prior_values[0] == prior_values[1]
     with pytest.raises(ValueError, match='unique'):
         local_chemistry_evidence(pl.concat([q, q]), r, b)
     empty = local_chemistry_evidence(q.head(0), r.head(0), b.head(0), paired=paired)

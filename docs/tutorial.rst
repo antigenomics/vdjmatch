@@ -1,48 +1,142 @@
-Annotate your first receptors
-=============================
+Annotate single and paired receptors
+====================================
 
-This tutorial starts with raw synthetic repertoire tables, invokes the installed
-CLI, and reads its annotation outputs. It uses the pinned offline reference in the
-``examples`` directory; no reference download is needed.
+Run one command, then rank candidate antigens with ``kernel_score``.
+A larger score means stronger reference evidence. A match decision additionally
+needs the matching calibration described in :doc:`explanation`.
 
-Install and run
----------------
+Single-chain input
+------------------
 
-Create and activate an isolated environment, install vdjmatch, and obtain the
-complete repository ``examples`` directory, including its raw ``inputs`` files.
+A tab-separated file contains one receptor per row. ``junction_aa`` includes
+the conserved terminal residues; ``v_call`` and ``locus`` identify its V gene
+and chain. These are the supplied synthetic example rows:
+
+.. literalinclude:: ../examples/inputs/cohort/sample_a.tsv
+   :language: text
+
+Run
+~~~
+
+.. code-block:: sh
+
+   vdjmatch annotate examples/inputs/cohort/sample_a.tsv \
+     --vdjdb examples/inputs/reference.tsv --locus TRB \
+     --threads 4 -o single
+
+Read the output
+~~~~~~~~~~~~~~~
+
+``single.selection.tsv`` contains one row per input receptor. Selected columns
+from the verified example are shown below; the full table preserves input IDs.
+
+.. list-table:: Single-chain result
+   :header-rows: 1
+
+   * - sequence_id
+     - selected_epitope
+     - kernel_score
+     - kernel_competing_score
+     - selection_status
+   * - q1
+     - DEMO_A
+     - 0.978264
+     - 0.220985
+     - ranked_evidence
+   * - q2
+     - DEMO_A
+     - 0.978264
+     - 0.219845
+     - ranked_evidence
+
+Both receptors rank DEMO_A above the alternative label. The score is evidence
+for ranking, not a probability of binding. DEMO_A and DEMO_B are synthetic labels.
+Use ``--details`` to export evidence for every candidate peptide–MHC.
+
+Paired input
+------------
+
+Put linked alpha and beta chains on the same row, with a stable ``clone_id``.
+Do not manufacture pairs from independent single-chain receptors.
+
+.. literalinclude:: ../examples/inputs/paired.tsv
+   :language: text
+
+Run
+~~~
+
+.. code-block:: sh
+
+   vdjmatch annotate examples/inputs/paired.tsv \
+     --vdjdb examples/inputs/reference.tsv --locus paired \
+     --threads 4 -o paired
+
+Read the output
+~~~~~~~~~~~~~~~
+
+``paired.selection.tsv`` keeps linked evidence and both marginal chains:
+
+.. list-table:: Paired result
+   :header-rows: 1
+
+   * - clone_id
+     - Linked label / score
+     - Alpha label / score
+     - Beta label / score
+     - kernel_any_axis_score
+   * - pair1
+     - DEMO_A / 0.962190
+     - DEMO_A / 0.739132
+     - DEMO_A / 0.978264
+     - 0.978264
+   * - pair2
+     - unavailable
+     - DEMO_B / 0.739132
+     - unavailable
+     - 0.739132
+
+The complete pair supports DEMO_A on all three axes. The second row lacks a
+beta chain: its alpha evidence remains available, but it has no linked-pair
+score. ``kernel_any_axis_score`` is the maximum of the three selected scores
+for the declared any-axis calibration event; it does not invent a joint label.
+
+Parameters that change the question
+-----------------------------------
+
+.. list-table:: Main options
+   :header-rows: 1
+
+   * - Parameter
+     - Meaning
+   * - ``--vdjdb reference.tsv``
+     - Fix the reference used for all comparisons. Omit to fetch the current release.
+   * - ``--locus TRA|TRB|paired``
+     - Choose the receptor population; automatic routing is the default.
+   * - ``--epitope LLWNGPMAV``
+     - Restrict candidate evidence to the requested peptide.
+   * - ``--mhc-a 'HLA-A*02' --mhc-match compatible``
+     - Restrict to compatible HLA-A*02 annotations at the supplied resolution.
+   * - ``--exclude-exact``
+     - Remove exact query evidence for a benchmark. Ordinary annotation keeps it.
+   * - ``--details``
+     - Export all candidate evidence as well as the selected label.
+   * - ``--threads 4``
+     - Use a budget of four CPU workers. This changes runtime, not the score.
+
+Install and reproduce everything above
+--------------------------------------
 
 .. code-block:: sh
 
    python -m venv .venv
    . .venv/bin/activate
    python -m pip install vdjmatch
+   git clone --depth 1 https://github.com/antigenomics/vdjmatch.git
+   cd vdjmatch
    sh examples/annotate.sh annotation-demo
 
-The script submits the metadata cohort and the wide paired population as separate
-CLI invocations with ``--threads 1`` and the supplied local reference. Four
-single-chain rows retain their sample/source IDs; two paired receptors retain
-clone identities, including the incomplete pair. ``DEMO_A`` and ``DEMO_B`` are
-synthetic software labels, not claims of antigen binding.
-
-Inspect the CLI tables
-----------------------
-
-.. code-block:: python
-
-   import polars as pl
-
-   queries = pl.read_csv("annotation-demo/cohort.queries.tsv", separator="\t")
-   selection = pl.read_csv("annotation-demo/cohort.selection.tsv", separator="\t")
-   print(queries.select("sample_id", "source_sequence_id"))
-   print(selection)
-
-Also inspect ``paired.queries.tsv``, ``paired.selection.tsv`` and both manifests.
-Missing chains, invalid input and no-support dispositions stay in the output;
-never interpret them as experimental negative labels. Ordinary annotation keeps
-exact reference evidence. Relative kernel scores are neither binding probabilities
-nor calibrated false-call rates.
-
-Continue with the downloadable :doc:`examples` notebooks, which execute these
-CLI commands from a fresh kernel and analyze their final tables. Follow
-:doc:`how-to` for your own formats and resource budget; use :doc:`explanation` for
-score interpretation and :doc:`cli`/:doc:`api` for reference documentation.
+The script runs the supplied single-chain cohort and paired inputs from scratch.
+An invalid V gene in the second cohort file produces ``no_support`` rather than
+losing the row. For real data, start with these same commands and replace the
+input and reference paths. See :doc:`explanation` for significance and
+:doc:`algorithms` for the scoring steps.

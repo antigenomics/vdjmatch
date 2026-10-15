@@ -22,6 +22,19 @@ metadata under ``input_`` prefixes.
 
 .. autofunction:: vdjmatch.annotate_repertoires
 
+On-demand control calibration
+-----------------------------
+
+See :doc:`control-calibration` for the two null hypotheses, event units and
+complete-score selection requirements. These helpers use transient tables;
+the user supplies one raw repertoire, with no calibration-file lifecycle.
+
+.. automodule:: vdjmatch.evalue.mock_reference
+   :members:
+
+.. automodule:: vdjmatch.evalue.directional
+   :members:
+
 vdjmatch.api
 ------------
 
@@ -164,7 +177,7 @@ identity when selecting corroborated records.
 Experimental V-conditioned motif evidence
 -----------------------------------------
 
-.. autofunction:: vdjmatch.match.motifs.vdjbet_motif_scores
+.. autofunction:: vdjmatch.match.motifs.masked_motif_scores
 
 Targeted kernel evidence
 ------------------------
@@ -172,10 +185,15 @@ Targeted kernel evidence
 .. automodule:: vdjmatch.evalue.kernel
    :members: ladder_cutoffs, kernel_ladder, select_kernel
 
-.. autofunction:: vdjmatch.match.tcrdist.precompute_v_loop_distances
+.. autofunction:: vdjmatch.match.geometry.precompute_v_loop_distances
 
 Legacy calculation reproduction
---------------------------------
+-------------------------------
 
 .. automodule:: vdjmatch.match.scoring_audit
    :members: matrix_audit, loo_audit
+
+Reference graph morphology
+--------------------------
+
+.. autofunction:: vdjmatch.aggregate.structure.graph_profiles

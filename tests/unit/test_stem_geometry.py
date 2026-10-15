@@ -1,4 +1,4 @@
-"""Joint V-J hairpin stem term: semantics, units and TCRdist3 reproduction.
+"""Joint V-J hairpin stem term: semantics, units and clipped BLOSUM62 geometry reproduction.
 
 The stem is the one geometry addition the goal scoreboard selects (``GOAL.md``). These
 tests pin the properties the selection rests on, so a later change that breaks them
@@ -8,7 +8,7 @@ fails here rather than silently producing a different scorer under the same name
 import numpy as np
 import pytest
 
-from vdjmatch.match.tcrdist import (STEM_DEPTH_DEFAULT, _substitution_costs,
+from vdjmatch.match.geometry import (STEM_DEPTH_DEFAULT, _substitution_costs,
                                     distance_matrix, paired_distance_matrix,
                                     stem_penalty)
 
@@ -64,7 +64,7 @@ def test_bounded_by_the_shared_matrix_scale():
     assert 0 <= out.min() and out.max() <= int(costs.max())
 
 
-def test_distance_matrix_default_reproduces_tcrdist3():
+def test_distance_matrix_default_reproduces_geometry3():
     """stem_depth defaults to 0, so the shipped distance is unchanged."""
     plain = distance_matrix(A, B, V, V * len(B))
     assert (distance_matrix(A, B, V, V * len(B), stem_depth=0) == plain).all()
@@ -108,26 +108,26 @@ def test_cli_exposes_the_stem_options():
     """The geometry GOAL.md selects must be reachable without editing code."""
     import argparse
 
-    from vdjmatch.cli.tcrdist import register
+    from vdjmatch.cli.neighbours import register
 
     parser = argparse.ArgumentParser()
     register(parser.add_subparsers(dest="cmd"))
     args = parser.parse_args(
-        ["tcrdist-neighbours", "s.tsv", "--vdjdb", "db.tsv", "--locus", "TRB", "--output-prefix", "o",
+        ["neighbours", "s.tsv", "--vdjdb", "db.tsv", "--locus", "TRB", "--output-prefix", "o",
          "--stem-depth", "4"])
     assert args.stem_depth == 4
     assert args.stem_weight == 1.0
 
 
-def test_cli_stem_defaults_to_tcrdist3():
+def test_cli_stem_defaults_to_geometry3():
     import argparse
 
-    from vdjmatch.cli.tcrdist import register
+    from vdjmatch.cli.neighbours import register
 
     parser = argparse.ArgumentParser()
     register(parser.add_subparsers(dest="cmd"))
     args = parser.parse_args(
-        ["tcrdist-neighbours", "s.tsv", "--vdjdb", "db.tsv", "--locus", "TRB", "--output-prefix", "o"])
+        ["neighbours", "s.tsv", "--vdjdb", "db.tsv", "--locus", "TRB", "--output-prefix", "o"])
     assert args.stem_depth == 0
 
 
@@ -140,7 +140,7 @@ PV = dict(query_v_alpha=["TRAV12-1"], query_v_beta=["TRBV19"],
           reference_v_alpha=["TRAV12-1"] * 2, reference_v_beta=["TRBV19"] * 2)
 
 
-def test_paired_default_reproduces_tcrdist3():
+def test_paired_default_reproduces_geometry3():
     plain = paired_distance_matrix(QA, QB, RA, RB, **PV)
     assert (paired_distance_matrix(QA, QB, RA, RB, **PV, stem_depth=0) == plain).all()
 
@@ -172,29 +172,29 @@ def test_paired_identity_pair_costs_nothing():
 def _args(*extra):
     import argparse
 
-    from vdjmatch.cli.tcrdist import register
+    from vdjmatch.cli.neighbours import register
 
     parser = argparse.ArgumentParser()
     register(parser.add_subparsers(dest="cmd"))
     return parser.parse_args(
-        ["tcrdist-neighbours", "s.tsv", "--vdjdb", "db.tsv", "--locus", "TRB",
+        ["neighbours", "s.tsv", "--vdjdb", "db.tsv", "--locus", "TRB",
          "--output-prefix", "o", *extra])
 
 
 @pytest.mark.parametrize("flag,value", [("--stem-depth", "-1"), ("--stem-weight", "-0.5")])
 def test_cli_rejects_negative_stem_parameters(flag, value, tmp_path):
     """Caught at the CLI boundary, not deep inside a distance batch."""
-    from vdjmatch.cli.tcrdist import main as run
+    from vdjmatch.cli.neighbours import main as run
 
     with pytest.raises(SystemExit, match="nonnegative"):
         run(_args(flag, value))
 
 
 def test_cli_manifest_declares_the_stem_geometry(tmp_path):
-    """A stem run must not describe itself as the TCRdist3 default.
+    """A stem run must not describe itself as the clipped BLOSUM62 geometry default.
 
     The raw flags always reached manifest['parameters'], but the interpreted
-    geometry did not, so a stem run and a TCRdist3 run were indistinguishable to
+    geometry did not, so a stem run and a clipped BLOSUM62 geometry run were indistinguishable to
     anyone reading the geometry description rather than the argument dump.
     """
     import json
@@ -214,7 +214,7 @@ def test_cli_manifest_declares_the_stem_geometry(tmp_path):
     seen = {}
     for depth in (0, 4):
         prefix = tmp_path / f"d{depth}"
-        assert main(["tcrdist-neighbours", str(q), "--vdjdb", str(r), "--locus", "TRB",
+        assert main(["neighbours", str(q), "--vdjdb", str(r), "--locus", "TRB",
                      "--targets-from-sample", "--radius", "12", "--unbounded-nearest",
                      "--stem-depth", str(depth),
                      "--output-prefix", str(prefix)]) == 0
@@ -225,7 +225,7 @@ def test_cli_manifest_declares_the_stem_geometry(tmp_path):
         assert manifest["distance_scale"]["stem_depth"] == depth
         assert ("stem" in manifest["distance_scale"]) == bool(depth)
         assert ("joint stem" in manifest["distance"]) == bool(depth)
-    assert "TCRdist3 default" in seen[0]["distance"]
+    assert "clipped BLOSUM62 geometry default" in seen[0]["distance"]
     assert seen[0]["distance"] != seen[4]["distance"]
 
 
@@ -276,7 +276,7 @@ def test_reproduces_the_independently_implemented_reference_arm():
 @pytest.mark.parametrize('paired', [False, True])
 @pytest.mark.parametrize('weight', [0.0, 1.0, 1.5])
 def test_native_stem_counts_and_mass_equal_dense(paired, weight):
-    from vdjmatch.match.tcrdist import total_distance_count_batch, paired_total_distance_mass_batch
+    from vdjmatch.match.geometry import total_distance_count_batch, paired_total_distance_mass_batch
     q = ['CASSLGQAYEQYF', 'WASSLGQAYEQYF']
     r = q + ['CASSAGQAYEQWF', q[0], 'CASSLGQAPAYEQYF']
     qv, rv = ['TRBV19'] * 2, ['TRBV19', 'TRBV7-9', 'TRBV19', 'TRBV19', 'TRBV19']
@@ -324,7 +324,7 @@ def test_stem_rejects_nonfinite_weight(weight):
 
 def test_unclipped_matrix_native_stem_matches_dense():
     from seqtree import SubstitutionMatrix, amino_acids
-    from vdjmatch.match.tcrdist import total_distance_count_batch
+    from vdjmatch.match.geometry import total_distance_count_batch
     b = SubstitutionMatrix.blosum62()
     costs = np.array([[b.penalty(a, c) for c in amino_acids()] for a in amino_acids()])
     q, r = A, B
@@ -338,7 +338,7 @@ def test_unclipped_matrix_native_stem_matches_dense():
 
 
 def test_same_gene_counts_retain_allele_loop_cost_in_one_batch():
-    from vdjmatch.match.tcrdist import total_distance_count_batch,distance_matrix
+    from vdjmatch.match.geometry import total_distance_count_batch,distance_matrix
     q=['CASSLGQAYEQYF','CASSAGQAYEQYF']
     r=['CASSLGQAYEQYF','CASSLGQAYEQWF','CASSAGQAYEQYF']
     qv=['TRBV19*01','TRBV7-9*01']

@@ -1,62 +1,111 @@
 vdjmatch
 ========
 
-Annotate selected T-cell receptors and repertoires with VDJdb peptide–MHC evidence.
-The package preserves receptor identity, reports competing candidate labels and
-supports explicit background calibration through a Python API and command line.
-Native sequence search uses ``seqtree``; repertoire ingestion reuses ``vdjtools``.
+.. raw:: html
 
-Start with :doc:`tutorial`, follow :doc:`how-to` for release and repertoire workflows,
-and read :doc:`explanation` to interpret ranking and calibration. Options and public
-interfaces are documented in :doc:`cli` and :doc:`api`.
+   <div class="proj-intro">
+     <p class="proj-intro__eyebrow">TCR specificity and repertoire annotation</p>
+     <p class="proj-intro__lead">From receptor sequences to peptide–MHC evidence.
+     Annotate TRA/TRB receptors, linked pairs or whole repertoires while keeping
+     source identities, competing labels and unsupported queries visible.</p>
+     <p class="proj-intro__links">
+       <a href="tutorial.html">Get started</a><span>·</span>
+       <a href="cli.html">Command line</a><span>·</span>
+       <a href="examples.html">Examples</a><span>·</span>
+       <a href="notebooks.html">Notebooks</a>
+     </p>
+   </div>
+
+Version |release|. Install the published package and annotate your AIRR table:
+
+.. code-block:: sh
+
+   python -m pip install vdjmatch
+   vdjmatch annotate sample.tsv --threads 4 -o annotation
+
+The reference is fetched on first use. Choose ``--vdjdb reference.tsv`` for an
+offline run, or start with the tiny synthetic inputs in :doc:`examples`.
+
+.. raw:: html
+
+   <div class="proj-card-grid">
+     <a class="proj-card" href="tutorial.html">
+       <span class="proj-card__type">Tutorials</span>
+       <h3>Annotate your first receptors</h3>
+       <p>Install, run a small offline cohort and paired sample, then read the output tables.</p>
+     </a>
+     <a class="proj-card" href="how-to.html">
+       <span class="proj-card__type">How-to guides</span>
+       <h3>Run your own cohort</h3>
+       <p>Choose a reference, prepare AIRR inputs, preserve pairing and set a resource budget.</p>
+     </a>
+     <a class="proj-card" href="cli.html">
+       <span class="proj-card__type">Reference</span>
+       <h3>Look up a command</h3>
+       <p>Find flags, input contracts and output fields for annotation and calibration.</p>
+     </a>
+     <a class="proj-card" href="explanation.html">
+       <span class="proj-card__type">Explanation</span>
+       <h3>Understand the scores</h3>
+       <p>Interpret reference support, competing labels, paired evidence and false-call calibration.</p>
+     </a>
+   </div>
+
+Explore a worked example
+------------------------
+
+.. raw:: html
+
+   <div class="proj-card-grid">
+     <a class="proj-card" href="examples.html">
+       <h3>Examples gallery</h3>
+       <p>Two runnable shell workflows with raw inputs: cohort annotation and a geometry comparison.</p>
+     </a>
+     <a class="proj-card" href="notebooks.html">
+       <h3>Notebooks gallery</h3>
+       <p>Read worked notebooks with figures, results and downloadable source.</p>
+     </a>
+   </div>
+
+Use the :doc:`api` to integrate annotation into Python, consult :doc:`releases`
+for release changes, and read :doc:`scoring` for the detailed score derivation.
+Native search uses `seqtree <https://github.com/antigenomics/seqtree>`_;
+ingestion uses `vdjtools <https://github.com/antigenomics/vdjtools>`_.
 
 .. toctree::
+   :hidden:
    :maxdepth: 2
    :caption: Tutorials
 
-   tutorial
-   examples
-   compendium
-   notebooks/precursor
+   Getting started <tutorial>
 
 .. toctree::
+   :hidden:
    :maxdepth: 2
    :caption: How-to guides
 
-   how-to
-   releases
+   Workflows <how-to>
+   Examples <examples>
+   Notebooks <notebooks>
+   Laptop resources <performance>
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Explanation
-
-   explanation
-   scoring
-   pgen
-
-.. toctree::
+   :hidden:
    :maxdepth: 2
    :caption: Reference
 
-   cli
-   api
+   Command line <cli>
+   Python API <api>
+   releases
 
-Research context
-----------------
+.. toctree::
+   :hidden:
+   :maxdepth: 2
+   :caption: Explanation
 
-The following recorded scoring studies describe their stated historical reference
-and evaluation design. They do not identify every production score as the same
-estimator or make a query-level statistic a specificity posterior.
-
-**What scoring actually buys.** An empirical study on VDJdb (the scoring appendix; 2026-06-11-ZENODO
-release, composition-controlled) finds that **Hamming distance 1 is the signal:noise optimum** (macro
-purity 0.49 → 0.07 over edit distance 1–5; the original VDJdb observation), that **central substitutions
-carry the specificity signal** (P(same) ≈ 0.31 in the core vs ≈ 0.75 near the anchors), and that **no
-amino-acid matrix clearly beats BLOSUM62** — a genetic-code null (VDJAMr) even ties it, so CDR3
-substitution structure is generative, not chemical. **Reweighting BLOSUM62 by the central-position
-significance** (a native ``seqtree`` ``PositionalMatrix``, end-anchored) is the one change that does beat
-it, in 7/8 held-out epitopes. The substitution alphabet is second-order, position is the first-order
-matrix lever, and the overall first-order statistic is the control-calibrated E-value. Finally, the
-**V gene is a strong near-binary prior** (same-V neighbours share an epitope up to ~7× more than
-cross-V); loose CDR1/CDR2 similarity does not recover it, and near-exact germline-loop identity recovers
-only about **half** of it (the rest is gene-identity-specific).
+   Evidence and calibration <explanation>
+   Two control directions <control-calibration>
+   Algorithm diagrams <algorithms>
+   Score derivation <scoring>
+   pgen
+   compendium

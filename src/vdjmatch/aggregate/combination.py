@@ -1,7 +1,5 @@
 """Fixed or fitted combinations of existing evidence, not binding confidence."""
 import numpy as np
-from scipy.optimize import minimize
-from scipy.special import expit
 
 FEATURES=('likelihood_dense','likelihood_sparse','rank_dense','rank_sparse',
           'paired','likelihood_missing','rank_missing')
@@ -67,6 +65,9 @@ def fit_evidence_combination(frame, labels, *, weights=None):
     stabilizes correlated columns; its strength is not tuned on benchmark labels.
     Returned linear margins require complete-pipeline null calibration for P/E.
     """
+    from scipy.optimize import minimize
+    from scipy.special import expit
+
     x,available=evidence_features(frame);y=np.asarray(labels,dtype=float)
     if y.shape!=(len(x),) or not np.isin(y,[0,1]).all() or len(np.unique(y))!=2:
         raise ValueError('aligned two-class binary training labels required')
@@ -105,27 +106,74 @@ def combine_evidence(frame, model):
     return result
 
 
-def null_normalized_evidence(frame, nulls, *, structure_conditioned=False):
+THREE_COMPONENTS=('original_score','gapblock_score','stem4_score')
+THREE_WEIGHTS=('original_weight','gapblock_weight','stem4_weight')
+
+
+def weighted_component_support(frame):
+    """Shared three-channel call support; missing flags preserve legacy behavior.
+
+    A declared original_supported flag distinguishes actual original density
+    support from its finite zero-density prior baseline. Positive weighted kernel
+    evidence can independently support an axis. This never redistributes weights.
+    """
+    import polars as pl
+    if 'original_supported' not in frame.columns:
+        return pl.any_horizontal(*[pl.col(score).is_not_null() & (pl.col(weight) > 0)
+            for score, weight in zip(THREE_COMPONENTS, THREE_WEIGHTS)])
+    if frame.schema['original_supported'] not in (pl.Boolean, pl.Null):
+        raise ValueError('original_supported must be Boolean or null')
+    return ((pl.col('original_supported').fill_null(False) & pl.col('original_score').is_not_null() &
+             (pl.col('original_weight') > 0)) |
+            (pl.col('gapblock_score').cast(pl.Float64).gt(0).fill_null(False) & (pl.col('gapblock_weight') > 0)) |
+            (pl.col('stem4_score').cast(pl.Float64).gt(0).fill_null(False) & (pl.col('stem4_weight') > 0)))
+
+
+def null_normalized_evidence(frame, nulls, *, structure_conditioned=False, three_channel=False):
     """Put original/rank evidence on matching empirical null-tail scales.
 
     S=-log(min(p_L,p_R)) selects the stronger normalized component. It is a
     ranking statistic, not a final P-value: calibrate this complete selection.
     Ties, no-hit nulls and conservative source maxima use the existing helper.
     Each full-pMHC/species/locus group needs its own frozen null population.
+    An optional non-null ``normalization_stratum`` in both tables additionally
+    separates matching strata, without changing behavior when it is absent.
     With structure_conditioned, S=max(-log(p_L), -log(p_R)+log(s)), where
     s=1-c*[1-(1-k)*e] uses reference structure only. Query-local support
     does not switch routes; it already contributes to the component scores. The original tail
     retains unit weight; dense structure discounts the alternative route. A
     missing original component uses the available rank tail without discount.
+
+    Three-channel mode instead returns sum(w_k * -log(p_k)), with explicit
+    nonnegative weights summing to one. Missing components contribute zero,
+    without redistributing their weights. Entirely unsupported weighted evidence
+    remains unavailable. The caller supplies reference-derived weights; this
+    function never fits them or reads assay labels. The final sum needs its own
+    selected-label/paired calibration.
     """
     import polars as pl
     from ..aggregate.candidates import PMHC
-    from ..cli.calibration import null_tail_probabilities
+    from ..evalue.directional import null_tail_probabilities
     keys=['species','locus',*PMHC]
-    columns=['likelihood_score','conditional_rank_score']
+    stratified='normalization_stratum' in frame.columns
+    if stratified != ('normalization_stratum' in nulls.columns):
+        raise ValueError('normalization_stratum must be present in both evidence and nulls')
+    if stratified:
+        if frame['normalization_stratum'].null_count() or nulls['normalization_stratum'].null_count():
+            raise ValueError('normalization strata must be non-null')
+        if frame.select('normalization_stratum').unique().join(
+                nulls.select('normalization_stratum').unique(), on='normalization_stratum', how='anti').height:
+            raise ValueError('missing matching normalization stratum')
+        keys.append('normalization_stratum')
+    if three_channel and structure_conditioned:
+        raise ValueError('three-channel weights cannot use the two-channel structure gate')
+    columns=list(THREE_COMPONENTS) if three_channel else ['likelihood_score','conditional_rank_score']
+    tail_columns=['p_component_'+c.removesuffix('_score') for c in columns] if three_channel else ['p_component_likelihood','p_component_rank']
     required=set(keys+['query_id']+columns)
     if structure_conditioned:
         required.update(['reference_coverage','knee_shape','knee_radius_ratio'])
+    if three_channel:
+        required.update(THREE_WEIGHTS)
     for part in (frame,nulls):
         needed=required if part is frame else set(keys+['query_id']+columns)
         if missing:=needed-set(part.columns):
@@ -134,7 +182,7 @@ def null_normalized_evidence(frame, nulls, *, structure_conditioned=False):
         for column in columns:
             values=part[column].cast(pl.Float64).drop_nulls()
             if not values.is_finite().all():raise ValueError('component scores must be finite or null')
-        if (part['conditional_rank_score'].cast(pl.Float64).drop_nulls()<=0).any():
+        if not three_channel and (part['conditional_rank_score'].cast(pl.Float64).drop_nulls()<=0).any():
             raise ValueError('conditional rank evidence must be positive')
         if part.select(keys+['query_id']).n_unique()!=part.height:
             raise ValueError('query IDs must be unique within each calibration group')
@@ -142,23 +190,32 @@ def null_normalized_evidence(frame, nulls, *, structure_conditioned=False):
     if not {'outcome','null_source'}<=set(nulls.columns):raise ValueError('null evidence requires outcome and null_source')
     if nulls['outcome'].null_count() or not nulls['outcome'].eq('null').all():raise ValueError('only null outcomes define normalization')
     if nulls['null_source'].null_count() or nulls['null_source'].cast(pl.String).str.strip_chars().eq('').any():raise ValueError('null sources must be nonempty')
-    if {'_norm_row','normalized_score','p_component_likelihood','p_component_rank'} & set(frame.columns):
+    channel_names=[c.removesuffix('_score') for c in columns]
+    details=[prefix+name for prefix in ('log_evidence_','contribution_') for name in channel_names] if three_channel else []
+    if {'_norm_row','normalized_score',*tail_columns,*details} & set(frame.columns):
         raise ValueError('normalization output columns already exist')
     background=dict(nulls.group_by(keys,maintain_order=True))
     rows=[]
     for key,part in frame.with_row_index('_norm_row').group_by(keys,maintain_order=True):
         values=part.select(pl.col(columns).cast(pl.Float64)).to_numpy()
         available=np.isfinite(values).any(axis=1)
+        if three_channel:
+            weights=part.select(pl.col(THREE_WEIGHTS).cast(pl.Float64)).to_numpy()
+            if not np.isfinite(weights).all() or np.any(weights<0) or not np.allclose(weights.sum(axis=1),1.,rtol=0.,atol=1e-12):
+                raise ValueError('three-channel weights must be finite, nonnegative and sum to one')
+            available=(np.isfinite(values) & (weights>0)).any(axis=1)
         if key not in background:
             if available.any():raise ValueError('missing null calibration group: '+str(key))
-            tails=[np.ones(part.height),np.ones(part.height)]
+            tails=[np.ones(part.height) for _ in columns]
         else:
             tails=[]
             for column in columns:
                 calibrated,_=null_tail_probabilities(part.select('query_id',column),
                     background[key].select('query_id',column,'outcome','null_source'),score_column=column)
                 tails.append(calibrated['p_null'].to_numpy())
-        if structure_conditioned:
+        if three_channel:
+            score=np.sum(weights * -np.log(np.column_stack(tails)),axis=1)
+        elif structure_conditioned:
             sparse=reference_sparsity(part.with_columns(pl.lit(1.).alias('original_support')))
             rank_tail=np.full(part.height,-np.inf)
             np.log(sparse,out=rank_tail,where=sparse>0)
@@ -169,7 +226,13 @@ def null_normalized_evidence(frame, nulls, *, structure_conditioned=False):
         else:
             score=-np.log(np.minimum(*tails))
         score[~available]=np.nan
-        rows.append(part.with_columns(pl.Series('p_component_likelihood',tails[0]),
-            pl.Series('p_component_rank',tails[1]),pl.Series('normalized_score',score,nan_to_null=True)))
+        extra=[]
+        if three_channel:
+            for index,name in enumerate(channel_names):
+                evidence=-np.log(tails[index])
+                extra.extend([pl.Series('log_evidence_'+name,evidence),
+                    pl.Series('contribution_'+name,weights[:,index]*evidence)])
+        rows.append(part.with_columns(*extra,*[pl.Series(name,tail) for name,tail in zip(tail_columns,tails)],
+            pl.Series('normalized_score',score,nan_to_null=True)))
     return pl.concat(rows).sort('_norm_row').drop('_norm_row') if rows else frame.with_columns(
-        *[pl.lit(None,dtype=pl.Float64).alias(c) for c in ['p_component_likelihood','p_component_rank','normalized_score']])
+        *[pl.lit(None,dtype=pl.Float64).alias(c) for c in [*tail_columns,*details,'normalized_score']])

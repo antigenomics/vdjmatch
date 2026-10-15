@@ -57,7 +57,7 @@ def native_inputs():
         '_allele':['TRBV19*01','TRBV19*01','TRBV7-9*01','TRBV19*01','TRBV7-9*01'],
         'epitope':['B','A','B','C','A'],'restriction':['r1','r1','r2','r1','r2']})
     groups=[({'epitope':e},queries,part) for (e,_),part in refs.group_by('epitope','restriction',maintain_order=True)]
-    from vdjmatch.match.tcrdist import precompute_v_loop_distances
+    from vdjmatch.match.geometry import precompute_v_loop_distances
     return queries,refs,groups,precompute_v_loop_distances(matrix='blosum62')
 
 
@@ -97,3 +97,55 @@ def test_numeric_source_id_dtype_retained(native_inputs,dtype):
     assert state['query_id'].dtype==dtype
     assert set(state['query_id'])==set(range(queries.height))
     assert hits<=set(range(queries.height))
+
+
+@pytest.mark.parametrize('assayed',[False,True])
+def test_native_chunk_budget_preserves_scores_duplicates_and_source_order(native_inputs,monkeypatch,assayed):
+    from vdjmatch.match import geometry
+    queries,refs,groups,context=native_inputs
+    queries=queries.reverse()
+    groups=[(task,queries,part) for task,_,part in groups]
+    native=geometry.grouped_total_distance_count_batch
+    outputs=[];hits=[];budgets=[]
+    for small in (True,False):
+        def counted(*args,**kwargs):
+            budgets.append(kwargs['chunk_size'])
+            if small:kwargs['chunk_size']=64
+            return native(*args,**kwargs)
+        monkeypatch.setattr(geometry,'grouped_total_distance_count_batch',counted)
+        state,supported=kernel.grouped_kernel_selection(queries,refs,groups,
+            query_keys=['cdr3','_allele'],search_keys=['cdr3','_allele'],paired=False,
+            cutoffs=[0,4,8,13],radius=4,kernel_scale=22.5,scorer='v-bounded',assayed=assayed,
+            threads=4,matrix='blosum62',ctrim=3,stem_depth=4,exclude_exact=True,
+            v_loop_distances=context)
+        outputs.append(kernel.finish_kernel_selection(queries.select('query_id'),state));hits.append(supported)
+    assert budgets==[65536,65536]
+    assert_frame_equal(outputs[0],outputs[1],check_exact=True)
+    assert outputs[1]['query_id'].to_list()==queries['query_id'].to_list()
+    assert hits[0]==hits[1]
+
+
+def test_complete_single_assay_reuses_compact_reducer_without_mask_joins(native_inputs,monkeypatch,capsys):
+    queries,refs,groups,context=native_inputs
+    task,_,part=groups[0]
+    options=dict(query_keys=['cdr3','_allele'],search_keys=['cdr3','_allele'],paired=False,
+        cutoffs=[0,4,8,13],radius=4,kernel_scale=22.5,scorer='v-bounded',
+        threads=4,matrix='blosum62',ctrim=3,stem_depth=4,v_loop_distances=context)
+    state,hits=kernel.grouped_kernel_selection(queries,refs,[(task,queries,part)],**options)
+    expected=kernel.finish_kernel_selection(queries.select('query_id'),state)
+    original=kernel.select_kernel
+    def forbidden(*args,**kwargs):
+        raise AssertionError('complete single-target scope must not rebuild source-mask joins')
+    monkeypatch.setattr(kernel,'select_kernel',forbidden)
+    actual,supported=kernel.grouped_kernel_selection(queries,refs,[(task,queries.reverse(),part)],assayed=True,progress=True,**options)
+    assert_frame_equal(kernel.finish_kernel_selection(queries.select('query_id'),actual),expected,check_exact=True)
+    assert supported==hits
+    log=capsys.readouterr().err
+    assert 'reference-key visits' in log and 'Kernel counted' in log
+    # An incomplete assay mask must retain unavailable rows, never use the fast path.
+    monkeypatch.setattr(kernel,'select_kernel',original)
+    mask=queries.head(5)
+    actual,supported=kernel.grouped_kernel_selection(queries,refs,[(task,mask,part)],assayed=True,**options)
+    expected=kernel.finish_kernel_selection(queries.select('query_id'),state.filter(pl.col('query_id').is_in(mask['query_id'].implode())))
+    assert_frame_equal(kernel.finish_kernel_selection(queries.select('query_id'),actual),expected,check_exact=True)
+    assert supported==hits & set(mask['query_id'])

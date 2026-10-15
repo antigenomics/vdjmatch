@@ -43,7 +43,7 @@ def paired_pipeline_sources():
     """Pin both shipped paired producers and their shared event/binding definition."""
     import hashlib
     return {name:hashlib.sha256(Path(__file__).with_name(name+'.py').read_bytes()).hexdigest()
-            for name in ('reference_calls','tcrdist','calibration')}
+            for name in ('reference_calls','neighbours','calibration')}
 
 
 def _bound_score_columns(binding):
@@ -59,7 +59,7 @@ def pipeline_binding(manifest):
     import hashlib
     import json
     from importlib.resources import files
-    from ..match.tcrdist import load_v_loops
+    from ..match.geometry import load_v_loops
 
     try:
         if 'core_manifests' in manifest:
@@ -78,7 +78,7 @@ def pipeline_binding(manifest):
                     or manifest['calibration_statistic'] != (PAIRED_STATISTIC if options['locus']=='paired' else 'final selected kernel_score; no component P/E transfer')):
                 raise ValueError('binding selection/statistic is unsupported')
             geometry = {k:v for k,v in manifest['geometry'].items() if k != 'threads'}
-            sources = {k:manifest['source_sha256'][k] for k in ('kernel','tcrdist','seqtree_native','seqtree_python')}
+            sources = {k:manifest['source_sha256'][k] for k in ('kernel','geometry','seqtree_native','seqtree_python')}
         else:
             options = manifest['parameters']
             if (not options['all_targets'] or options['background'] != 'vdjdb-other'
@@ -96,7 +96,7 @@ def pipeline_binding(manifest):
                 cutoffs=kernel['cutoffs'], cross_v=kernel['cross_v'], floor=.01, scorer=kernel['scorer'],
                 matrix_scale=g['matrix_unit'], v_regions=g['v_regions'], position_weighting=options['position_weighting'])
             sources = {name:manifest['software'][key] for name,key in (
-                ('kernel','kernel_source_sha256'), ('tcrdist','scorer_source_sha256'),
+                ('kernel','kernel_source_sha256'), ('geometry','scorer_source_sha256'),
                 ('seqtree_native','seqtree_native_sha256'), ('seqtree_python','seqtree_python_source_sha256'))}
         species, locus = options['species'], options['locus']
         organism = {'HomoSapiens':'human','MusMusculus':'mouse'}[species]
@@ -106,7 +106,7 @@ def pipeline_binding(manifest):
             'exclude_exact','radius','kernel_scale','cutoffs','cross_v','floor','scorer','matrix_scale','v_regions','position_weighting'}
         if set(geometry) != required_geometry:
             raise ValueError('binding geometry is incomplete or unsupported')
-        model_file = Path(str(files('vdjmatch.resources')/'tcrdist'/f'{organism}_v_loops.tsv'))
+        model_file = Path(str(files('vdjmatch.resources')/'vloops'/f'{organism}_v_loops.tsv'))
         file_hash = hashlib.sha256(model_file.read_bytes()).hexdigest()
         semantic_hash = hashlib.sha256(json.dumps(load_v_loops(organism), sort_keys=True, default=str).encode()).hexdigest()
         if (manifest['model_sha256'] != semantic_hash if 'geometry' in manifest
@@ -180,50 +180,10 @@ def apply_calibration(frame, calibration, *, input_manifest=None):
 
 
 def null_tail_probabilities(frame, nulls, *, higher_is_better=True, score_column="score"):
-    """Tail of the existing selected score against each frozen null population.
+    """Load numerical code only after the CLI has set its thread budgets."""
+    from ..evalue.directional import null_tail_probabilities as compute
 
-    P=(1+number of null scores at least as extreme)/(1+all null queries),
-    retaining ties and no-hits. It is a conservative rank P-value if query and
-    null scores are exchangeable under the same complete pipeline. E=k/N is
-    the observed expected false calls per query at that score threshold, not a
-    confidence bound. Maxima retain the most conservative represented source.
-    Unsupported queries have P=1/E=0 because they make no call.
-    """
-    import numpy as np
-    import polars as pl
-    if not isinstance(score_column,str) or not score_column.strip():
-        raise ValueError('score_column must name a numeric input column')
-    if {'p_null','E_null'} & set(frame.columns):
-        raise ValueError('null-tail output columns already exist')
-    for part in (frame, nulls):
-        if missing := {'query_id',score_column} - set(part.columns):
-            raise ValueError('missing columns: '+', '.join(sorted(missing)))
-        if part['query_id'].null_count() or part['query_id'].n_unique()!=part.height:
-            raise ValueError('query_id must be unique and non-null; reduce candidate labels first')
-        if not part[score_column].cast(pl.Float64).drop_nulls().is_finite().all():
-            raise ValueError('non-null scores must be finite')
-    if not nulls.height or not {'outcome','null_source'} <= set(nulls.columns):
-        raise ValueError('nonempty null cases require outcome and null_source')
-    if nulls['outcome'].null_count() or not nulls['outcome'].eq('null').all():
-        raise ValueError('only null outcomes define null tails')
-    if nulls['null_source'].null_count() or nulls['null_source'].cast(pl.String).str.strip_chars().eq('').any():
-        raise ValueError('every null query requires a nonempty null_source')
-    sign=1 if higher_is_better else -1
-    values=sign*frame[score_column].cast(pl.Float64).to_numpy()
-    missing=np.isnan(values)
-    p=np.zeros(frame.height); e=np.zeros(frame.height); rows=[]
-    for source in sorted(nulls['null_source'].unique().to_list()):
-        part=nulls.filter(pl.col('null_source')==source)
-        scores=np.sort(sign*part[score_column].cast(pl.Float64).drop_nulls().to_numpy())
-        counts=len(scores)-np.searchsorted(scores,values,side='left')
-        counts[missing]=0
-        tail=np.where(missing,1.,(counts+1)/(part.height+1))
-        rate=counts/part.height
-        p=np.maximum(p,tail); e=np.maximum(e,rate)
-        rows.append(frame.select('query_id').with_columns(
-            pl.lit(source).alias('null_source'), pl.lit(part.height).alias('null_queries'),
-            pl.Series('null_tail_count',counts),pl.Series('p_null',tail),pl.Series('E_null',rate)))
-    return frame.with_columns(pl.Series('p_null',p),pl.Series('E_null',e)),pl.concat(rows)
+    return compute(frame, nulls, higher_is_better=higher_is_better, score_column=score_column)
 
 
 def apply_main(args):

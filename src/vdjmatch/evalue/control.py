@@ -7,9 +7,7 @@ from seqtree.control import load_control
 
 # query locus -> seqtree control name (bundled human_trb_aa; others via HuggingFace)
 _CONTROL = {
-    "TRB": "human_trb_aa",
     "human:TRB": "human_trb_aa",
-    "TRA": "human_tra_aa",
     "human:TRA": "human_tra_aa",
     "mouse:TRB": "mouse_trb_aa",
     "mouse:TRA": "mouse_tra_aa",
@@ -137,7 +135,7 @@ def raw_gene_background(path, locus="TRB", species="human", *, deduplicate=True,
     from pathlib import Path
     import polars as pl
     from ..db.cache import sha256
-    from ..match.tcrdist import load_v_loops, resolve_v_alleles
+    from ..match.geometry import load_v_loops, resolve_v_alleles
 
     organism = _organism(species)
     if locus not in {"TRA", "TRB"}:

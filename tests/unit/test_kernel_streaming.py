@@ -25,7 +25,7 @@ def test_streamed_selection_preserves_restrictions_ties_and_missing(order):
 
 def _annotation_main(args):
     import argparse
-    from vdjmatch.cli.tcrdist import register
+    from vdjmatch.cli.neighbours import register
     parser=argparse.ArgumentParser()
     register(parser.add_subparsers(),name='annotate')
     a=parser.parse_args(args)
@@ -66,7 +66,7 @@ def test_cli_streamed_selection_matches_detailed(tmp_path,selectors,radius):
 
 
 def test_native_stem_rounding_at_dense_membership_boundaries():
-    from vdjmatch.match.tcrdist import distance_matrix,total_distance_count_batch
+    from vdjmatch.match.geometry import distance_matrix,total_distance_count_batch
     q=['CASSLGQAYEQYF'];r=['WASSLGQAYEQYF','CASALGQAYEQWF','CASSLGQAPAYEQYF']
     for weight in [1,.25,1.5]:
         options=dict(ctrim=3,matrix='blosum62',stem_depth=4,stem_weight=weight)

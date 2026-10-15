@@ -11,7 +11,7 @@ from vdjmatch.evalue.kernel import KERNEL_SCORERS, kernel_ladder
 
 
 def run(args):
-    from vdjmatch.cli.tcrdist import register
+    from vdjmatch.cli.neighbours import register
     parser=argparse.ArgumentParser()
     register(parser.add_subparsers(),name='annotate')
     a=parser.parse_args(args)

@@ -11,14 +11,14 @@ import pytest
 
 from vdjmatch.cli import calibration
 from vdjmatch.evalue.kernel import ladder_cutoffs
-from vdjmatch.match.tcrdist import load_v_loops
+from vdjmatch.match.geometry import load_v_loops
 
 
 def manifests():
-    model_file = Path(str(files('vdjmatch.resources') / 'tcrdist/human_v_loops.tsv'))
+    model_file = Path(str(files('vdjmatch.resources') / 'vloops/human_v_loops.tsv'))
     file_hash = hashlib.sha256(model_file.read_bytes()).hexdigest()
     semantic = hashlib.sha256(json.dumps(load_v_loops('human'), sort_keys=True, default=str).encode()).hexdigest()
-    sources = {k: str(i) * 64 for i, k in enumerate(('kernel', 'tcrdist', 'seqtree_native', 'seqtree_python'), 1)}
+    sources = {k: str(i) * 64 for i, k in enumerate(('kernel', 'geometry', 'seqtree_native', 'seqtree_python'), 1)}
     geometry = dict(species='human', matrix='blosum62', ctrim=3, v_loop_weight=1,
         alphabet='full', stem_depth=4, stem_weight=1., exclude_exact=True, radius=585,
         kernel_scale=585, cutoffs=ladder_cutoffs(26), cross_v=.25, floor=.01,
@@ -35,7 +35,7 @@ def manifests():
             stem_depth=4, stem_weight=1., matrix_unit=26, v_regions='cdr12plus'),
         junction_end_trim=dict(n_terminal=3, c_terminal=3),
         kernel=dict(kernel_scale=585, cutoffs=ladder_cutoffs(26), cross_v=.25, scorer='v-bounded', score_column='kernel_score'),
-        software=dict(kernel_source_sha256=sources['kernel'], scorer_source_sha256=sources['tcrdist'],
+        software=dict(kernel_source_sha256=sources['kernel'], scorer_source_sha256=sources['geometry'],
             seqtree_native_sha256=sources['seqtree_native'], seqtree_python_source_sha256=sources['seqtree_python']),
         v_loop_model=dict(sha256=file_hash))
     binding = dict(context=['HomoSapiens','TRB'], reference_population='curated-benchmark',

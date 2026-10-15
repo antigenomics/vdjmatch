@@ -16,7 +16,7 @@ from seqtree import SearchParams
 @pytest.mark.parametrize('name',['score','cdr3a','status','cohort_size','pair_id','species',
     'v_call','junction_aa','binder','germline_lr_alpha','unpaired_score_beta','status_alpha',
     'rank_germline_prior','n_reference_alpha','control_size_beta','estimator_alpha',
-    'query_ida','countb','_locus'])
+    'query_ida','countb','_locus','likelihood_score_alpha','likelihood_score_beta','punctured_likelihood_score_alpha'])
 def test_cli_rejects_reserved_cohort_column_before_pair_parsing(tmp_path,monkeypatch,capsys,name):
     from vdjmatch.cli.__main__ import main
     from vdjmatch import io,db
@@ -439,41 +439,16 @@ def _paired_cli_inputs(tmp_path):
     return raw,sample,prefix,args
 
 
-def test_cli_candidate_puncture_keeps_ids_and_reports_empty_populations(tmp_path):
+def test_rejected_model_puncture_preserves_completed_original_outputs(tmp_path):
     from vdjmatch.cli.__main__ import main
-    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
-    assert main(args)==0
-    baseline=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
-    assert main(args+['--puncture-populations'])==0
-    paired=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
-    assert paired['query_id'].to_list()==baseline['query_id'].to_list()
-    assert paired['status'].to_list()==['no_reference_alpha','no_reference_beta','missing_beta','invalid_alpha']
-    assert paired['score'].to_list()==[None]*4
-    assert paired['n_reference_alpha'].to_list()[:2]==[0,1]
-    assert paired['n_reference_beta'].to_list()[:2]==[1,0]
-    assert main(args)==0
-    assert pl.read_csv(str(prefix)+'.scores.tsv',separator='\t').equals(baseline)
-    raw.filter(pl.col('locus')=='TRB').write_csv(sample,separator='\t')
-    single=list(args)
-    single[single.index('--locus')+1]='TRB'
-    i=single.index('--alpha-control');del single[i:i+2]
-    for selection in ['sample','pooled']:
-        options=list(single)
-        if selection=='pooled':
-            options.remove('--targets-from-sample')
-            options+=['--pool-reference','--epitope','E','--mhc-a','HLA-A*02','--mhc-match','compatible']
-        assert main(options+['--puncture-populations'])==0
-        out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
-        assert out['query_id'].to_list()==['b1','b2','b4']
-        assert out['status'].to_list()==['scored','no_reference','scored']
-        assert out['n_reference'].to_list()==[1,0,1]
-        assert out['score'][1] is None and out['score'][0] is not None
-    prior=Path(single[single.index('--germline-background')+1])
-    pl.read_csv(prior,separator='\t').tail(2).write_csv(prior,separator='\t')
-    assert main(single+['--puncture-populations'])==0
-    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
-    assert out['status'].to_list()==['no_prior_evidence','no_reference','no_prior_evidence']
-    assert out['score'].to_list()==[None]*3
+    _, _, prefix, args = _paired_cli_inputs(tmp_path)
+    assert main(args) == 0
+    scores = Path(str(prefix) + '.scores.tsv')
+    baseline = scores.read_bytes()
+    with pytest.raises(SystemExit) as error:
+        main(args + ['--puncture-populations'])
+    assert error.value.code == 2
+    assert scores.read_bytes() == baseline
 
 
 def test_cli_shared_cdf_preserves_paired_and_single_target_outputs(tmp_path, monkeypatch):
@@ -680,6 +655,11 @@ def test_likelihood_prior_diagnostics_are_common_formulas_without_size_switch(tm
         density=(valid['density_score_'+side]+1e-6).log()
         assert valid['likelihood_density_only_'+side].to_list()==pytest.approx(density.to_list())
         assert valid['likelihood_full_prior_'+side].to_list()==pytest.approx((density+valid['germline_lr_'+side]).to_list())
+        expected=unpaired_score(valid['density_score_'+side],valid['germline_lr_'+side],
+            valid['n_reference_'+side],log_scale=True)
+        assert valid['likelihood_score_'+side].equals(expected.rename('likelihood_score_'+side))
+        invalid=q.filter(pl.col('status_'+side)!='scored')
+        assert invalid['likelihood_score_'+side].null_count()==invalid.height
     valid=q.filter(pl.col('status')=='scored')
     assert valid['likelihood_full_prior'].equals(valid['likelihood_score'])
     assert valid['likelihood_density_only'].to_list()==pytest.approx(((valid['density_score_alpha']+1e-6).log()+(valid['density_score_beta']+1e-6).log()).to_list())
@@ -801,3 +781,51 @@ def test_all_target_single_species_and_empty_reference_preserve_query_population
     empty=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
     assert empty.height==3 and empty['status'].to_list()==['no_reference']*3
     assert empty['likelihood_score'].null_count()==3
+
+
+def test_density_exports_punctured_reduction_without_another_neighbour_search(monkeypatch):
+    from vdjmatch.match import historical
+    q,r='CASSLGQAYEQYF','CASSLGRAYEQYF'
+    reference=Annotator.from_frame(pl.DataFrame({'gene':['TRB']*2,'cdr3':[q,r],
+        'v':['TRBV19']*2,'epitope':['E']*2}))._index.records_for('TRB')
+    _,queries=_prepare(pl.DataFrame({'query_id':['q','r'],'cdr3':[q,r],
+        'v':['TRBV19']*2,'locus':['TRB']*2}))
+    control=Index.build([q,q,r])
+    fixed=density(queries,reference,control)
+    punctured=density(queries,reference,control,puncture_populations=True)
+    calls=[];native=historical._density_neighbours
+    def spy(*args,**kwargs):
+        calls.append(1);return native(*args,**kwargs)
+    monkeypatch.setattr(historical,'_density_neighbours',spy)
+    both=density(queries,reference,control,export_punctured=True)
+    assert len(calls)==1
+    assert both.select(fixed.columns).equals(fixed)
+    for field in ('score','n_reference','control_size'):
+        assert both['punctured_'+field].to_list()==punctured[field].to_list()
+
+
+@pytest.mark.parametrize('flag', ['--puncture-populations', '--export-punctured'])
+def test_model_puncture_options_are_rejected_before_loading(tmp_path, capsys, flag):
+    from vdjmatch.cli.__main__ import main
+    with pytest.raises(SystemExit) as error:
+        main(['historical-density', str(tmp_path / 'missing.tsv'), '--vdjdb',
+              str(tmp_path / 'missing-reference.tsv'), '--locus', 'TRB',
+              '--output-prefix', str(tmp_path / 'result'), flag])
+    assert error.value.code == 2
+    assert 'hit-list filter only' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('exclude_exact', [False, True])
+@pytest.mark.parametrize('include_length', [False, True])
+def test_weighted_event_prior_matches_explicit_event_rows(exclude_exact, include_length):
+    from vdjmatch.match.historical import germline_prior
+    background = pl.DataFrame({'cdr3': ['CASSF', 'CATF', 'CASSF'],
+        'v': ['TRBV1', 'TRBV2', 'TRBV3'], 'j': ['TRBJ1-1', 'TRBJ2-1', 'TRBJ1-1'],
+        'event_weight': [2, 3, 4]})
+    expanded = background[[0, 0, 1, 1, 1, 2, 2, 2, 2]].drop('event_weight')
+    reference = background.select('cdr3', 'v', 'j').with_columns(pl.lit(999).alias('event_weight'))
+    query = pl.DataFrame({'query_id': [1, 2, 3], 'cdr3': ['CASSF', 'CAAF', 'CATF'],
+        'v': ['TRBV1', 'TRBV2', 'TRBV2'], 'j': ['TRBJ1-1', 'TRBJ2-1', 'TRBJ2-1']})
+    expected = germline_prior(query, reference, expanded, exclude_exact=exclude_exact, include_length=include_length)
+    actual = germline_prior(query, reference, background, exclude_exact=exclude_exact, include_length=include_length)
+    assert actual.equals(expected)

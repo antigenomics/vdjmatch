@@ -44,7 +44,7 @@ native probabilities fail the command instead of being clipped or exported.
 pool or computed-intermediate cache is used.
 
 VDJdb reference observations
-----------------------------------------
+----------------------------
 
 Use ``--vdjdb`` to read a frozen local legacy or rich reference ZIP through the
 same database loader used for annotation::

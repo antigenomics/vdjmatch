@@ -13,7 +13,7 @@ def tokens(s,mode):
 
 @pytest.mark.parametrize('paired',[False,True])
 def test_rules_dense_oracle_and_puncture(paired):
-    from vdjmatch.match.tcrdist import distance_matrix,paired_distance_matrix
+    from vdjmatch.match.geometry import distance_matrix,paired_distance_matrix
     r=pl.DataFrame({'seq0':['CASSLGQAYEQYF','CASSLGRAYEQYF','CASSLGRAYEQYF','CASSWGRAYEQYF'],'v0':['TRBV19*01','TRBV19*01','TRBV20-1*01','TRBV19*01']})
     b=r.with_columns(pl.Series('v0',['TRBV20-1*01','TRBV19*01','TRBV20-1*01','TRBV20-1*01']))
     if paired:
@@ -110,7 +110,7 @@ def test_cli_rules_preserve_existing_fields_and_empty_schema(tmp_path,diagnostic
     sample=tmp_path/'q.tsv';ref=tmp_path/'r.tsv'
     pl.DataFrame([dict(junction_aa='CASSLGQAYEQYF',v_call='TRBV19*01',locus='TRB',**meta)]).write_csv(sample,separator='\t')
     pl.DataFrame([dict(cdr3=s,v='TRBV19*01',gene='TRB',**(meta|dict(species='HomoSapiens',epitope=e))) for s,e in [('CASSLGRAYEQYF','E'),('CASSWGRAYEQYF','OTHER')]]).write_csv(ref,separator='\t')
-    args=['tcrdist-neighbours',str(sample),'--vdjdb',str(ref),'--locus','TRB','--targets-from-sample','--unbounded-nearest','--background','vdjdb-other','--neighbour-weighting','linear']
+    args=['neighbours',str(sample),'--vdjdb',str(ref),'--locus','TRB','--targets-from-sample','--unbounded-nearest','--background','vdjdb-other','--neighbour-weighting','linear']
     for name,extra in [('old',[]),('new',['--'+diagnostic]),('parallel',['--'+diagnostic,'--threads','2']),('empty',['--'+diagnostic,'--species','mouse'])]:
         assert main(args+extra+['--output-prefix',str(tmp_path/name)])==0
     for suffix in ['queries','candidates','enrichment']:

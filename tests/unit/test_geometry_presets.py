@@ -4,7 +4,7 @@ import polars as pl
 import pytest
 from types import SimpleNamespace
 from seqtree import SubstitutionMatrix,gapblock,pairwise
-from vdjmatch.match import tcrdist as td
+from vdjmatch.match import geometry as td
 
 
 def inputs(paired):
@@ -83,7 +83,7 @@ def oracle(q,r,preset,matrix,context,paired):
 @pytest.mark.parametrize('preset',td.GEOMETRY_PRESETS)
 @pytest.mark.parametrize('paired',[False,True])
 def test_fixed_presets_exact_boundaries_full_identity_and_threads(preset,paired):
-    matrix='tcrdist' if preset in ('freegap','framev','framemid','framej') else 'blosum62'
+    matrix='clipped' if preset in ('freegap','framev','framemid','framej') else 'blosum62'
     context=td.precompute_v_loop_distances(matrix=matrix)
     q,r=inputs(paired);distance=oracle(q,r,preset,matrix,context,paired)
     cuts=sorted({0,*[int(200*x)+delta for x in distance.flat for delta in (-1,0,1)]})

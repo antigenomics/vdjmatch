@@ -12,14 +12,14 @@ from . import search_params
 def gapped_extension(queries, reference, control, *, species='human', threads=1, radius=90, temperature=12):
     """Experimental additive density on edges outside the original five-substitution ball.
 
-    The kernel uses total TCRdist, while its empirical CDF uses weighted CDR3
+    The kernel uses total clipped BLOSUM62 geometry, while its empirical CDF uses weighted CDR3
     distance only. Allele-stripped equal V genes have categorical weight one;
     different genes have weight .25, independently of their native loop similarity.
     This is an uncalibrated component: no new P-value is assigned.
     Reference junctions retain their first source-order V representative. N includes
     all those representatives; unavailable genes contribute no extension edges.
     """
-    from .tcrdist import distance_matrix,load_v_loops,_cdr3_options,resolve_v_alleles
+    from .geometry import distance_matrix,load_v_loops,_cdr3_options,resolve_v_alleles
     if isinstance(threads,bool) or not isinstance(threads,int) or threads<1:
         raise ValueError('threads must be positive')
     if isinstance(radius,bool) or not isinstance(radius,int) or radius<0 or not np.isfinite(temperature) or temperature<=0:
@@ -347,12 +347,9 @@ def unified_evidence(ann, q, *, threads=1, control=None, species=None, exclude_e
             cdf = pl.DataFrame([(s, d, n) for s, ds, ns in zip(seqs, thresholds, counts) for d, n in zip(ds, ns)],
                 schema={"cdr3": pl.String, "score": pl.Int32, "_nc": pl.UInt64}, orient="row").join(queries.select("query_id", "cdr3"), on="cdr3")
             totals = cdf.filter(pl.col("score") == cutoff).select("query_id", pl.col("_nc").alias("n_control"))
-            sizes = (queries.select("query_id", (pl.lit(len(refs_control)) -
-                pl.col("cdr3").is_in(pl.Series(refs_control).implode()).cast(pl.UInt32)).alias("_control_size"))
-                if exclude_exact else None)
             c = candidates(detail, records, control_counts=cdf, control_totals=totals,
                            control_size=len(refs_control), distance_column="score", soft_v=False,
-                           background_mass=True, exclude_exact=exclude_exact, control_sizes=sizes)
+                           background_mass=True, exclude_exact=exclude_exact)
             hs.append(detail.with_columns(pl.lit("blosum62_gapblock").alias("distance_name")))
             cs.append(c.with_columns(pl.lit("blosum62_gapblock").alias("distance_name")))
     return (pl.concat(hs, how="diagonal_relaxed") if hs else ann._index.empty_hits(q.schema["query_id"]),
