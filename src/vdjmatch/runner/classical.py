@@ -1,6 +1,8 @@
 """Source-preserving frozen manuscript marginal scoring in one native batch/chain."""
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import polars as pl
 from seqtree import Index, SearchParams
@@ -179,15 +181,19 @@ def classical_scores(queries, reference, *, species='human', paired=False,
                 (pl.lit(role.height) - (pl.col('_classical_own_roles').fill_null(0) if exclude_exact else 0))
                 .cast(pl.UInt64).alias('classical_reference_epitope_roles'))
         hist_calls = 0; align_calls = 0; nw_pairs = 0; candidate_count = 0
+        histogram_seconds = 0.; alignment_seconds = 0.
         if unique.height and nodes.height and requests.height:
             index = Index.build(nodes['cdr3'].to_list(), 'aa')
+            started = time.monotonic()
             other, hist_calls = _other_counts(index, role, annotations, params, max_indels, threads)
+            histogram_seconds = time.monotonic() - started
             classes = pl.concat([role.select('epitope'), target_frame.select('epitope')]).unique().sort('epitope').with_row_index('_classical_class')
             class_role = role.join(nodes, on='cdr3', validate='m:1').join(classes, on='epitope', validate='m:1', nulls_equal=True).sort('_classical_r', '_classical_class')
             class_targets = target_frame.join(classes, on='epitope', validate='m:1', nulls_equal=True).sort('_classical_target_id')
             q_offsets, q_targets = _csr(requests, '_classical_q', '_classical_target_id', unique.height)
             r_offsets, r_targets = _csr(annotations, '_classical_r', '_classical_target_id', nodes.height)
             c_offsets, c_ids = _csr(class_role, '_classical_r', '_classical_class', nodes.height)
+            started = time.monotonic()
             result = index.alignment_max_batch(unique['cdr3'].to_list(), params, model['similarity'], model['similarity_symbols'], max_indels,
                 query_target_offsets=q_offsets, query_target_ids=q_targets,
                 reference_target_offsets=r_offsets, reference_target_ids=r_targets,
@@ -198,6 +204,7 @@ def classical_scores(queries, reference, *, species='human', paired=False,
                 group_offsets=model['group_offsets'], reference_other_counts=other,
                 reference_multiplicities=annotations['_multiplicity'].to_numpy(), coefficients=model['coefficients'],
                 threads=threads, exclude_exact=exclude_exact)
+            alignment_seconds = time.monotonic() - started
             align_calls = 1
             arrays = result.arrays()
             nw_pairs = int(np.asarray(arrays['nw_pairs']).sum())
@@ -249,6 +256,7 @@ def classical_scores(queries, reference, *, species='human', paired=False,
         populations.append(dict(locus=chain, frozen_species=model['species'], source_query_rows=lane.height, native_query_keys=unique.height,
             source_reference_records=refs.height, reference_junctions=nodes.height, reference_epitope_roles=role.height,
             annotation_lanes=annotations.height, alignment_batches=align_calls, histogram_batches=hist_calls,
+            histogram_seconds=histogram_seconds, alignment_seconds=alignment_seconds,
             native_nw_pairs=nw_pairs, native_candidate_junctions=candidate_count,
             scope=scope, max_indels=max_indels, selection_gap=model['selection_gap'], exclude_exact=exclude_exact,
             unknown_query_gene_rows=lane.filter((pl.col('_classical_v_id') < 0) | (pl.col('_classical_j_id') < 0)).height,
