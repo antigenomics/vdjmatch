@@ -37,5 +37,5 @@ jobs:
         run: pytest tests/test_annotation_resources.py -q
       - name: Verify frozen alignment against its pinned native implementation
         run: |
-          pip install --no-deps "seqtree @ git+https://github.com/antigenomics/seqtree.git@8e24c35022dabfb41285735e93a37a7faa916a0a"
+          pip install --no-deps "seqtree @ git+https://github.com/antigenomics/seqtree.git@28331fe34daa069a669796ccd6d788ba819f8fa0"
           pytest tests/unit/test_classical.py tests/unit/test_fixed_scope.py -q

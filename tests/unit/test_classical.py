@@ -141,6 +141,7 @@ def test_exact_only_scope_and_empty_inputs_have_stable_columns():
     assert excluded['classical_status'].to_list()==['no_target_hit']*2
     assert excluded['classical_score'].to_list()==[0.,0.]
     assert p['populations'][0]['histogram_batches']==0
+    assert p['populations'][0]['histogram_seconds']==0.
     empty,_=classical.classical_scores(q.head(0),r)
     assert empty.height==0 and set(ordinary.columns)==set(empty.columns)
 

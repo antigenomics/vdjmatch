@@ -186,7 +186,7 @@ def classical_scores(queries, reference, *, species='human', paired=False,
             index = Index.build(nodes['cdr3'].to_list(), 'aa')
             started = time.monotonic()
             other, hist_calls = _other_counts(index, role, annotations, params, max_indels, threads)
-            histogram_seconds = time.monotonic() - started
+            histogram_seconds = time.monotonic() - started if hist_calls else 0.
             classes = pl.concat([role.select('epitope'), target_frame.select('epitope')]).unique().sort('epitope').with_row_index('_classical_class')
             class_role = role.join(nodes, on='cdr3', validate='m:1').join(classes, on='epitope', validate='m:1', nulls_equal=True).sort('_classical_r', '_classical_class')
             class_targets = target_frame.join(classes, on='epitope', validate='m:1', nulls_equal=True).sort('_classical_target_id')
