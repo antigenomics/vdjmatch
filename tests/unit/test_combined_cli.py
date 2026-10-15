@@ -64,6 +64,7 @@ def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypat
     assert database.filter(pl.col('calibration_query_id') == queries['calibration_query_id'][1])['p_both'].item() == 1
     assert epitopes.select((pl.col('p_both') == pl.max_horizontal('p_reference', 'p_query')).all()).item()
     assert calibration['mock_replicates'].unique().to_list() == [2]
+    assert calibration['reference_event_sampler'].unique().to_list() == ['uniform-event-slots-v1']
     assert calibration['control_productive_rows'].unique().to_list() == [3]
     assert calibration['reference_species_policy'].unique().to_list() == ['caller_declared']
     assert calibration['seqtree_native_sha256'].str.len_chars().unique().to_list() == [64]

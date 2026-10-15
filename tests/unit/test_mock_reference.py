@@ -221,3 +221,34 @@ def test_mock_models_restore_identical_linked_roles_without_inventing_pairs():
         assert mock.group_by('complex_id', 'gene').agg(pl.col('cdr3').n_unique()).filter(
             pl.col('complex_id') == 'p1')['cdr3'].to_list() == [1, 1]
         assert mock.group_by('epitope').len().sort('epitope')['len'].to_list() == [4, 2]
+
+
+def test_event_slot_sampler_matches_exhaustive_hypergeometric_law():
+    """Every equally likely event subset maps to the exact multivariate law."""
+    from collections import Counter
+    from itertools import combinations
+    from math import comb
+    from vdjmatch.evalue.mock_reference import _sample_event_indices
+
+    weight = np.array([1, 3, 2], dtype=np.int64)
+    cumulative = weight.cumsum()
+    observed = Counter()
+
+    class Draw:
+        def choice(self, total, count, *, replace, shuffle):
+            assert (total, count, replace, shuffle) == (6, 3, False, False)
+            return np.array(self.slots)
+
+    draw = Draw()
+    for draw.slots in combinations(range(6), 3):
+        indices = _sample_event_indices(cumulative, 3, draw)
+        observed[tuple(np.bincount(indices, minlength=3))] += 1
+    assert sum(observed.values()) == comb(6, 3)
+    for counts, ways in observed.items():
+        assert ways == comb(1, counts[0]) * comb(3, counts[1]) * comb(2, counts[2])
+    for count in (0, 1, 6):
+        a = _sample_event_indices(cumulative, count, np.random.default_rng(7))
+        b = _sample_event_indices(cumulative, count, np.random.default_rng(7))
+        assert np.array_equal(a, b)
+        assert len(a) == count
+        assert np.all(np.bincount(a, minlength=3) <= weight)

@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from ..evalue.mock_reference import normalize_control, compute_pgen, pgen_strata, iter_mock_references
+from ..evalue.mock_reference import normalize_control, compute_pgen, pgen_strata, iter_mock_references, EVENT_SAMPLER
 
 _PMHC = ['species', 'gene', 'epitope', 'mhc_a', 'mhc_b', 'mhc_class']
 _LIMIT = 5_000_000  # Bound sparse hit/membership expansions, not a dense query/control matrix.
@@ -212,6 +212,7 @@ def main(a):
     calibration = groups.join(membership.group_by('group_id').agg(pl.len().alias('reference_source_records'),
         pl.col('junction_aa').n_unique().alias('reference_unique_junctions')), on='group_id', validate='1:1').with_columns(
         pl.lit(a.mock_replicates).alias('mock_replicates'), pl.lit(a.seed).alias('seed'),
+        pl.lit(EVENT_SAMPLER).alias('reference_event_sampler'),
         pl.lit(a.species).alias('species_requested'), pl.lit(a.locus).alias('locus_requested'),
         pl.lit(getattr(a, 'min_score', 0)).alias('min_score'),
         pl.lit(str(getattr(a, 'evidence_type', None))).alias('evidence_filter'),

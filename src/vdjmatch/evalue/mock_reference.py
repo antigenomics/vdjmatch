@@ -8,6 +8,20 @@ from .control import _organism
 from ..io.columns import _integer_count, _resolve
 
 
+EVENT_SAMPLER = "uniform-event-slots-v1"
+
+
+def _sample_event_indices(cumulative, count, rng):
+    """Draw uniform event slots, then map to keys without expanding the pool.
+
+    Subsets have the multivariate hypergeometric law. Slot order is not uniform;
+    callers assigning distinct source roles must shuffle the returned indices.
+    ``cumulative`` contains positive integer event counts cumulatively summed.
+    """
+    slots = rng.choice(int(cumulative[-1]), count, replace=False, shuffle=False)
+    return np.searchsorted(cumulative, slots, side="right")
+
+
 def normalize_control(frame: pl.DataFrame, *, species='human', locus='TRB') -> pl.DataFrame:
     """Collapse raw controls to unique full junctions and recombination-event weights.
 
@@ -193,8 +207,9 @@ def iter_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, repl
     reference/control overlaps remain eligible random matches. Insufficient
     strata fail; sampled controls are not asserted experimental nonbinders.
     ``pgen`` is an optional in-memory computed map for composition/testing.
-    NumPy's bounded-memory hypergeometric backend requires fewer than one
-    billion events per stratum; larger pools fail explicitly.
+    The supported pool limit remains fewer than one billion events per stratum.
+    Uniform event-slot sampling preserves the previous hypergeometric law but
+    changes seeded realizations; provenance records ``EVENT_SAMPLER``.
     """
     if replicates < 1:
         raise ValueError('replicates must be positive')
@@ -215,23 +230,22 @@ def iter_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, repl
     if pool['event_weight'].null_count() or (pool['event_weight'] <= 0).any():
         raise ValueError('control event weights must be positive integers')
     pool = pool.sort(event_keys)
-    pools = {key[0]: (part.select(event_keys), part['event_weight'].to_numpy())
+    pools = {key[0]: (part.select(event_keys), np.cumsum(part['event_weight'].to_numpy(), dtype=np.int64))
              for key, part in pool.partition_by('_bin', as_dict=True).items()}
     counts = targets.group_by('group_id', '_bin').len().sort('group_id', '_bin')
     for group, bin_id, count in counts.iter_rows():
-        available = int(pools[bin_id][1].sum()) if bin_id in pools else 0
+        available = int(pools[bin_id][1][-1]) if bin_id in pools else 0
         if available < count:
             label = 'zero_mass' if bin_id == -2147483648 else str(bin_id)
             raise ValueError(f'insufficient control events for group {group!r}, Pgen bin {label}: need {count}, have {available}')
         if available >= 10**9:
-            raise ValueError('event stratum exceeds NumPy hypergeometric backend limit: fewer than 1000000000 events required')
+            raise ValueError('event stratum exceeds supported limit: fewer than 1000000000 events required')
     rng = np.random.default_rng(seed)
     for replicate in range(replicates):
         results = []
         for group, bin_id, count in counts.iter_rows():
-            events, weight = pools[bin_id]
-            multiplicity = rng.multivariate_hypergeometric(weight, count)
-            selected = events[np.repeat(np.arange(events.height), multiplicity)]
+            events, cumulative = pools[bin_id]
+            selected = events[_sample_event_indices(cumulative, count, rng)]
             results.append(selected.with_columns(pl.lit(replicate).alias('replicate'), pl.lit(group).alias('group_id')))
         yield pl.concat(results).with_columns(pl.col('group_id').cast(reference.schema['group_id'])).sort('group_id', *event_keys)
 
@@ -298,15 +312,17 @@ def iter_mock_models(reference: pl.DataFrame, controls: dict[str, pl.DataFrame],
             if available < part.height:
                 raise ValueError(f'insufficient {locus} control events in Pgen bin {key[0]}: need {part.height}, have {available}')
             if available >= 10**9:
-                raise ValueError('event stratum exceeds NumPy hypergeometric backend limit')
-            bins.append((part['_mock_role'].to_numpy(), pool.sort('junction_aa', 'v', 'j')))
+                raise ValueError('event stratum exceeds supported limit: fewer than 1000000000 events required')
+            pool = pool.sort('junction_aa', 'v', 'j')
+            bins.append((part['_mock_role'].to_numpy(), pool,
+                np.cumsum(pool['event_weight'].to_numpy(), dtype=np.int64)))
         plans.append((np.random.default_rng(stream), bins))
     for _ in range(replicates):
         assigned = []
         for rng, bins in plans:
-            for rows, pool in bins:
-                counts = rng.multivariate_hypergeometric(pool['event_weight'].to_numpy(), len(rows))
-                selection = rng.permutation(np.repeat(np.arange(pool.height), counts))
+            for rows, pool, cumulative in bins:
+                selection = _sample_event_indices(cumulative, len(rows), rng)
+                rng.shuffle(selection)
                 assigned.append(pool[selection].select(pl.col('junction_aa').alias('cdr3'), 'v', 'j')
                     .with_columns(pl.Series('_mock_role', rows)))
         replacement = pl.concat(assigned)

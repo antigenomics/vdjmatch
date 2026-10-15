@@ -108,6 +108,13 @@ the Pgen strata and source-record count of :math:`R_i`. Within a group,
 sampling draws integer rearrangement-event slots without replacement, then
 collapses to amino-acid search keys. Distinct nucleotide events producing the
 same amino-acid junction can therefore occur together in a mock reference.
+The implementation samples uniform integer event slots and maps them through
+cumulative event counts, without materialising repeated sequence rows. This has the
+same multivariate hypergeometric law as the previous count sampler; its seeded
+realisations differ. Calibration tables identify it as
+``reference_event_sampler=uniform-event-slots-v1``. Reproduction therefore needs
+the software/sampler identity as well as the seed. Complete-reference source
+roles are uniformly shuffled after sampling, and TRA/TRB use independent streams.
 Each replicate is generated and reduced in memory. An insufficient stratum
 raises an error instead of silently changing the requested null.
 

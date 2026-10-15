@@ -166,7 +166,7 @@ def main(a):
     from ..db.cache import sha256
     from ..evalue.combined import calibrate_combined
     from ..evalue.control import _organism
-    from ..evalue.mock_reference import control_events
+    from ..evalue.mock_reference import control_events, EVENT_SAMPLER
     from ..runner.annotation import _input_rows, _validate_output_paths
     from .__main__ import _flat_table
 
@@ -283,7 +283,8 @@ def main(a):
         on='calibration_query_id', how='left', validate='m:1', maintain_order='left')
     calibration = pl.DataFrame(metadata) if metadata else pl.DataFrame({'species': [organism], 'locus': [a.locus],
         'query_receptors': [0], 'mock_replicates': [a.mock_replicates], **{k: [v] for k,v in control_counts.items()}})
-    calibration = calibration.with_columns(pl.lit(time.monotonic() - start).alias('calculation_seconds'))
+    calibration = calibration.with_columns(pl.lit(time.monotonic() - start).alias('calculation_seconds'),
+        pl.lit(EVENT_SAMPLER).alias('reference_event_sampler'))
     prefix.parent.mkdir(parents=True, exist_ok=True)
     for name, frame in [('queries', query), ('database', database), ('epitopes', epitopes), ('calibration', calibration)]:
         _flat_table(frame).write_csv(str(prefix) + '.' + name + '.tsv', separator='\t')

@@ -61,6 +61,7 @@ def test_single_batch_raw_control_tails_and_filtered_recalibration(tmp_path, mon
     assert result['p_query'][0] <= result['p_query'][1]
     assert result['null_query_match_rate'][2] == result['query_hit_draws'][2] / args.mock_replicates
     groups = pl.read_csv(args.output_prefix + '.calibration.tsv', separator='\t')
+    assert groups['reference_event_sampler'].unique().to_list() == ['uniform-event-slots-v1']
     assert groups['reference_source_records'].to_list() == [3, 2, 1]
     assert groups['native_batches'].to_list() == [1, 1, 1]
     assert groups['pgen_bin'].to_list() == [-7, -7, -7]
