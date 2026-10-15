@@ -96,6 +96,24 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     assert genes.filter((pl.col('segment')=='J') & (pl.col('length_scope')=='all_lengths'))['reference_records'].sum()==4
     assert set(manifest['tables'])=={'profile.structures.tsv','profile.degrees.tsv','profile.lengths.tsv','profile.genes.tsv'}
     assert all(len(manifest[key])==64 for key in ('native_sha256','v_model_sha256','loader_sha256','search_source_sha256'))
+    control = tmp_path/'control.tsv'
+    pl.DataFrame({'junction_aa':['CASSLAAAYEQYF','CASSLACAYEQYF','CASSLADAYEQYF'],
+        'v_call':['TRBV19','TRBV20-1',None], 'j_call':['TRBJ2-7']*3,
+        'occurrences':[1,3,10]}).write_csv(control,separator='\t')
+    controlled = tmp_path/'controlled'
+    calls.clear()
+    assert main(['reference-structure','--vdjdb',str(reference),'--locus','TRB',
+        '--control',str(control),'--output-prefix',str(controlled)])==0
+    assert calls==[3]
+    assert pl.read_csv(str(controlled)+'.structures.tsv',separator='\t').equals(full)
+    compared=pl.read_csv(str(controlled)+'.genes.tsv',separator='\t')
+    assert compared.select(genes.columns).equals(genes)
+    v=compared.filter((pl.col('segment')=='V')&(pl.col('length_scope')=='all_lengths'))
+    assert v['key_to_control_event_ratio'].to_list()==[4.,4.]
+    m=json.loads((tmp_path/'controlled.manifest.json').read_text())
+    assert m['control']['control_source_rows']==3 and m['control']['control_valid_rows']==2
+    assert m['control']['event_keys']==2 and m['control']['total_events']==4
+    assert 'controlled.control-genes.tsv' in m['tables']
     targets=tmp_path/'targets.tsv'
     pl.DataFrame({'query_id':[0,1],'epitope':['A','B'],'species':['human']*2,
         'mhc_a':['HLA-A*02']*2,'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(targets,separator='\t')
@@ -204,3 +222,38 @@ def test_reference_gene_usage_preserves_records_keys_lengths_and_unresolved_call
     assert lengths.filter(pl.col('segment') == 'V')['reference_records'].sum() == 5
     assert set(lengths['junction_length']) == {4, 5}
     assert reference_gene_usage(records.head(0), locus='TRB').is_empty()
+
+
+def test_gene_usage_control_preserves_event_weights_unknowns_and_missing_lengths():
+    import polars as pl
+    from vdjmatch.aggregate.structure import reference_gene_usage, control_gene_usage, compare_gene_usage
+    from vdjmatch.evalue.mock_reference import control_events
+    raw = pl.DataFrame({'junction_aa': ['CAAF', 'CAAF', 'CCAF', 'CAAFF'],
+        'v_call': ['TRBV1*01', 'TRBV1*02', 'TRBV2', 'TRBV2'],
+        'j_call': ['TRBJ1-1'] * 4, 'occurrences': [1, 2, 3, 10]})
+    events = control_events(raw, species='human', locus='TRB')
+    control = control_gene_usage(events, locus='TRB')
+    records = pl.DataFrame({'cdr3': ['CAAF', 'CAAF', 'CCAF', 'CAAFF', 'CAAAFF'],
+        'v': ['TRBV1*01', 'TRBV1*02', 'TRBV3', None, 'TRBV1'], 'j': ['TRBJ1-1'] * 5})
+    usage = reference_gene_usage(records, locus='TRB')
+    result = compare_gene_usage(usage, control)
+    assert result.select(usage.columns).equals(usage)
+    full = result.filter((pl.col('segment') == 'V') & (pl.col('length_scope') == 'all_lengths'))
+    v1 = full.filter(pl.col('gene') == 'TRBV1').row(0, named=True)
+    assert v1['control_events'] == 3 and v1['total_control_events'] == 16
+    assert v1['control_junction_gene_keys'] == 1 and v1['total_control_junction_gene_keys'] == 3
+    assert v1['key_to_control_event_ratio'] == pytest.approx(8 / 3)
+    assert v1['record_to_control_event_ratio'] == pytest.approx(3.2)
+    absent = full.filter(pl.col('gene') == 'TRBV3').row(0, named=True)
+    assert absent['control_events'] == 0 and absent['control_event_fraction'] == 0
+    assert absent['key_to_control_event_ratio'] is None and absent['control_status'] == 'gene_not_observed'
+    unknown = full.filter(pl.col('gene').is_null()).row(0, named=True)
+    assert unknown['reference_records'] == 1 and unknown['total_control_events'] == 16
+    assert unknown['control_events'] is None and unknown['control_status'] == 'unresolved_reference_gene'
+    exact = result.filter((pl.col('segment') == 'V') & (pl.col('junction_length') == 4) & (pl.col('gene') == 'TRBV1'))
+    assert exact['control_events'].item() == 3 and exact['total_control_events'].item() == 6
+    assert exact['key_to_control_event_ratio'].item() == 1
+    missing = result.filter((pl.col('segment') == 'V') & (pl.col('junction_length') == 6)).row(0, named=True)
+    assert missing['control_events'] is None and missing['control_status'] == 'no_control_length'
+    with pytest.raises(ValueError, match='positive integer'):
+        control_gene_usage(events.with_columns(pl.lit(1.5).alias('event_weight')), locus='TRB')

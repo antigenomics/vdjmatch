@@ -10,6 +10,7 @@ def register(subparsers):
     p.add_argument('--epitope', action='append')
     p.add_argument('--targets-from-sample', help='compatible pMHC unions declared in an AIRR table')
     p.add_argument('--reference-population', choices=['curated-benchmark','all-valid'], default='curated-benchmark')
+    p.add_argument('--control', help='raw rearrangement control for descriptive V/J event-frequency ratios')
     p.add_argument('--weight-rule', choices=['length-diversity', 'nearest-length'], default='length-diversity',
                    help='experimental nearest-length gate preserves the original/stem4 conditional split')
     p.add_argument('--threads', type=int, default=1)
@@ -26,7 +27,7 @@ def main(a):
     import seqtree._core as native_core
     from .. import db
     from ..aggregate.candidates import PMHC
-    from ..aggregate.structure import composition, graph_profiles, reference_gene_usage
+    from ..aggregate.structure import composition, graph_profiles, reference_gene_usage, control_gene_usage, compare_gene_usage
     from ..cluster import overlap
     from ..db.cache import sha256
     from ..evalue.control import _organism
@@ -36,10 +37,22 @@ def main(a):
     start = time.monotonic()
     if a.threads < 1:
         raise ValueError('positive threads required')
-    protected = [a.vdjdb]+([a.targets_from_sample] if a.targets_from_sample else [])
+    protected = [a.vdjdb]+([a.targets_from_sample] if a.targets_from_sample else [])+([a.control] if a.control else [])
     prefix = _validate_output_paths(a.output_prefix, protected)
     organism = _organism(a.species)
     species = {'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
+    control_usage, control_info = None, None
+    if a.control:
+        from .combined import _raw_control
+        from ..evalue.mock_reference import control_events
+        control_raw, control_info = _raw_control(a.control)
+        events = control_events(control_raw, species=organism, locus=a.locus)
+        control_usage = control_gene_usage(events, locus=a.locus)
+        control_info.update(path=str(Path(a.control).resolve()), sha256=sha256(Path(a.control)),
+            event_keys=events.height, total_events=int(events['event_weight'].sum()),
+            reader_sha256=sha256(Path(_raw_control.__code__.co_filename)),
+            event_normalizer_sha256=sha256(Path(control_events.__code__.co_filename)))
+        del control_raw, events
     raw = db.load(a.vdjdb, species=species, gene=a.locus, epitope=a.epitope)
     if a.reference_population == 'all-valid':
         raw = raw.with_columns(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('reference_valid'))
@@ -197,7 +210,14 @@ def main(a):
             summary.select('_mixture_group', 'species', 'locus', *PMHC), on='_mixture_group',
             validate='m:1').drop('_mixture_group').write_csv(weight_path, separator='\t')
         tables.append(weight_path)
-    pl.concat(gene_tables, how='vertical_relaxed').write_csv(gene_path, separator='\t')
+    gene_usage = pl.concat(gene_tables, how='vertical_relaxed')
+    if control_usage is not None:
+        gene_usage = compare_gene_usage(gene_usage, control_usage)
+        control_path = Path(str(prefix)+'.control-genes.tsv')
+        control_usage.with_columns(pl.lit(species).alias('species'), pl.lit(a.locus).alias('locus')).write_csv(
+            control_path, separator='\t')
+        tables.append(control_path)
+    gene_usage.write_csv(gene_path, separator='\t')
     pl.DataFrame(degree_rows, schema_overrides={'degree': pl.Int64, 'junction_count': pl.Int64},
         infer_schema_length=None).write_csv(degree_path, separator='\t')
     pl.concat(length_tables, how='vertical_relaxed').sort('species', 'locus', *PMHC, 'junction_length').write_csv(
@@ -226,6 +246,9 @@ def main(a):
         degree_quantiles='linear interpolation of the unique-junction degree distribution',
         length_coverage='exact junction length; all valid reference records and unique junctions; modeled records counted separately; no cross-length Hamming edges',
         gene_usage='all valid reference rows; V/J alleles pooled; unresolved calls retained; full and exact-length strata; record and junction/gene-key denominators explicit',
+        control=control_info,
+        gene_control_comparison=('reference record/key fractions divided by control event fractions; no smoothing; unresolved genes, absent control genes and absent control lengths explicit; descriptive composition only'
+            if control_info is not None else None),
         entropy_units='natural logarithms', length_units='amino-acid residues, conserved anchors included',
         exclusion='none: model composition and weights use the fixed full reference; benchmark exclusion applies only to hit lists',
         interpretation='reference-only morphology and fixed graph-mixture heuristic; no label fit, recognition probability or P/E-value',
