@@ -76,6 +76,9 @@ score. No fitted JSON input/output is required. Outputs are `.queries.tsv`
 components), and `.calibration.tsv` (population, seed/model/native provenance).
 Use `--mock-replicates` (default199) and `--seed` (default0) explicitly when pinning
 reproduction. Reference species/locus/evidence/score/pMHC filtering precedes mocks.
+Custom labelled references use long `junction_aa,locus,epitope` rows with `pair_id`,
+or wide `junction_aa_alpha/beta,v_alpha/beta,j_alpha/beta,epitope` rows; retain their
+links and metadata and rebuild calibration against the selected table.
 
 Controls need valid anchor-inclusive junctions and unambiguous V/J calls.
 Productive flags and invalid-AA exclusions are counted. Sampling weights describe

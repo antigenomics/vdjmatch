@@ -175,10 +175,14 @@ no fitted calibration file or JSON input is needed. `--mock-replicates` defaults
 to 199 and `--seed` to 0. Reference selectors (`--epitope`, MHC,
 `--evidence-type`, `--min-score`) apply before calibration.
 
+Your own reference can be a `junction_aa,locus,epitope` table, with `pair_id`
+linking long paired rows, or a wide `junction_aa_alpha/beta,v_alpha/beta,j_alpha/beta,epitope`
+table. Supplied pairing and metadata are retained; calibration uses that selected table.
+
 The control requires full junctions and unambiguous V/J calls. Productive flags
 and valid amino-acid junctions define eligibility; excluded counts are reported.
 Rearrangement-event weights, rather than read abundance, define sampling.
-Paired populations require both chain controls, randomized independently.
+For paired queries, the same control table supplies TRA and TRB, drawn independently.
 Missing partners retain their raw rows and use eligible single-chain evidence.
 
 Database tails include label and paired-axis selection; epitope tails test a

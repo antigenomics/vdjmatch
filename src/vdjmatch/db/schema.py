@@ -9,7 +9,7 @@ from __future__ import annotations
 import polars as pl
 
 _VDJDB_MAP = {
-    "complex_id": ("complex.id",),
+    "complex_id": ("complex.id", "pair_id", "clone_id"),
     "gene": ("gene", "locus"),
     "cdr3": ("cdr3", "junction_aa"),
     "v": ("v.segm", "v_segm", "v_call", "v"),
@@ -55,7 +55,9 @@ def _unpivot_paired(df: pl.DataFrame) -> pl.DataFrame:
     )
     # Retain the original wide fields, including repairs and submitted calls.
     df = df.with_row_index("__full_row")
-    source_link = next((c for c in ("complex_id", "complex.id") if c in df.columns), None)
+    source_link = next((c for c in ("complex_id", *_VDJDB_MAP["complex_id"])
+                        if c in df.columns and (c != "clone_id" or
+                            not any(name in df.columns for name in ("record_id", "cell_id")))), None)
     if source_link:
         key = pl.col(source_link).cast(pl.String)
         declared = key.is_not_null() & ~key.is_in(["", "0"])
@@ -89,10 +91,18 @@ def _unpivot_paired(df: pl.DataFrame) -> pl.DataFrame:
 
 def normalize(df: pl.DataFrame) -> pl.DataFrame:
     """Add canonical matching fields without discarding source fields or identifiers."""
-    if "cdr3" not in df.columns and "cdr3.alpha" in df.columns:
-        if "cdr3.beta" not in df.columns:
-            df = df.with_columns(pl.lit("").alias("cdr3.beta"))
-        df = _unpivot_paired(df)
+    if not any(c in df.columns for c in ("cdr3", "junction_aa")):
+        aliases = []
+        for side in ("alpha", "beta"):
+            for canonical, source in ((f"cdr3.{side}", f"junction_aa_{side}"),
+                                      (f"v.{side}", f"v_{side}"), (f"j.{side}", f"j_{side}")):
+                if canonical not in df.columns and source in df.columns:
+                    aliases.append(pl.col(source).alias(canonical))
+        df = df.with_columns(aliases)
+        if any(c in df.columns for c in ("cdr3.alpha", "cdr3.beta")):
+            df = df.with_columns(*[pl.lit("").alias(c) for c in ("cdr3.alpha", "cdr3.beta")
+                                   if c not in df.columns])
+            df = _unpivot_paired(df)
     if not any(c in df.columns for c in ("cdr3", "junction_aa")):
         raise ValueError(
             "reference requires VDJdb cdr3 or AIRR junction_aa; bare cdr3_aa has no anchors"
@@ -112,6 +122,10 @@ def normalize(df: pl.DataFrame) -> pl.DataFrame:
     exprs = []
     for canon, aliases in _VDJDB_MAP.items():
         if canon not in df.columns:
+            # Rich releases pair observations by record/cell identity; clone_id
+            # there is retained clonotype metadata, not a receptor pair link.
+            if canon == "complex_id" and any(c in df.columns for c in ("record_id", "cell_id")):
+                aliases = tuple(c for c in aliases if c != "clone_id")
             src = next((s for s in aliases if s in df.columns), None)
             exprs.append(
                 pl.col(src).alias(canon)

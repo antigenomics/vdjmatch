@@ -23,12 +23,17 @@ Reference epitope/MHC, ``--evidence-type`` and ``--min-score`` filters apply fir
 Ordinary annotation includes every valid selected reference observation; explicit
 ``--reference-population curated-benchmark`` retains benchmark curation.
 
+``--vdjdb`` also accepts your own epitope-labelled table. Long tables use
+``junction_aa,locus,epitope`` and ``pair_id`` for paired chains; wide tables use
+``junction_aa_alpha/beta,v_alpha/beta,j_alpha/beta,epitope``. Supplied MHC and
+evidence metadata remain attached. Calibration is rebuilt against this table.
+
 The control must supply full junctions and unambiguous V/J annotations. Counts
 are validated before filtering; false/missing productive tags and invalid or
 missing amino-acid junctions are excluded with separate counts. Without a
 productive column, valid amino-acid junctions remain eligible. Query rows are
-retained even when invalid or from another species. Paired controls require TRA
-and TRB, randomized independently. Incomplete genuine pairs retain the missing
+retained even when invalid or from another species. For paired queries, the same
+control table supplies TRA and TRB, randomized independently. Incomplete genuine pairs retain the missing
 partner row and calibrate each eligible chain as a marginal query.
 
 Outputs are four flat TSVs: ``.queries.tsv`` preserves every raw chain row and

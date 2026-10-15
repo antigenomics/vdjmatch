@@ -51,6 +51,10 @@ table/archive. Metadata has ``path`` and optional ``sample_id``; relative paths
 resolve beside the metadata TSV. Directory discovery accepts TSV, CSV, text,
 gzip and Parquet repertoire tables with unique sample names.
 
+A custom reference can contain ``junction_aa,locus,epitope`` with ``pair_id``
+linking paired chain rows, or wide ``junction_aa_alpha/beta,v_alpha/beta,j_alpha/beta``
+and ``epitope`` columns. Reference pairing and source metadata survive normalization.
+
 Input uses anchor-inclusive ``junction_aa`` with AIRR ``v_call`` or simple ``v``
 and optional ``j`` fields. Wide pairs use ``junction_aa_alpha/beta`` and
 ``v_alpha/beta``, with optional ``j_alpha/beta``. Cell/pair identity takes priority
