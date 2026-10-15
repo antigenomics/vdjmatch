@@ -71,10 +71,10 @@ def motif_selection_information(reference, control, *, locus):
         genes = strata['v_gene'].gather(row)
         status[genes.is_null().to_numpy()] = 'unresolved_reference_gene'
         parts.append(pl.DataFrame({'v_gene': genes,
-            'junction_length': strata['junction_length'].gather(row), 'length_scope': [scope] * len(row),
+            'junction_length': strata['junction_length'].gather(row), 'length_scope': pl.Series([scope] * len(row), dtype=pl.String),
             'motif': observed['vocabulary']['t0'].gather(token),
             'reference_keys': N, 'control_keys': M, 'reference_with_motif': n, 'control_with_motif': m,
             'reference_fraction': p, 'control_fraction': pl.Series(q, nan_to_null=True),
             'presence_bits': pl.Series(bits, nan_to_null=True),
-            'motif_information_bits': pl.Series(information, nan_to_null=True), 'information_status': status}))
+            'motif_information_bits': pl.Series(information, nan_to_null=True), 'information_status': pl.Series(status, dtype=pl.String)}))
     return pl.concat(parts).sort('length_scope', 'v_gene', 'junction_length', 'motif', nulls_last=True)

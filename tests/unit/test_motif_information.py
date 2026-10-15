@@ -60,4 +60,6 @@ def test_binary_motif_depletion_and_unobserved_absence_are_distinct():
     population = motif_population(short, locus='TRB')
     assert population['exact_length'][0]['keys'].item() == 1
     assert population['exact_length'][1].sum() == 0
-    assert motif_selection_information(short, population, locus='TRB').is_empty()
+    empty = motif_selection_information(short, population, locus='TRB')
+    assert empty.is_empty()
+    assert empty.write_csv().startswith('v_gene,junction_length,length_scope,motif,')
