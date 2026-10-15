@@ -91,18 +91,31 @@ def reference_structure(distances, *, radius_factor=22.5, costs=None):
     return coverage, shape
 
 
-def reference_nearest_distances(frame, *, paired=False, species='human', threads=1, ctrim=3, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='clipped',v_loop_distances=None, v_regions=None):
+def reference_nearest_distances(frame, *, paired=False, species='human', threads=1, ctrim=3, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='clipped',v_loop_distances=None, v_regions=None, partition_ids=None):
     """Nonexact same-population nearest distances from one native batch.
 
     Input columns are seq0/v0, plus seq1/v1 for linked TRA/TRB. Full junctions
     define self-exclusion; a pair excludes only the same full linked receptor.
     NaN means no nonexact reference. No K cap or dense receptor distance matrix
     is used. The paired reducer uses the existing sum against one reference pair.
+    Optional single-chain partition IDs restrict neighbours to the same fixed
+    population in one native batch; they do not delete any model observations.
     """
     v_loop_distances = _v_region_context(v_regions, v_loop_distances, species, alphabet, matrix)
     import polars as pl
 
     costs = _substitution_costs(alphabet,matrix)
+    if partition_ids is not None:
+        import inspect
+        if paired:
+            raise ValueError('partitioned reference nearest currently requires a single chain')
+        if (len(partition_ids) != frame.height or
+                any(isinstance(x, bool) or not isinstance(x, (int, np.integer)) or x < 0 for x in partition_ids)):
+            raise ValueError('one nonnegative integer partition ID required per reference key')
+        if ('query_partition_ids' not in inspect.signature(gapblock.group_audit_batch).parameters or
+                'query_partition_ids' not in gapblock._gapblock_group_audit_batch.__doc__):
+            raise RuntimeError('batched reference nearest requires native seqtree partition IDs')
+        frame = frame.with_columns(pl.Series('_nearest_partition', partition_ids))
     if not frame.height:
         return np.empty(0, dtype=float)
     axes = range(2 if paired else 1)
@@ -121,14 +134,19 @@ def reference_nearest_distances(frame, *, paired=False, species='human', threads
         bound += int(np.ceil(stem_weight*scale)) if stem_depth else 0
         bound += scale*(3*frame[f'seq{i}'].str.len_chars().max()+width)
     sequence_columns = [f'seq{i}' for i in axes]
+    if partition_ids is not None:
+        sequence_columns.append('_nearest_partition')
     sizes = frame.group_by(sequence_columns).len().rename({'len': '_self_count'})
+    population_size = pl.len().over('_nearest_partition') if partition_ids is not None else pl.lit(frame.height)
     expected = frame.join(sizes, on=sequence_columns, how='left', validate='m:1',
-                          maintain_order='left').select(frame.height-pl.col('_self_count')).to_series().to_numpy()
+                          maintain_order='left').select(population_size-pl.col('_self_count')).to_series().to_numpy()
     if not paired:
         q, r, options = _total_distance_options(frame['seq0'], frame['seq0'],
             frame['v0'], frame['v0'], species, threads, ctrim, 'uniform', alphabet=alphabet, stem_depth=stem_depth, stem_weight=stem_weight, matrix=matrix,v_loop_distances=v_loop_distances)
+        partitions = {} if partition_ids is None else dict(query_partition_ids=partition_ids,
+                                                           reference_partition_ids=partition_ids)
         _, counts, nearest = gapblock.group_audit_batch(q, r, [200*bound]*len(q),
-                                                       exclude_exact=True, **options)
+                                                       exclude_exact=True, **options, **partitions)
         if not np.array_equal(counts, expected):
             raise ArithmeticError('reference nearest bound did not cover the population')
         result = np.asarray(nearest, dtype=float)/200

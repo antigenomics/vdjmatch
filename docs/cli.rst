@@ -1166,6 +1166,16 @@ coverage units and the knee-radius ratio. The manifest records this geometry;
 radii from different matrices are not interchangeable. ``pam250``, ``mj`` and
 ``vdjam`` are also supported by the existing distance backend.
 
+Single-chain profiles use one native partitioned batch for all fixed pMHC
+populations and their exact-length subsets. ``.nearest.tsv`` also reports
+``same_length_nearest_distance``. A strictly smaller unrestricted distance
+demonstrates a closer cross-length neighbour under that geometry; ties do not.
+``same_length_comparison_keys`` and ``cross_length_closer_keys`` retain the
+comparison denominator and count. A key without a nonexact same-length
+neighbour is unavailable for this comparison. Linked-pair profiles do not yet
+provide this length comparison. This diagnostic requires native seqtree
+partition-ID support and fails explicitly if that capability is absent.
+
 ``neighbours --reference-radius`` applies this selection to each
 sample-declared compatible reference union. It requires uniform geometry,
 V loops, ``--nearest-rank --unbounded-nearest --targets-from-sample``,

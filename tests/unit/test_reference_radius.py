@@ -115,8 +115,9 @@ def test_reference_radius_cli_uses_selected_matrix_units(tmp_path, monkeypatch):
     scale = geometry.distance_units(geometry._substitution_costs(matrix='blosum62'))[0]
     def nearest(frame, **options):
         assert options['matrix'] == 'blosum62'
-        assert frame.height == 3
-        return np.array([10., 20., 30.])*scale
+        assert frame.height == 6
+        assert options['partition_ids'] == [0]*3+[2]*3
+        return np.array([10., 20., 30.]*2)*scale
     monkeypatch.setattr(geometry, 'reference_nearest_distances', nearest)
     monkeypatch.setattr(geometry, 'kneedle_radius', lambda _: 10.*scale)
     assert main(['reference-radius', '--vdjdb', str(source), '--locus', 'TRB',
@@ -128,3 +129,46 @@ def test_reference_radius_cli_uses_selected_matrix_units(tmp_path, monkeypatch):
     assert manifest['structure_features']['matrix_scale'] == scale
     assert manifest['options']['matrix'] == 'blosum62'
     assert 'blosum62' in manifest['geometry']
+
+
+def test_partitioned_reference_nearest_matches_fixed_populations():
+    frame = pl.DataFrame({'seq0': ['CASSLGQAYEQYF', 'CASSLGRAYEQYF',
+        'CASSLGQAYEQYF', 'CASSIGQAYEQYF', 'CASSLGQAYEQYF'],
+        'v0': ['TRBV19', 'TRBV19', 'TRBV7-9', 'TRBV19', 'TRBV19']})
+    partitions = [0, 0, 1, 1, 2]
+    expected = np.concatenate([geometry.reference_nearest_distances(part, matrix='blosum62')
+        for part in (frame[:2], frame[2:4], frame[4:])])
+    for threads in (1, 2):
+        got = geometry.reference_nearest_distances(frame, matrix='blosum62',
+            partition_ids=partitions, threads=threads)
+        np.testing.assert_array_equal(got, expected)
+    assert np.isnan(got[-1])
+    with pytest.raises(ValueError, match='partition ID'):
+        geometry.reference_nearest_distances(frame, partition_ids=[0])
+
+
+def test_radius_length_comparison_is_one_native_batch(tmp_path, monkeypatch):
+    from seqtree import gapblock
+    from vdjmatch.cli.__main__ import main
+    source, prefix = tmp_path/'reference.tsv', tmp_path/'radius'
+    pl.DataFrame({'cdr3': ['CASSAAAAAAEQYF', 'CASSWWWWWWEQYF', 'CASSAAAAAAAEQYF',
+        'CASSAAAAAAAEQYF', 'CASSWWWWWWWEQYF'], 'v': ['TRBV19']*5,
+        'gene': ['TRB']*5, 'epitope': ['A']*3+['B']*2,
+        'species': ['HomoSapiens']*5}).write_csv(source, separator='\t')
+    calls = []
+    original = gapblock.group_audit_batch
+    from functools import wraps
+    @wraps(original)
+    def spy(*args, **kwargs):
+        calls.append(len(args[0]))
+        return original(*args, **kwargs)
+    monkeypatch.setattr(gapblock, 'group_audit_batch', spy)
+    assert main(['reference-radius', '--vdjdb', str(source), '--locus', 'TRB',
+        '--matrix', 'blosum62', '--output-prefix', str(prefix)]) == 0
+    assert calls == [10]
+    rows = pl.read_csv(str(prefix)+'.radii.tsv', separator='\t').sort('epitope')
+    assert rows['same_length_comparison_keys'].to_list() == [2, 2]
+    assert rows['cross_length_closer_keys'][0] >= 1
+    assert rows['cross_length_closer_keys'][1] == 0
+    nearest = pl.read_csv(str(prefix)+'.nearest.tsv', separator='\t')
+    assert nearest['same_length_nearest_distance'].null_count() == 1

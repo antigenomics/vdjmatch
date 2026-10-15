@@ -46,7 +46,7 @@ def main(a):
     model = load_v_loops(organism)
     costs = _substitution_costs(matrix=a.matrix)
     matrix_scale = distance_units(costs)[0]
-    radii, nearest = [], []
+    radii, nearest, populations = [], [], []
     if a.targets_from_sample:
         from ..io.airr import _read_table
         from .historical import assayed_targets
@@ -75,21 +75,47 @@ def main(a):
             available &= pl.col('_valid')
         retained = frame.filter(available).drop('_valid', strict=False)
         frame = retained.unique(maintain_order=True)
-        distances = reference_nearest_distances(frame, paired=paired, species=organism,
-            threads=a.threads, ctrim=2 if a.junction_ends == 'trim32' else 3, matrix=a.matrix)
+        context = {'species': reference_species, 'locus': a.locus, **dict(zip(PMHC, key))}
+        populations.append((context, observations.height, retained.height, frame))
+    options = dict(species=organism, threads=a.threads,
+                   ctrim=2 if a.junction_ends == 'trim32' else 3, matrix=a.matrix)
+    # One shared encoding/native batch; partition IDs restrict each reference key
+    # to its own fixed pMHC population, including overlapping compatible unions.
+    all_distances = same_length_distances = None
+    if not paired and populations:
+        frames = [part[3] for part in populations]
+        partitions = [i for i, frame in enumerate(frames) for _ in range(frame.height)]
+        combined = pl.concat(frames)
+        length_partitions = pl.DataFrame({'population': partitions,
+            'length': combined['seq0'].str.len_chars()}).select(
+                (pl.struct('population', 'length').rank('dense').cast(pl.Int64)+len(frames)).alias('partition'))
+        distances = reference_nearest_distances(pl.concat([combined, combined]),
+            partition_ids=partitions+length_partitions['partition'].to_list(), **options)
+        all_distances, same_length_distances = np.split(distances, 2)
+    offset = 0
+    for context, source_count, retained_count, frame in populations:
+        distances = (reference_nearest_distances(frame, paired=True, **options) if paired else
+                     all_distances[offset:offset+frame.height])
+        same_length = (np.full(frame.height, np.nan) if paired else
+                       same_length_distances[offset:offset+frame.height])
+        offset += frame.height
         finite = np.isfinite(distances)
+        comparable = finite & np.isfinite(same_length)
+        cross_length_closer = comparable & (distances < same_length)
         radius = kneedle_radius(distances[finite])
         coverage, shape = reference_structure(distances, radius_factor=a.coverage_radius_factor, costs=costs)
-        context = {'species': reference_species, 'locus': a.locus, **dict(zip(PMHC, key))}
-        radii.append({**context, 'source_observations': observations.height,
+        radii.append({**context, 'source_observations': source_count,
             'source_unit': 'linked_pair_observation' if paired else 'chain_record',
-            'unavailable_observations': observations.height-retained.height,
+            'unavailable_observations': source_count-retained_count,
             'reference_keys': frame.height, 'nearest_keys': int(finite.sum()),
+            'same_length_comparison_keys': int(comparable.sum()),
+            'cross_length_closer_keys': int(cross_length_closer.sum()),
             'no_nonexact_neighbour_keys': int((~finite).sum()), 'raw_radius': radius,
             'reference_coverage': coverage, 'knee_shape': shape,
             'radius_status': 'knee' if radius is not None else 'no_knee'})
         nearest.append(frame.with_row_index('reference_key_id').with_columns(
             pl.Series('nearest_distance', distances, nan_to_null=True),
+            pl.Series('same_length_nearest_distance', same_length, nan_to_null=True),
             *(pl.lit(v, dtype=pl.String).alias(k) for k, v in context.items())))
     adjusted, floor, floor_source = regularize_reference_radii(
         [r['raw_radius'] if r['raw_radius'] is not None else np.nan for r in radii],
@@ -109,7 +135,8 @@ def main(a):
     context_schema = {c: pl.String for c in ['species', 'locus', *PMHC]}
     radius_schema = {**context_schema, 'source_observations': pl.UInt64, 'source_unit': pl.String,
         **{c: pl.UInt64 for c in ['unavailable_observations', 'reference_keys', 'nearest_keys',
-                                  'no_nonexact_neighbour_keys']},
+                                  'no_nonexact_neighbour_keys', 'same_length_comparison_keys',
+                                  'cross_length_closer_keys']},
         **{c: pl.Float64 for c in ['raw_radius', 'radius', 'radius_floor',
                                   'reference_coverage', 'knee_shape', 'knee_radius_ratio']},
         'floor_source': pl.String, 'radius_status': pl.String}
@@ -129,6 +156,8 @@ def main(a):
             'raised_knees': sum(r['radius_status'] == 'knee_floored' for r in radii)},
         'reference_unit': 'distinct full junctions and resolved V alleles; same linked pair for paired mode',
         'geometry': f'uniform {a.matrix} CDR3 plus V loops; paired alpha+beta sum',
+        'native_search_scope': 'per linked population' if paired else 'one partitioned single-chain batch',
+        'length_comparison': 'single chains only: compare unrestricted nearest with same-length nearest under identical geometry; strict improvement proves a closer cross-length neighbour, ties do not; no same-length neighbour is unavailable, not positive evidence',
         'no_knee': 'no radius is selected; reference keys remain available',
         'probability_interpretation': 'none; selected radii carry no transferred calibration',
         'seconds': time.perf_counter()-start}
