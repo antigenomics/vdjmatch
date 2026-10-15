@@ -183,3 +183,74 @@ def reference_gene_usage(records, *, locus):
                     (pl.col('reference_records') / pl.col('total_reference_records')).alias('record_fraction'),
                     (pl.col('junction_gene_keys') / pl.col('total_junction_gene_keys')).alias('key_fraction')))
     return pl.concat(parts).sort('segment', 'length_scope', 'junction_length', 'gene', nulls_last=True)
+
+
+def control_gene_usage(events, *, locus):
+    """V/J composition of normalized control_events, pooling gene alleles.
+
+    Event fractions preserve recombination-event multiplicity; key fractions use
+    unique full-junction/gene keys. Read abundance never supplies event weights.
+    The caller selects species/locus through control_events before this reduction.
+    """
+    import polars as pl
+    from ..io.columns import _integer_count
+
+    if not {'junction_aa', 'v', 'j', 'event_weight'}.issubset(events.columns) or not events.height:
+        raise ValueError('control gene usage requires nonempty normalized control events')
+    events = events.with_columns(_integer_count('event_weight').alias('event_weight'))
+    if events['event_weight'].null_count() or (events['event_weight'] <= 0).any():
+        raise ValueError('control event weights must be positive integers')
+    usage = reference_gene_usage(events.rename({'junction_aa': 'cdr3'}), locus=locus)
+    if usage['gene'].null_count():
+        raise ValueError('control events require unambiguous matching V/J genes')
+    parts = []
+    for segment in ('V', 'J'):
+        frame = events.select(pl.col('junction_aa').str.len_chars().alias('junction_length'),
+            pl.col(segment.lower()).cast(pl.String).str.strip_chars().str.to_uppercase()
+                .str.split('*').list.first().alias('gene'), 'event_weight')
+        for scope in ('all_lengths', 'exact_length'):
+            selected = frame.with_columns(pl.lit(None, dtype=pl.UInt32).alias('junction_length')) if scope == 'all_lengths' else frame
+            parts.append(selected.group_by('junction_length', 'gene').agg(
+                pl.col('event_weight').sum().alias('control_events')).with_columns(
+                pl.lit(segment).alias('segment'), pl.lit(scope).alias('length_scope'),
+                pl.col('control_events').sum().over('junction_length').alias('total_control_events')))
+    keys = ['segment', 'length_scope', 'junction_length', 'gene']
+    return usage.select(*keys, pl.col('junction_gene_keys').alias('control_junction_gene_keys'),
+        pl.col('total_junction_gene_keys').alias('total_control_junction_gene_keys')).join(
+        pl.concat(parts), on=keys, nulls_equal=True, validate='1:1', maintain_order='left').with_columns(
+        (pl.col('control_events') / pl.col('total_control_events')).alias('control_event_fraction'),
+        (pl.col('control_junction_gene_keys') / pl.col('total_control_junction_gene_keys')).alias('control_key_fraction'))
+
+
+def compare_gene_usage(usage, control):
+    """Descriptive reference/control ratios with unchanged reference denominators.
+
+    One species/locus control table supplies all reference pMHC populations.
+    Missing reference genes, unobserved control genes and missing control lengths
+    remain distinct. No pseudocount, tail, selection claim or binding confidence.
+    """
+    import polars as pl
+
+    keys = ['segment', 'length_scope', 'junction_length', 'gene']
+    strata = keys[:-1]
+    totals = ['total_control_events', 'total_control_junction_gene_keys']
+    counts = ['control_events', 'control_junction_gene_keys']
+    if (not {*keys, 'record_fraction', 'key_fraction'}.issubset(usage.columns) or
+            not {*keys, *totals, *counts}.issubset(control.columns) or control.select(keys).is_duplicated().any()):
+        raise ValueError('gene usage comparison requires unique normalized control gene strata')
+    result = usage.join(control.select(*strata, *totals).unique(), on=strata,
+        how='left', nulls_equal=True, validate='m:1', maintain_order='left').join(
+        control.select(*keys, *counts), on=keys, how='left', nulls_equal=True, validate='m:1', maintain_order='left')
+    available = pl.col('gene').is_not_null() & pl.col('total_control_events').is_not_null()
+    result = result.with_columns(*[pl.when(available).then(pl.col(c).fill_null(0)).otherwise(None).alias(c) for c in counts])
+    result = result.with_columns(
+        (pl.col('control_events') / pl.col('total_control_events')).alias('control_event_fraction'),
+        (pl.col('control_junction_gene_keys') / pl.col('total_control_junction_gene_keys')).alias('control_key_fraction'),
+        pl.when(pl.col('gene').is_null()).then(pl.lit('unresolved_reference_gene'))
+          .when(pl.col('total_control_events').is_null()).then(pl.lit('no_control_length'))
+          .when(pl.col('control_events') == 0).then(pl.lit('gene_not_observed'))
+          .otherwise(pl.lit('available')).alias('control_status'))
+    return result.with_columns(*[pl.when(pl.col('control_event_fraction') > 0).then(
+        pl.col(source) / pl.col('control_event_fraction')).otherwise(None).alias(name)
+        for source, name in [('record_fraction', 'record_to_control_event_ratio'),
+                             ('key_fraction', 'key_to_control_event_ratio')]])

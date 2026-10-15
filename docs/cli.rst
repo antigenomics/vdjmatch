@@ -1503,6 +1503,25 @@ population, ``structure.degrees.tsv`` with its degree histogram, and
 by that table. ``--reference-population`` selects ``curated-benchmark`` (default)
 or ``all-valid``.
 
+Add ``--control RAW_REPERTOIRE`` to compare V/J composition against the supplied
+rearrangement control. The existing control reader and event normalizer preserve
+joint junction/V/J recombination-event weights and report excluded raw rows.
+Read abundance does not define event counts. The additional
+``structure.control-genes.tsv`` reports event counts and unique junction/gene-key
+counts, overall and within each exact junction length, with alleles pooled.
+``structure.genes.tsv`` retains every reference row and denominator, and adds
+the matching control counts/fractions and two descriptive ratios:
+``record_to_control_event_ratio`` divides the reference record fraction by the
+control event fraction; ``key_to_control_event_ratio`` uses the reference
+junction/gene-key fraction as numerator. The sampling units remain explicit.
+Unresolved reference genes, genes not observed in the control, and absent control
+lengths have separate status values. Ratios with zero or unavailable control
+frequency are null; no pseudocount or cross-length fallback is applied.
+These ratios describe composition relative to the supplied control and do not
+establish antigen selection, structural contacts, binding confidence or a scorer
+assignment. The manifest records the raw-control identity, retained/excluded rows,
+event counts and normalizer source identity.
+
 The graph has one vertex per unique anchor-inclusive junction and an edge for
 one amino-acid substitution, with no indels. One native batch searches the entire
 selected reference population. The complete reference graph and its composition
