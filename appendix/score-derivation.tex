@@ -1394,6 +1394,14 @@ Then mutual information is
 It measures label information under that explicit mixture and differs from $D_{\rm KL}(P_e\Vert P_0)$.
 Neither quantity supplies an automatic performance-optimal weighting of overlapping features.
 
+\paragraph{Executable information decomposition.}
+The shipping \texttt{reference-structure --control} command computes these gene/length quantities from raw reference and control inputs.
+Its \texttt{.genes.tsv} table retains pointwise \texttt{gene\_bits}, \texttt{length\_bits} and \texttt{joint\_bits}; \texttt{.information.tsv} reports their target-weighted expectations.
+The all-length scope measures marginal gene information; the exact-length scope separates length information and conditional gene information, whose sum is the joint information.
+Both populations use distinct full-junction/segment-gene keys, separately for V and J.
+Reference counts, missing comparison mass and null MHC fields are preserved; unsupported expectations remain unavailable without smoothing or renormalisation.
+This implements the information diagnostic, while choosing the final scoring rule remains a subsequent step.
+
 \subsection{Which feature carries the information?}
 The probability chain rule gives an exact decomposition, without feature independence:
 \begin{align}
