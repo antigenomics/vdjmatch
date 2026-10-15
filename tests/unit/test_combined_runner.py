@@ -152,6 +152,16 @@ def test_actual_paired_complete_calibration_retains_linked_roles_and_nohits(monk
     assert tails['query_draws'].to_list() == [2] * 6
     assert set(tails['test_scope']) == {'epitope', 'database'}
     assert tails['p_both'].to_list() == tails.select(pl.max_horizontal('p_reference', 'p_query')).to_series().to_list()
+    # Repeat the complete synthetic pipeline with the retained materialized oracle.
+    from vdjmatch.runner import combined as runner
+    from polars.testing import assert_frame_equal
+    monkeypatch.setattr(runner, '_select_axis_frames', lambda frames: _all_axis_oracle(list(frames)))
+    old_detail, old_tails = calibration.calibrate_combined(query, reference, control,
+        species='human', locus='paired', replicates=2, seed=17, threads=1)
+    assert_frame_equal(detail.select(old_detail.columns).sort(['query_id', *PMHC]),
+        old_detail.sort(['query_id', *PMHC]), check_exact=True)
+    assert_frame_equal(tails.select(old_tails.columns).sort(['query_id', 'test_scope', *PMHC]),
+        old_tails.sort(['query_id', 'test_scope', *PMHC]), check_exact=True)
 
 
 def test_benchmark_exact_mask_keeps_original_model_counts_and_priors_fixed():
@@ -171,14 +181,18 @@ def test_benchmark_exact_mask_keeps_original_model_counts_and_priors_fixed():
 
 
 def test_benchmark_graph_weights_use_full_query_independent_reference():
-    from vdjmatch.runner.combined import _graph_weight_cases
-    query, reference, _ = _single()
+    from vdjmatch.runner.combined import _graph_weights, combine_components
+    query, reference, context = _single()
     reference = reference.with_columns(pl.when(pl.col('cdr3') == 'CASSIGQETQYF')
         .then(pl.lit('CASSIGQETQYVF')).otherwise(pl.col('cdr3')).alias('cdr3'))
     query = query.head(1).with_columns(pl.lit(reference['cdr3'][0]).alias('cdr3'))
-    cases = query.select('query_id').join(reference.select(PMHC).unique(), how='cross')
-    full = _graph_weight_cases(reference, query, cases, chain='TRB', suffix='', threads=1, exclude_exact=False)
-    masked = _graph_weight_cases(reference, query, cases, chain='TRB', suffix='', threads=1, exclude_exact=True)
+    weights = _graph_weights(reference, chain='TRB', threads=1)
+    assert weights.height == reference.select(PMHC).n_unique() == 2
+    assert weights.sort('epitope')['source_records'].to_list() == [2, 1]
+    components = score_components(query, reference, context, species='human', locus='TRB')
+    bank = components.with_columns(pl.lit('normalizer').alias('query_id'))
+    full = combine_components(components, bank, reference, query, species='human', locus='TRB', exclude_exact=False)
+    masked = combine_components(components, bank, reference, query, species='human', locus='TRB', exclude_exact=True)
     assert full.sort(PMHC).equals(masked.sort(PMHC))
 
 
@@ -207,3 +221,45 @@ def test_paired_ranking_and_call_axes_are_selected_separately():
     assert result['tied_call_axes'].item() == 'alpha'
     assert result['combined_status'].item() == 'supported'
     assert _with_overall(result)['score'].to_list() == pytest.approx([np.log(2)] * 2)
+
+
+def _all_axis_oracle(frames):
+    """Retained materialized reducer, independent of the streaming implementation."""
+    keys = ['query_id', *PMHC]
+    names = [axis for axis, _ in frames]
+    full = pl.concat([frame.with_columns(pl.lit(axis).alias('axis')) for axis, frame in frames], how='diagonal_relaxed')
+    maxima = full.group_by(keys).agg(pl.col('score').max().alias('_best'), pl.col('call_score').max().alias('_best_call'))
+    tied = full.join(maxima, on=keys, nulls_equal=True, validate='m:1').with_columns(
+        (pl.col('score') == pl.col('_best')).fill_null(False).alias('_tied'),
+        (pl.col('call_score') == pl.col('_best_call')).fill_null(False).alias('_call_tied'))
+    detail = tied.group_by(keys).agg(
+        pl.col('axis').filter(pl.col('_tied')).sort().str.join(',').alias('tied_axes'),
+        pl.col('_tied').sum().alias('tied_axis_count'), pl.col('call_score').max(),
+        pl.col('axis').filter(pl.col('_call_tied')).sort().str.join(',').alias('tied_call_axes'),
+        *[pl.col('score').filter(pl.col('axis') == axis).first().alias('score_' + axis) for axis in names])
+    selected = full.sort([*keys, 'score', 'axis'], descending=[False] * len(keys) + [True, False],
+        nulls_last=True).unique(keys, keep='first', maintain_order=True)
+    return selected.drop('call_score').join(detail, on=keys, nulls_equal=True, validate='1:1').with_columns(
+        pl.when(pl.col('call_score').is_not_null()).then(pl.lit('supported')).otherwise(pl.lit('unsupported')).alias('combined_status'))
+
+
+def test_axis_selection_matches_materialized_oracle_with_ties_missing_and_metadata():
+    from itertools import permutations
+    from polars.testing import assert_frame_equal
+    from vdjmatch.runner.combined import _select_axis_frames
+    base = pl.DataFrame({'query_id': ['all-missing', 'tie', 'prior', 'mixed', 'zero', 'negative'],
+        'epitope': ['A'] * 6, 'mhc_a': [None] * 6, 'mhc_b': ['B2M'] * 6, 'mhc_class': ['MHCI'] * 6})
+    values = {'linked': ([None, 3., 8., None, 0., -2.], [None, 2., None, None, 0., -2.]),
+              'alpha': ([None, 3., 2., 1., None, -1.], [None, 2., 2., 1., None, None]),
+              'beta': ([None, 1., 1., 2., 0., -3.], [None, 1., 1., 2., None, -3.])}
+    frames = [(axis, base.with_columns(pl.Series('score', scores, dtype=pl.Float64),
+        pl.Series('call_score', calls, dtype=pl.Float64), pl.lit(axis).alias('source_metadata'),
+        pl.lit(17).alias('only_' + axis))) for axis, (scores, calls) in values.items()]
+    for order in permutations(frames):
+        # Consume each axis once, with different row order; preserve all metadata.
+        actual = _select_axis_frames((axis, frame.reverse()) for axis, frame in order)
+        expected = _all_axis_oracle(order)
+        assert_frame_equal(actual.sort(['query_id', *PMHC]).select(expected.columns),
+                           expected.sort(['query_id', *PMHC]), check_exact=True)
+    with pytest.raises(RuntimeError, match='case identities'):
+        _select_axis_frames(iter([frames[0], ('alpha', frames[1][1].head(5))]))

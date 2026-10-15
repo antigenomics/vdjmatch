@@ -257,21 +257,79 @@ def score_components(queries, reference, control, *, species, locus, threads=1,
     return metadata(result.join(linked, on=_CASES, how='left', nulls_equal=True, validate='1:1', maintain_order='left'))
 
 
-def _graph_weight_cases(reference, queries, cases, *, chain, suffix, threads, exclude_exact, hamming_edges=None):
+def _graph_weights(reference, *, chain, threads, hamming_edges=None):
+    """One fixed graph summary per pMHC; query expansion belongs to its axis."""
     from ..aggregate.reference_combination import graph_mixture_weights
     from ..aggregate.combination import THREE_WEIGHTS
 
     groups = reference.select(PMHC).unique().sort(PMHC).with_row_index('group_id')
     records = reference.filter(pl.col('gene') == chain).join(groups, on=PMHC, nulls_equal=True, validate='m:1')
-    requested = cases.join(groups, on=PMHC, how='left', nulls_equal=True, validate='m:1', maintain_order='left')
     fields = [*THREE_WEIGHTS, 'weight_status', 'junctions', 'components', 'isolated_junctions',
               'largest_component_fraction', 'component_entropy', 'length_mean', 'length_sd',
               'length_entropy', 'v_genes', 'v_entropy', 'effective_v_genes', 'clonotype_keys', 'source_records']
     if not records.height:
-        return requested.with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in fields]).drop('group_id')
+        return groups.with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in fields]).drop('group_id')
     full, _ = graph_mixture_weights(records.select('group_id', 'cdr3', 'v'), threads=threads, hamming_edges=hamming_edges, include_punctures=False)
-    result = requested.join(full.select('group_id', *fields), on='group_id', how='left', validate='m:1', maintain_order='left')
+    result = groups.join(full.select('group_id', *fields), on='group_id', how='left', validate='1:1', maintain_order='left')
     return result.drop('group_id')
+
+
+def _select_axis_frames(frames):
+    """Fold complete single/paired axes without retaining the stacked wide table."""
+    import numpy as np
+
+    selected = keys = None
+    names, score_columns = [], []
+    for axis, frame in frames:
+        if axis not in {'single', 'linked', 'alpha', 'beta'} or axis in names or len(names) >= 3:
+            raise ValueError('expected distinct single or paired scoring axes')
+        frame = frame.with_columns(pl.lit(axis).alias('axis')).sort(_CASES, nulls_last=True)
+        if keys is None:
+            keys = frame.select(_CASES)
+            best = [np.full(frame.height, np.nan), np.full(frame.height, np.nan)]
+            ties = [np.zeros(frame.height, dtype=np.uint8), np.zeros(frame.height, dtype=np.uint8)]
+            winner = np.zeros(frame.height, dtype=np.uint8)
+        elif not keys.equals(frame.select(_CASES)):
+            raise RuntimeError('axis selection did not preserve complete case identities')
+        values = [frame[c].cast(pl.Float64).to_numpy() for c in ('score', 'call_score')]
+        if any(not frame[c].drop_nulls().is_finite().all() for c in ('score', 'call_score')):
+            raise ValueError('axis scores must be finite or null')
+        index = len(names)
+        if selected is None:
+            selected = frame
+        else:
+            higher = ~np.isnan(values[0]) & (np.isnan(best[0]) | (values[0] > best[0]))
+            equal = (values[0] == best[0]) | (np.isnan(values[0]) & np.isnan(best[0]))
+            earlier = np.array([axis < name for name in names])[winner]
+            take = higher | (equal & earlier)
+            selected = pl.concat([selected.filter(~take), frame.filter(take)],
+                how='diagonal_relaxed').sort(_CASES, nulls_last=True)
+            winner[take] = index
+        bit = np.uint8(1 << index)
+        for channel, value in enumerate(values):
+            higher = ~np.isnan(value) & (np.isnan(best[channel]) | (value > best[channel]))
+            equal = ~np.isnan(value) & (value == best[channel])
+            ties[channel] = np.where(higher, bit, ties[channel] | np.where(equal, bit, np.uint8(0)))
+            best[channel][higher] = value[higher]
+        names.append(axis)
+        score_columns.append(frame['score'].rename('score_' + axis))
+    if selected is None:
+        raise ValueError('axis selection requires at least one complete axis')
+    masks = {name: [(ties[c] & (1 << i)) != 0 for c in (0, 1)] for i, name in enumerate(names)}
+    # Only the selected wide row and scalar per-axis scores survive the fold.
+    detail = keys.with_columns(*[
+        pl.Series('_tie_' + str(c) + '_' + name, masks[name][c])
+        for c in (0, 1) for name in names]).select(
+            pl.concat_str([pl.when(pl.col('_tie_0_' + name)).then(pl.lit(name))
+                for name in sorted(names)], separator=',', ignore_nulls=True).alias('tied_axes'),
+            pl.sum_horizontal([pl.col('_tie_0_' + name).cast(pl.UInt32) for name in names]).alias('tied_axis_count'),
+            pl.Series('call_score', best[1], nan_to_null=True),
+            pl.concat_str([pl.when(pl.col('_tie_1_' + name)).then(pl.lit(name))
+                for name in sorted(names)], separator=',', ignore_nulls=True).alias('tied_call_axes'),
+            *score_columns)
+    return selected.drop('call_score').hstack(detail).with_columns(
+        pl.when(pl.col('call_score').is_not_null()).then(pl.lit('supported'))
+        .otherwise(pl.lit('unsupported')).alias('combined_status'))
 
 
 def combine_components(components, normalizer_components, reference, queries, *, species, locus,
@@ -295,6 +353,9 @@ def combine_components(components, normalizer_components, reference, queries, *,
     Linked/original-factorized and unlinked marginal evidence stay separate until
     the maximum of their complete three-channel sums. Tied axis names survive.
     Final selected-label/axis calibration belongs to the complete caller event.
+    Graph summaries stay at pMHC level until consumed. Axes are reduced one at
+    a time, retaining the selected metadata, every axis score and both tie sets.
+    The detailed query-by-pMHC case budget remains enforced.
 
     ``hamming_edges`` optionally supplies a transient full-population edge table,
     or a TRA/TRB mapping of such tables, to reuse one union graph across models.
@@ -314,72 +375,55 @@ def combine_components(components, normalizer_components, reference, queries, *,
         raise ValueError('observed and normalizer must declare the same Pgen strata')
     species_name = _organism(species)
     reference = _reference_population(reference, species_name)
-    cases = components.select(_CASES)
     if locus == 'paired':
-        alpha = _graph_weight_cases(reference, queries, cases, chain='TRA', suffix='a', threads=threads,
-            exclude_exact=exclude_exact, hamming_edges=hamming_edges.get('TRA') if isinstance(hamming_edges, dict) else hamming_edges)
-        beta = _graph_weight_cases(reference, queries, cases, chain='TRB', suffix='b', threads=threads,
-            exclude_exact=exclude_exact, hamming_edges=hamming_edges.get('TRB') if isinstance(hamming_edges, dict) else hamming_edges)
-        linked = alpha.select(*_CASES, *THREE_WEIGHTS).join(beta.select(*_CASES, *THREE_WEIGHTS),
-            on=_CASES, nulls_equal=True, suffix='_beta', validate='1:1').with_columns(*[
+        alpha = _graph_weights(reference, chain='TRA', threads=threads,
+            hamming_edges=hamming_edges.get('TRA') if isinstance(hamming_edges, dict) else hamming_edges)
+        beta = _graph_weights(reference, chain='TRB', threads=threads,
+            hamming_edges=hamming_edges.get('TRB') if isinstance(hamming_edges, dict) else hamming_edges)
+        linked = alpha.select(*PMHC, *THREE_WEIGHTS).join(beta.select(*PMHC, *THREE_WEIGHTS),
+            on=PMHC, nulls_equal=True, suffix='_beta', validate='1:1').with_columns(*[
                 ((pl.col(c) + pl.col(c + '_beta')) / 2).alias(c) for c in THREE_WEIGHTS]).drop(
                     *[c + '_beta' for c in THREE_WEIGHTS])
         definitions = [('linked', 'original_score', 'gapblock_linked_score', 'stem4_linked_score', 'original_supported', linked),
             ('alpha', 'original_alpha_score', 'gapblock_alpha_score', 'stem4_alpha_score', 'original_supported_alpha', alpha),
             ('beta', 'original_beta_score', 'gapblock_beta_score', 'stem4_beta_score', 'original_supported_beta', beta)]
     else:
-        weights = _graph_weight_cases(reference, queries, cases, chain=locus, suffix='', threads=threads,
-            exclude_exact=exclude_exact, hamming_edges=hamming_edges)
+        weights = _graph_weights(reference, chain=locus, threads=threads,
+            hamming_edges=hamming_edges)
         definitions = [('single', 'original_score', 'gapblock_score', 'stem4_score', 'original_supported', weights)]
-    axes = []
-    columns = ['original_score', 'gapblock_score', 'stem4_score']
-    for axis, original, gapblock, stem4, support, weights in definitions:
-        metadata = [*_CASES, *(['pgen_bin'] if conditioned else [])]
-        raw_columns = [original, gapblock, stem4]
-        observed = components.select(*metadata, *[pl.col(c).alias(name) for c, name in zip(raw_columns, columns)],
-            pl.col(support).fill_null(False).alias('_original_supported')).join(weights,
-                on=_CASES, how='left', nulls_equal=True, validate='1:1', maintain_order='left')
-        null = normalizer_components.select(*metadata, *[pl.col(c).alias(name) for c, name in zip(raw_columns, columns)])
-        eligible = pl.all_horizontal(pl.col(THREE_WEIGHTS).is_not_null())
-        parts = []
-        by = observed.partition_by('pgen_bin', as_dict=True) if conditioned else {(): observed}
-        for bin_key, part in by.items():
-            bank = null.filter(pl.col('pgen_bin').eq_missing(bin_key[0])) if conditioned else null
-            if not bank.height:
-                raise ValueError('normalizer bank is missing a represented Pgen stratum')
-            selected = part.filter(eligible)
-            if selected.height:
-                if conditioned:
-                    selected = selected.with_columns(pl.col('pgen_bin').alias('normalization_stratum'))
-                    bank = bank.with_columns(pl.col('pgen_bin').alias('normalization_stratum'))
-                scored = null_normalized_evidence(selected.with_columns(pl.lit(species_name).alias('species'),
-                    pl.lit(locus).alias('locus')), bank.with_columns(pl.lit(species_name).alias('species'),
-                        pl.lit(locus).alias('locus'), pl.lit('null').alias('outcome'),
-                        pl.lit('independent-normalizer-bank').alias('null_source')), three_channel=True)
-                scored = scored.with_columns(pl.col('_original_supported').alias('original_supported'))
-                scored = scored.with_columns(pl.col('normalized_score').alias('score'),
-                    pl.when(weighted_component_support(scored)).then(
-                        pl.col('normalized_score')).otherwise(None).alias('call_score'))
-                parts.append(scored)
-            unavailable = part.filter(~eligible).with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in ('score', 'call_score')])
-            if unavailable.height:
-                parts.append(unavailable)
-        axis_scores = pl.concat(parts, how='diagonal_relaxed') if parts else observed.with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in ('score', 'call_score')])
-        axes.append(axis_scores.with_columns(pl.lit(axis).alias('axis')).drop('_original_supported'))
-    all_axes = pl.concat(axes, how='diagonal_relaxed')
-    maxima = all_axes.group_by(_CASES).agg(pl.col('score').max().alias('_best'),
-        pl.col('call_score').max().alias('_best_call'))
-    tied = all_axes.join(maxima, on=_CASES, nulls_equal=True, validate='m:1').with_columns(
-        ((pl.col('score') == pl.col('_best')).fill_null(False)).alias('_tied'),
-        ((pl.col('call_score') == pl.col('_best_call')).fill_null(False)).alias('_call_tied'))
-    details = tied.group_by(_CASES).agg(
-        pl.col('axis').filter(pl.col('_tied')).sort().str.join(',').alias('tied_axes'),
-        pl.col('_tied').sum().alias('tied_axis_count'),
-        pl.col('call_score').max(),
-        pl.col('axis').filter(pl.col('_call_tied')).sort().str.join(',').alias('tied_call_axes'),
-        *[pl.col('score').filter(pl.col('axis') == axis).first().alias('score_' + axis)
-          for axis, *_ in definitions])
-    selected = all_axes.sort([*_CASES, 'score', 'axis'], descending=[False] * len(_CASES) + [True, False],
-        nulls_last=True).unique(_CASES, keep='first', maintain_order=True)
-    return selected.drop('call_score').join(details, on=_CASES, nulls_equal=True, validate='1:1').with_columns(
-        pl.when(pl.col('call_score').is_not_null()).then(pl.lit('supported')).otherwise(pl.lit('unsupported')).alias('combined_status'))
+    def axis_frames():
+        columns = ['original_score', 'gapblock_score', 'stem4_score']
+        for axis, original, gapblock, stem4, support, weights in definitions:
+            metadata = [*_CASES, *(['pgen_bin'] if conditioned else [])]
+            raw_columns = [original, gapblock, stem4]
+            observed = components.select(*metadata, *[pl.col(c).alias(name) for c, name in zip(raw_columns, columns)],
+                pl.col(support).fill_null(False).alias('_original_supported')).join(weights,
+                    on=PMHC, how='left', nulls_equal=True, validate='m:1', maintain_order='left')
+            null = normalizer_components.select(*metadata, *[pl.col(c).alias(name) for c, name in zip(raw_columns, columns)])
+            eligible = pl.all_horizontal(pl.col(THREE_WEIGHTS).is_not_null())
+            parts = []
+            by = observed.partition_by('pgen_bin', as_dict=True) if conditioned else {(): observed}
+            for bin_key, part in by.items():
+                bank = null.filter(pl.col('pgen_bin').eq_missing(bin_key[0])) if conditioned else null
+                if not bank.height:
+                    raise ValueError('normalizer bank is missing a represented Pgen stratum')
+                selected = part.filter(eligible)
+                if selected.height:
+                    if conditioned:
+                        selected = selected.with_columns(pl.col('pgen_bin').alias('normalization_stratum'))
+                        bank = bank.with_columns(pl.col('pgen_bin').alias('normalization_stratum'))
+                    scored = null_normalized_evidence(selected.with_columns(pl.lit(species_name).alias('species'),
+                        pl.lit(locus).alias('locus')), bank.with_columns(pl.lit(species_name).alias('species'),
+                            pl.lit(locus).alias('locus'), pl.lit('null').alias('outcome'),
+                            pl.lit('independent-normalizer-bank').alias('null_source')), three_channel=True)
+                    scored = scored.with_columns(pl.col('_original_supported').alias('original_supported'))
+                    scored = scored.with_columns(pl.col('normalized_score').alias('score'),
+                        pl.when(weighted_component_support(scored)).then(
+                            pl.col('normalized_score')).otherwise(None).alias('call_score'))
+                    parts.append(scored)
+                unavailable = part.filter(~eligible).with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in ('score', 'call_score')])
+                if unavailable.height:
+                    parts.append(unavailable)
+            axis_scores = pl.concat(parts, how='diagonal_relaxed') if parts else observed.with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in ('score', 'call_score')])
+            yield axis, axis_scores.drop('_original_supported')
+    return _select_axis_frames(axis_frames())
