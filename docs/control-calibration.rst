@@ -55,6 +55,10 @@ model assets. It remains opt-in pending whole-task nonregression checks; the
 no-control stem4 default and older real/generative control routes are unchanged.
 Nondefault geometry and target-from-sample selection are rejected before mocks.
 
+The current complete-score adapter permits at most five million receptor--target
+combinations, including the internal normalization and query-null banks. Larger
+requests fail before scoring. Whole-cohort calibration scaling remains pending.
+
 The event being tested
 ----------------------
 
