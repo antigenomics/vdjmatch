@@ -77,7 +77,7 @@ With default `--background vdjdb-other`, this explicitly opts into the combined
 score. No fitted JSON input/output is required. Outputs are `.queries.tsv`
 (every raw chain row with calibration identity/status), `.database.tsv`
 (selected-label/axis tails), `.epitopes.tsv` (fixed full-pMHC tails and score
-components), and `.calibration.tsv` (population, seed/model/native provenance).
+components; continuous `score` versus support-gated `call_score`), and `.calibration.tsv` (population, seed/model/native provenance).
 Use `--mock-replicates` (default199) and `--seed` (default0) explicitly when pinning
 reproduction. Reference species/locus/evidence/score/pMHC filtering precedes mocks.
 Custom labelled references use long `junction_aa,locus,epitope` rows with `pair_id`,
@@ -175,6 +175,10 @@ exported. Keep graph-node, clonotype-key and source-record units separate;
 entropies are in nats and lengths include anchors. Empty reference structure is
 unavailable. One native population batch feeds all target graphs, without a
 per-query/target native pool or persisted feature cache.
+The `.genes.tsv` export gives V/J gene usage overall and at each exact junction
+length, with explicit record and junction/gene-key denominators. Alleles are
+pooled; unresolved genes remain a counted null category. Usage is composition,
+not background enrichment or proof of germline contacts.
 These features do not fit fusion weights or calibrate recognition. Any harmonized
 score sum still needs matched component identities and final-selection calibration.
 
@@ -184,7 +188,9 @@ null-tail scales and sums their explicit `original_weight`, `gapblock_weight`,
 `stem4_weight` contributions. Weights are nonnegative and sum to one; retain
 them in output and derive them from the declared reference morphology, never
 assay labels or epitope lookup. Missing components contribute zero without weight
-redistribution; entirely unsupported weighted evidence stays unavailable. The
+redistribution. `combined_score` retains continuous ranking evidence;
+`combined_call_score` and `combined_status` separately describe weighted hit
+support. Finite prior evidence does not by itself authorize a call. The
 low-level command consumes explicit weights; `annotate --control` derives them
 from the reference and recomputes them for mock references. Input
 scorer/reference/exclusion/null identities must match. Component tails are not

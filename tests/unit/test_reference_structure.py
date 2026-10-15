@@ -91,7 +91,10 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     assert full['hamming_isolated_fraction'].to_list()==[0.,0.]
     manifest=json.loads((tmp_path/'profile.manifest.json').read_text())
     assert manifest['native_batches']==1
-    assert set(manifest['tables'])=={'profile.structures.tsv','profile.degrees.tsv','profile.lengths.tsv'}
+    genes=pl.read_csv(str(prefix)+'.genes.tsv',separator='\t')
+    assert set(genes['segment'])=={'V','J'}
+    assert genes.filter((pl.col('segment')=='J') & (pl.col('length_scope')=='all_lengths'))['reference_records'].sum()==4
+    assert set(manifest['tables'])=={'profile.structures.tsv','profile.degrees.tsv','profile.lengths.tsv','profile.genes.tsv'}
     assert all(len(manifest[key])==64 for key in ('native_sha256','v_model_sha256','loader_sha256','search_source_sha256'))
     targets=tmp_path/'targets.tsv'
     pl.DataFrame({'query_id':[0,1],'epitope':['A','B'],'species':['human']*2,
@@ -178,3 +181,26 @@ def test_length_coverage_keeps_short_unknown_v_and_duplicate_records(tmp_path, m
     full = pl.read_csv(str(prefix) + '.structures.tsv', separator='\t')
     assert lengths['junctions'].sum() == full['hamming_junctions'].item()
     assert lengths['graph_edges'].sum() == full['hamming_graph_edges'].item()
+
+
+def test_reference_gene_usage_preserves_records_keys_lengths_and_unresolved_calls():
+    import polars as pl
+    from vdjmatch.aggregate.structure import reference_gene_usage
+    records = pl.DataFrame({'cdr3': ['CAAF', 'CAAF', 'CCAF', 'CAAFF', 'CCAF'],
+        'v': ['TRBV1*01', 'TRBV1*02', 'TRBV2', None, 'TRBV1,TRBV2'],
+        'j': ['TRBJ1-1', 'TRBJ1-1', 'TRBJ2-1', 'TRBJ2-1', None]})
+    result = reference_gene_usage(records, locus='TRB')
+    full = result.filter(pl.col('length_scope') == 'all_lengths')
+    for segment in ('V', 'J'):
+        part = full.filter(pl.col('segment') == segment)
+        assert part['reference_records'].sum() == 5
+        assert part['record_fraction'].sum() == pytest.approx(1.)
+        assert part['key_fraction'].sum() == pytest.approx(1.)
+    v = full.filter((pl.col('segment') == 'V') & (pl.col('gene') == 'TRBV1'))
+    assert v['reference_records'].item() == 2 and v['junction_gene_keys'].item() == 1
+    unknown = full.filter((pl.col('segment') == 'V') & pl.col('gene').is_null())
+    assert unknown['reference_records'].item() == unknown['junction_gene_keys'].item() == 2
+    lengths = result.filter(pl.col('length_scope') == 'exact_length')
+    assert lengths.filter(pl.col('segment') == 'V')['reference_records'].sum() == 5
+    assert set(lengths['junction_length']) == {4, 5}
+    assert reference_gene_usage(records.head(0), locus='TRB').is_empty()

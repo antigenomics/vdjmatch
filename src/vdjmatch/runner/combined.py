@@ -284,7 +284,8 @@ def combine_components(components, normalizer_components, reference, queries, *,
     Component tails use ties and all bank no-hits; they are not final P-values.
     An available original zero-density score remains in component output, but
     cannot alone turn a no-support case into a call. Missing components add zero
-    without redistributing weights; entirely unsupported weighted axes are null.
+    without redistributing weights. Continuous scores retain finite prior evidence;
+    call_score masks unsupported axes and has its own maximum and tied_call_axes.
 
     Paired alpha/beta axes use full same-target marginal models. Linked-axis
     composition weights are the equal mean of those two marginal weight vectors;
@@ -356,24 +357,29 @@ def combine_components(components, normalizer_components, reference, queries, *,
                         pl.lit(locus).alias('locus'), pl.lit('null').alias('outcome'),
                         pl.lit('independent-normalizer-bank').alias('null_source')), three_channel=True)
                 scored = scored.with_columns(pl.col('_original_supported').alias('original_supported'))
-                scored = scored.with_columns(pl.when(weighted_component_support(scored)).then(
-                    pl.col('normalized_score')).otherwise(None).alias('score'))
+                scored = scored.with_columns(pl.col('normalized_score').alias('score'),
+                    pl.when(weighted_component_support(scored)).then(
+                        pl.col('normalized_score')).otherwise(None).alias('call_score'))
                 parts.append(scored)
-            unavailable = part.filter(~eligible).with_columns(pl.lit(None, dtype=pl.Float64).alias('score'))
+            unavailable = part.filter(~eligible).with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in ('score', 'call_score')])
             if unavailable.height:
                 parts.append(unavailable)
-        axis_scores = pl.concat(parts, how='diagonal_relaxed') if parts else observed.with_columns(pl.lit(None, dtype=pl.Float64).alias('score'))
+        axis_scores = pl.concat(parts, how='diagonal_relaxed') if parts else observed.with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in ('score', 'call_score')])
         axes.append(axis_scores.with_columns(pl.lit(axis).alias('axis')).drop('_original_supported'))
     all_axes = pl.concat(axes, how='diagonal_relaxed')
-    maxima = all_axes.group_by(_CASES).agg(pl.col('score').max().alias('_best'))
+    maxima = all_axes.group_by(_CASES).agg(pl.col('score').max().alias('_best'),
+        pl.col('call_score').max().alias('_best_call'))
     tied = all_axes.join(maxima, on=_CASES, nulls_equal=True, validate='m:1').with_columns(
-        ((pl.col('score') == pl.col('_best')).fill_null(False)).alias('_tied'))
+        ((pl.col('score') == pl.col('_best')).fill_null(False)).alias('_tied'),
+        ((pl.col('call_score') == pl.col('_best_call')).fill_null(False)).alias('_call_tied'))
     details = tied.group_by(_CASES).agg(
         pl.col('axis').filter(pl.col('_tied')).sort().str.join(',').alias('tied_axes'),
         pl.col('_tied').sum().alias('tied_axis_count'),
+        pl.col('call_score').max(),
+        pl.col('axis').filter(pl.col('_call_tied')).sort().str.join(',').alias('tied_call_axes'),
         *[pl.col('score').filter(pl.col('axis') == axis).first().alias('score_' + axis)
           for axis, *_ in definitions])
     selected = all_axes.sort([*_CASES, 'score', 'axis'], descending=[False] * len(_CASES) + [True, False],
         nulls_last=True).unique(_CASES, keep='first', maintain_order=True)
-    return selected.join(details, on=_CASES, nulls_equal=True, validate='1:1').with_columns(
-        pl.when(pl.col('score').is_not_null()).then(pl.lit('supported')).otherwise(pl.lit('unsupported')).alias('combined_status'))
+    return selected.drop('call_score').join(details, on=_CASES, nulls_equal=True, validate='1:1').with_columns(
+        pl.when(pl.col('call_score').is_not_null()).then(pl.lit('supported')).otherwise(pl.lit('unsupported')).alias('combined_status'))

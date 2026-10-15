@@ -124,7 +124,7 @@ def test_shipping_sum_retains_raw_score_and_applies_declared_support(tmp_path):
     from vdjmatch.cli.__main__ import main
     context = dict(species='human', locus='TRB', epitope='E', mhc_a='A', mhc_b='B', mhc_class='MHCI')
     observed = pl.DataFrame([dict(query_id='q', original_score=3.0, original_supported=False,
-        gapblock_score=None, stem4_score=None, original_weight=1.0, gapblock_weight=0.0,
+        gapblock_score=0.5, stem4_score=None, original_weight=1.0, gapblock_weight=0.0,
         stem4_weight=0.0, **context)])
     null = pl.DataFrame([dict(query_id=str(i), original_score=float(i), gapblock_score=None,
         stem4_score=None, outcome='null', null_source='bank', **context) for i in range(2)])
@@ -134,7 +134,8 @@ def test_shipping_sum_retains_raw_score_and_applies_declared_support(tmp_path):
     assert main(command) == 0
     result = pl.read_csv(output, separator='\t')
     assert result['normalized_score'].item() == pytest.approx(np.log(3))
-    assert result['combined_score'].item() is None
+    assert result['combined_score'].item() == pytest.approx(np.log(3))
+    assert result['combined_call_score'].item() is None
     assert result['combined_status'].item() == 'unsupported'
     observed.drop('original_supported').write_csv(source, separator='\t')
     assert main(command) == 0

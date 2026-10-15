@@ -98,7 +98,8 @@ def test_hand_enumerated_complete_score_tails_repeat_label_selection(monkeypatch
             else:
                 value = None
             values.append(value)
-        return scored.with_columns(pl.Series('score', values, dtype=pl.Float64))
+        return scored.with_columns(pl.Series('score', values, dtype=pl.Float64),
+            pl.Series('call_score', values, dtype=pl.Float64))
     monkeypatch.setattr(runner, 'combine_components', combine)
     _, tails = module.calibrate_combined(query, reference, raw_control, species='human', locus='TRB',
         replicates=3, model_context={'density_index': None, 'prior_background': None})

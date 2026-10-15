@@ -91,8 +91,10 @@ def test_actual_component_bank_combines_in_memory_with_graph_weights_and_nohit()
     normalizer = score_components(bank, reference, context, species='human', locus='TRB', exclude_exact=True)
     combined = combine_components(components, normalizer, reference, query, species='human', locus='TRB', exclude_exact=True)
     assert combined.height == 6
-    assert combined.filter(pl.col('query_id') == 'q')['score'].is_finite().all()
-    assert combined.filter(pl.col('query_id') != 'q')['score'].null_count() == 4
+    assert combined.filter(pl.col('query_id') == 'q')['score'].drop_nulls().len() == 2
+    assert combined.filter(pl.col('query_id') == 'far')['score'].drop_nulls().len() == 2
+    assert combined.filter(pl.col('query_id') == 'missing')['score'].null_count() == 2
+    assert combined.filter(pl.col('query_id') != 'q')['call_score'].null_count() == 4
     assert combined.filter(pl.col('query_id') == 'q')['axis'].to_list() == ['single', 'single']
     assert np.allclose(combined.select(pl.sum_horizontal('original_weight', 'gapblock_weight', 'stem4_weight')).to_series(), 1)
     with pytest.raises(ValueError, match='Pgen stratum'):
@@ -141,8 +143,9 @@ def test_actual_paired_complete_calibration_retains_linked_roles_and_nohits(monk
     detail, tails = calibration.calibrate_combined(query, reference, control,
         species='human', locus='paired', replicates=2, seed=17, threads=1)
     assert detail.height == 4
-    assert detail.filter(pl.col('query_id') == 'pair')['score'].is_finite().all()
-    assert detail.filter(pl.col('query_id') == 'far')['score'].null_count() == 2
+    assert detail.filter(pl.col('query_id') == 'pair')['score'].drop_nulls().len() == 2
+    assert detail.filter(pl.col('query_id') == 'far')['score'].drop_nulls().len() == 2
+    assert detail.filter(pl.col('query_id') == 'far')['call_score'].null_count() == 2
     assert tails.height == 6
     assert tails.filter(pl.col('query_id') == 'far')['p_both'].to_list() == [1.0] * 3
     assert tails['reference_draws'].to_list() == [2] * 6
@@ -177,3 +180,30 @@ def test_benchmark_graph_weights_use_full_query_independent_reference():
     full = _graph_weight_cases(reference, query, cases, chain='TRB', suffix='', threads=1, exclude_exact=False)
     masked = _graph_weight_cases(reference, query, cases, chain='TRB', suffix='', threads=1, exclude_exact=True)
     assert full.sort(PMHC).equals(masked.sort(PMHC))
+
+
+def test_paired_ranking_and_call_axes_are_selected_separately():
+    from vdjmatch.runner.combined import combine_components
+    from vdjmatch.evalue.combined import _with_overall
+    query = pl.DataFrame({'query_id': ['q'], 'cdr3a': ['CAAF'], 'cdr3b': ['CCCF'],
+        'va': ['TRAV1-2'], 'vb': ['TRBV1'], 'ja': ['TRAJ33'], 'jb': ['TRBJ1-1']})
+    reference = pl.DataFrame({'cdr3': ['CAAF', 'CCCF'], 'v': ['TRAV1-2', 'TRBV1'],
+        'gene': ['TRA', 'TRB'], 'species': ['HomoSapiens'] * 2,
+        'epitope': ['E'] * 2, 'mhc_a': ['A'] * 2, 'mhc_b': ['B'] * 2, 'mhc_class': ['MHCI'] * 2})
+    context = dict(group_id=0, epitope='E', mhc_a='A', mhc_b='B', mhc_class='MHCI')
+    scores = dict(original_score=3., original_alpha_score=2., original_beta_score=1.,
+        original_supported=False, original_supported_alpha=True, original_supported_beta=True)
+    for axis in ('linked', 'alpha', 'beta'):
+        for kernel in ('gapblock', 'stem4'):
+            scores[f'{kernel}_{axis}_score'] = None
+    observed = pl.DataFrame([dict(query_id='q', **context, **scores)])
+    bank = pl.DataFrame([dict(query_id=f'n{i}', **context, **(scores | dict(
+        original_score=float(i), original_alpha_score=float(i), original_beta_score=float(i))))
+        for i in range(3)])
+    result = combine_components(observed, bank, reference, query, species='human', locus='paired')
+    assert result['score'].item() == pytest.approx(np.log(4))
+    assert result['axis'].item() == result['tied_axes'].item() == 'linked'
+    assert result['call_score'].item() == pytest.approx(np.log(2))
+    assert result['tied_call_axes'].item() == 'alpha'
+    assert result['combined_status'].item() == 'supported'
+    assert _with_overall(result)['score'].to_list() == pytest.approx([np.log(2)] * 2)

@@ -67,14 +67,16 @@ def _main(a):
                                        structure_conditioned=structure_conditioned,three_channel=three_channel)
         output=Path(a.output);output.parent.mkdir(parents=True,exist_ok=True)
         supported = weighted_component_support(scored) if three_channel else pl.col('normalized_score').is_not_null()
-        exported = scored.with_columns(pl.when(supported).then(pl.col('normalized_score')).otherwise(None).alias('combined_score'))
-        exported = exported.with_columns(pl.when(pl.col('combined_score').is_not_null()).then(pl.lit('scored'))
+        exported = scored.with_columns(pl.col('normalized_score').alias('combined_score'),
+            pl.when(supported).then(pl.col('normalized_score')).otherwise(None).alias('combined_call_score'))
+        exported = exported.with_columns(pl.when(pl.col('combined_call_score').is_not_null()).then(pl.lit('scored'))
             .otherwise(pl.lit('unsupported')).alias('combined_status'))
         exported.write_csv(output, separator='\t')
         Path(str(output)+'.manifest.json').write_text(json.dumps({
             'evidence_sha256':evidence_hash,'null_evidence_sha256':sha256(Path(null_evidence)),
-            'rows':frame.height,'unsupported_rows':exported['combined_score'].null_count(),
-            'support_policy':'original_supported plus positive weighted kernels; raw normalized_score retained' if three_channel and 'original_supported' in frame.columns else 'legacy component availability',
+            'rows':frame.height,'unsupported_rows':exported['combined_call_score'].null_count(),
+            'unavailable_ranking_rows':exported['combined_score'].null_count(),
+            'support_policy':'call score requires original_supported or positive weighted kernels; continuous combined_score is never support-masked' if three_channel and 'original_supported' in frame.columns else 'legacy component availability',
             'formula':'sum(w_k * -log(p_k)); missing components contribute zero without weight redistribution' if three_channel else 'max(-log(p_L),-log(p_R)+log(s)); missing L uses -log(p_R)' if structure_conditioned else '-log(min(p_component_likelihood,p_component_rank))',
             'three_channel':three_channel,
             'components':list(THREE_COMPONENTS) if three_channel else ['likelihood_score','conditional_rank_score'],

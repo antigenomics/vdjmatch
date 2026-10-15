@@ -1347,6 +1347,12 @@ The output retains inputs and weights, adds ``p_component_original``,
 stronger evidence. A missing component has tail one and contributes zero;
 its weight is retained. If every positively weighted component is missing,
 ``combined_status`` is ``unsupported`` and the score is unavailable.
+When ``original_supported`` is declared, a finite zero-density prior still
+contributes to continuous ``combined_score``. The separate
+``combined_call_score`` requires supported original evidence or a positive
+kernel with positive weight; ``combined_status`` describes this call support.
+Use ``combined_score`` for continuous ranking diagnostics, retaining all rows.
+A finite rank does not authorize a recognition call.
 
 This command applies explicit weights; automatic weights from graph, length and
 V usage remain under investigation. It fits no coefficients and does not read
@@ -1485,7 +1491,8 @@ Inspect the reference composition that can guide chainwise scoring weights:
 
 The command writes ``structure.structures.tsv`` with one row per full peptide–MHC
 population, ``structure.degrees.tsv`` with its degree histogram, and
-``structure.lengths.tsv`` with coverage at each exact junction length.
+``structure.lengths.tsv`` with coverage at each exact junction length, and
+``structure.genes.tsv`` with V/J usage overall and by exact length.
 ``--targets-from-sample AIRR_TABLE`` uses the compatible restriction unions declared
 by that table. ``--reference-population`` selects ``curated-benchmark`` (default)
 or ``all-valid``.
@@ -1522,6 +1529,17 @@ and invalid/unavailable counts describe the whole pMHC population, not the lengt
 stratum. An empty population has one row with null length, zero counts and null
 degree/fraction. Hamming edges never connect unequal lengths. Thus a rare length
 can have neighbours, and a missing neighbourhood does not establish nonrecognition.
+
+``structure.genes.tsv`` counts V and J separately among all valid reference
+records, including short junctions and unresolved genes. Alleles are pooled;
+ambiguous, missing or wrong-locus calls remain the null gene category with
+``gene_status=unresolved``. ``length_scope`` distinguishes ``all_lengths`` from
+``exact_length``; a null length denotes only the full population.
+``record_fraction`` divides ``reference_records`` by ``total_reference_records``.
+``key_fraction`` divides distinct ``junction_gene_keys`` by
+``total_junction_gene_keys`` within each segment and length scope, including the
+unresolved category. Counts are not read abundance. These compositions are not
+background-adjusted germline enrichment or evidence of direct structural contacts.
 
 These are reference morphology features. The command fits no weights, makes no
 recognition claim and supplies no P-value. Its manifest records population policy,

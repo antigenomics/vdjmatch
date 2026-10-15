@@ -40,7 +40,13 @@ Outputs are four flat TSVs: ``.queries.tsv`` preserves every raw chain row and
 calibration identity/status; ``.database.tsv`` tests the maximum across labels
 and available axes; ``.epitopes.tsv`` reports fixed full-pMHC tails and score
 components; ``.calibration.tsv`` records filters, populations, model/native hashes
-and seeds. Original query identifiers remain intact; generated calibration
+and seeds. In epitope output, ``score`` is the continuous maximum across axes;
+``call_score`` is the separately maximized support-gated statistic calibrated
+by the reported tails. ``axis``/``tied_axes`` describe the continuous maximum,
+while ``tied_call_axes`` describes the call maximum. These can differ. Database
+``score`` remains the maximum call statistic across labels. Unsupported cases
+retain their continuous evidence but have unavailable call scores and P=1.
+Original query identifiers remain intact; generated calibration
 identifiers are unique across input files and populations. No JSON input or
 output is required by this route.
 

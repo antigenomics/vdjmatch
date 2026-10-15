@@ -274,7 +274,8 @@ def main(a):
     else:
         database = base.with_columns(pl.lit(None, dtype=pl.Float64).alias('score'),
             *[pl.lit(None, dtype=pl.Float64).alias(c) for c in ('p_reference', 'p_query', 'p_both')])
-        epitopes = pl.DataFrame(schema={**{c: pl.String for c in ['calibration_query_id', 'species', 'locus', *PMHC]}, 'score': pl.Float64})
+        epitopes = pl.DataFrame(schema={**{c: pl.String for c in ['calibration_query_id', 'species', 'locus', *PMHC]},
+            'score': pl.Float64, 'call_score': pl.Float64})
     database = database.with_columns(pl.when(pl.col('calibration_status') == 'ready').then(
         pl.when(pl.col('score').is_not_null()).then(pl.lit('scored')).otherwise(pl.lit('no_support')))
         .otherwise(pl.col('calibration_status')).alias('calibration_status'))

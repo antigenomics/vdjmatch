@@ -149,3 +149,37 @@ def composition(records, junctions, *, include_punctures=True):
             excluded_reference_records=records_per_seq[removed] if removed is not None else 0,
             excluded_clonotype_keys=k)
     return row(), [row(sequence) for sequence in seqs] if include_punctures else []
+
+
+def reference_gene_usage(records, *, locus):
+    """Count fixed-reference V/J usage overall and within each junction length.
+
+    Alleles are pooled into unambiguous genes; unresolved calls remain a null
+    category. Record fractions use all supplied records. Key fractions use
+    distinct full-junction/gene keys within the segment and length scope,
+    including unresolved keys. These are composition, not background enrichment.
+    """
+    import polars as pl
+
+    if locus not in {'TRA', 'TRB'} or not {'cdr3', 'v', 'j'}.issubset(records.columns):
+        raise ValueError('gene usage requires TRA/TRB and cdr3/v/j reference columns')
+    if records['cdr3'].null_count() or not records['cdr3'].str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').all():
+        raise ValueError('gene usage requires valid full amino-acid junctions')
+    parts = []
+    for segment in ('V', 'J'):
+        gene = pl.col(segment.lower()).cast(pl.String).str.strip_chars().str.to_uppercase()
+        resolved = gene.str.contains('^' + locus + segment + r'[A-Z0-9/.-]+(?:\*[A-Z0-9]+)?$').fill_null(False)
+        frame = records.select('cdr3', pl.col('cdr3').str.len_chars().alias('junction_length'),
+            pl.when(resolved).then(gene.str.split('*').list.first()).otherwise(None).alias('gene'))
+        for scope in ('all_lengths', 'exact_length'):
+            selected = frame.with_columns(pl.lit(None, dtype=pl.UInt32).alias('junction_length')) if scope == 'all_lengths' else frame
+            counts = selected.group_by('junction_length', 'gene').agg(
+                pl.len().alias('reference_records'), pl.col('cdr3').n_unique().alias('junction_gene_keys'))
+            parts.append(counts.with_columns(pl.lit(segment).alias('segment'),
+                pl.lit(scope).alias('length_scope'),
+                pl.when(pl.col('gene').is_not_null()).then(pl.lit('resolved')).otherwise(pl.lit('unresolved')).alias('gene_status'),
+                pl.col('reference_records').sum().over('junction_length').alias('total_reference_records'),
+                pl.col('junction_gene_keys').sum().over('junction_length').alias('total_junction_gene_keys')).with_columns(
+                    (pl.col('reference_records') / pl.col('total_reference_records')).alias('record_fraction'),
+                    (pl.col('junction_gene_keys') / pl.col('total_junction_gene_keys')).alias('key_fraction')))
+    return pl.concat(parts).sort('segment', 'length_scope', 'junction_length', 'gene', nulls_last=True)

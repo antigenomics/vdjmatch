@@ -71,6 +71,9 @@ def _overall(scores):
 
 
 def _with_overall(scores):
+    # Directional tails and match rates use the complete support-gated event.
+    # The unmasked continuous score is retained separately in observed_detail.
+    scores = scores.select(*_KEYS, pl.col('call_score').alias('score'))
     return pl.concat([scores.select(*_KEYS, 'score').with_columns(pl.lit('epitope').alias('test_scope')),
         _overall(scores).select(*_KEYS, 'score').with_columns(pl.lit('database').alias('test_scope'))])
 

@@ -1,4 +1,4 @@
-"""Reference-only graph, junction-length and V-usage composition."""
+"""Reference-only graph, junction-length and V/J-usage composition."""
 from pathlib import Path
 
 
@@ -24,7 +24,7 @@ def main(a):
     import seqtree._core as native_core
     from .. import db
     from ..aggregate.candidates import PMHC
-    from ..aggregate.structure import composition, graph_profiles
+    from ..aggregate.structure import composition, graph_profiles, reference_gene_usage
     from ..cluster import overlap
     from ..db.cache import sha256
     from ..evalue.control import _organism
@@ -105,7 +105,7 @@ def main(a):
         degree_edges = {key[0]: part.select('a', 'b') for key, part in joined.group_by('_group')}
     degree_nodes = {key[0]: part.sort('_local') for key, part in
                     degree_membership.group_by('_group')} if degree_membership is not None else {}
-    summaries, degree_rows, length_tables = [], [], []
+    summaries, degree_rows, length_tables, gene_tables = [], [], [], []
     for group_id, (task, source) in enumerate(groups):
         retained = source.filter(available)
         junctions = memberships[group_id]
@@ -114,6 +114,9 @@ def main(a):
         v_full, _ = composition(retained,junctions,include_punctures=False)
         context = dict(_mixture_group=group_id,species=species,locus=a.locus,**task,source_observations=source.height,
                        unavailable_records=source.height-retained.height)
+        gene_context = {k: v for k, v in context.items() if k != '_mixture_group'}
+        gene_tables.append(reference_gene_usage(source.filter(mixture_available), locus=a.locus).with_columns(
+            *[pl.lit(value).alias(key) for key, value in gene_context.items()]))
         n = selected_nodes[group_id].unique().height
         endpoints = degree_edges[group_id].to_numpy().ravel() if group_id in degree_edges else np.array([], dtype=np.int64)
         degrees = np.bincount(endpoints, minlength=n)
@@ -163,6 +166,7 @@ def main(a):
     summary_path = Path(str(prefix)+'.structures.tsv')
     degree_path = Path(str(prefix)+'.degrees.tsv')
     length_path = Path(str(prefix)+'.lengths.tsv')
+    gene_path = Path(str(prefix)+'.genes.tsv')
     if not summaries:
         raise ValueError('no declared reference targets')
     summary = pl.DataFrame(summaries, infer_schema_length=None).with_columns(pl.col('_mixture_group').cast(pl.UInt32))
@@ -177,6 +181,7 @@ def main(a):
             for c in ('original_weight', 'gapblock_weight', 'stem4_weight')],
             pl.lit('empty_reference').alias('mixture_weight_status'))
     summary.drop('_mixture_group').write_csv(summary_path, separator='\t')
+    pl.concat(gene_tables, how='vertical_relaxed').write_csv(gene_path, separator='\t')
     pl.DataFrame(degree_rows, schema_overrides={'degree': pl.Int64, 'junction_count': pl.Int64},
         infer_schema_length=None).write_csv(degree_path, separator='\t')
     pl.concat(length_tables, how='vertical_relaxed').sort('species', 'locus', *PMHC, 'junction_length').write_csv(
@@ -200,9 +205,10 @@ def main(a):
         degree_population='all valid full junctions, including unresolved V; fixed full reference',
         degree_quantiles='linear interpolation of the unique-junction degree distribution',
         length_coverage='exact junction length; all valid reference records and unique junctions; modeled records counted separately; no cross-length Hamming edges',
+        gene_usage='all valid reference rows; V/J alleles pooled; unresolved calls retained; full and exact-length strata; record and junction/gene-key denominators explicit',
         entropy_units='natural logarithms', length_units='amino-acid residues, conserved anchors included',
         exclusion='none: model composition and weights use the fixed full reference; benchmark exclusion applies only to hit lists',
         interpretation='reference-only morphology and fixed graph-mixture heuristic; no label fit, recognition probability or P/E-value',
         source_sha256=sha256(Path(__file__)), reducer_sha256=sha256(Path(graph_profiles.__code__.co_filename)),
-        tables={str(p.name):sha256(p) for p in (summary_path,degree_path,length_path)}, seconds=time.monotonic()-start),indent=2)+'\n')
+        tables={str(p.name):sha256(p) for p in (summary_path,degree_path,length_path,gene_path)}, seconds=time.monotonic()-start),indent=2)+'\n')
     return 0
