@@ -24,7 +24,7 @@ def kernel_ladder(reference_counts, same_v_counts, control_counts, reference_siz
     """Recorded V-weighted bounded score plus five advanced ladder alternatives.
 
     Each curve counts all eligible references through each ordered cutoff. Exact
-    exclusions must also puncture population sizes. Scores are relative evidence,
+    exclusions mask hits without changing reference/control model sizes. Scores are relative evidence,
     not probabilities, E-values or calibrated specificity confidence.
     """
     if scorer not in KERNEL_SCORERS:
@@ -143,7 +143,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     normalise=geometry_preset in ('norm','jnorm')
     same_v_totals=None
     if normalise:
-        # Recorded diagnostic: N is punctured, but same-V mass is pre-puncture.
+        # Same-V mass and all population denominators belong to the fixed model.
         gene_columns=['_allelea','_alleleb'] if paired else ['_allele']
         reference_genes=['_allele_alpha','_allele_beta'] if paired else ['_allele']
         gene_names=['_gene'+str(i) for i in range(len(gene_columns))]

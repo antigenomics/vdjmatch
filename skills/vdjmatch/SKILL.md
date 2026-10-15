@@ -151,17 +151,24 @@ render. Execute from a clean kernel, then commit only reviewed aggregate figures
 complete logs and identifier mappings stay private. Documentation builds never
 execute the notebooks.
 
+## Hard rule: benchmark exact exclusion
+
+Exclude exact junctions only from search hits. Never remove a query from model
+populations, V/J/length priors, motifs, graph structure, weights or fitted parameters.
+Build each real/mock reference model once. Historical punctured diagnostic exports
+are not benchmark scoring inputs and must not define an “honest” scorer pool.
+
 ## Reference morphology for structure-guided score investigation
 
 `reference-structure --vdjdb REFERENCE --species human --locus TRA|TRB --threads 4
 --output-prefix OUT` exports full-pMHC Hamming-one graph, junction-length and V-usage
 features. `--targets-from-sample RAW_AIRR` uses declared compatible pMHC unions.
-Each vertex is a unique full junction. The puncture table removes that complete
-junction, including all associated V keys/records, and computes articulation
-fragments exactly. Keep the graph-node, clonotype-key and source-record units
-separate; entropies are in nats and lengths include anchors. Empty structure is
-unavailable, not negative recognition evidence. One native population batch feeds
-all target graphs; no per-query/target native pool or persisted feature cache.
+Each vertex is a unique full junction. The command exports the complete fixed
+reference graph and degree histogram; no query-specific graph is rebuilt or
+exported. Keep graph-node, clonotype-key and source-record units separate;
+entropies are in nats and lengths include anchors. Empty reference structure is
+unavailable. One native population batch feeds all target graphs, without a
+per-query/target native pool or persisted feature cache.
 These features do not fit fusion weights or calibrate recognition. Any harmonized
 score sum still needs matched component identities and final-selection calibration.
 

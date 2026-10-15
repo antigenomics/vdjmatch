@@ -55,6 +55,10 @@ model assets. It remains opt-in pending whole-task nonregression checks; the
 no-control stem4 default and older real/generative control routes are unchanged.
 Nondefault geometry and target-from-sample selection are rejected before mocks.
 
+Benchmark ``--exclude-exact`` filters exact hits only. Reference/control population
+counts, priors, motifs, graph structure and weights remain fixed for every query.
+Each mock reference has its own model, built once rather than refitted per query.
+
 The current complete-score adapter permits at most five million receptor--target
 combinations, including the internal normalization and query-null banks. Larger
 requests fail before scoring. Whole-cohort calibration scaling remains pending.
@@ -66,7 +70,7 @@ Let :math:`q` be a query clonotype and :math:`R_i` the reference for one complet
 peptide--MHC target. Let :math:`R_0` be the whole selected reference. Species
 and loci define separate populations. Write :math:`T_A(q,R_i)` for the final
 higher-is-better statistic under procedure :math:`A`. This procedure includes
-scope, distance geometry, V/J restrictions, exact-match policy, score formula,
+scope, distance geometry, V/J restrictions, exact-hit policy, score formula,
 weights, reference filtering and any target or paired-axis selection.
 For nearest distance, :math:`T_A=-d_{\min}`; for count, it is the number of
 distinct matching junctions within the declared scope. A no-hit is weaker than

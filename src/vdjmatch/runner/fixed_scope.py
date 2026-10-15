@@ -19,6 +19,7 @@ def fixed_scope_scores(queries, reference, *, species='human', paired=False,
     junction/V/J keys. Linked references are genuine complete complexes, with
     their two chain budgets applied separately. Linked nearest radius is the
     minimum bottleneck ``max(d_alpha,d_beta)``; marginal distances remain separate.
+    Exact exclusion filters hits only; reference population metadata stays fixed.
     """
     from ..cli.historical import assayed_targets
     from ..evalue.paired import build_paired_ref
@@ -80,18 +81,14 @@ def fixed_scope_scores(queries, reference, *, species='human', paired=False,
         sizes=refs.group_by('_group').agg(pl.len().alias(name+'_reference_records'),
             pl.col('cdr3').n_unique().alias(name+'_reference_junctions'),pl.struct('cdr3','v','j').n_unique().alias(name+'_reference_clonotypes'))
         result=result.join(summary,left_on='query_id',right_on='_case',how='left',validate='1:1').join(sizes,on='_group',how='left',validate='m:1')
-        exact=refs.group_by('_group','cdr3').agg(pl.len().alias('_remove_records'),pl.struct('cdr3','v','j').n_unique().alias('_remove_clonotypes')).rename({'cdr3':'_query'})
+        exact=refs.group_by('_group','cdr3').agg(pl.len().alias('_remove_records')).rename({'cdr3':'_query'})
         removed=lane.join(exact,on=['_group','_query'],how='left').select(pl.col('_case').alias('query_id'),
-            pl.col('_remove_records').fill_null(0).alias(name+'_excluded_reference_records'),
-            pl.col('_remove_clonotypes').fill_null(0).alias('_remove_clonotypes'))
+            pl.col('_remove_records').fill_null(0).alias(name+'_excluded_reference_records'))
         result=result.join(removed,on='query_id',how='left',validate='1:1').with_columns(
-            pl.col(name+'_excluded_reference_records').fill_null(0),pl.col('_remove_clonotypes').fill_null(0))
+            pl.col(name+'_excluded_reference_records').fill_null(0))
         if not exclude_exact:
-            result=result.with_columns(pl.lit(0).alias(name+'_excluded_reference_records'),pl.lit(0).alias('_remove_clonotypes'))
-        result=result.with_columns(*[pl.col(name+'_reference_'+unit).alias(name+'_full_reference_'+unit) for unit in ('records','junctions','clonotypes')],
-            (pl.col(name+'_reference_records')-pl.col(name+'_excluded_reference_records')).alias(name+'_reference_records'),
-            (pl.col(name+'_reference_junctions')-(pl.col(name+'_excluded_reference_records')>0).cast(pl.UInt32)).alias(name+'_reference_junctions'),
-            (pl.col(name+'_reference_clonotypes')-pl.col('_remove_clonotypes')).alias(name+'_reference_clonotypes')).drop('_remove_clonotypes')
+            result=result.with_columns(pl.lit(0).alias(name+'_excluded_reference_records'))
+        result=result.with_columns(*[pl.col(name+'_reference_'+unit).alias(name+'_full_reference_'+unit) for unit in ('records','junctions','clonotypes')])
     linked=build_paired_ref(reference)
     pair_members=[]
     for group_id,part in membership.partition_by('_group',as_dict=True).items():
@@ -118,9 +115,7 @@ def fixed_scope_scores(queries, reference, *, species='human', paired=False,
     result=result.join(removed,on='query_id',how='left',validate='1:1').with_columns(pl.col('linked_excluded_reference_complexes').fill_null(0))
     if not exclude_exact:result=result.with_columns(pl.lit(0).alias('linked_excluded_reference_complexes'))
     result=result.with_columns(pl.col('linked_reference_complexes').alias('linked_full_reference_complexes'),
-        pl.col('linked_reference_junction_pairs').alias('linked_full_reference_junction_pairs'),
-        (pl.col('linked_reference_complexes')-pl.col('linked_excluded_reference_complexes')).alias('linked_reference_complexes'),
-        (pl.col('linked_reference_junction_pairs')-(pl.col('linked_excluded_reference_complexes')>0).cast(pl.UInt32)).alias('linked_reference_junction_pairs'))
+        pl.col('linked_reference_junction_pairs').alias('linked_full_reference_junction_pairs'))
     counts=[c for c in result.columns if 'neighbor_' in c or '_reference_' in c or c.endswith('_matched_source_records') or c=='linked_matched_complexes']
     result=result.with_columns(pl.col(counts).fill_null(0).cast(pl.UInt64),
         pl.lit(scope).alias('fixed_scope'),pl.lit(exclude_exact).alias('exclude_exact'))

@@ -8,7 +8,7 @@ def register(subparsers):
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--locus',choices=['TRA','TRB'],required=True)
     p.add_argument('--species',default='HomoSapiens')
-    p.add_argument('--exclude-exact',action='store_true',help='benchmark-only full-junction exclusion from all counts')
+    p.add_argument('--exclude-exact',action='store_true',help='benchmark-only exact-hit filtering; motif models remain fixed')
     p.add_argument('--output-prefix',required=True)
     p.add_argument('--threads',type=int,default=1,help='positive table thread budget (default: 1); BLAS stays serial')
     p.set_defaults(func=main)

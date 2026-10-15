@@ -40,8 +40,8 @@ def local_chemistry_evidence(queries, reference, background, *, paired=False,
 
     Gaussian KDE uses bandwidth_factor times the AA-table KF4 standard
     deviation on each coordinate. Both populations use exactly the same
-    geometry. Exact full-junction identity punctures all V categories, target
-    and background. Rows without core windows/categories remain explicit.
+    geometry. Exact full-junction identity masks target/background kernel hits only;
+    full V-category counts, populations and V priors remain fixed. Rows without core windows/categories remain explicit.
     The conditional log-density ratio and once-only V usage ratio are separate
     columns. Their sum is experimental ranking, not a biological likelihood
     ratio or confidence. Requires the existing ``bench`` extra's scikit-learn.
@@ -86,16 +86,15 @@ def local_chemistry_evidence(queries, reference, background, *, paired=False,
     for side, (pop, _) in zip(('reference', 'control'), populations):
         counts = q.select('_id', *seq, *vs).join(pop.group_by(vs).len().rename({'len': '_n'}),
                                                on=vs, how='left', validate='m:1')
-        removed = pl.DataFrame(schema={'_id': pl.UInt32, '_total': pl.Int64, '_v': pl.Int64})
+        removed = pl.DataFrame(schema={'_id': pl.UInt32, '_v': pl.Int64})
         if exclude_exact and pop.height:
             same = q.join(pop, on=seq, how='inner', suffix='_ref', validate='m:m')
             match = pl.all_horizontal(*[pl.col(v) == pl.col(v + '_ref') for v in vs])
-            removed = same.group_by('_id').agg(pl.len().cast(pl.Int64).alias('_total'),
-                                               match.sum().cast(pl.Int64).alias('_v'))
+            removed = same.group_by('_id').agg(match.sum().cast(pl.Int64).alias('_v'))
         counts = counts.join(removed, on='_id', how='left', validate='1:1').with_columns(
-            pl.col('_n', '_total', '_v').fill_null(0).cast(pl.Int64))
-        counts = counts.select('_id', (pl.col('_n')-pl.col('_v')).alias('chemistry_'+side+'_v_keys'),
-                               (pop.height-pl.col('_total')).alias('chemistry_'+side+'_population'),
+            pl.col('_n', '_v').fill_null(0).cast(pl.Int64))
+        counts = counts.select('_id', pl.col('_n').alias('chemistry_'+side+'_v_keys'),
+                               pl.lit(pop.height).alias('chemistry_'+side+'_population'),
                                pl.col('_v').alias('_removed_'+side))
         out = out.join(counts, on='_id', validate='1:1').with_columns(
             pl.lit((r if side=='reference' else b).height-pop.height).alias('chemistry_'+side+'_no_window_keys'))
@@ -142,7 +141,7 @@ def local_chemistry_evidence(queries, reference, background, *, paired=False,
     for side in ('reference', 'control'):
         mass = pl.col('_mass_'+side)-pl.col('_removed_'+side)*pl.col('_self')
         if out.filter(mass < -64*np.finfo(float).eps*pl.col('chemistry_'+side+'_v_keys').clip(lower_bound=1)).height:
-            raise ArithmeticError('negative punctured chemistry mass')
+            raise ArithmeticError('negative exact-hit-masked chemistry mass')
         out = out.with_columns(pl.when(pl.col('chemistry_'+side+'_v_keys')>0).then(
             mass.clip(lower_bound=0)/pl.col('chemistry_'+side+'_v_keys')).otherwise(None).alias('chemistry_'+side+'_density'))
     n, m = pl.col('chemistry_reference_v_keys'), pl.col('chemistry_control_v_keys')

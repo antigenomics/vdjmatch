@@ -61,7 +61,7 @@ def test_missing_native_api_fails_without_rounded_matrix_fallback(monkeypatch):
 
 
 @pytest.mark.parametrize('options,match', [({'max_indels':65536},'65535'),
-    ({'scope':'1,1,0,2','exclude_exact':True},'symmetric'),({'scope':'65536,0,0,65536'},'65535')])
+    ({'scope':'65536,0,0,65536'},'65535')])
 def test_invalid_native_budgets_fail_before_any_model_or_counting(monkeypatch,options,match):
     q,r=frames()
     monkeypatch.setattr(classical,'frozen_model',lambda *a:pytest.fail('model preparation preceded budget validation'))
@@ -69,7 +69,7 @@ def test_invalid_native_budgets_fail_before_any_model_or_counting(monkeypatch,op
 
 
 @native
-def test_native_csr_multiplicity_crossreactive_roles_and_exact_puncture(monkeypatch):
+def test_native_csr_multiplicity_crossreactive_roles_and_exact_hit_mask(monkeypatch):
     query,reference=frames();calls=[]
     class Spy:
         @staticmethod
@@ -88,12 +88,12 @@ def test_native_csr_multiplicity_crossreactive_roles_and_exact_puncture(monkeypa
     assert kw['reference_multiplicities'].tolist()==[2,1]
     assert kw['reference_other_counts'].tolist()==[2,1]
     assert kw['reference_class_offsets'][-1]==5
-    assert result['classical_reference_epitope_roles'].to_list()==[3,3]
+    assert result['classical_reference_epitope_roles'].to_list()==[5,5]
     assert result['classical_excluded_exact_records'].to_list()==[2,2]
     assert result['classical_full_reference_records'].to_list()==[3,3]
-    assert result['classical_reference_records'].to_list()==[1,1]
+    assert result['classical_reference_records'].to_list()==[3,3]
     assert result['classical_full_reference_junctions'].to_list()==[2,2]
-    assert result['classical_reference_junctions'].to_list()==[1,1]
+    assert result['classical_reference_junctions'].to_list()==[2,2]
     assert result['classical_hit_records'].to_list()==[1,1]
     assert result['classical_best_reference_junction'].to_list()==['CATSF']*2
     m=frozen_model('human','TRB');lookup={s:i for i,s in enumerate(m['similarity_symbols'])};grid=m['similarity']
@@ -101,8 +101,8 @@ def test_native_csr_multiplicity_crossreactive_roles_and_exact_puncture(monkeypa
     selfq=sum(grid[lookup[a],lookup[a]] for a in q);selfr=sum(grid[lookup[a],lookup[a]] for a in r)
     p=-math.expm1(-math.exp(.247525036258933+.101047469405546*(raw-max(selfq,selfr))))
     assert result['classical_pfit'].to_numpy()==pytest.approx([p,p],abs=1e-13)
-    assert result['classical_informativeness'].to_numpy()==pytest.approx([math.log10(3)]*2)
-    assert result['classical_score'].to_numpy()==pytest.approx([p*math.log10(3)]*2,abs=1e-13)
+    assert result['classical_informativeness'].to_numpy()==pytest.approx([math.log10(5/2)]*2)
+    assert result['classical_score'].to_numpy()==pytest.approx([p*math.log10(5/2)]*2,abs=1e-13)
     assert report['populations'][0]['alignment_batches']==1
     assert report['populations'][0]['reference_epitope_roles']==5
     assert all(not isinstance(x,(list,dict)) for x in report['populations'][0].values())
@@ -188,5 +188,22 @@ def test_all_missing_species_and_exhausted_reference_are_retained():
     sole=r.filter((pl.col('cdr3')=='CASSF')&(pl.col('epitope')=='PEP'))
     result,_=classical.classical_scores(q.head(1),sole,scope='1,0,0,1',max_indels=0,exclude_exact=True)
     assert result['classical_full_reference_records'][0]==2
-    assert result['classical_reference_records'][0]==result['classical_reference_epitope_roles'][0]==0
-    assert result['classical_status'][0]=='no_reference' and result['classical_score'][0]==0
+    assert result['classical_reference_records'][0]==2 and result['classical_reference_epitope_roles'][0]==1
+    assert result['classical_status'][0]=='no_target_hit' and result['classical_score'][0]==0
+
+
+@native
+def test_hit_exclusion_does_not_require_symmetric_model_scope():
+    q,r=frames()
+    out,_=classical.classical_scores(q,r,scope='1,1,0,2',max_indels=1,exclude_exact=True)
+    assert out['classical_reference_epitope_roles'].to_list()==[5,5]
+    assert out['classical_reference_records'].to_list()==[3,3]
+
+
+@native
+def test_classical_exact_exclusion_rejects_old_native_model_semantics(monkeypatch):
+    from seqtree import _core
+    monkeypatch.setattr(_core,'exact_exclusion_hits_only',False,raising=False)
+    q,r=frames()
+    with pytest.raises(RuntimeError,match='hit-list-only exact exclusion'):
+        classical.classical_scores(q,r,exclude_exact=True)

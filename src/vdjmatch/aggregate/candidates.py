@@ -92,6 +92,8 @@ def candidates(
     Counts use unique (junction,V,J) keys; study support excludes empty identifiers.
     ``control_size=None`` requests explicitly uncalibrated ranking. Soft V uses existing
     germline-loop similarity (weight 0.25 across families); unknown/missing calls are neutral.
+    Exact-hit filtering does not decrement reference or control model populations.
+    The legacy ``fixed_ball_punctured`` label denotes hit exclusion only.
     """
     if background_mass and (control_size is None or soft_v):
         raise ValueError("background-mass scoring requires controls and soft_v=False")
@@ -235,13 +237,6 @@ def candidates(
         .rename({"len": "n_reference"})
     )
     out = out.join(coverage, on=joinkeys, how="left", nulls_equal=True, validate="m:1")
-    if exclude_exact:
-        exact = r.select(*joinkeys, pl.col("db_cdr3").alias("query_cdr3")).unique()
-        out = out.join(exact.with_columns(pl.lit(1, dtype=pl.UInt32).alias("_excluded")),
-                       on=[*joinkeys, "query_cdr3"], how="left", nulls_equal=True,
-                       validate="m:1").with_columns(
-            (pl.col("n_reference") - pl.col("_excluded").fill_null(0)).alias("n_reference")
-        ).drop("_excluded")
     if control_size is not None:
         if control_sizes is not None:
             out = out.join(control_sizes, on="query_id", how="left", validate="m:1")

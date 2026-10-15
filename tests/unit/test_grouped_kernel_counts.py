@@ -28,3 +28,28 @@ def test_grouped_distance_prepares_one_population_and_gene_codes(monkeypatch, pa
     assert options['threads']==1
     assert options['feature_offsets'+('_alpha' if paired else '')] is not None
     assert args[-1]==[0,117000]
+
+
+def test_kernel_hit_exclusion_keeps_reference_and_control_models():
+    from vdjmatch.evalue.kernel import grouped_kernel_enrichment
+    q=pl.DataFrame({'query_id':['q'],'cdr3':['CASSLGQAYEQYF'],'_allele':['TRBV19*01']})
+    r=pl.DataFrame({'cdr3':['CASSLGQAYEQYF','CASSLGQAYEQWF','CWWWWWWWWWWWF'],
+        '_allele':['TRBV19*01']*3,'epitope':['A','A','B']})
+    groups=[({'epitope':'A','mhc_a':'A','mhc_b':'B2M','mhc_class':'MHCI'},q,r.head(2))]
+    def score(exclude):
+        return grouped_kernel_enrichment(q,r,groups,query_keys=['cdr3','_allele'],search_keys=['cdr3','_allele'],
+            paired=False,cutoffs=[0.,100.],radius=10000.,kernel_scale=10000.,scorer='all-bounded',
+            assayed=True,species='human',threads=1,ctrim=3,exclude_exact=exclude)[0]
+    full,masked=score(False),score(True)
+    assert full['reference_population'].to_list()==masked['reference_population'].to_list()==[2]
+    assert full['control_population'].to_list()==masked['control_population'].to_list()==[1]
+    assert full['n_reference'][0]==masked['n_reference'][0]+1
+    assert masked['exact_reference_count'][0]==0
+
+
+def test_grouped_exact_exclusion_rejects_old_native_model_semantics(monkeypatch):
+    from seqtree import _core
+    monkeypatch.setattr(_core,'exact_exclusion_hits_only',False,raising=False)
+    empty=pl.DataFrame(schema={'seq0':pl.String,'v0':pl.String})
+    with pytest.raises(RuntimeError,match='hit-list-only exact exclusion'):
+        geometry.grouped_total_distance_count_batch(empty,empty,[0],exclude_exact=True)

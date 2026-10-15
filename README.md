@@ -175,6 +175,9 @@ no fitted calibration file or JSON input is needed. `--mock-replicates` defaults
 to 199 and `--seed` to 0. Reference selectors (`--epitope`, MHC,
 `--evidence-type`, `--min-score`) apply before calibration.
 
+Benchmark `--exclude-exact` filters exact hits only; reference models, counts,
+priors and graph weights remain fixed across queries.
+
 Your own reference can be a `junction_aa,locus,epitope` table, with `pair_id`
 linking long paired rows, or a wide `junction_aa_alpha/beta,v_alpha/beta,j_alpha/beta,epitope`
 table. Supplied pairing and metadata are retained; calibration uses that selected table.

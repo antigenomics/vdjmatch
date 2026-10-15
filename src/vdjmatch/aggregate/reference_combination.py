@@ -14,7 +14,7 @@ from .combination import THREE_WEIGHTS, null_normalized_evidence
 from .structure import graph_profiles, composition
 
 
-def _component_colour_squares(n, edges, colours):
+def _component_colour_squares(n, edges, colours, *, include_punctures=True):
     """Full and every vertex-punctured component/V square sums in two DFS passes.
 
     ``colours`` holds one count for each unique junction/V key. Low-link
@@ -62,13 +62,15 @@ def _component_colour_squares(n, edges, colours):
                 if p >= 0:
                     subtree[p] += subtree[u]
                     low[p] = min(low[p], low[u])
-                    if low[u] >= seen[p]:
+                    if include_punctures and low[u] >= seen[p]:
                         separated[p] += subtree[u]
                         fragment_squares[p] += subtree[u] @ subtree[u]
         totals.append(subtree[root].copy())
     total = np.asarray(totals, dtype=np.int64)
     component_square = np.einsum('ij,ij->i', total, total)
     full = int(component_square.sum())
+    if not include_punctures:
+        return full, None
     remainder = total[component] - colours - separated
     punctured = full - component_square[component] + fragment_squares + np.einsum('ij,ij->i', remainder, remainder)
     return full, punctured
@@ -86,7 +88,8 @@ def _weights(length_square, length_v_square, component_v_square, size):
                 weight_status='available')
 
 
-def graph_mixture_weights(reference: pl.DataFrame, *, threads: int = 1, hamming_edges: pl.DataFrame | None = None):
+def graph_mixture_weights(reference: pl.DataFrame, *, threads: int = 1, hamming_edges: pl.DataFrame | None = None,
+                          include_punctures: bool = True):
     """Return full and exact-junction-punctured graph-mixture tables.
 
     Internal reference rows contain ``group_id,cdr3,v``; duplicates retain source
@@ -103,8 +106,10 @@ def graph_mixture_weights(reference: pl.DataFrame, *, threads: int = 1, hamming_
     w_original=1-w_gap-w_stem. L is length, V gene and C Hamming-one component.
     Components have a single length, making these mutually exclusive exhaustive
     pair events. The law has no label fit, task switch or adjustable coefficient.
-    Recompute it for every mock model; query exclusion uses the exact puncture.
-    Empty punctures have unavailable weights, with no full-model fallback.
+    Recompute it for every mock model. Exact-hit exclusion never changes the
+    full model. Optional punctures are retained only as legacy diagnostics.
+    Empty diagnostic punctures have unavailable weights. Normal scoring uses
+    include_punctures=False: fixed full-model weights and no query deletions.
     """
     from ..cluster import overlap
 
@@ -134,15 +139,15 @@ def graph_mixture_weights(reference: pl.DataFrame, *, threads: int = 1, hamming_
         local_edges = edges.join(junctions.select(pl.col('_node').cast(pl.Int64).alias('a_idx'),
             pl.col('_local').alias('a')), on='a_idx').join(junctions.select(
                 pl.col('_node').cast(pl.Int64).alias('b_idx'), pl.col('_local').alias('b')), on='b_idx').select('a', 'b').rows()
-        graph, removed_graph = graph_profiles(junctions.height, local_edges)
-        usage, removed_usage = composition(part, junctions)
+        graph, removed_graph = graph_profiles(junctions.height, local_edges, include_punctures=include_punctures)
+        usage, removed_usage = composition(part, junctions, include_punctures=include_punctures)
         categories = part.select('_allele').unique().sort('_allele').with_row_index('_v')
         keys = part.select('cdr3', '_allele').unique().join(junctions.select('cdr3', '_local'), on='cdr3').join(categories, on='_allele')
         if junctions.height * categories.height * 8 * 8 > 256 * 1024**2:
             raise ValueError('colored graph subtree histograms exceed the 256 MiB allocation budget')
         colours = np.zeros((junctions.height, categories.height), dtype=np.int64)
         colours[keys['_local'].to_numpy(), keys['_v'].to_numpy()] = 1
-        component_square, removed_component_square = _component_colour_squares(junctions.height, local_edges, colours)
+        component_square, removed_component_square = _component_colour_squares(junctions.height, local_edges, colours, include_punctures=include_punctures)
         sizes = colours.sum(axis=1)
         lengths = junctions['cdr3'].str.len_chars().to_numpy()
         length_v = {length: colours[lengths == length].sum(axis=0) for length in np.unique(lengths)}
@@ -155,6 +160,8 @@ def graph_mixture_weights(reference: pl.DataFrame, *, threads: int = 1, hamming_
         full_rows.append(context | graph | usage | dict(length_mass_square=length_square,
             length_v_mass_square=length_v_square, component_v_mass_square=component_square) |
             _weights(length_square, length_v_square, component_square, size))
+        if not include_punctures:
+            continue
         source_counts = dict(part.group_by('cdr3').len().iter_rows())
         unknown_index = categories.filter(pl.col('_allele') == '__unknown_v__')['_v'].to_list()
         for i, sequence in enumerate(junctions['cdr3']):
@@ -170,8 +177,10 @@ def graph_mixture_weights(reference: pl.DataFrame, *, threads: int = 1, hamming_
                     if unknown_index else 0,
                 length_mass_square=int(a), length_v_mass_square=int(b), component_v_mass_square=c) |
                 _weights(int(a), int(b), c, int(size-sizes[i])))
-    return (pl.DataFrame(full_rows, infer_schema_length=None).sort('group_id'),
-            pl.DataFrame(puncture_rows, infer_schema_length=None).sort('group_id', 'excluded_junction'))
+    full = pl.DataFrame(full_rows, infer_schema_length=None).sort('group_id')
+    punctures = (pl.DataFrame(puncture_rows, infer_schema_length=None).sort('group_id', 'excluded_junction')
+                 if puncture_rows else full.head(0).with_columns(pl.lit(None, dtype=pl.String).alias('excluded_junction')))
+    return full, punctures
 
 
 def combine_reference_evidence(frame: pl.DataFrame, nulls: pl.DataFrame,

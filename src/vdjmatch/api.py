@@ -235,7 +235,6 @@ class Annotator:
 
                 ctrl = background(gene, species)
             ctrl_hits = None
-            control_sizes = None
             if ctrl is not None:
                 if len(ctrl) == 0:
                     raise ValueError("control index is empty")
@@ -251,10 +250,6 @@ class Annotator:
                     schema={"query_id": q.schema["query_id"], "edits": pl.UInt32, "_self": pl.Boolean},
                     orient="row",
                 )
-                if exclude_exact:
-                    removed = ctrl_hits.group_by("query_id").agg(pl.col("_self").sum().alias("_removed"))
-                    control_sizes = gq.select("query_id").join(removed, on="query_id", how="left").select(
-                        "query_id", (pl.lit(len(ctrl)) - pl.col("_removed").fill_null(0)).alias("_control_size"))
                 ctrl_hits = ctrl_hits.filter(~pl.col("_self")).drop("_self")
             for radius in radii if radii is not None else [None]:
                 distance = pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") + pl.col("n_dels")
@@ -267,7 +262,7 @@ class Annotator:
                     control_size=len(ctrl) if ctrl is not None else None,
                     score_scale=score_scale, soft_v=soft_v,
                     match_v=match_v, match_j=match_j, background_mass=background_mass,
-                    exclude_exact=exclude_exact, control_sizes=control_sizes,
+                    exclude_exact=exclude_exact,
                 )
                 if radius is not None:
                     c = c.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius"))
@@ -411,7 +406,7 @@ class Annotator:
         With no control/calibrate request, ranking is explicitly uncalibrated. Supply a seqtree
         Index or locus→Index mapping, or calibrate=True for the versioned standard background.
         NED-v1 uses +1 control counts, temperature 400 and existing soft-V weight 0.25.
-        ``exclude_exact`` punctures zero-edit hits in both target and control searches.
+        ``exclude_exact`` filters exact hits in target and control searches; model populations stay fixed.
         """
         _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
         sp = (
@@ -515,7 +510,8 @@ class Annotator:
         confidence and does not model repertoire co-occurrence (deferred research).
         ``return_hits=True`` returns ``(joint_hits, candidates)`` from the same searches;
         chain metadata in the detailed hits uses ``alpha_`` and ``beta_`` prefixes.
-        ``exclude_exact=True`` removes only the exact/exact pair. Its fixed-ball
+        ``exclude_exact=True`` removes only the exact/exact hit pair, retaining full
+        reference and control population sizes. Its fixed-ball
         calibration uses simultaneous category bounds and a binomial tail with
         failure budget 1e-6, conditional on IID category/target sampling and
         independent background chains. Controls must index unique junctions;

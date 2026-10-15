@@ -897,6 +897,9 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
             raise ValueError('geometry preset requires matching precomputed matrix')
     require_geometry_capabilities(geometry_preset,paired=paired)
     v_loop_distances = _v_region_context(v_regions, v_loop_distances, species, alphabet, matrix)
+    from seqtree import _core
+    if exclude_exact and not getattr(_core, 'exact_exclusion_hits_only', False):
+        raise RuntimeError('hit-list-only exact exclusion requires a capable seqtree native build')
     method='grouped_paired_sum_count_batch' if paired else 'grouped_count_batch'
     if not hasattr(gapblock,method):
         raise RuntimeError('grouped kernel counts require updated Python/native seqtree support')

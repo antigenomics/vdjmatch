@@ -35,7 +35,7 @@ def test_motif_cli_rejects_output_input_overlap_before_reading(tmp_path, source)
     assert sample.read_bytes()==before
 
 
-def test_masked_motif_counts_masks_and_full_junction_puncture():
+def test_masked_motif_fixed_model_counts_and_exact_hit_exclusion():
     groups=('AILV','RHK','CM','ST','DE','NQ','G','F','P','W','Y')
     classes={a:g[0] for g in groups for a in g}
     def tokens(s):
@@ -47,8 +47,8 @@ def test_masked_motif_counts_masks_and_full_junction_puncture():
     r=pl.DataFrame(rows).with_columns(pl.lit('A').alias('mhc_a'),pl.lit('B').alias('mhc_b'),pl.lit('I').alias('mhc_class'))
     q=pl.DataFrame({'query_id':['q'],'cdr3':[rows[0]['cdr3']],'v':['TRBV1*02']})
     for exclude in (False,True):
-        pop={(x['cdr3'],x['v'].split('*')[0],x['epitope']) for x in rows
-             if not exclude or x['cdr3']!=rows[0]['cdr3']}
+        pop={(x['cdr3'],x['v'].split('*')[0],x['epitope']) for x in rows}
+        hit_va=Counter((v,e,t) for s,v,e in pop if not exclude or s!=rows[0]['cdr3'] for t in tokens(s))
         counts=Counter((len(s),v,e,t) for s,v,e in pop for t in tokens(s))
         va=Counter();antigen=Counter();alltokens=Counter()
         for (length,v,e,t),n in counts.items():
@@ -56,8 +56,8 @@ def test_masked_motif_counts_masks_and_full_junction_puncture():
         expected={}
         for (length,v,e,t),n in counts.items():
             if v!='TRBV1' or t not in tokens(rows[0]['cdr3']):continue
-            if n>=2 and va[v,e,t]>=3 and antigen[e,t]>=5:
-                expected[e,t]=max(expected.get((e,t),0),va[v,e,t]/alltokens[t]*math.log(len(pop)/alltokens[t]))
+            if n>=2 and va[v,e,t]>=3 and antigen[e,t]>=5 and hit_va[v,e,t]>0:
+                expected[e,t]=max(expected.get((e,t),0),hit_va[v,e,t]/alltokens[t]*math.log(len(pop)/alltokens[t]))
         out=masked_motif_scores(q,r,exclude_exact=exclude)
         for row in out.iter_rows(named=True):
             values=[x for (e,t),x in expected.items() if e==row['epitope']]
@@ -68,8 +68,8 @@ def test_masked_motif_counts_masks_and_full_junction_puncture():
             pl.lit('A').alias('mhc_a'),pl.lit('B').alias('mhc_b'),pl.lit('I').alias('mhc_class')),
             r,exclude_exact=exclude,target_reference=r.filter(pl.col('epitope')=='NLV'))
         assert targeted.sort('epitope').equals(out.filter(pl.col('epitope')=='NLV').sort('epitope'))
-    # A target with five instances loses its support gate after exact puncture.
-    assert masked_motif_scores(q,r.head(5),exclude_exact=True).height==0
+    # Five source instances still satisfy the fixed model gate after one exact hit is masked.
+    assert masked_motif_scores(q,r.head(5),exclude_exact=True).height==1
     with pytest.raises(ValueError,match='unique'):
         masked_motif_scores(pl.concat([q,q]),r)
 

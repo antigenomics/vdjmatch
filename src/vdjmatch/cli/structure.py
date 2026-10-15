@@ -85,9 +85,9 @@ def main(a):
         edge_names = edges.join(nodes.select(pl.col('_node').cast(pl.Int64).alias('a_idx'),
             pl.col('cdr3').alias('cdr3_a')), on='a_idx').join(nodes.select(
                 pl.col('_node').cast(pl.Int64).alias('b_idx'), pl.col('cdr3').alias('cdr3_b')), on='b_idx').select('cdr3_a', 'cdr3_b')
-        mixture_full, mixture_punctures = graph_mixture_weights(mixture_records, threads=a.threads, hamming_edges=edge_names)
+        mixture_full, _ = graph_mixture_weights(mixture_records, threads=a.threads, hamming_edges=edge_names, include_punctures=False)
     else:
-        mixture_full = mixture_punctures = None
+        mixture_full = None
     # Degree distributions use every valid full junction, including those without
     # a resolved V model. Reuse the same native edges as the scoring mixture.
     degree_membership = pl.concat([
@@ -103,13 +103,13 @@ def main(a):
         joined = edges.join(left, on='a_idx', validate='m:m').join(
             right, on=['b_idx', '_group'], validate='m:1')
         degree_edges = {key[0]: part.select('a', 'b') for key, part in joined.group_by('_group')}
-    summaries, punctures, degree_rows = [], [], []
+    summaries, degree_rows = [], []
     for group_id, (task, source) in enumerate(groups):
         retained = source.filter(available)
         junctions = memberships[group_id]
         local_edges = grouped_edges[group_id].iter_rows() if group_id in grouped_edges else []
-        full, removed = graph_profiles(junctions.height,local_edges)
-        v_full, v_removed = composition(retained,junctions)
+        full, _ = graph_profiles(junctions.height,local_edges,include_punctures=False)
+        v_full, _ = composition(retained,junctions,include_punctures=False)
         context = dict(_mixture_group=group_id,species=species,locus=a.locus,**task,source_observations=source.height,
                        unavailable_records=source.height-retained.height)
         n = selected_nodes[group_id].unique().height
@@ -135,44 +135,23 @@ def main(a):
         degree_summary.update({f'hamming_{name}_degree': float(np.quantile(degrees, q)) if n else None
                                for name, q in [('q10', .1), ('median', .5), ('q90', .9)]})
         summaries.append(context | full | v_full | degree_summary | dict(structure_status='available' if full['junctions'] else 'empty_reference'))
-        for sequence, graph, usage in zip(junctions['cdr3'],removed,v_removed):
-            punctures.append(context | dict(excluded_junction=sequence, structure_status='available' if graph['junctions'] else 'empty_after_puncture') | graph | usage)
     prefix.parent.mkdir(parents=True,exist_ok=True)
     summary_path = Path(str(prefix)+'.structures.tsv')
-    puncture_path = Path(str(prefix)+'.punctures.tsv')
     degree_path = Path(str(prefix)+'.degrees.tsv')
     if not summaries:
         raise ValueError('no declared reference targets')
     summary = pl.DataFrame(summaries, infer_schema_length=None).with_columns(pl.col('_mixture_group').cast(pl.UInt32))
-    puncture_table = (pl.DataFrame(punctures, infer_schema_length=None).with_columns(
-        pl.col('_mixture_group').cast(pl.UInt32)) if punctures else
-        summary.head(0).with_columns(pl.lit(None, dtype=pl.String).alias('excluded_junction')))
-    mixture_new_punctures = 0
     if mixture_full is not None:
         weights = {'original_weight', 'gapblock_weight', 'stem4_weight'}
         def names(frame):
             return frame.rename({c: '_mixture_group' if c == 'group_id' else
-                c if c in weights or c == 'excluded_junction' else 'mixture_' + c for c in frame.columns})
+                c if c in weights else 'mixture_' + c for c in frame.columns})
         summary = summary.join(names(mixture_full), on='_mixture_group', how='left', validate='1:1', maintain_order='left')
-        context_columns = ['species', 'locus', *PMHC, 'source_observations', 'unavailable_records']
-        puncture_table = puncture_table.with_columns(pl.lit(True).alias('_modeled_profile')).join(
-            names(mixture_punctures), on=['_mixture_group', 'excluded_junction'], how='full', coalesce=True,
-            validate='1:1').join(summary.select('_mixture_group', *context_columns), on='_mixture_group',
-                how='left', suffix='_context', validate='m:1').with_columns(*[
-                    pl.coalesce(c, c + '_context').alias(c) for c in context_columns],
-                    pl.col('_modeled_profile').is_null().alias('mixture_only_puncture')).drop(
-                        '_modeled_profile', *[c + '_context' for c in context_columns])
-        mixture_new_punctures = puncture_table['mixture_only_puncture'].sum()
     else:
         summary = summary.with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c)
             for c in ('original_weight', 'gapblock_weight', 'stem4_weight')],
             pl.lit('empty_reference').alias('mixture_weight_status'))
-        puncture_table = puncture_table.with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c)
-            for c in ('original_weight', 'gapblock_weight', 'stem4_weight')],
-            pl.lit('empty_reference').alias('mixture_weight_status'),
-            pl.lit(False).alias('mixture_only_puncture'))
     summary.drop('_mixture_group').write_csv(summary_path, separator='\t')
-    puncture_table.drop('_mixture_group').write_csv(puncture_path, separator='\t')
     pl.DataFrame(degree_rows, schema_overrides={'degree': pl.Int64, 'junction_count': pl.Int64},
         infer_schema_length=None).write_csv(degree_path, separator='\t')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(dict(reference=db.provenance(a.vdjdb),
@@ -185,18 +164,17 @@ def main(a):
         search_source_sha256=sha256(Path(overlap.__code__.co_filename)),
         native_batches=1 if nodes.height else 0, searched_unique_junctions=nodes.height,
         global_hamming_edges=edges.height if edges is not None else 0, targets=len(summaries),
-        puncture_rows=puncture_table.height, mixture_only_punctures=mixture_new_punctures,
         mixture_weights='gap=1-sum_L p_L^2; stem4=sum_LV p_LV^2-sum_LVC p_LVC^2; original=remainder',
         mixture_population='all valid full AA junction/V-gene keys; unknown or ambiguous V is explicit category; source records counted separately',
         modeled_population='existing resolved V and junction length >=8; unchanged modeled feature columns',
         mixture_source_sha256=sha256(Path(graph_mixture_weights.__code__.co_filename)),
         graph_scope='full-junction Hamming<=1; no indels',
         graph_node_unit='unique full junction', v_usage_unit='unique full junction/resolved V allele keys; gene-level categories',
-        degree_population='all valid full junctions, including unresolved V; full reference before query puncture',
+        degree_population='all valid full junctions, including unresolved V; fixed full reference',
         degree_quantiles='linear interpolation of the unique-junction degree distribution',
         entropy_units='natural logarithms', length_units='amino-acid residues, conserved anchors included',
-        exclusion='puncture removes the complete full junction, all V annotations and incident edges; articulation fragments recomputed exactly',
+        exclusion='none: model composition and weights use the fixed full reference; benchmark exclusion applies only to hit lists',
         interpretation='reference-only morphology and fixed graph-mixture heuristic; no label fit, recognition probability or P/E-value',
         source_sha256=sha256(Path(__file__)), reducer_sha256=sha256(Path(graph_profiles.__code__.co_filename)),
-        tables={str(p.name):sha256(p) for p in (summary_path,puncture_path,degree_path)}, seconds=time.monotonic()-start),indent=2)+'\n')
+        tables={str(p.name):sha256(p) for p in (summary_path,degree_path)}, seconds=time.monotonic()-start),indent=2)+'\n')
     return 0

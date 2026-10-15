@@ -12,8 +12,9 @@ def masked_motif_scores(queries, reference, *, exclude_exact=False, target_refer
     reference has PMHC columns. Call separately for each species and locus.
     Follow masked_motif: IMGT classes, all four masks, distinct junction presence,
     x_length,V,target>=2, x_V,target>=3, x_target>=5, and sum(max(MF_V×IKF))
-    per motif divided by query length. Benchmark exclusion removes a full query
-    junction from every target/V stratum and global counts before any gate.
+    per motif divided by query length. All model support gates and global motif
+    frequencies remain fixed. Benchmark exclusion masks exact-junction target/V
+    contributions only in the hit numerator, without refitting the model.
     Missing/unsupported motifs emit no row, never a prior-only specificity.
     Optional target_reference defines compatible-restriction unions labelled with
     each query's declared PMHC; global motif frequencies still use reference.
@@ -42,24 +43,17 @@ def masked_motif_scores(queries, reference, *, exclude_exact=False, target_refer
         pl.col('x_lva').sum().over([*PMHC,'v0','t0']).alias('x_va'),
         pl.col('x_lva').sum().over([*PMHC,'t0']).alias('x_a'),
         pl.lit(ref.height).alias('X')).join(rt.group_by('t0').len().rename({'len':'x'}),on='t0',validate='m:1')
-    # Exclusion can only reduce these support counts; filter before expanding
-    # query/model matches, with the exact post-exclusion gates checked below.
+    # Model support gates are fixed before matching any query.
     model=model.filter((pl.col('x_lva')>=2)&(pl.col('x_va')>=3)&(pl.col('x_a')>=5))
     hits=tokens(q).join(q.drop('v0'),on='_id',validate='m:1').join(model,
         on=['v0','t0',*(PMHC if target_reference is not None else [])],how='inner')
+    hits=hits.with_columns(pl.col('x_va').alias('hit_x_va'))
     if exclude_exact:
-        # Counts are transient table reductions; subtract all matching junction
-        # observations, including contradictory labels and different V calls.
-        for count,keys in [('x_lva',strata),('x_va',[*PMHC,'v0','t0']),
-                           ('x_a',[*PMHC,'t0']),('x',['t0'])]:
-            removed=(rt if count=='x' else target_rt).group_by('seq0',*keys).len().rename({'len':'_removed'})
-            hits=hits.join(removed,on=['seq0',*keys],how='left',validate='m:1',nulls_equal=True).with_columns(
-                (pl.col(count).cast(pl.Int64)-pl.col('_removed').fill_null(0)).alias(count)).drop('_removed')
-        removed=ref.group_by('seq0').len().rename({'len':'_removed'})
-        hits=hits.join(removed,on='seq0',how='left',validate='m:1').with_columns(
-            (pl.col('X')-pl.col('_removed').fill_null(0)).alias('X')).drop('_removed')
-    hits=hits.filter((pl.col('x_lva')>=2)&(pl.col('x_va')>=3)&(pl.col('x_a')>=5)).with_columns(
-        (pl.col('x_va')/pl.col('x')*(pl.col('X')/pl.col('x')).log()).alias('_mfikf'))
+        removed=target_rt.group_by('seq0',*PMHC,'v0','t0').len().rename({'len':'_removed'})
+        hits=hits.join(removed,on=['seq0',*PMHC,'v0','t0'],how='left',validate='m:1',nulls_equal=True).with_columns(
+            (pl.col('hit_x_va').cast(pl.Int64)-pl.col('_removed').fill_null(0)).alias('hit_x_va')).drop('_removed')
+    hits=hits.filter(pl.col('hit_x_va')>0).with_columns(
+        (pl.col('hit_x_va')/pl.col('x')*(pl.col('X')/pl.col('x')).log()).alias('_mfikf'))
     return (hits.group_by('query_id',*PMHC,'t0').agg(pl.col('_mfikf').max(),pl.col('seq0').first())
         .group_by('query_id',*PMHC).agg((pl.col('_mfikf').sum()/pl.col('seq0').first().str.len_chars()).alias('motif_score'),
             pl.len().alias('supported_motifs')))

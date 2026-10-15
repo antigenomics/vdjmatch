@@ -110,7 +110,7 @@ def main(args):
         'target_support_rule': 'valid source records per species/locus/peptide, before self-exclusion; pool MHC restrictions',
         'search_reference': 'entire valid species/locus reference, including sparse peptides',
         'queries': raw.height, 'candidate_rows': candidates.height, 'wall_seconds': time.monotonic()-started,
-        'self_exclusion': ('benchmark-only full-junction puncture of hits and population sizes'
+        'self_exclusion': ('benchmark-only full-junction hit filtering; fixed model populations'
             if getattr(args, 'exact_policy', 'exclude') == 'exclude' else 'exact evidence retained for ordinary-call calibration'),
         'observation_unit': 'distinct full-junction/V/J'+('/truth peptide' if args.leave_epitope_out else ''),
         'peptide_withholding': 'all restrictions removed before reduction' if args.leave_epitope_out else None,

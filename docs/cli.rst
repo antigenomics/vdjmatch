@@ -62,7 +62,7 @@ over clone linkage; clone and clonotype IDs remain distinct. Missing chains are
 retained and ambiguous multiple chains require resolution before scoring.
 ``--locus auto`` infers populations; ``TRA``, ``TRB`` and ``paired`` select explicitly.
 The command retains exact evidence in ordinary annotation. ``--exclude-exact``
-punctures both search hits and population sizes for benchmarking. Combine it
+filters exact hits for benchmarking; model populations, priors and graph weights stay fixed. Combine it
 with ``--reference-population curated-benchmark`` to reproduce the source-curated
 benchmark reference; ordinary annotation defaults to all valid observations.
 
@@ -553,15 +553,11 @@ selector is supported. This mode requires single-chain TRA or TRB input and
 keeps fixed model populations. Empirical P-values, four-channel Sidak fusion
 and cohort ROC summaries consume these flat outputs separately.
 
-Experimental ``--puncture-populations`` also removes exact full-junction matches
-from density population sizes and germline feature counts/population sizes for
-each query. Repeated raw prior draws are removed with their multiplicity. Empty
-remaining populations produce missing scores and explicit ``no_reference``,
-``no_control`` or ``no_prior_evidence`` dispositions; paired outputs identify the
-affected chain. This corrects candidate benchmark exclusion, while the default
-retains historical reproduction. It does not calibrate a combined P-value or
-establish a biological binder probability. Experimental gapped extensions are
-not supported with this option.
+Benchmark exact exclusion is a hit-list filter only. Never remove a query
+junction from the reference model, population counts, germline priors, motifs
+or graph weights. Build each real or mock reference model once. Earlier
+population-puncture experiments are withdrawn; their recorded results are
+historical diagnostics and do not define benchmark eligibility.
 
 ``--mhc-match compatible --pool-reference`` pools intersecting family and allele
 restrictions before counting unique reference junctions. Source restriction
@@ -994,13 +990,10 @@ scores, and accuracy/F1/confusion state their decision rule. Optional metrics at
 a recommendation cutoff remain separate and retain below-threshold/no-hit rows.
 The command does not change annotation defaults or enforce cutoffs on benchmarks.
 
-Single-chain ``match --exclude-exact`` also punctures the per-query target and
-control population sizes used by the fixed/graded evidence reducer. Repeated
-exact control entries are all removed. Gapped unified evidence uses the same
-population contract. The resulting calibration label is
-``fixed_ball_punctured``; runs without exact exclusion retain their prior
-population and score contract. A control population made empty by exclusion
-cannot support calibrated evidence.
+Single-chain ``match --exclude-exact`` filters exact target/control hits while
+retaining the full target and control population sizes in the evidence reducer.
+The historical ``fixed_ball_punctured`` output label is retained for compatibility;
+it denotes hit filtering, not removal from the model.
 
 Exact-self exclusion is a benchmark option. Ordinary sample annotation retains
 exact VDJdb hits; recommendations for nonexact extrapolated matches should not
@@ -1253,8 +1246,8 @@ MF×IKF evidence for the sample's declared full pMHC. It uses the union of compa
 reference restrictions for target motif counts and all valid same-species/locus
 references for global motif frequency. Full junctions, all four wildcard positions,
 IMGT amino-acid classes and the original 2/3/5 motif support gates are retained.
-``--exclude-exact`` is benchmark-only and punctures every full-junction occurrence
-before evaluating support and frequency. Repeated query identities remain separate.
+``--exclude-exact`` is benchmark-only and filters exact junction hit contributions.
+Motif support gates and global frequencies remain fixed. Repeated query identities remain separate.
 Zero supported motifs, invalid queries and absent references have explicit statuses.
 This command supplies a candidate component, not a switched scorer, joint paired
 likelihood, P-value or specificity probability. Pairing remains in the output IDs;
@@ -1488,17 +1481,15 @@ Inspect the reference composition that can guide chainwise scoring weights:
      --epitope NLVPMVATV --threads 4 --output-prefix structure
 
 The command writes ``structure.structures.tsv`` with one row per full peptide–MHC
-population and ``structure.punctures.tsv`` with the corresponding features after
-removing each full reference junction. ``--targets-from-sample AIRR_TABLE`` instead
-uses the compatible restriction unions declared by that table. ``--reference-population``
-selects ``curated-benchmark`` (default) or ``all-valid``.
+population and ``structure.degrees.tsv`` with its degree histogram.
+``--targets-from-sample AIRR_TABLE`` uses the compatible restriction unions declared
+by that table. ``--reference-population`` selects ``curated-benchmark`` (default)
+or ``all-valid``.
 
 The graph has one vertex per unique anchor-inclusive junction and an edge for
 one amino-acid substitution, with no indels. One native batch searches the entire
-selected reference population. The component summaries are calculated from that
-batch, with exact connectivity after each vertex removal, including articulation
-vertices. Removing a junction also removes all its V annotations and source-record
-contributions from the reported composition.
+selected reference population. The complete reference graph and its composition
+remain fixed for all queries; no query-specific graph is rebuilt or exported.
 
 Outputs report exact source-record, junction, clonotype-key, component, isolated-
 junction and edge counts; largest-component and clustered fractions; component
@@ -1513,8 +1504,7 @@ explicitly. An empty population has unavailable composition fractions and entrop
 include every valid full junction, even when its V gene is unresolved. The summary
 table adds ``hamming_`` counts, mean/variance/maximum degree, median, 10th and 90th
 percentiles, and isolated fraction for that population. Quantiles use linear
-interpolation. These degree distributions describe the full reference before
-query puncture; the existing modeled connectivity columns retain their stated
+interpolation. These degree distributions describe the fixed full reference; the existing modeled connectivity columns retain their stated
 V-resolution and length requirements.
 
 These are reference morphology features. The command fits no weights, makes no

@@ -1,4 +1,5 @@
 """CLI for reproducible historical density baselines; no fitted combination."""
+from argparse import SUPPRESS
 from collections import deque
 from pathlib import Path
 
@@ -32,9 +33,9 @@ def register(subparsers):
     p.add_argument('--germline-background',help='raw prior table; include original sparse-reference unpaired score')
     p.add_argument('--likelihood-score',action='store_true',help='also report original components on a common log scale; paired adds chain log-density and original combined germline evidence')
     p.add_argument('--puncture-populations',action='store_true',
-                   help='candidate: remove exact full junctions from density and prior population sizes/counts; preserves historical defaults')
+                   help=SUPPRESS)
     p.add_argument('--export-punctured',action='store_true',
-                   help='paired cohort likelihood: export the fully punctured candidate alongside fixed-population original evidence, sharing native searches')
+                   help=SUPPRESS)
     p.add_argument('--gapped-extension',action='store_true',help='experimental gapped density mode; matched-pssm rescores all accepted edges; no combined P-value')
     p.add_argument('--gap-geometry',choices=['clipped','historical-pssm','matched-pssm'],default='clipped',
                    help='geometry/historical-pssm add extension edges; matched-pssm uses one positional kernel and control CDF for all edges')
@@ -349,6 +350,8 @@ def main(a):
     from ..match.vgene import precompute_v_similarities
     start=time.perf_counter()
     legacy=getattr(a,'legacy_components',False)
+    if getattr(a, 'puncture_populations', False) or getattr(a, 'export_punctured', False):
+        raise ValueError('benchmark exact exclusion is a hit-list filter only; model puncturing is unsupported')
     a.reference_population=getattr(a,'reference_population','curated-benchmark')
     if legacy and (a.locus=='paired' or not a.germline_background or a.gapped_extension
             or getattr(a,'puncture_populations',False) or a.likelihood_score or a.cohort_column

@@ -85,7 +85,7 @@ def test_structure_cli_exports_mixture_weights_for_unmodeled_v_once(tmp_path, mo
     assert main(['reference-structure', '--vdjdb', str(reference), '--species', 'human', '--locus', 'TRB',
         '--reference-population', 'all-valid', '--threads', '1', '--output-prefix', str(prefix)]) == 0
     full = pl.read_csv(str(prefix) + '.structures.tsv', separator='\t')
-    punctures = pl.read_csv(str(prefix) + '.punctures.tsv', separator='\t')
+    assert not (tmp_path / 'weights.punctures.tsv').exists()
     assert calls == [2]
     assert full['junctions'].item() == 1
     assert full['mixture_junctions'].item() == 2
@@ -93,11 +93,7 @@ def test_structure_cli_exports_mixture_weights_for_unmodeled_v_once(tmp_path, mo
     degrees = pl.read_csv(str(prefix) + '.degrees.tsv', separator='\t')
     assert degrees.select('degree', 'junction_count').rows() == [(1, 2)]
     assert sum(full.select('original_weight', 'gapblock_weight', 'stem4_weight').row(0)) == 1
-    unknown = punctures.filter(pl.col('excluded_junction') == 'CASSLGQETQYF')
-    assert unknown['junctions'].item() is None
-    assert unknown['mixture_junctions'].item() == 1
-    assert unknown['mixture_only_puncture'].item()
-    assert punctures.height == 2
+    assert full['source_observations'].item() == 2
 
 
 def test_automatic_normalization_strata_keep_matching_banks_separate(tmp_path):
@@ -143,3 +139,23 @@ def test_shipping_sum_retains_raw_score_and_applies_declared_support(tmp_path):
     observed.drop('original_supported').write_csv(source, separator='\t')
     assert main(command) == 0
     assert pl.read_csv(output, separator='\t')['combined_score'].item() == pytest.approx(np.log(3))
+
+
+def test_full_only_graph_path_matches_legacy_full_without_puncture_outputs():
+    from vdjmatch.aggregate.structure import graph_profiles, composition
+    reference = pl.DataFrame({'group_id': [0] * 4,
+        'cdr3': ['CAAF', 'CCAF', 'CCCF', 'CAAFF'], 'v': ['TRBV1'] * 3 + ['TRBV2']})
+    old_full, _ = graph_mixture_weights(reference)
+    full, diagnostics = graph_mixture_weights(reference, include_punctures=False)
+    assert full.equals(old_full) and diagnostics.is_empty()
+    old_graph, _ = graph_profiles(3, [(0, 1), (1, 2)])
+    graph, diagnostics = graph_profiles(3, [(0, 1), (1, 2)], include_punctures=False)
+    assert graph == old_graph and diagnostics == []
+    records = reference.with_columns(pl.col('v').alias('_allele'))
+    junctions = records.select('cdr3').unique().sort('cdr3')
+    old_usage, _ = composition(records, junctions)
+    usage, diagnostics = composition(records, junctions, include_punctures=False)
+    assert usage == old_usage and diagnostics == []
+    colours = np.ones((3, 1), dtype=np.int64)
+    total, removed = _component_colour_squares(3, [(0, 1), (1, 2)], colours, include_punctures=False)
+    assert total == 9 and removed is None

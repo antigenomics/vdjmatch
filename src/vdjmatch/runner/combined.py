@@ -70,7 +70,7 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
             schema={'_query_family': pl.String, '_reference_family': pl.String, '_exact_weight': pl.Float64})
     for selected, ref in work:
         scored = density(selected, ref, index, threads=threads, pool_reference=True,
-            puncture_populations=exclude_exact, v_similarities=similarities,
+            puncture_populations=False, v_similarities=similarities,
             control_counts=counts, prepared_neighbours=prepared.popleft())
         scored = scored.with_columns(pl.col('score').alias('historical_original_density'))
         if not exclude_exact:
@@ -94,7 +94,7 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
             scored = scored.with_columns(pl.lit(0.0).alias('original_exact_contribution'))
         with_genes = selected.filter(pl.all_horizontal(*[
             pl.col(c).cast(pl.String).str.strip_chars().ne('').fill_null(False) for c in ('v', 'j')]))
-        priors = germline_prior(with_genes, ref, prior_background, include_length=locus == 'TRB', exclude_exact=exclude_exact)
+        priors = germline_prior(with_genes, ref, prior_background, include_length=locus == 'TRB', exclude_exact=False)
         scored = scored.join(priors.select('query_id', 'germline_lr'), on='query_id', how='left', validate='1:1')
         available = scored.filter(pl.col('score').is_not_null() & pl.col('germline_lr').is_not_null() & (pl.col('n_reference') > 0))
         if available.height:
@@ -191,8 +191,8 @@ def score_components(queries, reference, control, *, species, locus, threads=1,
     same-target unlinked marginals and factorized original log/prior evidence
     separate. No axes are maximized here. Historical density excludes exact
     edges; ordinary scoring adds their explicitly exported contribution once.
-    ``exclude_exact`` instead punctures original
-    populations and priors and controls the retained kernel exclusion policy.
+    ``exclude_exact`` removes exact junction hits only. Model populations, priors,
+    graph summaries and mixture weights remain fixed for all queries.
     Original zero-density log(epsilon)+prior scores remain in continuous outputs,
     with an explicit support flag for call/no-hit handling. No synthetic
     availability flag substitutes for a zero-weight exact edge. Scores are uncalibrated.
@@ -269,17 +269,8 @@ def _graph_weight_cases(reference, queries, cases, *, chain, suffix, threads, ex
               'length_entropy', 'v_genes', 'v_entropy', 'effective_v_genes', 'clonotype_keys', 'source_records']
     if not records.height:
         return requested.with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in fields]).drop('group_id')
-    full, punctures = graph_mixture_weights(records.select('group_id', 'cdr3', 'v'), threads=threads, hamming_edges=hamming_edges)
+    full, _ = graph_mixture_weights(records.select('group_id', 'cdr3', 'v'), threads=threads, hamming_edges=hamming_edges, include_punctures=False)
     result = requested.join(full.select('group_id', *fields), on='group_id', how='left', validate='m:1', maintain_order='left')
-    if exclude_exact:
-        junction = 'cdr3' + suffix
-        result = result.join(queries.select('query_id', pl.col(junction).alias('excluded_junction')),
-            on='query_id', how='left', validate='m:1', maintain_order='left')
-        punctures = punctures.select('group_id', 'excluded_junction', *fields).with_columns(pl.lit(True).alias('_punctured'))
-        result = result.join(punctures, on=['group_id', 'excluded_junction'], how='left', suffix='_removed',
-            validate='m:1', maintain_order='left').with_columns(*[
-                pl.when(pl.col('_punctured').fill_null(False)).then(pl.col(c + '_removed')).otherwise(pl.col(c)).alias(c)
-                for c in fields]).drop(*[c + '_removed' for c in fields], '_punctured', 'excluded_junction')
     return result.drop('group_id')
 
 
@@ -297,8 +288,8 @@ def combine_components(components, normalizer_components, reference, queries, *,
 
     Paired alpha/beta axes use full same-target marginal models. Linked-axis
     composition weights are the equal mean of those two marginal weight vectors;
-    exact chain punctures apply to these marginal composition models, whereas
-    the linked native score punctures complete paired identity only. This rule
+    marginal composition models remain fixed, while the linked native hit list
+    excludes complete paired identities only. This rule
     never deletes linked reference pairs merely for sharing one query chain.
     Linked/original-factorized and unlinked marginal evidence stay separate until
     the maximum of their complete three-channel sums. Tied axis names survive.

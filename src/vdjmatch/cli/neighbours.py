@@ -464,17 +464,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             background_costs['native_count_batches']+=time.perf_counter()-count_start
             return result,mass,curve
         def populations(part,population):
-            if not a.exclude_exact:
-                return [population.height]*part.height
-            if paired:
-                exact=population.select(pl.col('alpha').alias('cdr3a'),pl.col('beta').alias('cdr3b')).join(
-                    part.select('cdr3a','cdr3b').unique(),on=['cdr3a','cdr3b'],how='semi')
-                multiplicity=dict((tuple(row[:2]),row[2]) for row in exact.group_by('cdr3a','cdr3b').len().iter_rows())
-                return [population.height-multiplicity.get(key,0) for key in part.select('cdr3a','cdr3b').iter_rows()]
-            # Only query identities can be punctured; avoid a full-control Python map.
-            exact=population.filter(pl.col('cdr3').is_in(part['cdr3'].unique().implode()))
-            multiplicity=dict(exact.group_by('cdr3').len().iter_rows())
-            return [population.height-multiplicity.get(s,0) for s in part['cdr3']]
+            # Exact exclusion changes hit counts only, never the reference model.
+            return [population.height] * part.height
         shared=None
         controls=None
         if a.background!='vdjdb-other':
@@ -964,8 +955,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
         **({'paired_call_event':paired_call_event(),'paired_source_sha256':paired_pipeline_sources()} if paired and kernel else {}),
         **({'geometry_extra':geometry_extra,
             'geometry_extra_status':'advanced retained diagnostic',
-            'normalization':('V-weighted population: punctured total plus historical pre-puncture same-V target count'
-                if geometry_extra in ('norm','jnorm') else 'punctured total population'),
+            'normalization':('fixed V-weighted reference population'
+                if geometry_extra in ('norm','jnorm') else 'fixed reference population'),
             **({'paired_normalization':'extension using the joint resolved V-family tuple; no historical joint validation'}
                if paired and geometry_extra in ('norm','jnorm') else {}),
             'calibration_transfer':'requires its own geometry and all-label selection calibration'} if geometry_extra else {}),
@@ -988,7 +979,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             'query_status_counts':dict(status.group_by('status').len().iter_rows()),
             'reference_key_unit':'distinct linked alpha/beta junction+V-allele+pMHC keys',
             'distance_unit':'alpha+beta sum to the same linked reference pair',
-            'exact_exclusion':'both full junctions equal; V calls do not change the puncture',
+            'exact_exclusion':'hit-list filter when both full junctions equal; model unchanged',
             'matrix_work_budget_bytes':32*1024**2,
             'independent_marginal_baseline':('full compatible TRA/TRB reference axes in separate outputs' if kernel else 'not emitted')} if paired else {}),
         **({'kernel':{'score_column':'kernel_score','scorer':a.kernel_scorer,
@@ -998,7 +989,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             'kernel_scale':22.5*matrix_scale,
             'cross_v':.25 if a.kernel_scorer.startswith('v-') else 1. if a.kernel_scorer.startswith('all-') else 0.,
             'denominator':'1+control_count' if a.kernel_scorer.endswith('bounded') else 'max(control_count,0.01)',
-            'normalization':'exact-punctured target population','interpretation':'relative evidence; not a calibrated P/E or binding probability',
+            'normalization':'fixed target population; exact hits filtered only','interpretation':'relative evidence; not a calibrated P/E or binding probability',
             'paired':'linked alpha+beta sum plus separate full-reference chain scores; no joint probability or fitted fusion'}} if kernel else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
         **({'chemistry':{'source_sha256':sha256(Path(local_chemistry_evidence.__code__.co_filename)),
@@ -1053,7 +1044,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             **({'boundaries':boundary_provenance} if boundary_provenance else {}),
             'formula':'reference_weight/[reference_population*(control_weight+0.5)/(control_population+1)]',
             'kernel':'max(0,1-distance/radius)' if a.neighbour_weighting=='linear' else 'distance<=radius',
-            'denominators':'reference distinct receptor/V-allele keys; controls use declared population units; both after optional full-junction exclusion',
+            'denominators':'reference distinct receptor/V-allele keys; controls use declared population units; both fixed under optional exact-hit filtering',
             'calibration':('none; posterior mean kernel mass under unit Dirichlet prior split equally at distance0/outside-radius; ranking only'
                            if a.neighbour_weighting=='linear' else 'none; Jeffreys background predictive smoothing, not a Bayes factor or P-value'),
             'nearest_output':'distance and native neighbour counts retain their unweighted comparator geometry'}} if a.background else {}),

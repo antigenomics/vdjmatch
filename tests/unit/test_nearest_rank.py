@@ -26,11 +26,18 @@ def test_cli_nearest_rank_recovers_outside_ball_without_changing_existing_fields
     controls=[b,c,d]
     if locus=='paired':d=paired_distance_matrix([a],[a],controls,controls,[genes[0]],[genes[1]],[genes[0]]*len(controls),[genes[1]]*len(controls))[0]
     else:d=distance_matrix([a],controls,[genes[0]],[genes[0]]*len(controls))[0]
-    m=int(np.count_nonzero(d<=distance));p=float(hypergeom.sf(0,4,1,m+1))
+    m = int(np.count_nonzero(d <= distance))
+    # Single-chain E retains q,b (N=2); complex_id0 is unlinked, so
+    # the paired target has only b,b (N=1). Both have three control keys.
+    N, M = (1 if locus == 'paired' else 2), 3
+    p = float(hypergeom.sf(0, N + M, N, m + 1))
     assert new['nearest_rank_control_count'][0]==m
     assert new['p_nearest_unbounded'][0]==pytest.approx(p)
     assert new['nearest_rank_score'][0]==pytest.approx(-p)
-    assert new['conditional_rank_bayes_factor'][0]==pytest.approx(4/(sum(1/i for i in range(1,5))*(m+1)))
+    H = sum(1 / i for i in range(1, M + 2))
+    far = sum(1 / i for i in range(m + 1, M + 2)) / (M - m + 1)
+    conditional = (M + 1) * (1 / (m + 1) + (N - 1) * far) / (N * H)
+    assert new['conditional_rank_bayes_factor'][0] == pytest.approx(conditional)
     assert new['nearest_rank_status'][0]=='conditional_rank_model_only' and p<1
     assert main(args+['--nearest-rank','--threads','2','--output-prefix',str(tmp_path/'parallel')])==0
     assert new.equals(pl.read_csv(tmp_path/'parallel.enrichment.tsv',separator='\t'))
@@ -52,11 +59,14 @@ def test_cli_nearest_rank_recovers_outside_ball_without_changing_existing_fields
     evidence=pl.read_csv(tmp_path/'adaptive.enrichment.tsv',separator='\t')
     assert evidence['selected_radius'].to_list()==[90]
     assert evidence['nearest_rank_control_count'].to_list()==new['nearest_rank_control_count'].to_list()
-    # Puncturing the sole target key leaves explicit empty evidence, not a call.
+    # Masking the sole remaining target hit leaves no nearest evidence or call;
+    # single-chain q stays in its fixed model, while complex_id0 is unlinked.
     pl.DataFrame([r for r in rows if r['cdr3']!=b or r['epitope']!='E']).write_csv(reference,separator='\t')
     assert main(args+['--nearest-rank','--output-prefix',str(tmp_path/'empty')])==0
     empty=pl.read_csv(tmp_path/'empty.enrichment.tsv',separator='\t')
-    assert empty['nearest_rank_score'][0] is None and empty['nearest_rank_status'][0]=='empty_population'
+    assert empty['nearest_rank_score'][0] is None
+    assert empty['nearest_rank_status'][0] == ('empty_population' if locus == 'paired' else 'no_nonexcluded_reference')
+    assert empty['reference_population'][0] == (0 if locus == 'paired' else 1)
     assert empty['conditional_rank_bayes_factor'][0] is None
 
 

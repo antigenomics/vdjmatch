@@ -34,8 +34,8 @@ def _csr(frame, key, values, size):
 def _other_counts(index, roles, lanes, params, max_indels, threads):
     """Distinct other-epitope AA neighbours: global minus epitope-exclusive AA.
 
-    Counts are inclusive of exact AA here; the fused native reducer punctures the
-    query from every AA/epitope role and adjusts these counts consistently.
+    Counts include exact AA; the fused native reducer excludes the query only
+    from candidate hits, leaving these model counts unchanged.
     Histogram calls are one batch per global/exclusive population, not per item.
     """
     needed = lanes.select('cdr3', 'epitope').unique().sort('cdr3', 'epitope')
@@ -88,9 +88,9 @@ def classical_scores(queries, reference, *, species='human', paired=False,
     Canonical queries have unique ``query_id,cdr3,v,j,locus`` and full pMHC fields;
     paired mode additionally requires a ``pair_id`` field but retains orphan,
     missing and ambiguous pair assignments. Only trained marginal scores exist.
-    A full query AA puncture removes all V/J/epitope roles when requested.
+    Exact exclusion removes matching AA candidates from the hit list only.
 
-    ``I=-log10((k_other_remaining+1)/N_remaining)`` uses distinct AA neighbours
+    ``I=-log10((k_other+1)/N)`` uses distinct AA neighbours
     and AA/epitope roles in the global species/chain population. Compatible
     assayed pMHC unions restrict requested target lanes before alignment. Counts
     preserve source multiplicities separately. Unknown genes remain unscored;
@@ -106,8 +106,6 @@ def classical_scores(queries, reference, *, species='human', paired=False,
     s, i, d, t = parse_scope(scope)
     if max(s, i, d, t) > 65535:
         raise ValueError('scope operation budgets cannot exceed 65535')
-    if exclude_exact and i != d:
-        raise ValueError('exact model punctures require symmetric insertion/deletion caps')
     params = SearchParams(max_subs=s, max_ins=i, max_dels=d, max_total_edits=t, engine='seqtm', matrix='')
     if missing := {'query_id', 'cdr3', 'v', 'j', 'locus', *PMHC} - set(queries.columns):
         raise ValueError('missing canonical query fields: ' + ', '.join(sorted(missing)))
@@ -121,6 +119,9 @@ def classical_scores(queries, reference, *, species='human', paired=False,
         raise ValueError('query fields collide with reserved classical scorer outputs')
     if not hasattr(Index, 'alignment_max_batch'):
         raise RuntimeError('trained scoring requires native Index.alignment_max_batch; install a capable seqtree build')
+    from seqtree import _core
+    if exclude_exact and not getattr(_core, 'exact_exclusion_hits_only', False):
+        raise RuntimeError('hit-list-only exact exclusion requires a capable seqtree native build')
     organism = _organism(species)
     aliases = ['human', 'homosapiens', 'homo sapiens'] if organism == 'human' else ['mouse', 'musmusculus', 'mus musculus']
     q = queries.with_row_index('_classical_row')
@@ -176,10 +177,7 @@ def classical_scores(queries, reference, *, species='human', paired=False,
         sizes = selected.group_by('_classical_target_id').agg(pl.len().alias('classical_reference_records'),
             pl.col('cdr3').n_unique().alias('classical_reference_junctions'))
         source = source.join(sizes, on='_classical_target_id', how='left', validate='m:1', maintain_order='left')
-        source = source.join(role.group_by('cdr3').len().rename({'len': '_classical_own_roles'}),
-            on='cdr3', how='left', validate='m:1', maintain_order='left').with_columns(
-                (pl.lit(role.height) - (pl.col('_classical_own_roles').fill_null(0) if exclude_exact else 0))
-                .cast(pl.UInt64).alias('classical_reference_epitope_roles'))
+        source = source.with_columns(pl.lit(role.height,dtype=pl.UInt64).alias('classical_reference_epitope_roles'))
         hist_calls = 0; align_calls = 0; nw_pairs = 0; candidate_count = 0
         histogram_seconds = 0.; alignment_seconds = 0.
         if unique.height and nodes.height and requests.height:
@@ -234,9 +232,8 @@ def classical_scores(queries, reference, *, species='human', paired=False,
             pl.col('classical_reference_junctions').fill_null(0).alias('classical_full_reference_junctions'),
             (pl.col('classical_excluded_exact_records').fill_null(0) if exclude_exact else pl.lit(0))
                 .alias('classical_excluded_exact_records')).with_columns(
-            (pl.col('classical_full_reference_records') - pl.col('classical_excluded_exact_records')).alias('classical_reference_records'),
-            (pl.col('classical_full_reference_junctions') - (pl.col('classical_excluded_exact_records') > 0).cast(pl.UInt32))
-                .alias('classical_reference_junctions'))
+            pl.col('classical_full_reference_records').alias('classical_reference_records'),
+            pl.col('classical_full_reference_junctions').alias('classical_reference_junctions'))
         status = pl.when(~pl.col('_classical_valid')).then(pl.lit('invalid_junction')).when(~pl.col('_classical_target')).then(pl.lit('invalid_target'))\
             .when((pl.col('_classical_v_id') < 0) & (pl.col('_classical_j_id') < 0)).then(pl.lit('unknown_vj_genes'))\
             .when(pl.col('_classical_v_id') < 0).then(pl.lit('unknown_v_gene')).when(pl.col('_classical_j_id') < 0).then(pl.lit('unknown_j_gene'))\
@@ -258,7 +255,7 @@ def classical_scores(queries, reference, *, species='human', paired=False,
             annotation_lanes=annotations.height, alignment_batches=align_calls, histogram_batches=hist_calls,
             histogram_seconds=histogram_seconds, alignment_seconds=alignment_seconds,
             native_nw_pairs=nw_pairs, native_candidate_junctions=candidate_count,
-            scope=scope, max_indels=max_indels, selection_gap=model['selection_gap'], exclude_exact=exclude_exact,
+            scope=scope, max_indels=max_indels, model_policy='fixed-reference-hit-exclusion-only', selection_gap=model['selection_gap'], exclude_exact=exclude_exact,
             unknown_query_gene_rows=lane.filter((pl.col('_classical_v_id') < 0) | (pl.col('_classical_j_id') < 0)).height,
             unknown_reference_gene_lanes=annotations.filter((pl.col('_classical_v_id') < 0) | (pl.col('_classical_j_id') < 0)).height,
             **{key: value for key, value in model.items() if key.startswith('sha256_')}))

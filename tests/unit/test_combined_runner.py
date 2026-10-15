@@ -40,9 +40,9 @@ def test_actual_single_components_preserve_original_oracle_and_missing_rows():
     assert scored.height == 6
     q = scored.filter((pl.col('query_id') == 'q') & (pl.col('epitope') == 'A'))
     raw = density(queries.head(1), reference.filter(pl.col('epitope') == 'A'), context['density_index'],
-        threads=1, pool_reference=True, puncture_populations=True)
+        threads=1, pool_reference=True, puncture_populations=False)
     prior = germline_prior(queries.head(1), reference.filter(pl.col('epitope') == 'A'), context['prior_background'],
-        exclude_exact=True, include_length=True)
+        exclude_exact=False, include_length=True)
     expected = unpaired_score(raw['score'], prior['germline_lr'], raw['n_reference'], log_scale=True)
     assert q['original_score'].item() == expected.item()
     assert q['gapblock_score'].item() > 0 and q['stem4_score'].item() > 0
@@ -117,7 +117,7 @@ def test_ordinary_exact_singleton_closed_form_retains_historical_density():
     benchmark = score_components(query, reference, context, species='human', locus='TRB', exclude_exact=True)
     exact = benchmark.filter(pl.col('epitope') == reference['cdr3'][0])
     assert not exact['original_supported'].item()
-    assert exact['original_score'].item() is None
+    assert exact['original_score'].item() == pytest.approx(np.log(1e-6) + exact['germline_lr'].item())
 
 
 def test_actual_paired_complete_calibration_retains_linked_roles_and_nohits(monkeypatch):
@@ -149,3 +149,31 @@ def test_actual_paired_complete_calibration_retains_linked_roles_and_nohits(monk
     assert tails['query_draws'].to_list() == [2] * 6
     assert set(tails['test_scope']) == {'epitope', 'database'}
     assert tails['p_both'].to_list() == tails.select(pl.max_horizontal('p_reference', 'p_query')).to_series().to_list()
+
+
+def test_benchmark_exact_mask_keeps_original_model_counts_and_priors_fixed():
+    from vdjmatch.match.historical import density, germline_prior, unpaired_score
+    query, reference, context = _single()
+    query = query.head(1).with_columns(pl.lit(reference['cdr3'][0]).alias('cdr3'))
+    target = reference.filter(pl.col('epitope') == 'A')
+    observed = score_components(query, reference, context, species='human', locus='TRB', exclude_exact=True)
+    observed = observed.filter(pl.col('epitope') == 'A')
+    raw = density(query, target, context['density_index'], pool_reference=True, puncture_populations=False)
+    prior = germline_prior(query, target, context['prior_background'], exclude_exact=False)
+    expected = unpaired_score(raw['score'], prior['germline_lr'], raw['n_reference'], log_scale=True)
+    assert observed['original_density'].item() == raw['score'].item()
+    assert observed['germline_lr'].item() == prior['germline_lr'].item()
+    assert observed['original_score'].item() == expected.item()
+    assert observed['original_exact_contribution'].item() == 0
+
+
+def test_benchmark_graph_weights_use_full_query_independent_reference():
+    from vdjmatch.runner.combined import _graph_weight_cases
+    query, reference, _ = _single()
+    reference = reference.with_columns(pl.when(pl.col('cdr3') == 'CASSIGQETQYF')
+        .then(pl.lit('CASSIGQETQYVF')).otherwise(pl.col('cdr3')).alias('cdr3'))
+    query = query.head(1).with_columns(pl.lit(reference['cdr3'][0]).alias('cdr3'))
+    cases = query.select('query_id').join(reference.select(PMHC).unique(), how='cross')
+    full = _graph_weight_cases(reference, query, cases, chain='TRB', suffix='', threads=1, exclude_exact=False)
+    masked = _graph_weight_cases(reference, query, cases, chain='TRB', suffix='', threads=1, exclude_exact=True)
+    assert full.sort(PMHC).equals(masked.sort(PMHC))

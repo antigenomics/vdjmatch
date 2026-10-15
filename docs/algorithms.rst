@@ -3,7 +3,7 @@ How VDJmatch scores a receptor
 
 All routes start with anchored junctions, chain identities and V genes. They
 retain reference peptide–MHC labels and query identity. Ordinary annotation
-keeps exact evidence; a benchmark explicitly removes the query clonotype.
+keeps exact evidence; a benchmark filters exact query hits while keeping the reference model fixed.
 
 Current kernel evidence
 -----------------------
@@ -109,7 +109,7 @@ Reference structure for scoring weights
      target [label="Partition edges by target membership\nPreserve source records and V annotations"];
      connectivity [label="Components and articulation fragments\nExact full-junction removal profiles"];
      usage [label="Junction-length and V-usage composition\nRemove the same junction contributions"];
-     tables [label="Full and punctured feature tables\nGraph morphology, length and V diversity"];
+     tables [label="Full-reference feature tables\nGraph morphology, length and V diversity"];
      future [label="Proposed reference-to-weight rule\nGraph, length and V usage; chainwise",style="rounded,dashed",color="#777777"];
      scores [label="Original, gap-block and stem4 scores\nMatching component null populations"];
      tails [label="Conservative empirical null tails\nCommon log-evidence scale (nats)"];

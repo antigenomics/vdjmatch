@@ -56,7 +56,7 @@ def test_shipping_cli_restores_raw_source_and_reports_scope(tmp_path):
         scope='1,0,0,1',exclude_exact=True,reference_population='all-valid',threads=1,output_prefix=str(prefix)))==0
     frame=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
     assert frame['naive_neighbor_junctions'].item()==1 and frame['naive_nearest_score'].item()==-1
-    assert frame['beta_full_reference_records'].item()==2 and frame['beta_reference_records'].item()==1
+    assert frame['beta_full_reference_records'].item()==2 and frame['beta_reference_records'].item()==2
 
 
 def test_empty_reference_and_invalid_source_cases_stay_present(tmp_path):
@@ -111,3 +111,25 @@ def test_trained_cli_reuses_source_boundary_and_writes_flat_provenance(tmp_path,
     pl.read_csv(q,separator='\t').with_columns(pl.lit(0).alias('classical_score')).write_csv(q,separator='\t')
     with pytest.raises(ValueError,match='reserved'):
         main(arguments)
+
+
+def test_exact_hit_mask_keeps_single_and_linked_reference_metadata_fixed():
+    q = pl.DataFrame([dict(query_id=l, pair_id='p', cdr3=s, v=v, j=j, locus=l, **CONTEXT)
+        for l, s, v, j in [('TRA', 'CCAF', 'TRAV1', 'TRAJ1'), ('TRB', 'CASSF', 'TRBV1', 'TRBJ1-1')]])
+    r = pl.DataFrame([dict(cdr3=s, v=v, j=j, gene=l, complex_id=c, species='HomoSapiens', **CONTEXT)
+        for l, s, v, j, c in [('TRA', 'CCAF', 'TRAV1', 'TRAJ1', '1'),
+                             ('TRB', 'CASSF', 'TRBV1', 'TRBJ1-1', '1'),
+                             ('TRA', 'CAAF', 'TRAV1', 'TRAJ1', '2'),
+                             ('TRB', 'CASSF', 'TRBV1', 'TRBJ1-1', '2')]])
+    ordinary, _ = fixed_scope_scores(q, r, paired=True)
+    excluded, _ = fixed_scope_scores(q, r, paired=True, exclude_exact=True)
+    fields = [c for c in ordinary.columns if '_reference_' in c and '_excluded_' not in c]
+    assert ordinary.select(fields).equals(excluded.select(fields))
+    assert excluded['linked_reference_complexes'].item() == 2
+    assert excluded['linked_reference_junction_pairs'].item() == 2
+    assert excluded['linked_excluded_reference_complexes'].item() == 1
+    assert excluded['linked_neighbor_junction_pairs'].item() == 1
+    assert excluded['alpha_excluded_reference_records'].item() == 1
+    assert excluded['beta_excluded_reference_records'].item() == 2
+    assert excluded['alpha_neighbor_junctions'].item() == 1
+    assert excluded['beta_neighbor_junctions'].item() == 0

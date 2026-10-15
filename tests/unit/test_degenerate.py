@@ -89,7 +89,8 @@ def test_class_cli_retains_raw_exclusion_and_matrix_recipe(tmp_path):
     coarse = pl.read_csv(tmp_path/'imgt.candidates.tsv', separator='\t')
     assert full['distance'][0] > 0 and coarse['distance'][0] == 0
     e = pl.read_csv(tmp_path/'imgt.enrichment.tsv', separator='\t')
-    assert e['reference_population'][0] == 1
+    # Raw q and its class-equivalent alias remain model keys; only q's hit is masked.
+    assert e['reference_population'][0] == 2
     manifest = json.loads((tmp_path/'imgt.manifest.json').read_text())
     scale = manifest['distance_scale']
     assert scale['alphabet'] == 'imgt'

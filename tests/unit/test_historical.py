@@ -439,41 +439,16 @@ def _paired_cli_inputs(tmp_path):
     return raw,sample,prefix,args
 
 
-def test_cli_candidate_puncture_keeps_ids_and_reports_empty_populations(tmp_path):
+def test_rejected_model_puncture_preserves_completed_original_outputs(tmp_path):
     from vdjmatch.cli.__main__ import main
-    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
-    assert main(args)==0
-    baseline=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
-    assert main(args+['--puncture-populations'])==0
-    paired=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
-    assert paired['query_id'].to_list()==baseline['query_id'].to_list()
-    assert paired['status'].to_list()==['no_reference_alpha','no_reference_beta','missing_beta','invalid_alpha']
-    assert paired['score'].to_list()==[None]*4
-    assert paired['n_reference_alpha'].to_list()[:2]==[0,1]
-    assert paired['n_reference_beta'].to_list()[:2]==[1,0]
-    assert main(args)==0
-    assert pl.read_csv(str(prefix)+'.scores.tsv',separator='\t').equals(baseline)
-    raw.filter(pl.col('locus')=='TRB').write_csv(sample,separator='\t')
-    single=list(args)
-    single[single.index('--locus')+1]='TRB'
-    i=single.index('--alpha-control');del single[i:i+2]
-    for selection in ['sample','pooled']:
-        options=list(single)
-        if selection=='pooled':
-            options.remove('--targets-from-sample')
-            options+=['--pool-reference','--epitope','E','--mhc-a','HLA-A*02','--mhc-match','compatible']
-        assert main(options+['--puncture-populations'])==0
-        out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
-        assert out['query_id'].to_list()==['b1','b2','b4']
-        assert out['status'].to_list()==['scored','no_reference','scored']
-        assert out['n_reference'].to_list()==[1,0,1]
-        assert out['score'][1] is None and out['score'][0] is not None
-    prior=Path(single[single.index('--germline-background')+1])
-    pl.read_csv(prior,separator='\t').tail(2).write_csv(prior,separator='\t')
-    assert main(single+['--puncture-populations'])==0
-    out=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
-    assert out['status'].to_list()==['no_prior_evidence','no_reference','no_prior_evidence']
-    assert out['score'].to_list()==[None]*3
+    _, _, prefix, args = _paired_cli_inputs(tmp_path)
+    assert main(args) == 0
+    scores = Path(str(prefix) + '.scores.tsv')
+    baseline = scores.read_bytes()
+    with pytest.raises(SystemExit) as error:
+        main(args + ['--puncture-populations'])
+    assert error.value.code == 2
+    assert scores.read_bytes() == baseline
 
 
 def test_cli_shared_cdf_preserves_paired_and_single_target_outputs(tmp_path, monkeypatch):
@@ -829,44 +804,15 @@ def test_density_exports_punctured_reduction_without_another_neighbour_search(mo
         assert both['punctured_'+field].to_list()==punctured[field].to_list()
 
 
-@pytest.mark.parametrize('extra_reference',[False,True])
-@pytest.mark.parametrize('multiple_targets',[False,True])
-def test_paired_export_punctured_preserves_fixed_and_matches_candidate(tmp_path,monkeypatch,extra_reference,multiple_targets):
+@pytest.mark.parametrize('flag', ['--puncture-populations', '--export-punctured'])
+def test_model_puncture_options_are_rejected_before_loading(tmp_path, capsys, flag):
     from vdjmatch.cli.__main__ import main
-    from vdjmatch.match import historical
-    raw,sample,prefix,args=_paired_cli_inputs(tmp_path)
-    raw.with_columns(pl.lit('cohort').alias('cohort')).write_csv(sample,separator='\t')
-    if extra_reference:
-        path=Path(args[args.index('--vdjdb')+1]);ref=pl.read_csv(path,separator='\t')
-        mutants=ref.with_columns(pl.Series('cdr3',['CAVRDTNYQLIW','CASSLGRAYEQYF']))
-        pl.concat([ref,mutants]).write_csv(path,separator='\t')
-    if multiple_targets:
-        raw=pl.read_csv(sample,separator='\t')
-        other=raw.with_columns((pl.lit('f-')+pl.col('query_id')).alias('query_id'),
-            (pl.lit('f-')+pl.col('clone_id')).alias('clone_id'),pl.lit('F').alias('epitope'))
-        pl.concat([raw,other]).write_csv(sample,separator='\t')
-        path=Path(args[args.index('--vdjdb')+1]);ref=pl.read_csv(path,separator='\t')
-        pl.concat([ref,ref.with_columns(pl.lit('F').alias('epitope'))]).write_csv(path,separator='\t')
-    options=args+['--cohort-column','cohort','--likelihood-score']
-    assert main(options)==0
-    fixed=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
-    assert main(options+['--puncture-populations'])==0
-    candidate=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
-    calls=[];native=historical._density_neighbours
-    def spy(*args,**kwargs):
-        calls.append(1);return native(*args,**kwargs)
-    monkeypatch.setattr(historical,'_density_neighbours',spy)
-    assert main(options+['--export-punctured'])==0
-    both=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
-    assert len(calls)==(4 if multiple_targets else 2)
-    assert both.select(fixed.columns).equals(fixed)
-    for name in ('status','likelihood_score'):
-        assert both['punctured_'+name].to_list()==candidate[name].to_list()
-    for side in ('alpha','beta'):
-        for name in ('status','likelihood_score','density_score','germline_lr','n_reference','control_size'):
-            actual='punctured_'+name+'_'+side
-            expected=name+'_'+side
-            assert both[actual].to_list()==candidate[expected].to_list(),actual
+    with pytest.raises(SystemExit) as error:
+        main(['historical-density', str(tmp_path / 'missing.tsv'), '--vdjdb',
+              str(tmp_path / 'missing-reference.tsv'), '--locus', 'TRB',
+              '--output-prefix', str(tmp_path / 'result'), flag])
+    assert error.value.code == 2
+    assert 'hit-list filter only' in capsys.readouterr().err
 
 
 @pytest.mark.parametrize('exclude_exact', [False, True])

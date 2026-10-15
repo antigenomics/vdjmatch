@@ -433,7 +433,7 @@ exactly when any target reference lies within the fixed radius. If all target
 references are outside it, the exhaustive nearest reference refines their
 null-conditional mean: the first target has reciprocal control rank ``1/(k+1)``,
 and the remaining ``N-1`` targets contribute the mean over ranks ``k+1..M+1``.
-Here ``N`` and ``M`` are the punctured target and control populations, and ``k``
+Here ``N`` and ``M`` are the fixed target and control populations, and ``k``
 is the number of controls at or nearer than the exhaustive nearest target.
 The usual harmonic normalization is retained. Control ties are conservative.
 This common rule preserves linked pairs and uses no fitted blend or task switch.
@@ -512,7 +512,7 @@ Rank averages normalized reciprocal background ranks over **all references**,
 with conservative tied-distance intervals as in the local-rank model above.
 Exact distance bins cover every finite CDR3-only distance: clipped substitution
 and gap costs are at most twelve per full-junction residue per chain, and distances
-are multiples of three. The final counts must equal the punctured populations.
+are multiples of three. With exact-hit filtering, final hit counts omit those hits; model population sizes stay fixed.
 
 For the retained kernel diagnostics, the shared conditional pseudo-observation is c=(r+b+0.5)/(n+m+1); conditional
 kernel means are (r+c)/(n+1) and (b+c)/(m+1). The score is the ratio of their

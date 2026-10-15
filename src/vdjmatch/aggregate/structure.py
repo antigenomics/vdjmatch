@@ -8,12 +8,13 @@ import math
 import operator
 
 
-def graph_profiles(n, edges):
+def graph_profiles(n, edges, *, include_punctures=True):
     """Return full and vertex-punctured graph counts in O(vertices + edges).
 
     Vertices are unique full junctions; edges join one-substitution neighbours.
     Removing a vertex removes every associated V annotation from the caller's
     composition table. This function supplies connectivity, not recognition odds.
+    Normal scoring sets include_punctures=False and returns no deletion diagnostics.
     """
     if isinstance(n, bool) or not isinstance(n, int) or n < 0:
         raise ValueError('nonnegative integer vertex count required')
@@ -79,6 +80,8 @@ def graph_profiles(n, edges):
 
     full = summary(n,len(component_sizes),singletons,largest[0] if largest else 0,
                    len(unique),total_log,total_square)
+    if not include_punctures:
+        return full, []
     punctured = []
     for u in range(n):
         old = component_sizes[component[u]]
@@ -95,7 +98,7 @@ def graph_profiles(n, edges):
     return full, punctured
 
 
-def composition(records, junctions):
+def composition(records, junctions, *, include_punctures=True):
     """Full and exact-junction-punctured length/V summaries; no query labels."""
     import math
     import numpy as np
@@ -116,13 +119,14 @@ def composition(records, junctions):
     records_per_seq = dict(records.group_by('cdr3').len().iter_rows())
     removed_keys = dict(keys.group_by('cdr3').len().iter_rows())
     # Each sequence removes its full contribution from every V category.
-    changes = keys.group_by('cdr3','_gene').len().rename({'len':'_removed'}).join(
-        counts,on='_gene',validate='m:1').sort('cdr3','_gene')
     v_changes = {}
-    for sequence, part in changes.group_by('cdr3',maintain_order=True):
-        before = part['len'].to_list(); after = (part['len']-part['_removed']).to_list()
-        v_changes[sequence[0]] = (math.fsum(flog(new)-flog(old) for old,new in zip(before,after)),
-                                  sum(x==0 for x in after))
+    if include_punctures:
+        changes = keys.group_by('cdr3','_gene').len().rename({'len':'_removed'}).join(
+            counts,on='_gene',validate='m:1').sort('cdr3','_gene')
+        for sequence, part in changes.group_by('cdr3',maintain_order=True):
+            before = part['len'].to_list(); after = (part['len']-part['_removed']).to_list()
+            v_changes[sequence[0]] = (math.fsum(flog(new)-flog(old) for old,new in zip(before,after)),
+                                      sum(x==0 for x in after))
 
     def row(removed=None):
         n = len(seqs)-(removed is not None)
@@ -144,4 +148,4 @@ def composition(records, junctions):
             reference_records=records.height-(records_per_seq[removed] if removed is not None else 0),
             excluded_reference_records=records_per_seq[removed] if removed is not None else 0,
             excluded_clonotype_keys=k)
-    return row(), [row(sequence) for sequence in seqs]
+    return row(), [row(sequence) for sequence in seqs] if include_punctures else []

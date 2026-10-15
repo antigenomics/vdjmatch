@@ -61,24 +61,39 @@ def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,backgroun
     assert main(args)==0
     scores=pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t')
     e=scores.filter(pl.col('epitope')=='E').row(0,named=True)
-    assert e['n_reference']==e['reference_population']==1
-    M=2 if background=='generative' else 1
-    assert e['n_control']==e['control_population']==M
-    assert e['expected_count']==(M+.5)/(M+1)
-    assert e['enrichment']==pytest.approx((M+1)/(M+.5))
+    # E has two model keys (q,r), but only r remains in its hit list.
+    N = 2
+    M = 3 if background == 'generative' else 2
+    m = 2 if background == 'generative' else 1
+    assert e['n_reference'] == 1 and e['reference_population'] == N
+    assert e['n_control'] == m and e['control_population'] == M
+    expected = N * (m + .5) / (M + 1)
+    assert e['expected_count'] == expected
+    assert e['enrichment'] == pytest.approx(1 / expected)
     assert not e['zero_control_hits']
-    unavailable=scores.filter(pl.col('epitope')!='E')
-    assert unavailable['enrichment'].null_count()==2
-    assert unavailable['reference_population'].to_list()==[0,0]
+    absent = scores.filter(pl.col('epitope') == 'absent').row(0, named=True)
+    exact_only = scores.filter(pl.col('epitope') == 'exact-only').row(0, named=True)
+    assert absent['enrichment'] is None and absent['reference_population'] == 0
+    assert exact_only['reference_population'] == 1 and exact_only['n_reference'] == 0
+    assert exact_only['enrichment'] == 0
     manifest=json.loads((tmp_path/'out.manifest.json').read_text())
     assert manifest['calibration']=='none'
     assert manifest['background_enrichment']['geometry']=='trim3/3'
     if weighting=='local-rank':
-        assert e['rank_bayes_factor']==pytest.approx(1)
-        assert e['p_rank_bound']==pytest.approx(1)
-        assert e['posterior_rank_signal']==pytest.approx(.3)
-        assert unavailable['rank_bayes_factor'].null_count()==2
-        assert unavailable['posterior_rank_signal'].to_list()==pytest.approx([.3,.3])
+        # One near target averages inverse ranks1..m+1; the other model
+        # target stays censored, averaging inverse ranks m+1..M+1.
+        H = sum(1 / k for k in range(1, M + 2))
+        near = sum(1 / k for k in range(1, m + 2)) / (m + 1)
+        far = sum(1 / k for k in range(m + 1, M + 2)) / (M - m + 1)
+        bf = (M + 1) * (near + (N - 1) * far) / (N * H)
+        assert e['rank_bayes_factor'] == pytest.approx(bf)
+        assert e['p_rank_bound'] == pytest.approx(min(1, 1 / bf))
+        assert e['posterior_rank_signal'] == pytest.approx(.3 * bf / (.7 + .3 * bf))
+        assert absent['rank_bayes_factor'] is None
+        assert absent['posterior_rank_signal'] == pytest.approx(.3)
+        exact_bf = (M + 1) * far / H
+        assert exact_only['rank_bayes_factor'] == pytest.approx(exact_bf)
+        assert exact_only['posterior_rank_signal'] == pytest.approx(.3 * exact_bf / (.7 + .3 * exact_bf))
         assert manifest['local_rank_model']['prior']==.3
 
 
@@ -93,7 +108,7 @@ def test_background_options_reject_undefined_joint_and_ignored_controls():
 
 @pytest.mark.parametrize('weighting',['linear','local-rank'])
 @pytest.mark.parametrize('geometry',['uniform','ndn'])
-def test_linear_paired_score_keeps_linkage_and_punctures_both_populations(tmp_path,weighting,geometry):
+def test_linear_paired_score_keeps_linkage_and_masks_hits_with_fixed_populations(tmp_path,weighting,geometry):
     if geometry=='ndn':
         pytest.importorskip('arda.cdr3fix')
         from seqtree import gapblock
@@ -111,18 +126,21 @@ def test_linear_paired_score_keeps_linkage_and_punctures_both_populations(tmp_pa
         '--exclude-exact','--radius','18','--position-weighting',geometry,'--output-prefix',str(prefix)]
     assert main(args)==0
     row=pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t').row(0,named=True)
-    # Query identities remove the exact pair, not the two marginal matches.
-    assert row['reference_population']==row['n_reference']==1
-    assert row['control_population']==row['n_control']==2
+    # Exact/exact hit is removed; both full linked model pairs remain.
+    assert row['reference_population'] == 2 and row['n_reference'] == 1
+    assert row['control_population'] == row['n_control'] == 2
     if weighting=='linear':
         assert row['reference_weight']==pytest.approx(.5)
         assert row['control_weight']==pytest.approx(.5)  # linked distances9 and18
-        assert row['enrichment']==pytest.approx(1.5)
+        # N=2, M=2, target weight1/2, control weight1/2.
+        assert row['enrichment'] == pytest.approx(.5 / (2 * (.5 + .5) / 3))
     else:
-        assert row['rank_bayes_factor']==pytest.approx(27/22)
-        assert row['p_rank_bound']==pytest.approx(22/27)
-        assert row['p_nearest_rank']==pytest.approx(2/3)
-        assert row['posterior_rank_signal']==pytest.approx(27/49)
+        # Near target inverse-rank mean3/4; censored second target1/3.
+        bf = 3 * (3/4 + 1/3) / (2 * (1 + 1/2 + 1/3))
+        assert row['rank_bayes_factor'] == pytest.approx(bf)
+        assert row['p_rank_bound'] == pytest.approx(min(1, 1 / bf))
+        assert row['p_nearest_rank'] == pytest.approx(5/6)
+        assert row['posterior_rank_signal'] == pytest.approx(bf / (1 + bf))
     status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t',infer_schema_length=0)
     assert status['pair_id'].to_list()==['001']
 
