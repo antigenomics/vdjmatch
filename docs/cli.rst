@@ -1160,6 +1160,12 @@ junction/resolved-V keys define the search population; paired mode uses genuine
 linked receptors and the summed distance to the same reference pair. Source
 observation counts and unavailable keys remain explicit.
 
+Use ``--matrix blosum62`` for full BLOSUM62 costs; the default remains
+``clipped``. The selected matrix supplies junction and V-loop costs, gaps,
+coverage units and the knee-radius ratio. The manifest records this geometry;
+radii from different matrices are not interchangeable. ``pam250``, ``mj`` and
+``vdjam`` are also supported by the existing distance backend.
+
 ``neighbours --reference-radius`` applies this selection to each
 sample-declared compatible reference union. It requires uniform geometry,
 V loops, ``--nearest-rank --unbounded-nearest --targets-from-sample``,

@@ -68,7 +68,8 @@ def test_reference_nearest_matches_exhaustive_full_identity_oracle(paired):
     assert np.isnan(geometry.reference_nearest_distances(lone, paired=paired)).all()
 
 
-def test_reference_radius_cli_keeps_unresolved_and_no_knee_dispositions(tmp_path):
+@pytest.mark.parametrize('matrix', ['clipped', 'blosum62'])
+def test_reference_radius_cli_keeps_unresolved_and_no_knee_dispositions(tmp_path, matrix):
     from vdjmatch.cli.__main__ import main
     source = tmp_path/'reference.tsv'
     prefix = tmp_path/'radius'
@@ -76,7 +77,7 @@ def test_reference_radius_cli_keeps_unresolved_and_no_knee_dispositions(tmp_path
                   'v': ['TRBV19', 'TRBV19', 'unknown'], 'gene': ['TRB']*3,
                   'epitope': ['PEPTIDE']*3, 'species': ['HomoSapiens']*3}).write_csv(source, separator='\t')
     assert main(['reference-radius', '--vdjdb', str(source), '--locus', 'TRB', '--species', 'human',
-                 '--output-prefix', str(prefix)]) == 0
+                 '--matrix', matrix, '--output-prefix', str(prefix)]) == 0
     out = pl.read_csv(str(prefix)+'.radii.tsv', separator='\t')
     assert out['source_observations'].to_list() == [3]
     assert out['unavailable_observations'].to_list() == [1]
@@ -102,3 +103,28 @@ def test_reference_structure_cli_profiles_compatible_union(tmp_path):
     assert rows['reference_keys'].to_list()==[0,2]
     assert rows['source_observations'].to_list()==[0,2]
     assert rows['reference_coverage'].to_list()==[0.,1.]
+
+
+def test_reference_radius_cli_uses_selected_matrix_units(tmp_path, monkeypatch):
+    import json
+    from vdjmatch.cli.__main__ import main
+    source, prefix = tmp_path/'reference.tsv', tmp_path/'radius'
+    pl.DataFrame({'cdr3': ['CASSLGQAYEQYF', 'CASSLGRAYEQYF', 'CASSIGQAYEQYF'],
+        'v': ['TRBV19']*3, 'gene': ['TRB']*3, 'epitope': ['PEPTIDE']*3,
+        'species': ['HomoSapiens']*3}).write_csv(source, separator='\t')
+    scale = geometry.distance_units(geometry._substitution_costs(matrix='blosum62'))[0]
+    def nearest(frame, **options):
+        assert options['matrix'] == 'blosum62'
+        assert frame.height == 3
+        return np.array([10., 20., 30.])*scale
+    monkeypatch.setattr(geometry, 'reference_nearest_distances', nearest)
+    monkeypatch.setattr(geometry, 'kneedle_radius', lambda _: 10.*scale)
+    assert main(['reference-radius', '--vdjdb', str(source), '--locus', 'TRB',
+        '--matrix', 'blosum62', '--output-prefix', str(prefix)]) == 0
+    row = pl.read_csv(str(prefix)+'.radii.tsv', separator='\t').row(0, named=True)
+    assert row['reference_coverage'] == pytest.approx(2/3)
+    assert row['knee_radius_ratio'] == pytest.approx(10/32.5)
+    manifest = json.loads(prefix.with_suffix('.manifest.json').read_text())
+    assert manifest['structure_features']['matrix_scale'] == scale
+    assert manifest['options']['matrix'] == 'blosum62'
+    assert 'blosum62' in manifest['geometry']
