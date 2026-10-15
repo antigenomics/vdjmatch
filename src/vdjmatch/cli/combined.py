@@ -221,11 +221,11 @@ def main(a):
         if not receptors.height:
             continue
         chains = ['TRA', 'TRB'] if locus == 'paired' else [locus]
-        events = {chain: events_by_chain[chain] for chain in chains}
         if not reference.filter(pl.col('gene').is_in(chains)).height:
             query = query.with_columns(pl.when(pl.col('calibration_query_id').is_in(receptors['query_id'].implode()))
                 .then(pl.lit('no_reference')).otherwise(pl.col('calibration_status')).alias('calibration_status'))
             continue
+        events = {chain: events_by_chain[chain] for chain in chains}
         detail, tail = calibrate_combined(receptors, reference, control, species=organism, locus=locus,
             replicates=a.mock_replicates, seed=a.seed, threads=a.threads, exclude_exact=a.exclude_exact)
         details.append(detail.with_columns(pl.lit(organism).alias('species'), pl.lit(locus).alias('locus')))

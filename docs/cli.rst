@@ -122,7 +122,7 @@ With ``--details``, ``.paired-evidence.tsv`` keeps those three scores together. 
 three component labels/statuses and ``has_support``; missing linked references
 cannot veto a supported marginal. There is no inferred joint probability.
 
-The original scorer remains available as ``historical-density``. Existing
+The original PSSM-density scorer remains available as ``historical-density``. Existing
 advanced alternatives remain in ``historical-density`` and ``neighbours``;
 see their installed ``--help`` for options. Enrichment exports all/V-weighted/
 same-V-only ladder scores with bounded and rare-control denominators. These
@@ -1412,6 +1412,66 @@ PSSM-density remains available through ``historical-density`` with its declared
 model assets. It is a separate scoring option from fixed-scope distance/counts,
 NED-v1, kernel scores and reference-weighted combinations. Comparisons must
 preserve the same observations, target definitions and exact-exclusion policy.
+
+vdjmatch trained-score
+----------------------------
+
+Score declared peptide--MHC targets with the bundled frozen alignment model:
+
+This command requires native ``seqtree.Index.alignment_max_batch`` and histogram
+aggregate-indel support. Older native builds fail explicitly before scoring.
+
+.. code-block:: sh
+
+   vdjmatch trained-score assays.tsv --vdjdb reference.zip --scope 4,2,2,6 \
+     --max-indels 2 --exclude-exact --reference-population curated-benchmark \
+     --threads 4 --output-prefix trained
+
+Inputs use the same source-preserving boundary as ``fixed-scope``. The four
+scope entries retain their substitution/insertion/deletion/total meaning;
+``--max-indels`` additionally bounds the sum of insertions and deletions.
+The defaults therefore admit four substitutions and two aggregate indels.
+This candidate predicate is separate from the subsequent alignment optimization.
+Matching uses full junctions including conserved anchors; bare AIRR ``cdr3_aa``
+does not supply those anchors.
+
+For each candidate, global Needleman--Wunsch maximizes raw VDJAM similarity
+with linear gap charge :math:`\lambda=\max_{a,b}|M(a,b)|`. Let :math:`U` be
+the selected alignment's residue-pair similarity sum without gap charges,
+:math:`g` its gap-residue count, and :math:`H(q),H(r)` the full-junction diagonal
+self sums. The CDR3 term is :math:`C_3=U-\max(H(q),H(r))`. The frozen model is
+
+.. math::
+
+   \eta=b+\beta_V S_V+\beta_1 S_1+\beta_2 S_2+\beta_J S_J
+          +\beta_3 C_3+\gamma g,
+   \qquad P_{\mathrm{fit}}=-\operatorname{expm1}(-\exp\eta).
+
+The bundled V/CDR1/CDR2/J terms :math:`S_V,S_1,S_2,S_J` are already
+self-normalized. The fitted coefficient :math:`\gamma` is applied after
+alignment selection; it does not replace :math:`\lambda` in the NW search.
+All coefficients and similarities retain their bundled precision. No model
+file or fitting step is supplied by the user.
+
+The target ranking is the best hit's :math:`P_{\mathrm{fit}} I`, with
+:math:`I=-\log_{10}((k+1)/N)`. Within each species/chain, :math:`N` counts
+distinct full-junction/epitope roles and :math:`k` counts distinct junctions
+carrying another epitope within the same candidate scope. Cross-reactive
+junctions retain every epitope role. Benchmark exclusion deletes the complete
+query junction from every role and adjusts both counts before scoring.
+
+Unknown or ambiguous V/J calls remain explicit unscored rows; the command
+does not invent an allele or use an unspecified missing-gene fallback.
+Rows with missing or other-species metadata remain ``unselected_species``;
+``--species`` selects the population scored in this invocation.
+``--paired`` retains source pairing and both trained marginal rows, including
+incomplete pairs. A trained joint probability is unavailable: no paired model
+is fabricated from the single-chain coefficients.
+
+Outputs are ``.scores.tsv`` and flat ``.provenance.tsv``, retaining source
+identities, no-hits, model/native hashes and the exact budgets. These are
+ranking/model scores, not calibrated match P-values or binding posteriors.
+Calibration from another scorer cannot be transferred to them.
 
 vdjmatch reference-structure
 ----------------------------

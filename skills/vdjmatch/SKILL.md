@@ -54,6 +54,10 @@ queries, selections = result["queries"], result["selection"]
   methods. `fixed-scope` reports unit-edit distances and neighbor counts separately;
   use a query table with declared full pMHC targets. State the exact operation
   budgets and counting unit, and preserve every no-hit and supplied negative.
+  `trained-score` uses the bundled frozen alignment model and hit informativeness;
+  its candidate scope and aggregate indel cap precede NW alignment. Preserve its
+  trained marginal outputs without inventing a paired probability or transferring
+  another scorer's calibration.
 - Supply an explicit `--threads` budget. Keep queries in population batches; do not
   wrap annotation/search in a per-receptor or per-file multiprocessing pool.
   For Python, set `POLARS_MAX_THREADS` before importing Polars if its existing pool
@@ -165,12 +169,14 @@ null-tail scales and sums their explicit `original_weight`, `gapblock_weight`,
 them in output and derive them from the declared reference morphology, never
 assay labels or epitope lookup. Missing components contribute zero without weight
 redistribution; entirely unsupported weighted evidence stays unavailable. The
-automatic weighting law is not implemented. Input scorer/reference/exclusion/null
-identities must match. Component tails are not the final fused P-value.
+low-level command consumes explicit weights; `annotate --control` derives them
+from the reference and recomputes them for mock references. Input
+scorer/reference/exclusion/null identities must match. Component tails are not
+the final fused P-value.
 
 ## Database-level diagnostic
 
-The normal control workflow is now
+For a separate scoped nearest/count diagnostic, use
 `database-evidence SAMPLE --vdjdb REFERENCE --control RAW_CONTROL --locus TRB
 --species human --scope 1,0,0,1 --statistic nearest --threads 4 --output-prefix OUT`.
 It computes fresh native marginal Pgen, samples reference-size/per-pMHC Pgen

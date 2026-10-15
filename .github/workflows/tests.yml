@@ -35,3 +35,7 @@ jobs:
         run: pytest -m "not slow" -ra
       - name: Verify cohort CLI/library parallelism and process-tree memory
         run: pytest tests/test_annotation_resources.py -q
+      - name: Verify frozen alignment against its pinned native implementation
+        run: |
+          pip install --no-deps "seqtree @ git+https://github.com/antigenomics/seqtree.git@8cfb2f0e8cd29330a87bad0ccf1644ad04fd7cef"
+          pytest tests/unit/test_classical.py tests/unit/test_fixed_scope.py -q

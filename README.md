@@ -92,7 +92,7 @@ Four threads sped up the 2,670-query example from 13.71 to 4.69 seconds
 - Latest/pinned GitHub releases and offline legacy, rich or AIRR reference inputs.
 - Source-aware junction ingestion, stable row identities and explicit ingestion counts.
 - Native batched searches by locus, with retained reference observations.
-- Targeted stem4 kernel annotation; PSSM-density, fixed-scope unit-edit distance
+- Targeted stem4 kernel annotation; frozen alignment scores, PSSM-density, fixed-scope unit-edit distance
   and neighbor counts, and other retained scorers remain comparison options.
 - All peptide–MHC candidates, NED-v1 ranking and competing-label support.
 - Optional finite-background calibration with a stated counting unit and search predicate.
@@ -117,8 +117,9 @@ AIRR input uses anchor-inclusive `junction_aa` and V calls. The default scores a
 peptide–MHC targets with the stem4 BLOSUM62 kernel ladder. `--locus paired` also
 retains independent TRA/TRB evidence from unlinked references. Scores are relative
 evidence; whole-selection null calibration is required for false-call recommendations.
-The original scorer remains available through `historical-density`; advanced
-alternatives remain available through that command and `neighbours`.
+The original PSSM-density scorer remains available through `historical-density`;
+`trained-score` uses the bundled frozen alignment coefficients and hit informativeness.
+Advanced alternatives remain available through `historical-density` and `neighbours`.
 
 | Query format | Required sequence/gene fields | Identity/linkage |
 | --- | --- | --- |

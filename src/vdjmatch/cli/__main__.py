@@ -836,6 +836,7 @@ def main(argv: list[str] | None = None) -> int:
     register_structure(sub)
     from .fixed_scope import register as register_fixed_scope
     register_fixed_scope(sub)
+    register_fixed_scope(sub, trained=True)
 
     a = p.parse_args(argv)
     import os
@@ -846,7 +847,7 @@ def main(argv: list[str] | None = None) -> int:
         evidence_commands.add('annotate')
     kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
     previous_kernels = {key: os.environ.get(key) for key in kernel_env} if a.cmd in evidence_commands else {}
-    if a.cmd in {"match", "update", "first-hit", "database-evidence", "search", "historical-density", "neighbours", "evidence", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support", "reference-structure", "fixed-scope"} | evidence_commands:
+    if a.cmd in {"match", "update", "first-hit", "database-evidence", "search", "historical-density", "neighbours", "evidence", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support", "reference-structure", "fixed-scope", "trained-score"} | evidence_commands:
         import os
         import json
 

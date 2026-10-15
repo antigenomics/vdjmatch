@@ -1,5 +1,6 @@
 """Naive fixed-ball counts, exact policy and operation-budget checks."""
 import polars as pl
+import pytest
 from vdjmatch.runner.fixed_scope import fixed_scope_scores
 
 CONTEXT=dict(epitope='E',mhc_a='HLA-A*02',mhc_b='B2M',mhc_class='MHCI')
@@ -70,3 +71,43 @@ def test_empty_reference_and_invalid_source_cases_stay_present(tmp_path):
     f=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
     assert f.height==3 and f['naive_neighbor_junctions'].to_list()==[0,0,0]
     assert f['naive_nearest_score'].null_count()==3 and not f['any_hit'].any()
+
+
+@pytest.mark.parametrize('species', [None, ['human', 'mouse'], ['human', None]])
+def test_trained_cli_reuses_source_boundary_and_writes_flat_provenance(tmp_path, monkeypatch, species):
+    import sys
+    import types
+    import pytest
+    from argparse import Namespace
+    from vdjmatch.cli.fixed_scope import main
+
+    q=tmp_path/'q.tsv';r=tmp_path/'r.tsv';prefix=tmp_path/'trained'
+    pl.DataFrame([dict(query_id=str(i),junction_aa=s,v_call='TRBV1',j_call='TRBJ1-1',
+        locus='TRB',positive=i==0,**CONTEXT) for i,s in enumerate(['CASSF',None])]).write_csv(q,separator='\t')
+    if species is not None:
+        pl.read_csv(q,separator='\t').with_columns(pl.Series('species',species)).write_csv(q,separator='\t')
+    pl.DataFrame([dict(cdr3='CARSF',v='TRBV1',j='TRBJ1-1',gene='TRB',
+        species='HomoSapiens',complex_id='0',**CONTEXT)]).write_csv(r,separator='\t')
+    module=types.ModuleType('vdjmatch.runner.classical')
+    def score(queries,reference,**options):
+        assert queries.height==2 and reference.height==1
+        if species is not None:
+            assert queries['species'].to_list()==species
+        assert options==dict(species='human',paired=False,scope='4,2,2,6',max_indels=2,
+            exclude_exact=True,threads=2)
+        return queries.with_columns(pl.Series('classical_score',[1.5,None])),{'populations':[{'locus':'TRB','native_batches':1}]}
+    module.classical_scores=score
+    monkeypatch.setitem(sys.modules,module.__name__,module)
+    arguments=Namespace(sample=str(q),vdjdb=str(r),species='human',paired=False,
+        score_model='trained',scope='4,2,2,6',max_indels=2,exclude_exact=True,
+        reference_population='all-valid',threads=2,output_prefix=str(prefix))
+    assert main(arguments)==0
+    result=pl.read_csv(str(prefix)+'.scores.tsv',separator='\t')
+    assert result.height==2 and result['positive'].to_list()==[True,False]
+    assert result['classical_score'].to_list()==[1.5,None]
+    provenance=pl.read_csv(str(prefix)+'.provenance.tsv',separator='\t')
+    assert provenance['max_indels'].item()==2 and provenance['native_batches'].item()==1
+    assert not list(tmp_path.glob('trained*.json'))
+    pl.read_csv(q,separator='\t').with_columns(pl.lit(0).alias('classical_score')).write_csv(q,separator='\t')
+    with pytest.raises(ValueError,match='reserved'):
+        main(arguments)

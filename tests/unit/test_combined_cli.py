@@ -36,21 +36,24 @@ def inputs(tmp_path):
     return sample, reference, control
 
 
-def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypatch):
+@pytest.mark.parametrize('missing_reference_chain', [False, True])
+def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypatch, missing_reference_chain):
     from vdjmatch.evalue import combined
     from vdjmatch.cli.__main__ import main
     sample, reference, control = inputs(tmp_path)
+    if missing_reference_chain:
+        pl.read_csv(sample, separator='\t').with_columns(pl.lit('human').alias('species')).write_csv(sample, separator='\t')
     def constant_pgen(reference, events, **kwargs):
         return pl.concat([reference.select('junction_aa'), events.select('junction_aa')]).unique().with_columns(
             pl.lit(0.01).alias('pgen'))
     monkeypatch.setattr(combined, 'compute_pgen', constant_pgen)
     prefix = tmp_path / 'result'
     assert main(['annotate', str(sample), '--vdjdb', str(reference), '--control', str(control),
-        '--locus', 'TRB', '--mock-replicates', '2', '--seed', '7', '-o', str(prefix)]) == 0
+        '--locus', 'auto' if missing_reference_chain else 'TRB', '--mock-replicates', '2', '--seed', '7', '-o', str(prefix)]) == 0
     queries = pl.read_csv(str(prefix) + '.queries.tsv', separator='\t')
     assert queries.height == 4
     assert queries['query_id'].to_list() == ['near', 'far', 'invalid', 'other-species']
-    assert queries['calibration_status'].to_list()[2:] == ['invalid_sequence', 'species_mismatch']
+    assert queries['calibration_status'].to_list()[2:] == ['invalid_sequence', 'no_reference' if missing_reference_chain else 'species_mismatch']
     assert queries['calibration_query_id'].n_unique() == 4
     database = pl.read_csv(str(prefix) + '.database.tsv', separator='\t')
     epitopes = pl.read_csv(str(prefix) + '.epitopes.tsv', separator='\t')
