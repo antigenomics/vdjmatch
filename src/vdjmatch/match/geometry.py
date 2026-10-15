@@ -91,6 +91,22 @@ def reference_structure(distances, *, radius_factor=22.5, costs=None):
     return coverage, shape
 
 
+def reference_nearest_by_length(frame, *, partition_ids, **options):
+    """Unrestricted and exact-length nonexact neighbours in one native batch."""
+    import polars as pl
+
+    if (len(partition_ids) != frame.height or
+            any(isinstance(x, bool) or not isinstance(x, (int, np.integer)) or x < 0 for x in partition_ids)):
+        raise ValueError('one nonnegative integer partition ID required per reference key')
+    length_partitions = pl.DataFrame({'population': partition_ids,
+        'length': frame['seq0'].str.len_chars()}).select(
+            (pl.struct('population', 'length').rank('dense').cast(pl.Int64)+
+             max(partition_ids, default=-1)+1).alias('partition'))
+    distances = reference_nearest_distances(pl.concat([frame, frame]),
+        partition_ids=list(partition_ids)+length_partitions['partition'].to_list(), **options)
+    return np.split(distances, 2)
+
+
 def reference_nearest_distances(frame, *, paired=False, species='human', threads=1, ctrim=3, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='clipped',v_loop_distances=None, v_regions=None, partition_ids=None):
     """Nonexact same-population nearest distances from one native batch.
 

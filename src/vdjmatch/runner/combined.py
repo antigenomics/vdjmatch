@@ -257,8 +257,9 @@ def score_components(queries, reference, control, *, species, locus, threads=1,
     return metadata(result.join(linked, on=_CASES, how='left', nulls_equal=True, validate='1:1', maintain_order='left'))
 
 
-def _graph_weight_cases(reference, queries, cases, *, chain, suffix, threads, exclude_exact, hamming_edges=None):
-    from ..aggregate.reference_combination import graph_mixture_weights
+def _graph_weight_cases(reference, queries, cases, *, chain, suffix, threads, exclude_exact, hamming_edges=None,
+                        species=None, weight_rule='length-diversity'):
+    from ..aggregate.reference_combination import graph_mixture_weights, nearest_length_weights
     from ..aggregate.combination import THREE_WEIGHTS
 
     groups = reference.select(PMHC).unique().sort(PMHC).with_row_index('group_id')
@@ -271,11 +272,25 @@ def _graph_weight_cases(reference, queries, cases, *, chain, suffix, threads, ex
         return requested.with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in fields]).drop('group_id')
     full, _ = graph_mixture_weights(records.select('group_id', 'cdr3', 'v'), threads=threads, hamming_edges=hamming_edges, include_punctures=False)
     result = requested.join(full.select('group_id', *fields), on='group_id', how='left', validate='m:1', maintain_order='left')
+    if weight_rule == 'nearest-length':
+        table = nearest_length_weights(records.select('group_id', 'cdr3', 'v'), full,
+            species=species, locus=chain, threads=threads)
+        features = [*THREE_WEIGHTS, 'weight_scope', 'comparison_keys', 'cross_length_closer_keys',
+                    'pooled_comparison_keys', 'pooled_closer_keys']
+        local = table.filter(pl.col('junction_length').is_not_null()).select('group_id', 'junction_length', *features)
+        pooled = table.filter(pl.col('junction_length').is_null()).select('group_id', *features)
+        result = result.join(queries.select('query_id', pl.col('cdr3'+suffix).str.len_chars().cast(pl.Int64).alias('junction_length')),
+            on='query_id', validate='m:1', maintain_order='left').join(
+            local.rename({c: '_length_'+c for c in features}), on=['group_id', 'junction_length'], how='left', validate='m:1').join(
+            pooled.rename({c: '_pooled_'+c for c in features}), on='group_id', how='left', validate='m:1')
+        result = result.with_columns(*[pl.col(c).alias('legacy_'+c) for c in THREE_WEIGHTS]).with_columns(
+            *[pl.coalesce('_length_'+c, '_pooled_'+c).alias(c) for c in features]).drop(
+                *['_length_'+c for c in features], *['_pooled_'+c for c in features])
     return result.drop('group_id')
 
 
 def combine_components(components, normalizer_components, reference, queries, *, species, locus,
-                       threads=1, exclude_exact=False, hamming_edges=None):
+                       threads=1, exclude_exact=False, hamming_edges=None, weight_rule='length-diversity'):
     """Normalize matching components, graph-weight each axis, then select its max.
 
     The normalizer is an independent internally drawn bank, scored on the SAME
@@ -286,6 +301,11 @@ def combine_components(components, normalizer_components, reference, queries, *,
     cannot alone turn a no-support case into a call. Missing components add zero
     without redistributing weights. Continuous scores retain finite prior evidence;
     call_score masks unsupported axes and has its own maximum and tied_call_axes.
+
+    ``weight_rule='nearest-length'`` is an opt-in candidate: the gap fraction
+    measures cross-length nearest improvement at the query length, with pooled
+    fallback and original-only fallback when comparison is unavailable. Its
+    reference table is fixed across queries and rebuilt for every mock model.
 
     Paired alpha/beta axes use full same-target marginal models. Linked-axis
     composition weights are the equal mean of those two marginal weight vectors;
@@ -304,6 +324,8 @@ def combine_components(components, normalizer_components, reference, queries, *,
 
     if locus not in {'TRA', 'TRB', 'paired'} or threads < 1:
         raise ValueError('combined evidence requires TRA/TRB/paired and positive threads')
+    if weight_rule not in ('length-diversity', 'nearest-length'):
+        raise ValueError('unknown reference weight rule')
     required = set(_CASES)
     if not required.issubset(components.columns) or not required.issubset(normalizer_components.columns):
         raise ValueError('component evidence requires query identities and full pMHC')
@@ -317,9 +339,11 @@ def combine_components(components, normalizer_components, reference, queries, *,
     cases = components.select(_CASES)
     if locus == 'paired':
         alpha = _graph_weight_cases(reference, queries, cases, chain='TRA', suffix='a', threads=threads,
-            exclude_exact=exclude_exact, hamming_edges=hamming_edges.get('TRA') if isinstance(hamming_edges, dict) else hamming_edges)
+            exclude_exact=exclude_exact, species=species_name, weight_rule=weight_rule,
+            hamming_edges=hamming_edges.get('TRA') if isinstance(hamming_edges, dict) else hamming_edges)
         beta = _graph_weight_cases(reference, queries, cases, chain='TRB', suffix='b', threads=threads,
-            exclude_exact=exclude_exact, hamming_edges=hamming_edges.get('TRB') if isinstance(hamming_edges, dict) else hamming_edges)
+            exclude_exact=exclude_exact, species=species_name, weight_rule=weight_rule,
+            hamming_edges=hamming_edges.get('TRB') if isinstance(hamming_edges, dict) else hamming_edges)
         linked = alpha.select(*_CASES, *THREE_WEIGHTS).join(beta.select(*_CASES, *THREE_WEIGHTS),
             on=_CASES, nulls_equal=True, suffix='_beta', validate='1:1').with_columns(*[
                 ((pl.col(c) + pl.col(c + '_beta')) / 2).alias(c) for c in THREE_WEIGHTS]).drop(
@@ -329,7 +353,7 @@ def combine_components(components, normalizer_components, reference, queries, *,
             ('beta', 'original_beta_score', 'gapblock_beta_score', 'stem4_beta_score', 'original_supported_beta', beta)]
     else:
         weights = _graph_weight_cases(reference, queries, cases, chain=locus, suffix='', threads=threads,
-            exclude_exact=exclude_exact, hamming_edges=hamming_edges)
+            exclude_exact=exclude_exact, hamming_edges=hamming_edges, species=species_name, weight_rule=weight_rule)
         definitions = [('single', 'original_score', 'gapblock_score', 'stem4_score', 'original_supported', weights)]
     axes = []
     columns = ['original_score', 'gapblock_score', 'stem4_score']
@@ -382,4 +406,5 @@ def combine_components(components, normalizer_components, reference, queries, *,
     selected = all_axes.sort([*_CASES, 'score', 'axis'], descending=[False] * len(_CASES) + [True, False],
         nulls_last=True).unique(_CASES, keep='first', maintain_order=True)
     return selected.drop('call_score').join(details, on=_CASES, nulls_equal=True, validate='1:1').with_columns(
+        pl.lit(weight_rule).alias('weight_rule'),
         pl.when(pl.col('call_score').is_not_null()).then(pl.lit('supported')).otherwise(pl.lit('unsupported')).alias('combined_status'))

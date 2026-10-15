@@ -4,7 +4,58 @@ import polars as pl
 import pytest
 
 from vdjmatch.aggregate.reference_combination import (
-    graph_mixture_weights, _component_colour_squares, combine_reference_evidence)
+    graph_mixture_weights, _component_colour_squares, combine_reference_evidence, nearest_length_weights)
+
+
+def test_nearest_length_weights_use_geometry_and_original_fallback(monkeypatch):
+    from seqtree import gapblock
+    from functools import wraps
+    reference = pl.DataFrame({'group_id': [0, 0, 0, 1],
+        'cdr3': ['CASSAAAAAAEQYF', 'CASSWWWWWWEQYF', 'CASSAAAAAAAEQYF', 'CASSLGQETQYF'],
+        'v': ['TRBV19']*3+['unknown']})
+    graph, _ = graph_mixture_weights(reference, include_punctures=False)
+    calls = []
+    original = gapblock.group_audit_batch
+    @wraps(original)
+    def spy(*args, **kwargs):
+        calls.append(len(args[0]))
+        return original(*args, **kwargs)
+    monkeypatch.setattr(gapblock, 'group_audit_batch', spy)
+    weights = nearest_length_weights(reference, graph, species='human', locus='TRB')
+    assert calls == [6]
+    local = weights.filter((pl.col('group_id') == 0) & (pl.col('junction_length') == 14)).row(0, named=True)
+    assert local['comparison_keys'] == 2 and local['cross_length_closer_keys'] == 1
+    assert local['gapblock_weight'] == .5 and local['weight_scope'] == 'exact_length'
+    long = weights.filter((pl.col('group_id') == 0) & (pl.col('junction_length') == 15)).row(0, named=True)
+    assert long['comparison_keys'] == 0 and long['gapblock_weight'] == .5
+    assert long['weight_scope'] == 'pooled'
+    missing = weights.filter(pl.col('group_id') == 1)
+    assert missing['original_weight'].to_list() == [1., 1.]
+    assert missing['gapblock_weight'].to_list() == [0., 0.]
+    assert missing['stem4_weight'].to_list() == [0., 0.]
+    np.testing.assert_allclose(weights.select(pl.sum_horizontal('original_weight', 'gapblock_weight', 'stem4_weight')).to_numpy(), 1.)
+    repeated = pl.concat([reference, reference.head(1)])
+    repeated_graph, _ = graph_mixture_weights(repeated, include_punctures=False)
+    assert nearest_length_weights(repeated, repeated_graph, species='human', locus='TRB').equals(weights)
+
+
+def test_structure_cli_exports_explicit_nearest_length_candidate(tmp_path):
+    import json
+    from vdjmatch.cli.__main__ import main
+    source, prefix = tmp_path/'reference.tsv', tmp_path/'weights'
+    pl.DataFrame({'cdr3': ['CASSAAAAAAEQYF', 'CASSWWWWWWEQYF', 'CASSAAAAAAAEQYF'],
+        'v': ['TRBV19']*3, 'gene': ['TRB']*3, 'species': ['HomoSapiens']*3,
+        'epitope': ['E']*3}).write_csv(source, separator='\t')
+    assert main(['reference-structure', '--vdjdb', str(source), '--species', 'human', '--locus', 'TRB',
+        '--weight-rule', 'nearest-length', '--output-prefix', str(prefix)]) == 0
+    full = pl.read_csv(str(prefix)+'.structures.tsv', separator='\t')
+    by_length = pl.read_csv(str(prefix)+'.length-weights.tsv', separator='\t')
+    assert full['gapblock_weight'].item() == .5
+    assert by_length.height == 3
+    assert by_length['legacy_gapblock_weight'].to_list() == pytest.approx([4/9]*3)
+    manifest = json.loads(prefix.with_suffix('.manifest.json').read_text())
+    assert manifest['native_batches'] == 2 and manifest['weight_rule'] == 'nearest-length'
+    assert 'weights.length-weights.tsv' in manifest['tables']
 
 
 def test_graph_law_and_articulation_puncture_are_exact():

@@ -227,7 +227,8 @@ def main(a):
             continue
         events = {chain: events_by_chain[chain] for chain in chains}
         detail, tail = calibrate_combined(receptors, reference, control, species=organism, locus=locus,
-            replicates=a.mock_replicates, seed=a.seed, threads=a.threads, exclude_exact=a.exclude_exact)
+            replicates=a.mock_replicates, seed=a.seed, threads=a.threads, exclude_exact=a.exclude_exact,
+            weight_rule=a.weight_rule)
         details.append(detail.with_columns(pl.lit(organism).alias('species'), pl.lit(locus).alias('locus')))
         tails.append(tail.with_columns(pl.lit(organism).alias('species'), pl.lit(locus).alias('locus')))
         source = 'olga' if organism == 'human' else 'arda'
@@ -253,6 +254,7 @@ def main(a):
             context_policy='candidate one-control recipe; distinct from historical benchmark model assets',
             null_pairing='independently randomized TRA/TRB events' if locus == 'paired' else 'single-chain events',
             normalization='independent unconditional bank, fixed across both directions; final query nulls Pgen-matched',
+            weight_rule=a.weight_rule,
             selection='database maximum over full pMHC and available paired axes',
             interpretation='conditional randomization tails, not binding probability; k/B match rates are separate',
             pgen_model_source=source, pgen_model_sha256=digest.hexdigest(),

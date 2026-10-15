@@ -183,6 +183,77 @@ def graph_mixture_weights(reference: pl.DataFrame, *, threads: int = 1, hamming_
     return full, punctures
 
 
+def nearest_length_weights(reference: pl.DataFrame, graph_weights: pl.DataFrame, *,
+                           species: str, locus: str, threads: int = 1) -> pl.DataFrame:
+    """Candidate gap gate from fixed-reference cross-length nearest improvement.
+
+    For each length, g=C/M: C resolved junction/V-allele keys have an unrestricted
+    nearest distance strictly below their same-length nearest, among M keys with
+    both neighbours. All distances use the gapblock channel's clipped/trim3/V-loop
+    geometry. Ties give no cross-length preference. Absent comparisons use the
+    pooled g; no pooled comparisons selects original alone. Null length denotes
+    that pooled fallback. No query or outcome is used to estimate this table.
+
+    Remaining mass preserves the old conditional original/stem4 ratio:
+    w_original=(1-g)*o/(o+s), w_stem4=(1-g)*s/(o+s). These are descriptive gates,
+    not probabilities of mechanisms. Geometry keys resolve alleles; graph keys
+    pool V genes. Their declared populations are not silently equated.
+    """
+    from ..match.geometry import load_v_loops, resolve_v_alleles, reference_nearest_by_length
+
+    if locus not in ('TRA', 'TRB') or threads < 1:
+        raise ValueError('nearest-length weights require TRA/TRB and positive threads')
+    required = {'group_id', *THREE_WEIGHTS}
+    if (not required.issubset(graph_weights.columns) or graph_weights['group_id'].null_count() or
+            graph_weights['group_id'].is_duplicated().any()):
+        raise ValueError('one complete graph weight row required per reference group')
+    weights = graph_weights.select(THREE_WEIGHTS).to_numpy()
+    if (not np.isfinite(weights).all() or np.any(weights < 0) or
+            not np.allclose(weights.sum(axis=1), 1., rtol=0., atol=1e-12) or
+            np.any(weights[:, 0]+weights[:, 2] <= 0)):
+        raise ValueError('graph weights require a finite convex sum and positive original/stem4 mass')
+    groups = reference.select('group_id').unique().sort('group_id').with_row_index('_partition')
+    if (groups.join(graph_weights.select('group_id'), on='group_id', how='anti').height or
+            graph_weights.join(groups, on='group_id', how='anti').height):
+        raise ValueError('graph weights and reference populations must match')
+    model = load_v_loops(species)
+    frame = reference.select('group_id', pl.col('cdr3').alias('seq0'),
+        resolve_v_alleles(reference['v'], model, locus=locus).alias('v0')).filter(
+            pl.col('v0').is_not_null() & pl.col('seq0').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$'))
+    frame = frame.unique().join(groups, on='group_id', validate='m:1')
+    nearest, same = reference_nearest_by_length(frame, partition_ids=frame['_partition'].to_list(),
+        species=species, threads=threads, ctrim=3, matrix='clipped', stem_depth=0)
+    comparable = np.isfinite(nearest) & np.isfinite(same)
+    measured = frame.with_columns(pl.col('seq0').str.len_chars().cast(pl.Int64).alias('junction_length'),
+        pl.Series('_comparable', comparable), pl.Series('_closer', comparable & (nearest < same)))
+    counts = [pl.len().alias('resolved_reference_keys'), pl.col('_comparable').sum().alias('comparison_keys'),
+              pl.col('_closer').sum().alias('cross_length_closer_keys')]
+    local = measured.group_by('group_id', 'junction_length').agg(*counts)
+    pooled = measured.group_by('group_id').agg(*counts)
+    scopes = reference.select('group_id', pl.col('cdr3').str.len_chars().cast(pl.Int64).alias('junction_length')).unique()
+    scopes = pl.concat([scopes, groups.select('group_id', pl.lit(None, dtype=pl.Int64).alias('junction_length'))])
+    values = pl.concat([local, pooled.with_columns(pl.lit(None, dtype=pl.Int64).alias('junction_length'))], how='diagonal_relaxed')
+    result = scopes.join(values, on=['group_id', 'junction_length'], how='left', nulls_equal=True, validate='1:1').join(
+        pooled.select('group_id', pl.col('comparison_keys').alias('pooled_comparison_keys'),
+            pl.col('cross_length_closer_keys').alias('pooled_closer_keys')), on='group_id', how='left', validate='m:1')
+    count_names = ['resolved_reference_keys', 'comparison_keys', 'cross_length_closer_keys',
+                   'pooled_comparison_keys', 'pooled_closer_keys']
+    result = result.with_columns(pl.col(count_names).fill_null(0)).join(
+        graph_weights.select('group_id', *[pl.col(c).alias('legacy_'+c) for c in THREE_WEIGHTS]),
+        on='group_id', validate='m:1')
+    have_local = pl.col('junction_length').is_not_null() & (pl.col('comparison_keys') > 0)
+    have_any = pl.col('pooled_comparison_keys') > 0
+    result = result.with_columns(pl.when(have_local).then(pl.col('cross_length_closer_keys')/pl.col('comparison_keys'))
+        .when(have_any).then(pl.col('pooled_closer_keys')/pl.col('pooled_comparison_keys')).otherwise(0.).alias('gapblock_weight'),
+        pl.when(have_local).then(pl.lit('exact_length')).when(have_any).then(pl.lit('pooled'))
+        .otherwise(pl.lit('original_fallback')).alias('weight_scope'))
+    remainder = pl.col('legacy_original_weight') + pl.col('legacy_stem4_weight')
+    return result.with_columns(
+        pl.when(have_any).then((1-pl.col('gapblock_weight'))*pl.col('legacy_original_weight')/remainder).otherwise(1.).alias('original_weight'),
+        pl.when(have_any).then((1-pl.col('gapblock_weight'))*pl.col('legacy_stem4_weight')/remainder).otherwise(0.).alias('stem4_weight')
+    ).sort('group_id', 'junction_length')
+
+
 def combine_reference_evidence(frame: pl.DataFrame, nulls: pl.DataFrame,
                                weights: pl.DataFrame) -> pl.DataFrame:
     """Apply model-matched graph weights and the existing normalized convex sum.

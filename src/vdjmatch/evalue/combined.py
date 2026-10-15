@@ -86,7 +86,7 @@ def _same_cases(observed, randomized):
 
 
 def calibrate_combined(queries, reference, raw_control, *, species, locus, replicates=199,
-                       seed=0, threads=1, exclude_exact=False, model_context=None):
+                       seed=0, threads=1, exclude_exact=False, model_context=None, weight_rule='length-diversity'):
     """Calibrate the actual sum and axis/label selection from one raw control.
 
     One independent unconditional internal normalization bank is held fixed in both directions.
@@ -108,6 +108,8 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
 
     if replicates < 1 or threads < 1 or not queries.height:
         raise ValueError('combined calibration requires queries and positive replicates/threads')
+    if weight_rule not in ('length-diversity', 'nearest-length'):
+        raise ValueError('unknown reference weight rule')
     if queries['query_id'].n_unique() != queries.height or queries['query_id'].null_count():
         raise ValueError('combined calibration requires unique non-null query IDs')
     if queries['query_id'].cast(pl.String).str.starts_with('__calibration_').any():
@@ -155,7 +157,7 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
     real = components(all_queries, reference)
     norm = real.join(normalizers.select('query_id'), on='query_id', how='semi')
     combined = combine_components(real.drop('pgen_bin'), norm.drop('pgen_bin'), reference, all_queries, species=species, locus=locus,
-        threads=threads, exclude_exact=exclude_exact)
+        threads=threads, exclude_exact=exclude_exact, weight_rule=weight_rule)
     observed_detail = combined.join(tagged.select('query_id', 'pgen_bin', *pgen_columns),
         on='query_id', how='inner', validate='m:1')
     observed = _with_overall(observed_detail).with_row_index('_case')
@@ -168,7 +170,7 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
         raw = components(observed_queries, model)
         mock_norm = raw.join(normalizers.select('query_id'), on='query_id', how='semi')
         mock = combine_components(raw.drop('pgen_bin'), mock_norm.drop('pgen_bin'), model, observed_queries, species=species, locus=locus,
-            threads=threads, exclude_exact=exclude_exact).join(tagged.select('query_id'), on='query_id', how='semi')
+            threads=threads, exclude_exact=exclude_exact, weight_rule=weight_rule).join(tagged.select('query_id'), on='query_id', how='semi')
         mock_cases = _with_overall(mock)
         _same_cases(observed, mock_cases)
         compared = observed.join(mock_cases.rename({'score': '_null_score'}), on=case_keys,

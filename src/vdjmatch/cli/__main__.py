@@ -67,13 +67,13 @@ def _cmd_annotate(a: argparse.Namespace) -> int:
     if a.control and a.background == 'vdjdb-other':
         from .combined import main
         return main(a)
-    if a.mock_replicates != 199 or a.seed != 0 or a.evidence_type or a.min_score:
-        raise ValueError('mock-replicates, seed and evidence filters require annotate --control with the default background')
+    if a.mock_replicates != 199 or a.seed != 0 or a.evidence_type or a.min_score or a.weight_rule != 'length-diversity':
+        raise ValueError('mock-replicates, seed, weight-rule and evidence filters require annotate --control with the default background')
     from ..runner.annotation import annotate_repertoires
 
     options = vars(a).copy()
     for name in ("cmd", "func", "sample", "metadata", "vdjdb", "output_prefix",
-                 "locus", "species", "threads", "mock_replicates", "seed", "evidence_type", "min_score"):
+                 "locus", "species", "threads", "mock_replicates", "seed", "evidence_type", "min_score", "weight_rule"):
         options.pop(name, None)
     annotate_repertoires(a.sample, metadata=a.metadata, reference=a.vdjdb,
         output_prefix=a.output_prefix, locus=a.locus, species=a.species,
@@ -808,6 +808,8 @@ def main(argv: list[str] | None = None) -> int:
     annotation.add_argument('--seed', type=int, default=0, help='with --control: reproducible randomization seed')
     annotation.add_argument('--evidence-type', action='append', help='with --control: filter reference evidence before recalibration')
     annotation.add_argument('--min-score', type=int, default=0, help='with --control: minimum reference evidence score')
+    annotation.add_argument('--weight-rule', choices=['length-diversity', 'nearest-length'], default='length-diversity',
+                            help='with --control: experimental reference weighting; recomputed for every mock model')
     annotation._option_string_actions['--control'].help = 'one raw control repertoire; calibrate the complete combined score on demand'
     basic = {'help', 'vdjdb', 'locus', 'species', 'reference_population', 'epitope', 'mhc_a', 'mhc_b',
              'mhc_match', 'threads', 'verbose', 'control', 'exclude_exact', 'output_prefix', 'metadata',

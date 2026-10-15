@@ -1179,6 +1179,22 @@ neighbour is unavailable for this comparison. Linked-pair profiles do not yet
 provide this length comparison. This diagnostic requires native seqtree
 partition-ID support and fails explicitly if that capability is absent.
 
+``reference-structure --weight-rule nearest-length`` exports an experimental
+``.length-weights.tsv``. For each junction length, its gap weight is the fraction
+of comparable resolved junction/V-allele keys with a strictly closer cross-length
+neighbour under the gapblock channel's geometry. The remaining mass retains the
+existing conditional original/stem4 ratio. Missing length comparisons use the
+pooled estimate; no pooled comparison uses original alone. A null length row is
+the pooled fallback, and the ``legacy_*_weight`` columns preserve the prior law.
+The ordinary ``.structures.tsv`` reports pooled weights under this option.
+
+``annotate --control CONTROL --weight-rule nearest-length`` applies the same
+candidate and recomputes its fixed reference tables for every randomized model.
+The default remains ``length-diversity`` pending the full per-task and calibration
+checks. These weights are descriptive gates, not probabilities of recognition
+mechanisms. Raw component scores remain available; this option does not repair
+the separate finite-bank normalization ties.
+
 ``neighbours --reference-radius`` applies this selection to each
 sample-declared compatible reference union. It requires uniform geometry,
 V loops, ``--nearest-rank --unbounded-nearest --targets-from-sample``,

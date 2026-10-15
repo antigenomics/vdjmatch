@@ -31,7 +31,7 @@ def main(a):
     from ..aggregate.candidates import PMHC
     from ..evalue.control import _organism
     from ..evalue.paired import build_paired_ref
-    from ..match.geometry import (load_v_loops, resolve_v_alleles, reference_nearest_distances,
+    from ..match.geometry import (load_v_loops, resolve_v_alleles, reference_nearest_distances, reference_nearest_by_length,
                                 kneedle_radius, regularize_reference_radii, reference_structure,
                                 distance_units, _substitution_costs)
 
@@ -89,12 +89,8 @@ def main(a):
         frames = [part[3] for part in populations]
         partitions = [i for i, frame in enumerate(frames) for _ in range(frame.height)]
         combined = pl.concat(frames)
-        length_partitions = pl.DataFrame({'population': partitions,
-            'length': combined['seq0'].str.len_chars()}).select(
-                (pl.struct('population', 'length').rank('dense').cast(pl.Int64)+len(frames)).alias('partition'))
-        distances = reference_nearest_distances(pl.concat([combined, combined]),
-            partition_ids=partitions+length_partitions['partition'].to_list(), **options)
-        all_distances, same_length_distances = np.split(distances, 2)
+        all_distances, same_length_distances = reference_nearest_by_length(combined,
+            partition_ids=partitions, **options)
     offset = 0
     for context, source_count, retained_count, frame in populations:
         distances = (reference_nearest_distances(frame, paired=True, **options) if paired else

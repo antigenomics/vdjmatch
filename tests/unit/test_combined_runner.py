@@ -122,7 +122,8 @@ def test_ordinary_exact_singleton_closed_form_retains_historical_density():
     assert exact['original_score'].item() == pytest.approx(np.log(1e-6) + exact['germline_lr'].item())
 
 
-def test_actual_paired_complete_calibration_retains_linked_roles_and_nohits(monkeypatch):
+@pytest.mark.parametrize('weight_rule', ['length-diversity', 'nearest-length'])
+def test_actual_paired_complete_calibration_retains_linked_roles_and_nohits(monkeypatch, weight_rule):
     from vdjmatch.evalue import combined as calibration
     reference = pl.DataFrame({'cdr3': ['CAVRDSNYQLIW'] * 2 + ['CASSLGQETQYF'] * 2 + ['CAVRDTNYQLIW', 'CASSIGQETQYF'],
         'v': ['TRAV1-2'] * 2 + ['TRBV1'] * 2 + ['TRAV1-2', 'TRBV1'],
@@ -141,7 +142,7 @@ def test_actual_paired_complete_calibration_retains_linked_roles_and_nohits(monk
             pl.lit(0.01).alias('pgen'))
     monkeypatch.setattr(calibration, 'compute_pgen', pgen)
     detail, tails = calibration.calibrate_combined(query, reference, control,
-        species='human', locus='paired', replicates=2, seed=17, threads=1)
+        species='human', locus='paired', replicates=2, seed=17, threads=1, weight_rule=weight_rule)
     assert detail.height == 4
     assert detail.filter(pl.col('query_id') == 'pair')['score'].drop_nulls().len() == 2
     assert detail.filter(pl.col('query_id') == 'far')['score'].drop_nulls().len() == 2
@@ -170,15 +171,18 @@ def test_benchmark_exact_mask_keeps_original_model_counts_and_priors_fixed():
     assert observed['original_exact_contribution'].item() == 0
 
 
-def test_benchmark_graph_weights_use_full_query_independent_reference():
+@pytest.mark.parametrize('weight_rule', ['length-diversity', 'nearest-length'])
+def test_benchmark_graph_weights_use_full_query_independent_reference(weight_rule):
     from vdjmatch.runner.combined import _graph_weight_cases
     query, reference, _ = _single()
     reference = reference.with_columns(pl.when(pl.col('cdr3') == 'CASSIGQETQYF')
         .then(pl.lit('CASSIGQETQYVF')).otherwise(pl.col('cdr3')).alias('cdr3'))
     query = query.head(1).with_columns(pl.lit(reference['cdr3'][0]).alias('cdr3'))
     cases = query.select('query_id').join(reference.select(PMHC).unique(), how='cross')
-    full = _graph_weight_cases(reference, query, cases, chain='TRB', suffix='', threads=1, exclude_exact=False)
-    masked = _graph_weight_cases(reference, query, cases, chain='TRB', suffix='', threads=1, exclude_exact=True)
+    full = _graph_weight_cases(reference, query, cases, chain='TRB', suffix='', threads=1, exclude_exact=False,
+        species='human', weight_rule=weight_rule)
+    masked = _graph_weight_cases(reference, query, cases, chain='TRB', suffix='', threads=1, exclude_exact=True,
+        species='human', weight_rule=weight_rule)
     assert full.sort(PMHC).equals(masked.sort(PMHC))
 
 

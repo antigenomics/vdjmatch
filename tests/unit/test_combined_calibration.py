@@ -1,8 +1,10 @@
 """Complete-score calibration uses fresh models and independent internal banks."""
 import polars as pl
+import pytest
 
 
-def test_complete_score_two_directions_keep_source_roles_and_nohits(monkeypatch):
+@pytest.mark.parametrize('weight_rule', ['length-diversity', 'nearest-length'])
+def test_complete_score_two_directions_keep_source_roles_and_nohits(monkeypatch, weight_rule):
     from vdjmatch.evalue import combined as module
     from vdjmatch.evalue.mock_reference import control_events, iter_mock_models
     query = pl.DataFrame({'query_id': ['q', 'far'],
@@ -18,8 +20,17 @@ def test_complete_score_two_directions_keep_source_roles_and_nohits(monkeypatch)
         return pl.concat([ref.select('junction_aa'), control.select('junction_aa')]).unique().with_columns(
             pl.lit(0.01).alias('pgen'))
     monkeypatch.setattr(module, 'compute_pgen', pgen)
+    from vdjmatch.aggregate import reference_combination
+    estimated = []
+    original = reference_combination.nearest_length_weights
+    def spy(frame, *args, **kwargs):
+        estimated.append(frame.select('group_id', 'cdr3', 'v'))
+        return original(frame, *args, **kwargs)
+    monkeypatch.setattr(reference_combination, 'nearest_length_weights', spy)
     detail, tails = module.calibrate_combined(query, reference, raw,
-        species='human', locus='TRB', replicates=2, seed=7, exclude_exact=True)
+        species='human', locus='TRB', replicates=2, seed=7, exclude_exact=True, weight_rule=weight_rule)
+    assert len(estimated) == (3 if weight_rule == 'nearest-length' else 0)
+    assert detail['weight_rule'].unique().to_list() == [weight_rule]
     assert detail.height == 4 and tails.height == 6
     assert tails.filter(pl.col('query_id') == 'far')['p_both'].to_list() == [1.] * 3
     assert tails['reference_draws'].to_list() == [2] * 6

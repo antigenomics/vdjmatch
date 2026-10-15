@@ -10,6 +10,8 @@ def register(subparsers):
     p.add_argument('--epitope', action='append')
     p.add_argument('--targets-from-sample', help='compatible pMHC unions declared in an AIRR table')
     p.add_argument('--reference-population', choices=['curated-benchmark','all-valid'], default='curated-benchmark')
+    p.add_argument('--weight-rule', choices=['length-diversity', 'nearest-length'], default='length-diversity',
+                   help='experimental nearest-length gate preserves the original/stem4 conditional split')
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
@@ -77,7 +79,8 @@ def main(a):
         local = edges.join(left,on='a_idx',how='inner',validate='m:m').join(
             right,on=['b_idx','_group'],how='inner',validate='m:1')
         grouped_edges = {key[0]: frame.select('a','b') for key, frame in local.group_by('_group')}
-    from ..aggregate.reference_combination import graph_mixture_weights
+    from ..aggregate.reference_combination import graph_mixture_weights, nearest_length_weights
+    length_weights = None
     mixture_parts = [source.filter(mixture_available).select('cdr3', 'v').with_columns(
         pl.lit(i, dtype=pl.UInt32).alias('group_id')) for i, (_, source) in enumerate(groups)]
     mixture_records = pl.concat(mixture_parts) if mixture_parts else None
@@ -86,6 +89,12 @@ def main(a):
             pl.col('cdr3').alias('cdr3_a')), on='a_idx').join(nodes.select(
                 pl.col('_node').cast(pl.Int64).alias('b_idx'), pl.col('cdr3').alias('cdr3_b')), on='b_idx').select('cdr3_a', 'cdr3_b')
         mixture_full, _ = graph_mixture_weights(mixture_records, threads=a.threads, hamming_edges=edge_names, include_punctures=False)
+        if a.weight_rule == 'nearest-length':
+            length_weights = nearest_length_weights(mixture_records, mixture_full,
+                species=organism, locus=a.locus, threads=a.threads)
+            pooled = length_weights.filter(pl.col('junction_length').is_null()).drop('junction_length')
+            mixture_full = mixture_full.drop('original_weight', 'gapblock_weight', 'stem4_weight').join(
+                pooled, on='group_id', validate='1:1')
     else:
         mixture_full = None
     # Degree distributions use every valid full junction, including those without
@@ -181,6 +190,13 @@ def main(a):
             for c in ('original_weight', 'gapblock_weight', 'stem4_weight')],
             pl.lit('empty_reference').alias('mixture_weight_status'))
     summary.drop('_mixture_group').write_csv(summary_path, separator='\t')
+    tables = [summary_path, degree_path, length_path, gene_path]
+    if length_weights is not None:
+        weight_path = Path(str(prefix)+'.length-weights.tsv')
+        length_weights.rename({'group_id': '_mixture_group'}).join(
+            summary.select('_mixture_group', 'species', 'locus', *PMHC), on='_mixture_group',
+            validate='m:1').drop('_mixture_group').write_csv(weight_path, separator='\t')
+        tables.append(weight_path)
     pl.concat(gene_tables, how='vertical_relaxed').write_csv(gene_path, separator='\t')
     pl.DataFrame(degree_rows, schema_overrides={'degree': pl.Int64, 'junction_count': pl.Int64},
         infer_schema_length=None).write_csv(degree_path, separator='\t')
@@ -194,9 +210,13 @@ def main(a):
         v_model_sha256=sha256(Path(load_v_loops.__code__.co_filename).parents[1]/'resources/vloops'/f'{organism}_v_loops.tsv'),
         loader_sha256=sha256(Path(db.load.__code__.co_filename)),
         search_source_sha256=sha256(Path(overlap.__code__.co_filename)),
-        native_batches=1 if nodes.height else 0, searched_unique_junctions=nodes.height,
+        native_batches=(1 if nodes.height else 0)+(1 if length_weights is not None and
+            length_weights['resolved_reference_keys'].sum() else 0), searched_unique_junctions=nodes.height,
         global_hamming_edges=edges.height if edges is not None else 0, targets=len(summaries),
-        mixture_weights='gap=1-sum_L p_L^2; stem4=sum_LV p_LV^2-sum_LVC p_LVC^2; original=remainder',
+        weight_rule=a.weight_rule,
+        mixture_weights=('gap=closer-cross-length/comparable nearest keys, exact length then pooled; remaining mass keeps old conditional original/stem4 ratio; no comparisons uses original'
+            if a.weight_rule == 'nearest-length' else 'gap=1-sum_L p_L^2; stem4=sum_LV p_LV^2-sum_LVC p_LVC^2; original=remainder'),
+        nearest_weight_geometry='clipped/trim3/stem0/V loops; resolved junction/V-allele keys, nonexact hit filter only' if length_weights is not None else None,
         mixture_population='all valid full AA junction/V-gene keys; unknown or ambiguous V is explicit category; source records counted separately',
         modeled_population='existing resolved V and junction length >=8; unchanged modeled feature columns',
         mixture_source_sha256=sha256(Path(graph_mixture_weights.__code__.co_filename)),
@@ -210,5 +230,5 @@ def main(a):
         exclusion='none: model composition and weights use the fixed full reference; benchmark exclusion applies only to hit lists',
         interpretation='reference-only morphology and fixed graph-mixture heuristic; no label fit, recognition probability or P/E-value',
         source_sha256=sha256(Path(__file__)), reducer_sha256=sha256(Path(graph_profiles.__code__.co_filename)),
-        tables={str(p.name):sha256(p) for p in (summary_path,degree_path,length_path,gene_path)}, seconds=time.monotonic()-start),indent=2)+'\n')
+        tables={str(p.name):sha256(p) for p in tables}, seconds=time.monotonic()-start),indent=2)+'\n')
     return 0
