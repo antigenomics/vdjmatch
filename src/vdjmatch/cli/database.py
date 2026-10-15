@@ -6,10 +6,19 @@ def register(subparsers):
     p=subparsers.add_parser('database-evidence',help=__doc__)
     p.add_argument('sample')
     p.add_argument('--vdjdb',required=True)
-    p.add_argument('--null-sample',action='append',required=True,help='matching raw null junction draws; repetitions and no-hits remain in the denominator')
+    control=p.add_mutually_exclusive_group(required=True)
+    control.add_argument('--control',help='one raw matching repertoire; compute Pgen and both randomization tails on demand')
+    control.add_argument('--null-sample',action='append',help='advanced legacy query-null diagnostic; does not compute matched-reference calibration')
     p.add_argument('--species',default='human')
     p.add_argument('--locus',choices=['TRA','TRB'],required=True)
     p.add_argument('--max-edits',type=int,default=5,help='maximum full-junction Levenshtein distance; applied identically to queries and nulls')
+    p.add_argument('--scope',help='with --control: fixed substitution,insertion,deletion,total budget')
+    p.add_argument('--statistic',choices=['nearest','count'],default='nearest',help='with --control: nearest distance or number of distinct matching junctions')
+    p.add_argument('--mock-replicates',type=int,default=199,help='fresh draws in each randomization direction (default: 199)')
+    p.add_argument('--seed',type=int,default=0)
+    p.add_argument('--epitope',action='append',help='filter the reference before matching and recalibration')
+    p.add_argument('--evidence-type',action='append',help='select supplied reference evidence types before recalibration')
+    p.add_argument('--min-score',type=int,default=0,help='minimum supplied reference evidence score')
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--input-format',choices=['auto','airr','legacy','custom'],default='auto')
     p.add_argument('--sequence-convention',choices=['junction'])
@@ -67,6 +76,12 @@ def exact_clonotypes(query,reference,locus):
 
 
 def main(a):
+    if getattr(a,'control',None):
+        from .control_calibration import main as calibrate
+        return calibrate(a)
+    if (getattr(a,'scope',None) or getattr(a,'statistic','nearest')!='nearest' or
+            getattr(a,'epitope',None) or getattr(a,'evidence_type',None) or getattr(a,'min_score',0)):
+        raise ValueError('scoped statistics and reference filtering require --control')
     import json
     import time
     from importlib.metadata import version

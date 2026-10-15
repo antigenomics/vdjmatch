@@ -43,8 +43,8 @@ labels within the declared species and chain:
 .. code-block:: sh
 
    vdjmatch database-evidence query.airr.tsv --vdjdb reference.zip \
-     --species human --locus TRB --null-sample null-junctions.airr.tsv \
-     --threads 4 --output-prefix presence
+     --species human --locus TRB --control control.tsv.gz \
+     --scope 1,0,0,1 --threads 4 --output-prefix presence
 
 Read ``presence.database.tsv``:
 
@@ -59,39 +59,44 @@ Read ``presence.database.tsv``:
      - Does a complete recorded junction/V-gene/J-gene key match? Alleles are pooled; missing or ambiguous query gene calls remain unavailable.
    * - ``database_nearest_edits``
      - How many unit edits separate it from the closest database junction within the declared search limits?
-   * - ``database_p``
-     - Would a matching null receptor be at least as close to any database junction? Smaller values indicate more unusual resemblance.
+   * - ``p_reference``
+     - Does this query score unusually strongly against the selected reference compared with Pgen-matched mock references?
+   * - ``p_query``
+     - Does this query score unusually strongly compared with same-Pgen control clonotypes searched against the actual reference?
+   * - ``p_both``
+     - Maximum of the two directional P-values: evidence must be unusual in both directions.
+   * - ``null_query_match_rate``
+     - Estimated probability that a same-Pgen control clonotype has any match within scope. This is distinct from a score tail and a posterior false-match probability.
    * - ``database_status``
      - ``matched`` means a neighbour exists within the edit limit; it is not a calibrated call. Other values report no-hit, missing/invalid sequence or species/chain mismatch.
 
-For a fixed reference, let :math:`d(x)` be a query's nearest admissible junction
-edit distance. For :math:`N` supplied null draws, :math:`k` counts draws with
-:math:`d(z) \leq d(x)`. Then :math:`p_{\mathrm{database}}=(k+1)/(N+1)`.
-Exact ties count against the query; repeated draws and null no-hits remain in
-the denominator. A query with no hit receives P = 1. Invalid query rows retain
-unavailable diagnostics. Every null row must be valid for the declared species
-and chain; the command rejects a null table that would silently lose rows.
-With multiple ``--null-sample`` files, it reports the largest source-specific
-tail. ``presence.null.tsv`` and ``presence.null-tails.tsv`` retain the null
-distances and each source's numerator/denominator.
-For a query no-hit, no finite radius is tested: its tail numerator is unavailable
-and P = 1 is the conservative no-evidence convention.
+The selected raw control supplies fresh native Pgen, event-weighted mock
+reference populations and same-Pgen query draws. No calibration files are
+required. Both tails include ties and all null draws, using ``(k+1)/(B+1)``;
+unsupported queries receive one and invalid rows retain unavailable values.
+The implementation matches one-bit log2-Pgen strata, separately by species and
+chain. See :doc:`control-calibration` for the null assumptions and derivation.
 
-This calculation retains exact records, applies no study-support cutoff, and
-does not select an epitope. It uses the same complete database search for queries
-and nulls, so selection over database junctions is included in its null statistic.
-Its P-value assumes query/null exchangeability under the declared null and a
-fixed reference. A common exact junction can have a large P-value; an unusual
-neighbour can have a small one. Neither identifies the correct antigen.
-``--max-edits`` sets the full-junction Levenshtein search limit (default 5);
-substitutions, insertions and deletions each cost one. The diagnostic is separate
-from ``kernel_score`` and the scoring pipeline's
-``p_null``. TRA and TRB diagnostics remain separate; they cannot supply a
-paired-receptor P-value. Its P-value ignores V/J; the gene-clonotype lookup is
-a separate exact-presence flag.
+``presence.epitopes.tsv`` retains supported fixed-pMHC candidates;
+``presence.calibration.tsv`` records per-target/bin counts, scope, seed and
+model identities. Reference evidence filters or a custom labelled table cause
+both directions to be recalculated on the selected reference. A common exact
+junction can have large directional P-values. Literal presence remains certain
+when an exact record exists, irrespective of its significance.
 
-Obtain a calibrated decision
-----------------------------
+The statistic is either scoped nearest distance or scoped distinct-junction
+count. Explicit ``--scope`` limits substitutions, insertions, deletions and total
+edits separately. These full-junction diagnostics do not calibrate the
+V-loop/combined VDJmatch score, an epitope selected after looking at scores or
+genuine paired recognition. Those adapters must repeat the complete procedure,
+including recomputing reference-derived weights in mock databases.
+
+The legacy ``--null-sample`` route still provides the older unconditional
+``database_p`` diagnostic; it tests a different null and is not the single-control
+workflow above.
+
+Legacy frozen-score decisions
+-----------------------------
 
 Supply the frozen calibration and its original null-case table for the same
 reference and complete scoring pipeline. The input selection table must have

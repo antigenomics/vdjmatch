@@ -69,7 +69,7 @@ Check database presence
 
    sh examples/database.sh database-demo
 
-The supplied three-query table and four synthetic null draws produce these
+The supplied three-query table and one synthetic raw control produce these
 columns in ``database-demo/presence.database.tsv``:
 
 .. list-table:: Exact CLI output for the synthetic diagnostic
@@ -78,17 +78,17 @@ columns in ``database-demo/presence.database.tsv``:
    * - Query
      - Exact junction
      - Nearest edits
-     - Database P
+     - Both-direction P
      - Status
    * - ``exact``
      - true
      - 0
-     - 0.4
+     - 1.0
      - matched
    * - ``near``
      - false
      - 1
-     - 0.8
+     - 1.0
      - matched
    * - ``unsupported``
      - false
@@ -96,15 +96,17 @@ columns in ``database-demo/presence.database.tsv``:
      - 1.0
      - no_hit
 
-One of four null draws is exact, so the exact query has P = (1+1)/(4+1) = 0.4.
-Three draws are within one edit, giving P = 0.8 for ``near``. Repeated draws count
-separately. Exact presence is certain here even though it is common under this
-synthetic null. These fixtures demonstrate the calculation; biological use needs
-a declared matching null population. No antigen is selected.
+Pgen is recalculated from the bundled model. This deliberately small control
+places its rare query strata near the synthetic reference; exact and near
+matches are therefore common under its null, and both directional tails are
+one. The unsupported query has both tails one and a zero estimated null match
+rate. The example demonstrates source ingestion, stratification, retained exact
+overlaps and the distinction between presence, a score-tail P-value and an
+any-match rate. The fixture does not validate a biological null.
 
 * :download:`Shell script <../examples/database.sh>`
-* :download:`Queries <../examples/inputs/database_queries.tsv>` · :download:`Synthetic null draws <../examples/inputs/database_null.tsv>`
-* :doc:`Interpret database evidence <explanation>`
+* :download:`Queries <../examples/inputs/database_queries.tsv>` · :download:`Single synthetic control <../examples/inputs/database_control.tsv>`
+* :doc:`Interpret the two directions <control-calibration>`
 
 Continue with biological data
 -----------------------------

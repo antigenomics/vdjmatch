@@ -1393,35 +1393,65 @@ raw reference identity, feature definitions, source hashes and output hashes.
 vdjmatch database-evidence
 --------------------------
 
-Report literal database presence separately from epitope scoring:
+Report literal database presence and two control directions for a declared
+full-junction statistic. Supply one raw control; Pgen, mock references and
+same-Pgen query draws are computed on demand:
 
 .. code-block:: sh
 
    vdjmatch database-evidence query.airr.tsv --vdjdb reference.zip \
-     --locus TRB --species human --null-sample null-junctions.airr.tsv \
-     --max-edits 5 --threads 4 --output-prefix presence
+     --locus TRB --species human --control control.tsv.gz \
+     --scope 1,0,0,1 --statistic count --threads 4 --output-prefix presence
 
 The command writes ``presence.database.tsv`` with every original query row,
 ``database_exact_junction``, ``database_exact_gene_clonotype``,
-``database_nearest_edits``, ``database_p`` and ``database_status``.
+``database_nearest_edits``, ``database_score``, ``p_reference``, ``p_query``,
+``p_both`` and ``database_status``.
 ``database_exact_gene_clonotype`` pools alleles and requires single supplied V/J
 calls. It is unavailable for missing/ambiguous query gene calls. A false flag
 means no complete matching gene key was found; an exact junction can still
-occur in records with incomplete reference gene annotations. The P-value uses
-full-junction Levenshtein distance with unit substitution/insertion/deletion
-costs and ignores V/J and antigen labels. A no-hit query receives P = 1;
+occur in records with incomplete reference gene annotations. The statistic uses
+full-junction unit edits and ignores V/J. ``--scope`` separately enforces
+substitution, insertion, deletion and total budgets; otherwise ``--max-edits``
+selects symmetric Levenshtein distance. ``--statistic nearest`` (default) uses
+negative nearest distance; ``count`` uses distinct matching junctions.
+A no-hit query receives both tails and their maximum equal to one;
 invalid/mismatched query rows retain unavailable diagnostics.
 
-``--null-sample`` accepts one or more matching raw null-draw tables. Each source
-must contain valid anchor-inclusive junctions of the declared species and chain.
-Repeated draws and no-hits remain in the denominator. One native population
-batch searches unique query/null junctions, then restores all row multiplicities.
-Exact reference junctions are retained; no study-support or benchmark curation
-cutoff applies. Native workers use ``--threads``; table/BLAS helpers stay serial.
-The maximum edit limit is applied identically to queries and nulls.
+``p_reference`` compares the observed query against mock references preserving
+the selected reference's record counts and one-bit log2-Pgen composition.
+``p_query`` compares the observed score against same-Pgen control queries on
+the real reference. ``p_both`` is their maximum. Each direction uses
+``--mock-replicates`` fresh draws (default 199), seeded by ``--seed`` (default 0).
+Exact overlaps stay eligible in random draws. Read abundance is ignored;
+control weights count available rearrangement events. Species and chain are
+selected separately. Bundled native Pgen models are selected automatically.
 
-``presence.null.tsv`` exports every null distance, ``presence.null-tails.tsv``
-exports source-specific counts/tails, and ``presence.manifest.json`` pins raw
-identities, metric, population and implementation hashes. See :doc:`explanation`
-for the distinct meanings of presence, database-level significance and the
-scoring pipeline's selected-label ``p_null``.
+``null_query_match_rate`` estimates the probability that a same-Pgen control
+clonotype has any match within scope, and ``null_reference_match_rate`` estimates
+the corresponding rate against mock references. These ``k/B`` estimates differ
+from the ``(k+1)/(B+1)`` score-tail P-values; both counts and denominators are
+exported. They are not posterior probabilities of a false specificity.
+
+``--epitope``, ``--evidence-type`` and ``--min-score`` filter the loaded reference
+before both calibration directions. Evidence types use the reference's own
+declared vocabulary. A custom reference table uses the same loader and its
+own selected source records and full-pMHC groups.
+
+``presence.epitopes.tsv`` exports supported fixed-pMHC candidates; an omitted
+valid query/target has no hit and both tails equal to one.
+``presence.calibration.tsv`` records per-target Pgen strata, source/key counts,
+control event counts, scope, statistic, seed, model/native identities and timings.
+The control route writes these three flat TSVs, with no JSON calibration input
+or output. One native population batch handles query and control draws; mock
+references are streamed and reduced. Insufficient control strata raise an error.
+Sparse join expansions are checked; native hit allocation remains a resource
+limit for broad scopes. Native workers use ``--threads`` and table/BLAS helpers
+stay serial. See :doc:`control-calibration` for the derivation and scope of the
+conditional-null interpretation.
+
+The advanced legacy ``--null-sample`` route retains its original unconditional
+query-null diagnostic and ``database_p``/null-table/manifest outputs. It does not
+provide the two new conditional directions. Neither route calibrates the
+V-loop/combined VDJmatch score, a winning antigen label or genuine paired
+recognition; those require their complete scoring and selection adapters.

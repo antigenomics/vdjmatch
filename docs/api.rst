@@ -22,6 +22,19 @@ metadata under ``input_`` prefixes.
 
 .. autofunction:: vdjmatch.annotate_repertoires
 
+On-demand control calibration
+-----------------------------
+
+See :doc:`control-calibration` for the two null hypotheses, event units and
+complete-score selection requirements. These helpers use transient tables;
+the user supplies one raw repertoire, with no calibration-file lifecycle.
+
+.. automodule:: vdjmatch.evalue.mock_reference
+   :members:
+
+.. automodule:: vdjmatch.evalue.directional
+   :members:
+
 vdjmatch.api
 ------------
 

@@ -157,6 +157,29 @@ identities must match. Component tails are not the final fused P-value.
 
 ## Database-level diagnostic
 
+The normal control workflow is now
+`database-evidence SAMPLE --vdjdb REFERENCE --control RAW_CONTROL --locus TRB
+--species human --scope 1,0,0,1 --statistic nearest --threads 4 --output-prefix OUT`.
+It computes fresh native marginal Pgen, samples reference-size/per-pMHC Pgen
+strata on demand and tests both directions. `p_reference` holds query fixed and
+randomizes reference; `p_query` holds reference fixed and randomizes query within
+its one-bit Pgen stratum. Ties count; all draws/no-hits remain denominators.
+`p_both=max(p_reference,p_query)` tests evidence in both directions without
+independence, conditional on each null being valid. No calibration files or JSON
+are needed; output is three flat `.database/.epitopes/.calibration.tsv` files.
+Scope and reference evidence filters are applied before recalibration. `count`
+uses distinct matching junctions. Null hit rates `k/B` are estimates of any match
+within scope, distinct from plus-one tails at the observed score. Event weights
+ignore read abundance and use occurrences/NT events/pooled NT incidence or the
+available convergence unit. Incidental exact control/reference overlaps remain.
+The offline `examples/database.sh` uses an explicitly synthetic single control
+and native Pgen; it is not a validated biological null. This adapter is junction
+scope/count only: never transfer these P-values to V loops, combined scores,
+selected labels or paired receptors. Reference-derived score weights must be
+recomputed on mock references when implementing those adapters.
+
+The following older route remains available as a legacy diagnostic:
+
 `database-evidence SAMPLE --vdjdb REFERENCE --locus TRA|TRB --species human
 --null-sample RAW_NULL_DRAWS --threads 4 --output-prefix OUT` separates a literal
 `database_exact_junction` lookup from `database_p`: the matching-null probability
@@ -168,10 +191,8 @@ rows are rejected. For multiple supplied sources, retain the largest tail.
 An invalid query has unavailable diagnostics; a valid no-hit has P=1. State the
 fixed reference, search limits and null law/exchangeability assumption. This is
 a junction-level diagnostic, not epitope confidence, V/J-clonotype membership or
-a paired P-value. Run `sh examples/database.sh NEW_DIRECTORY` for a complete
-offline synthetic input/output demonstration (P=0.4/0.8/1.0 for exact/near/no-hit).
-Its four artificial null draws demonstrate software behavior, not a biological
-null law. Do not substitute the legacy `p_any` or a component tail.
+a paired P-value. Its artificial null draws demonstrate software behavior, not
+a biological null law. Do not substitute the legacy `p_any` or a component tail.
 
 `database_exact_gene_clonotype` separately checks a complete junction/V-gene/
 J-gene key with alleles pooled; missing/ambiguous query calls remain unavailable.

@@ -155,3 +155,35 @@ database search in the null statistic. Its P-value ignores V/J and cannot be
 transferred to epitope or paired recognition; the exact gene-clonotype flag is a
 separate lookup. The chosen scoring pipeline's ``p_null`` answers a different
 question about its selected evidence score.
+
+Single-control directional calibration
+--------------------------------------
+
+The preceding ``--null-sample`` graph describes the legacy diagnostic.
+The on-demand ``--control`` workflow computes both conditional directions:
+
+.. graphviz::
+
+   digraph directional_control {
+     graph [rankdir=LR,bgcolor="white"];
+     node [shape=box,style="rounded",fontname="Helvetica",fontsize=10];
+     control [label="One raw control\nAA collapse retains NT event counts"];
+     reference [label="Selected reference\nEvidence filters / custom table"];
+     pgen [label="Fresh native Pgen\nSpecies / locus / 1-bit strata"];
+     mockr [label="Mock reference event slots\nPreserve N and per-pMHC composition"];
+     mockq [label="Same-Pgen query draws\nIndependent TRA/TRB for paired null"];
+     search [label="Same search event A\nScope / score / selection"];
+     pr [label="P_reference\nFixed query / random reference"];
+     pq [label="P_query\nRandom query / fixed reference"];
+     combined [label="P_both = max(P_reference, P_query)\nNo independence assumption"];
+     control -> pgen; reference -> pgen;
+     pgen -> mockr; pgen -> mockq;
+     mockr -> search; mockq -> search; reference -> search;
+     search -> pr; search -> pq; pr -> combined; pq -> combined;
+   }
+
+The scoped nearest/count adapter and independent-chain paired sampler are
+implemented. Full VDJmatch-score, selected-label and paired search adapters
+must repeat their complete statistic, including reference-derived weights,
+inside the null calculation. See :doc:`control-calibration` for the equations,
+event/unique-key distinction and dependence-safe maximum proof.
