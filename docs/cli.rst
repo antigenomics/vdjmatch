@@ -823,6 +823,9 @@ Common integer matrix rescaling therefore rescales gaps, V-loop distances,
 bins and the factor-derived radius together. Fractional cutoffs round down
 to native units (1/200); linear weights use that same effective cutoff.
 The manifest records the requested and effective radius and matrix scale.
+The Python shortlist audit also derives its default radius from the selected
+matrix. Stem4 reference-call radii, kernel widths and manifest units use the
+prepared geometry's scale rather than independently recorded numeric constants.
 
 ``--locus paired`` accepts linked AIRR rows with ``clone_id`` and declared
 TRA/TRB roles. It sums alpha and beta distances against the same linked database

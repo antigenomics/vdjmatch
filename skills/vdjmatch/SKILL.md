@@ -62,6 +62,10 @@ queries, selections = result["queries"], result["selection"]
   wrap annotation/search in a per-receptor or per-file multiprocessing pool.
   For Python, set `POLARS_MAX_THREADS` before importing Polars if its existing pool
   would exceed the requested budget; the API rejects that mismatch before loading.
+- Use matrix-relative distance settings for comparisons. The shortlist API's
+  omitted radius and stem4 reference-call geometry derive their scales from the
+  selected matrix. Historical absolute overrides remain explicit reproduction
+  options; a censored sparse distance is not an uncensored nearest distance.
 
 ## One raw control, complete-score calibration
 

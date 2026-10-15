@@ -2,6 +2,20 @@
 import numpy as np
 from vdjmatch.match.geometry import distance_matrix,shortlist_audit_batch
 
+def test_default_shortlist_radius_uses_selected_matrix(monkeypatch):
+    from functools import wraps
+    from vdjmatch.match import geometry
+    captured=[]
+    @wraps(geometry.gapblock.group_audit_batch)
+    def capture(q,r,bounds,**options):
+        captured.append(bounds)
+        return [],[],[]
+    monkeypatch.setattr(geometry.gapblock,'group_audit_batch',capture)
+    monkeypatch.setattr(geometry,'_total_distance_options',lambda *a,**k: (['synthetic'],[],{}))
+    for matrix,scale in [('clipped',4),('blosum62',26)]:
+        shortlist_audit_batch([],[],[],[],matrix=matrix)
+        assert captured[-1]==[int(22.5*scale*200)]
+
 def test_actual_shortlist_matches_dense_radius_and_puncture():
     q=['CASSLGQAYEQYF','CASSLGQAPAYEQYF'];r=['CASSLGQAYEQYF','CASSAGQAYEQYF','CASSLGQAPAYEQYF']
     qv=['TRBV19*01']*2;rv=['TRBV7-9*01','TRBV19*01','TRBV7-9*01']

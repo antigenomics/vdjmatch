@@ -585,15 +585,18 @@ def total_distance_count_batch(queries, references, query_v, reference_v, thresh
         **({'shared_thresholds':True} if shared_thresholds else {}))
 
 
-def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=90,species='human',
+def shortlist_audit_batch(queries,references,query_v,reference_v,*,radius=None,species='human',
                           threads=1,ctrim=2,exclude_exact=False,alphabet='full',stem_depth=0,stem_weight=1.0,matrix='clipped',v_loop_distances=None, v_regions=None):
     """Audit the actual CDR3 ball and unchanged V costs in one native reduction.
 
-    Native units, eligibility and full-junction puncturing match total counts.
+    The default radius is 22.5 times the selected matrix substitution scale.
+    Native units, eligibility and full-junction hit filtering match total counts.
     No K cap. Older native backends retain a bounded sparse retrieval fallback.
     This audits uniform single-chain retrieval, not annotation confidence.
     """
     v_loop_distances = _v_region_context(v_regions, v_loop_distances, species, alphabet, matrix)
+    if radius is None:
+        radius=22.5*distance_units(_prepared_costs(alphabet,matrix,v_loop_distances))[0]
     import time
     import inspect
     streaming=hasattr(gapblock,'group_audit_batch')
