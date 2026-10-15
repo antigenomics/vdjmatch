@@ -105,7 +105,8 @@ def test_reference_structure_cli_profiles_compatible_union(tmp_path):
     assert rows['reference_coverage'].to_list()==[0.,1.]
 
 
-def test_reference_radius_cli_uses_selected_matrix_units(tmp_path, monkeypatch):
+@pytest.mark.parametrize('stem_depth', [0, 4])
+def test_reference_radius_cli_uses_selected_matrix_units(tmp_path, monkeypatch, stem_depth):
     import json
     from vdjmatch.cli.__main__ import main
     source, prefix = tmp_path/'reference.tsv', tmp_path/'radius'
@@ -115,13 +116,14 @@ def test_reference_radius_cli_uses_selected_matrix_units(tmp_path, monkeypatch):
     scale = geometry.distance_units(geometry._substitution_costs(matrix='blosum62'))[0]
     def nearest(frame, **options):
         assert options['matrix'] == 'blosum62'
+        assert options['stem_depth'] == stem_depth
         assert frame.height == 6
         assert options['partition_ids'] == [0]*3+[2]*3
         return np.array([10., 20., 30.]*2)*scale
     monkeypatch.setattr(geometry, 'reference_nearest_distances', nearest)
     monkeypatch.setattr(geometry, 'kneedle_radius', lambda _: 10.*scale)
     assert main(['reference-radius', '--vdjdb', str(source), '--locus', 'TRB',
-        '--matrix', 'blosum62', '--output-prefix', str(prefix)]) == 0
+        '--matrix', 'blosum62', '--stem-depth', str(stem_depth), '--output-prefix', str(prefix)]) == 0
     row = pl.read_csv(str(prefix)+'.radii.tsv', separator='\t').row(0, named=True)
     assert row['reference_coverage'] == pytest.approx(2/3)
     assert row['knee_radius_ratio'] == pytest.approx(10/32.5)
@@ -129,6 +131,7 @@ def test_reference_radius_cli_uses_selected_matrix_units(tmp_path, monkeypatch):
     assert manifest['structure_features']['matrix_scale'] == scale
     assert manifest['options']['matrix'] == 'blosum62'
     assert 'blosum62' in manifest['geometry']
+    assert manifest['options']['stem_depth'] == stem_depth
 
 
 def test_partitioned_reference_nearest_matches_fixed_populations():

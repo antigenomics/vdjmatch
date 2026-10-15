@@ -1165,6 +1165,9 @@ Use ``--matrix blosum62`` for full BLOSUM62 costs; the default remains
 coverage units and the knee-radius ratio. The manifest records this geometry;
 radii from different matrices are not interchangeable. ``pam250``, ``mj`` and
 ``vdjam`` are also supported by the existing distance backend.
+``--matrix clipped --stem-depth 0`` matches the combined scorer's gapblock
+geometry; ``--matrix blosum62 --stem-depth 4`` matches its stem4 geometry.
+Full BLOSUM62 with stem depth zero is a separate diagnostic geometry.
 
 Single-chain profiles use one native partitioned batch for all fixed pMHC
 populations and their exact-length subsets. ``.nearest.tsv`` also reports

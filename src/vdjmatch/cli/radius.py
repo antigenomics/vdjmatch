@@ -12,6 +12,8 @@ def register(subparsers):
     p.add_argument('--junction-ends', choices=['trim32', 'trim3'], default='trim3')
     p.add_argument('--matrix', choices=['clipped', 'blosum62', 'pam250', 'mj', 'vdjam'],
                    default='clipped', help='shared substitution costs for junctions, V loops and distance units')
+    p.add_argument('--stem-depth', type=int, choices=[0, 4], default=0,
+                   help='reference stem feature; 4 with blosum62 matches the stem4 channel')
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--knee-floor-factor', type=float, default=.5)
     p.add_argument('--coverage-radius-factor', type=float, default=22.5,
@@ -78,7 +80,8 @@ def main(a):
         context = {'species': reference_species, 'locus': a.locus, **dict(zip(PMHC, key))}
         populations.append((context, observations.height, retained.height, frame))
     options = dict(species=organism, threads=a.threads,
-                   ctrim=2 if a.junction_ends == 'trim32' else 3, matrix=a.matrix)
+                   ctrim=2 if a.junction_ends == 'trim32' else 3, matrix=a.matrix,
+                   stem_depth=a.stem_depth)
     # One shared encoding/native batch; partition IDs restrict each reference key
     # to its own fixed pMHC population, including overlapping compatible unions.
     all_distances = same_length_distances = None
@@ -155,7 +158,7 @@ def main(a):
             'source': floor_source, 'scope': 'same species, locus and junction geometry',
             'raised_knees': sum(r['radius_status'] == 'knee_floored' for r in radii)},
         'reference_unit': 'distinct full junctions and resolved V alleles; same linked pair for paired mode',
-        'geometry': f'uniform {a.matrix} CDR3 plus V loops; paired alpha+beta sum',
+        'geometry': f'uniform {a.matrix} CDR3 plus V loops; stem_depth={a.stem_depth}, stem_weight=1; paired alpha+beta sum',
         'native_search_scope': 'per linked population' if paired else 'one partitioned single-chain batch',
         'length_comparison': 'single chains only: compare unrestricted nearest with same-length nearest under identical geometry; strict improvement proves a closer cross-length neighbour, ties do not; no same-length neighbour is unavailable, not positive evidence',
         'no_knee': 'no radius is selected; reference keys remain available',
