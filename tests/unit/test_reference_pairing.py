@@ -110,3 +110,119 @@ def test_linked_full_keys_mhc_separation_and_unlinked_marginals(tmp_path):
     assert empty['.linked.tsv'].height == 0
     assert empty['.marginals.tsv'].height == 2
     assert empty['.pairing-coverage.tsv']['complete_complex_links'].sum() == 0
+
+
+def test_pooled_epitope_pairs_keep_low_count_chain_and_validate_grouping(tmp_path):
+    from vdjmatch.cli.epitope import load_reference
+
+    rows = []
+    for locus, count, seq, v, j in [('TRA', 30, 'CAAAAAAF', 'TRAV1*01', 'TRAJ1*01'),
+                                  ('TRB', 2, 'CAGGGGGF', 'TRBV1*01', 'TRBJ1*01')]:
+        for i in range(count):
+            rows.append(dict(complex_id='p1' if i == 0 else '0', gene=locus, cdr3=seq,
+                v=v, j=j, species='HomoSapiens', epitope='DEMO',
+                mhc_a='HLA-A*01:01' if locus == 'TRA' and i < 20 else 'HLA-A*02:01',
+                mhc_b='B2M', mhc_class='MHCI'))
+    # Neither chain reaches 30, despite 58 pooled source records for this epitope.
+    for locus in ['TRA', 'TRB']:
+        template = next(r for r in rows if r['gene'] == locus)
+        rows.extend([template | dict(epitope='TAIL', complex_id='0') for _ in range(29)])
+    source = tmp_path/'reference.tsv'
+    pl.DataFrame(rows).write_csv(source, separator='\t')
+    parser = argparse.ArgumentParser()
+    pairing.register(parser.add_subparsers())
+    arguments = ['reference-pairing', '--vdjdb', str(source), '--epitope-profiles',
+        '--alpha-communities', str(tmp_path/'TRA.communities.tsv'),
+        '--beta-communities', str(tmp_path/'TRB.communities.tsv'), '--geometry', 'sw',
+        '--output-prefix', str(tmp_path/'out')]
+    args = parser.parse_args(arguments)
+    raw, info = load_reference(args, 'HomoSapiens', keep_tail_chains=True)
+    assert raw.height == 32 and raw['epitope'].unique().to_list() == ['DEMO']
+    assert raw['mhc_a'].unique().to_list() == ['HLA-A*01:01']
+    assert set(raw['source_mhc_a']) == {'HLA-A*01:01', 'HLA-A*02:01'}
+    for locus in ['TRA', 'TRB']:
+        # Only TRA reaches the community-profile source-record threshold. The
+        # low-count TRB chain still contributes observed links and marginals.
+        frame = raw.rename({'gene': 'locus'}).filter(pl.col('locus') == locus).select(pairing.KEY).unique()
+        if locus == 'TRB':
+            frame = frame.head(0)
+        frame = frame.with_columns(pl.lit(0, dtype=pl.Int64).alias('community'),
+            pl.lit(True).alias('geometry_available'), pl.lit('reference').alias('population'),
+            pl.lit(-1, dtype=pl.Int64).alias('replicate'))
+        path = tmp_path/f'{locus}.communities.tsv'
+        frame.write_csv(path, separator='\t')
+        manifest = dict(reference=db.provenance(source), species='HomoSapiens', locus=locus,
+            geometry='sw', reference_population='curated-benchmark', targets_sha256=None,
+            epitope_profiles=True, min_records=30, tables={path.name: sha256(path)})
+        path.with_name(f'{locus}.manifest.json').write_text(json.dumps(manifest))
+    assert args.func(args) == 0
+    linked = pl.read_csv(tmp_path/'out.linked.tsv', separator='\t')
+    assert linked.height == 1 and linked['complex_id'].item() == 'p1'
+    assert linked['community_status_beta'].item() == 'missing_community'
+    coverage = pl.read_csv(tmp_path/'out.pairing-coverage.tsv', separator='\t')
+    beta = coverage.filter(pl.col('locus') == 'TRB').row(0, named=True)
+    assert beta['chain_source_records'] == 2 and beta['chain_full_clonotypes'] == 1
+    assert beta['paired_chain_full_clonotypes'] == 1 and beta['missing_community_clonotypes'] == 1
+    manifest = json.loads((tmp_path/'out.manifest.json').read_text())
+    assert manifest['epitope_profiles'] is True and manifest['min_records'] == 30
+    assert manifest['modal_mhc_rule'] == info['modal_mhc_rule']
+    path = tmp_path/'TRA.communities.tsv'
+    identity = db.provenance(source)
+    for update in [dict(epitope_profiles=False), dict(min_records=31)]:
+        owner = json.loads((tmp_path/'TRA.manifest.json').read_text())
+        (tmp_path/'TRA.manifest.json').write_text(json.dumps(owner | update))
+        with pytest.raises(ValueError, match='grouping'):
+            pairing._communities(path, locus='TRA', species='HomoSapiens', geometry='sw',
+                policy='curated-benchmark', reference=identity, epitope_profiles=True, min_records=30)
+        (tmp_path/'TRA.manifest.json').write_text(json.dumps(owner))
+    # A pooled owner must also be rejected by the legacy exact-MHC invocation.
+    with pytest.raises(ValueError, match='grouping'):
+        pairing._communities(path, locus='TRA', species='HomoSapiens', geometry='sw',
+            policy='curated-benchmark', reference=identity)
+
+
+def test_multiple_community_batches_and_overlapping_keys_rejected(tmp_path, monkeypatch):
+    rows = [dict(complex_id=f'p{i}', gene=locus, cdr3=seq, v=v, j=j,
+        species='HomoSapiens', epitope=f'DEMO{i}', mhc_a='HLA-A*01:01', mhc_b='B2M', mhc_class='MHCI')
+        for i in range(2) for locus, seq, v, j in [
+            ('TRA', 'CAAAAAAF', 'TRAV1*01', 'TRAJ1*01'),
+            ('TRB', 'CAGGGGGF', 'TRBV1*01', 'TRBJ1*01')]]
+    source = tmp_path/'reference.tsv'
+    pl.DataFrame(rows).write_csv(source, separator='\t')
+    raw = db.load(source, species='HomoSapiens')
+    arguments = ['reference-pairing', '--vdjdb', str(source), '--geometry', 'sw',
+        '--output-prefix', str(tmp_path/'out')]
+    paths = []
+    for locus, option in [('TRA', '--alpha-communities'), ('TRB', '--beta-communities')]:
+        for i in range(2):
+            frame = raw.rename({'gene': 'locus'}).filter(
+                (pl.col('locus') == locus) & (pl.col('epitope') == f'DEMO{i}')).select(pairing.KEY)
+            frame = frame.with_columns(pl.lit(0, dtype=pl.Int64).alias('community'),
+                pl.lit(True).alias('geometry_available'), pl.lit('reference').alias('population'),
+                pl.lit(-1, dtype=pl.Int64).alias('replicate'))
+            path = tmp_path/f'{locus}{i}.communities.tsv'
+            frame.write_csv(path, separator='\t')
+            path.with_name(f'{locus}{i}.manifest.json').write_text(json.dumps(dict(
+                reference=db.provenance(source), species='HomoSapiens', locus=locus,
+                geometry='sw', reference_population='curated-benchmark', targets_sha256=None,
+                tables={path.name: sha256(path)})))
+            arguments.extend([option, str(path)])
+            paths.append(path)
+    parser = argparse.ArgumentParser()
+    pairing.register(parser.add_subparsers())
+    original_load, calls = db.load, []
+    def counted_load(*args, **kwargs):
+        calls.append(1)
+        return original_load(*args, **kwargs)
+    monkeypatch.setattr(db, 'load', counted_load)
+    args = parser.parse_args(arguments)
+    assert args.func(args) == 0 and len(calls) == 1
+    linked = pl.read_csv(tmp_path/'out.linked.tsv', separator='\t')
+    assert linked.height == 2 and set(linked['epitope']) == {'DEMO0', 'DEMO1'}
+    manifest = json.loads((tmp_path/'out.manifest.json').read_text())
+    assert len(manifest['communities']) == 4
+    assert {i['path'] for i in manifest['communities']} == {str(p) for p in paths}
+    duplicate = parser.parse_args(arguments + ['--alpha-communities', str(paths[0])])
+    with pytest.raises(ValueError, match='unique full clonotype keys across files'):
+        duplicate.func(duplicate)
+    assert len(calls) == 1  # Reject overlaps before reading the raw reference again.

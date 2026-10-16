@@ -18,6 +18,8 @@ def register(subparsers):
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--output-prefix', required=True)
+    from .epitope import add_options
+    add_options(p)
     p.set_defaults(func=main)
 
 
@@ -63,7 +65,11 @@ def _main(a, *, inputs, scratch):
     prefix = _validate_output_paths(a.output_prefix, protected)
     organism = _organism(a.species)
     species = {'human': 'HomoSapiens', 'mouse': 'MusMusculus'}[organism]
-    raw = inputs['raw'] if inputs is not None else db.load(a.vdjdb, species=species, gene=a.locus, epitope=a.epitope)
+    from .epitope import load_reference
+    if inputs is None:
+        raw, epitope_info = load_reference(a, species)
+    else:
+        raw, epitope_info = inputs['raw'], inputs['epitope_info']
     valid = pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
     if a.reference_population == 'curated-benchmark':
         valid &= pl.col('reference_valid')
@@ -189,7 +195,8 @@ def _main(a, *, inputs, scratch):
             with curve_path.open('ab' if written else 'wb') as stream:
                 curve.write_csv(stream, separator='\t', include_header=not written)
             written = True
-    tables = [curve_path, edges_path]
+    from .epitope import write_tables
+    tables = [curve_path, edges_path, *write_tables(prefix, epitope_info)]
     if knee_curve is not None:
         knee_path = Path(str(prefix)+'.knee.tsv')
         knee_curve.join(metadata, on='group_id', validate='m:1').write_csv(knee_path, separator='\t')
@@ -204,6 +211,7 @@ def _main(a, *, inputs, scratch):
     import seqtree._core as search_native
     from ..match.geometry import load_v_loops
     manifest = dict(reference=db.provenance(a.vdjdb), reference_population=a.reference_population, epitope=a.epitope,
+        **epitope_info,
         shared_invocation_inputs=inputs is not None,
         targets_sha256=sha256(Path(a.targets_from_sample)) if a.targets_from_sample else None,
         species=species, locus=a.locus, geometry=a.geometry, scope=a.scope if a.geometry == 'levenshtein' else None,

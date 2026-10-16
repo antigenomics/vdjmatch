@@ -287,3 +287,37 @@ def test_zero_reference_mass_uses_lowest_occupied_control_bin():
     assert sampled.group_by('replicate','junction_aa').len().sort('replicate','junction_aa')['len'].to_list()==[1,2,1,2]
     assert set(sampled['junction_aa'])=={'CACF','CADF'}
     assert pgen['pgen'].to_list()==[0.,2**-8,2**-6,2**-4]
+
+
+def test_absent_positive_and_zero_bins_share_one_capacity_aware_floor():
+    from vdjmatch.evalue.mock_reference import _prepare_mock_control
+
+    reference = pl.DataFrame({'group_id': [0]*7,
+        'junction_aa': ['CZERO']*2 + ['CPOS']*2 + ['CFLOOR'] + ['CMATCH']*2})
+    control = pl.DataFrame({'junction_aa': ['CLOW', 'CFLOOR', 'CMATCH', 'CHIGH'],
+        'event_weight': [1, 4, 3, 10]})
+    pgen = pl.DataFrame({'junction_aa': ['CZERO', 'CPOS', 'CLOW', 'CFLOOR', 'CMATCH', 'CHIGH'],
+        'pgen': [0., 2.**-108, 2.**-8, 2.**-6, 2.**-4, 2.**-2]})
+    original = pgen.clone()
+    for floor_capacity, expected_floor in [(4, -2), (6, -6)]:
+        events = control.with_columns(pl.when(pl.col('junction_aa') == 'CFLOOR')
+            .then(floor_capacity).otherwise(pl.col('event_weight')).alias('event_weight'))
+        prepared = _prepare_mock_control(reference, events, pgen=pgen)
+        bins = dict(prepared[4].iter_rows())
+        assert bins['CZERO'] == bins['CPOS'] == expected_floor
+        assert bins['CFLOOR'] == -6 and bins['CMATCH'] == -4
+        draws = list(iter_mock_references(reference, events, pgen=pgen, prepared_control=prepared,
+            replicates=2, seed=7))
+        for draw in draws:
+            counts = dict(draw.group_by('junction_aa').len().iter_rows())
+            assert counts == ({'CHIGH': 4, 'CFLOOR': 1, 'CMATCH': 2} if floor_capacity == 4 else
+                {'CFLOOR': 5, 'CMATCH': 2})
+        assert pgen.equals(original)
+    exhausted = control.with_columns(pl.lit(3).alias('event_weight'))
+    with pytest.raises(ValueError, match='insufficient control events'):
+        _prepare_mock_control(reference, exhausted, pgen=pgen)
+    # An occupied bin keeps its ordinary matching rule; insufficient slots still fail.
+    thin_match = control.with_columns(pl.when(pl.col('junction_aa') == 'CMATCH')
+        .then(1).otherwise(pl.col('event_weight')).alias('event_weight'))
+    with pytest.raises(ValueError, match='Pgen bin -4: need 2, have 1'):
+        list(iter_mock_references(reference, thin_match, pgen=pgen, replicates=1))

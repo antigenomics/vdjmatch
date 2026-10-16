@@ -105,7 +105,7 @@ def test_diagnostics_use_features_without_native_pgen(tmp_path, monkeypatch, com
     def forbidden(*args, **kwargs):
         pytest.fail('supplied validated features must not recompute Pgen')
     monkeypatch.setattr(mocks, 'compute_pgen', forbidden)
-    args = [command, '--vdjdb', str(reference), '--control', str(control), '--locus', 'TRB',
+    args = [command, '--min-records', '1', '--vdjdb', str(reference), '--control', str(control), '--locus', 'TRB',
         '--pgen-features', str(path), '--mock-replicates', '2', '--output-prefix', str(prefix)]
     if command != 'reference-structure':
         args += ['--geometry', 'levenshtein', '--nboot', '3']

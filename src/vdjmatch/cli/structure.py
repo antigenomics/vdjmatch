@@ -37,6 +37,8 @@ def register(subparsers, name='reference-structure'):
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--output-prefix', required=True)
+    from .epitope import add_options
+    add_options(p, default=name == 'reference-diagnostics')
     p.set_defaults(func=main)
     return p
 
@@ -114,7 +116,8 @@ def main(a, *, return_inputs=False):
         if not getattr(a, 'control_model', None):
             control_info.update(reader_sha256=sha256(Path(_raw_control.__code__.co_filename)),
                 event_normalizer_sha256=sha256(Path(control_events.__code__.co_filename)))
-    raw = db.load(a.vdjdb, species=species, gene=a.locus, epitope=a.epitope)
+    from .epitope import load_reference
+    raw, epitope_info = load_reference(a, species)
     if a.reference_population == 'all-valid':
         raw = raw.with_columns(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('reference_valid'))
     model = load_v_loops(organism)
@@ -133,7 +136,7 @@ def main(a, *, return_inputs=False):
                 species=organism, locus=a.locus)
         else:
             pgen = compute_pgen(reference, events, species=organism, locus=a.locus, threads=a.threads)
-        prepared_control = _prepare_mock_control(raw.rename({'cdr3': 'junction_aa'}), events,
+        prepared_control = _prepare_mock_control(reference, events,
             pgen=pgen, species=organism, locus=a.locus, threads=a.threads)
     mark('reference_and_pgen')
     selected_nodes = [source.filter(mixture_available).select('cdr3') for _,source in groups]
@@ -320,8 +323,11 @@ def main(a, *, return_inputs=False):
         infer_schema_length=None).write_csv(degree_path, separator='\t')
     pl.concat(length_tables, how='vertical_relaxed').sort('species', 'locus', *PMHC, 'junction_length').write_csv(
         length_path, separator='\t')
+    from .epitope import write_tables
+    tables.extend(write_tables(prefix, epitope_info))
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(dict(reference=db.provenance(a.vdjdb),
         reference_population=a.reference_population, species=species,locus=a.locus,threads=a.threads,
+        **epitope_info,
         epitope=a.epitope, targets_sha256=sha256(Path(a.targets_from_sample)) if a.targets_from_sample else None,
         software={name:version(name) for name in ('vdjmatch','seqtree','vdjtools','polars','numpy')},
         native_sha256=sha256(Path(native_core.__file__)),
@@ -383,4 +389,4 @@ def main(a, *, return_inputs=False):
         source_sha256=sha256(Path(__file__)), reducer_sha256=sha256(Path(graph_profiles.__code__.co_filename)),
         stage_seconds=stages, tables={str(p.name):sha256(p) for p in tables}, seconds=time.monotonic()-start),indent=2)+'\n')
     return dict(raw=raw, events=events, pgen=pgen, control_info=control_info,
-        prepared_control=prepared_control, pgen_features=feature_identity) if return_inputs else 0
+        prepared_control=prepared_control, pgen_features=feature_identity, epitope_info=epitope_info) if return_inputs else 0

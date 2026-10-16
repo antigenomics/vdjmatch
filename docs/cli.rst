@@ -1563,9 +1563,9 @@ uncollapsed model files. The consumer verifies the complete consumed model-file
 set against its bundled model and requires sorted unique canonical junctions,
 finite probabilities in [0,1], and coverage of every valid reference/control
 junction. It performs no Pgen recomputation when features are supplied. The
-matching bins then use closed Hamming-1 probability mass. If the controls have no
-zero-mass bin, zero-Pgen reference records use the lowest occupied control bin
-with enough event slots for the selected zero-mass reference records;
+matching bins then use closed Hamming-1 probability mass. Reference bins absent from the controls,
+including zero mass, share the lowest occupied control bin with enough event
+slots for all mapped source rows plus its existing occupants;
 the stored probabilities remain unchanged. The default fresh
 route retains exact-junction mass. Diagnostic manifests record the feature and
 producer-manifest hashes and model identity. These are reusable model features;
@@ -1867,6 +1867,18 @@ support intact. Compatible-MHC union tables are rejected.
 
 vdjmatch reference-diagnostics
 ------------------------------
+
+The classification unit is species/chain/epitope. This command pools all MHC
+contexts by default, labels each epitope with the most frequent observed MHC-A/B
+pair across both chains, and requires at least 30 valid source records per chain
+(``--min-records``). Ties use lexical order; MHC class is the mode within the
+chosen pair. Original MHC fields remain in source provenance. The small epitope
+tail is reserved for C-index and rarefaction continuum, not singleton profiles.
+Flat ``.eligibility.tsv`` and ``.epitopes.tsv`` record counts and labels.
+
+The standalone structure, coverage, density and pairing commands accept
+``--epitope-profiles`` for the same pooling/eligibility rule. Their legacy exact
+MHC behavior remains available for earlier calculations.
 
 Run all four motif views and both occurrence/community geometries in one fresh
 invocation. The raw control, native Pgen and immutable event-pool preparation

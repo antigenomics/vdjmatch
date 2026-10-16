@@ -145,7 +145,7 @@ def test_combined_diagnostics_loads_control_and_pgen_once(tmp_path, monkeypatch,
         calls.append('prepare')
         return prepare(*args, **kwargs)
     monkeypatch.setattr(mocks, '_prepare_mock_control', prepare_once)
-    args = ['reference-diagnostics', '--vdjdb', str(reference), '--control', str(control),
+    args = ['reference-diagnostics', '--min-records', '1', '--vdjdb', str(reference), '--control', str(control),
         '--locus', 'TRB', '--geometry', geometry, '--scope', '2,1,1,2', '--mock-replicates', '2', '--nboot', '3',
         '--output-prefix', str(prefix)]
     if geometry == 'both':
@@ -238,7 +238,7 @@ def test_combined_uses_persisted_control_reductions_without_rebuilding(tmp_path,
         'occurrences':[10]*3}).write_csv(control,separator='\t')
     monkeypatch.setattr(mocks,'compute_pgen',lambda ref,pool,**kwargs:
         pool.select('junction_aa').with_columns(pl.lit(.25).alias('pgen')))
-    args=['reference-diagnostics','--vdjdb',str(reference),'--control',str(control),
+    args=['reference-diagnostics','--min-records','1','--vdjdb',str(reference),'--control',str(control),
         '--locus','TRB','--geometry','levenshtein','--mock-replicates','2','--nboot','3']
     assert main(args+['--output-prefix',str(prefix)])==0
     model=tmp_path/'control-model'

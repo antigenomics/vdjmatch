@@ -21,6 +21,8 @@ def register(subparsers):
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--pair-budget', type=int, default=2_000_000)
     p.add_argument('--output-prefix', required=True)
+    from .epitope import add_options
+    add_options(p)
     p.set_defaults(func=main, targets_from_sample=None)
 
 
@@ -46,7 +48,8 @@ def main(a):
     prefix = _validate_output_paths(a.output_prefix, [a.vdjdb])
     organism = _organism(a.species)
     species = {'human': 'HomoSapiens', 'mouse': 'MusMusculus'}[organism]
-    raw = db.load(a.vdjdb, species=species, gene=a.locus, epitope=a.epitope)
+    from .epitope import load_reference
+    raw, epitope_info = load_reference(a, species)
     valid = pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
     if a.reference_population == 'curated-benchmark':
         valid &= pl.col('reference_valid').fill_null(False)
@@ -77,8 +80,10 @@ def main(a):
         path = Path(str(prefix)+suffix)
         frame.write_csv(path, separator='\t')
         outputs[path.name] = sha256(path)
+    from .epitope import write_tables
+    outputs.update({path.name: sha256(path) for path in write_tables(prefix, epitope_info)})
     manifest = dict(reference=db.provenance(a.vdjdb), species=species, locus=a.locus, epitope=a.epitope,
-        reference_population=a.reference_population, targets_sha256=None, neighbor_orders=sorted(set(orders)),
+        reference_population=a.reference_population, targets_sha256=None, **epitope_info, neighbor_orders=sorted(set(orders)),
         geometry='sw', cdr_loops=a.cdr_loops, gap_open=a.gap_open, gap_extend=a.gap_extend,
         distance='full junction + selected V-loop local BLOSUM62 diagonal-sum distances; raw integer units',
         neighbors='other distinct full junction/V/J clonotype vertices within the same exact full-pMHC; self count included once, kth-other is count>k; tied zero distances retained',

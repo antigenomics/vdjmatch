@@ -14,19 +14,23 @@ PAIR_KEY = ['alpha', 'v_alpha', 'j_alpha', 'beta', 'v_beta', 'j_beta']
 
 
 def register(subparsers):
+    from .epitope import add_options
+
     p = subparsers.add_parser('reference-pairing', help=__doc__.splitlines()[0])
     p.add_argument('--vdjdb', required=True)
     p.add_argument('--species', default='human')
     p.add_argument('--epitope', action='append')
+    add_options(p)
     p.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
-    p.add_argument('--alpha-communities', required=True)
-    p.add_argument('--beta-communities', required=True)
+    p.add_argument('--alpha-communities', action='append', required=True)
+    p.add_argument('--beta-communities', action='append', required=True)
     p.add_argument('--geometry', choices=['levenshtein', 'sw'], required=True)
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
 
 
-def _communities(path, *, locus, species, geometry, policy, reference):
+def _communities(path, *, locus, species, geometry, policy, reference,
+        epitope_profiles=False, min_records=30):
     """Read only real memberships after checking their owning graph manifest."""
     import json
     import polars as pl
@@ -43,6 +47,9 @@ def _communities(path, *, locus, species, geometry, policy, reference):
             manifest.get('geometry') != geometry or manifest.get('reference_population') != policy or
             'targets_sha256' not in manifest or manifest['targets_sha256'] is not None):
         raise ValueError('community manifest must match species/locus/geometry/population and use exact pMHC groups')
+    if (manifest.get('epitope_profiles', False) != epitope_profiles or
+            (epitope_profiles and manifest.get('min_records') != min_records)):
+        raise ValueError('community manifest grouping must match --epitope-profiles and --min-records')
     raw_identity = manifest.get('reference', {})
     identity_key = 'input_sha256' if 'input_sha256' in reference else 'files'
     if not isinstance(raw_identity, dict) or not reference.get(identity_key) or raw_identity.get(identity_key) != reference[identity_key]:
@@ -129,18 +136,33 @@ def main(a):
     from ..runner.annotation import _validate_output_paths
 
     started = time.monotonic()
+    if a.min_records < 1:
+        raise ValueError('--min-records must be positive')
     species = {'human': 'HomoSapiens', 'mouse': 'MusMusculus'}[_organism(a.species)]
-    paths = [Path(p).resolve() for p in (a.alpha_communities, a.beta_communities)]
-    protected = [a.vdjdb, *paths, *[p.with_name(p.name.removesuffix('.communities.tsv')+'.manifest.json') for p in paths]]
+    paths = [[Path(p).resolve() for p in chain] for chain in (a.alpha_communities, a.beta_communities)]
+    all_paths = [p for chain in paths for p in chain]
+    protected = [a.vdjdb, *all_paths, *[p.with_name(p.name.removesuffix('.communities.tsv')+'.manifest.json') for p in all_paths]]
     prefix = _validate_output_paths(a.output_prefix, protected)
     provenance = db.provenance(a.vdjdb)
     frames, identities = [], []
-    for path, locus in zip(paths, ['TRA', 'TRB']):
-        frame, identity = _communities(path, locus=locus, species=species, geometry=a.geometry,
-            policy=a.reference_population, reference=provenance)
+    for chain_paths, locus in zip(paths, ['TRA', 'TRB']):
+        batches = []
+        for path in chain_paths:
+            frame, identity = _communities(path, locus=locus, species=species, geometry=a.geometry,
+                policy=a.reference_population, reference=provenance,
+                epitope_profiles=a.epitope_profiles, min_records=a.min_records)
+            batches.append(frame)
+            identities.append(identity)
+        frame = pl.concat(batches)
+        if frame.select(KEY).n_unique() != frame.height:
+            raise ValueError('community batches must have unique full clonotype keys across files')
         frames.append(frame)
-        identities.append(identity)
-    raw = db.load(a.vdjdb, species=species, epitope=a.epitope)
+    grouping = dict(epitope_profiles=False, min_records=a.min_records, modal_mhc_rule=None)
+    if a.epitope_profiles:
+        from .epitope import load_reference
+        raw, grouping = load_reference(a, species, keep_tail_chains=True)
+    else:
+        raw = db.load(a.vdjdb, species=species, epitope=a.epitope)
     valid = pl.col('gene').is_in(['TRA', 'TRB']) & pl.col('cdr3').str.contains(
         r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
     if a.reference_population == 'curated-benchmark':
@@ -161,5 +183,6 @@ def main(a):
         joining='exact species/full-pMHC/full-junction/V/J; missing calls remain explicit; null keys compare equal',
         unit='complex links and distinct full paired clonotypes reported separately; chain source records are not independent assays',
         tables=outputs, source_sha256=sha256(Path(__file__)), seconds=time.monotonic()-started)
+    manifest.update(grouping)
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
     return 0
