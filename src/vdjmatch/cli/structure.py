@@ -54,6 +54,7 @@ def main(a, *, return_inputs=False):
     from ..aggregate.candidates import PMHC
     from ..aggregate.motif_information import motif_population, motif_selection_information
     from ..aggregate.germline_information import germline_projection_map, iter_germline_information
+    from ..aggregate.length_profile import length_histogram, length_control, length_summary
     from ..aggregate.structure import composition, graph_profiles, reference_gene_usage, control_gene_usage, compare_gene_usage, gene_selection_information
     from ..cluster import overlap
     from ..db.cache import sha256
@@ -89,6 +90,8 @@ def main(a, *, return_inputs=False):
     organism = _organism(a.species)
     species = {'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
     control_usage, control_info, control_motifs = None, None, None
+    spectratype_control, spectratype_control_counts = None, None
+    spectratype_rows, spectratype_bins = [], []
     motif_path, motif_rows, motif_written = None, 0, False
     if a.control:
         from .combined import _raw_control
@@ -113,6 +116,12 @@ def main(a, *, return_inputs=False):
         motif_path = Path(str(prefix)+'.motifs.tsv')
         control_info.update(path=str(Path(a.control).resolve()), sha256=sha256(Path(a.control)),
             event_keys=events.height, total_events=int(events['event_weight'].sum()))
+        control_lengths, spectratype_control_counts = length_histogram(
+            events, locus=a.locus, sequence_column='junction_aa')
+        spectratype_control = length_control(control_lengths)
+        spectratype_bins.append(control_lengths.with_columns(pl.lit(species).alias('species'),
+            pl.lit(a.locus).alias('locus'), pl.lit('control').alias('population')))
+        mark('control_spectratype')
         if not getattr(a, 'control_model', None):
             control_info.update(reader_sha256=sha256(Path(_raw_control.__code__.co_filename)),
                 event_normalizer_sha256=sha256(Path(control_events.__code__.co_filename)))
@@ -196,6 +205,14 @@ def main(a, *, return_inputs=False):
         context = dict(_mixture_group=group_id,species=species,locus=a.locus,**task,source_observations=source.height,
                        unavailable_records=source.height-retained.height)
         gene_context = {k: v for k, v in context.items() if k != '_mixture_group'}
+        if spectratype_control is not None:
+            histogram, counts = length_histogram(source.filter(pl.col('reference_valid')), locus=a.locus)
+            # Preserve the complete selected-source denominator alongside valid-key counts.
+            counts.update(source_rows=source.height, dropped_rows=source.height-counts['selected_rows'])
+            spectratype_rows.append(gene_context | length_summary(histogram, spectratype_control) |
+                {'reference_'+key: value for key, value in counts.items()})
+            spectratype_bins.append(histogram.with_columns(pl.lit('reference').alias('population'),
+                *[pl.lit(value).alias(key) for key, value in gene_context.items()]))
         gene_tables.append(reference_gene_usage(source.filter(mixture_available), locus=a.locus).with_columns(
             *[pl.lit(value).alias(key) for key, value in gene_context.items()]))
         for mode, control_motif in (control_motifs or {}).items():
@@ -285,6 +302,12 @@ def main(a, *, return_inputs=False):
             pl.lit('empty_reference').alias('mixture_weight_status'))
     summary.drop('_mixture_group').write_csv(summary_path, separator='\t')
     tables = [summary_path, degree_path, length_path, gene_path]
+    if spectratype_control is not None:
+        spectratype_path = Path(str(prefix)+'.spectratype.tsv')
+        spectratype_lengths_path = Path(str(prefix)+'.spectratype-lengths.tsv')
+        pl.DataFrame(spectratype_rows, infer_schema_length=None).write_csv(spectratype_path, separator='\t')
+        pl.concat(spectratype_bins, how='diagonal_relaxed').write_csv(spectratype_lengths_path, separator='\t')
+        tables.extend([spectratype_path, spectratype_lengths_path])
     gene_usage = pl.concat(gene_tables, how='vertical_relaxed')
     germline_info = None
     if control_usage is not None:
@@ -347,6 +370,15 @@ def main(a, *, return_inputs=False):
         length_coverage='exact junction length; all valid reference records and unique junctions; modeled records counted separately; no cross-length Hamming edges',
         gene_usage='all valid reference rows; V/J alleles pooled; unresolved calls retained; full and exact-length strata; record and junction/gene-key denominators explicit',
         control=control_info,
+        spectratype=(dict(sampling_unit='distinct full-junction/V-gene/J-gene keys; V/J alleles pooled; source records and event multiplicities do not weight keys',
+            missing_policy='unresolved V/J retained as explicit null key categories; invalid reference rows counted separately; unsupported lengths retained',
+            cdf_max_distance='maximum absolute empirical CDF gap; KS effect only, no p-value',
+            wasserstein1='sum of absolute CDF gaps across integer lengths; amino-acid residues',
+            shifts='reference minus control mean and ordinary sample median; amino-acid residues',
+            central_interval='smallest control length with CDF>=0.025 and CDF>=0.975; both endpoints included',
+            tails='keys strictly outside the inclusive control interval, divided by all selected keys',
+            control_counts=spectratype_control_counts, control_cdf_builds=1,
+            reducer_sha256=sha256(Path(length_summary.__code__.co_filename))) if spectratype_control is not None else None),
         gene_control_comparison=('reference record/key fractions divided by control event fractions; no smoothing; unresolved genes, absent control genes and absent control lengths explicit; descriptive composition only'
             if control_info is not None else None),
         motif_information=(dict(rows=motif_rows, mode=a.motif_mode,
