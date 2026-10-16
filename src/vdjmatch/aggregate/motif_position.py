@@ -70,3 +70,70 @@ def position_contrast(reference, control, *, locus, v_gene, j_gene, junction_len
             'control_count': background.select(expressions).row(0)}).with_columns(
                 pl.col('reference_count', 'control_count').cast(pl.Int64)))
     return positions.sort('position', 'amino_acid'), motifs
+
+
+def generative_position_contrast(positions, motifs, *, species, locus, threads=1):
+    """Append exact OLGA conditional probabilities using one native masked-DP batch.
+
+    Sum joint Pgen over every model allele pair denoted by the selected genes,
+    then divide by the all-wildcard V/J/length mass. No sequence sampling,
+    fitting, pseudocounts or empirical-control information enters this model.
+    Motif probabilities apply to each start separately; the overlapping
+    anywhere union is deliberately unsupported, rather than summing starts.
+    """
+    from importlib import import_module
+    from pathlib import Path
+    import numpy as np
+    from vdjtools.model.bundled import load_bundled
+    from vdjtools.model.native import pack, pgen_aa_degenerate_batch
+    from ..db.cache import sha256
+    from ..evalue.control import _organism
+    from ..evalue.mock_reference import _pgen_model_identity
+
+    if threads < 1:
+        raise ValueError('positive native thread budget required')
+    organism = _organism(species)
+    model = load_bundled(locus, 'olga', organism=organism, collapse=False)
+    alleles_for = import_module('vdjtools.overlap.alice')._alleles_for
+    _, vi, ji = pack(model)
+    v_gene, j_gene, length = positions.select('v_gene', 'j_gene', 'junction_length').unique().row(0)
+    vs, js = alleles_for(vi, v_gene), alleles_for(ji, j_gene)
+    patterns = [['X']*length]
+    for position, aa in positions.select('position', 'amino_acid').iter_rows():
+        allowed = ['X']*length
+        allowed[position-1] = aa
+        patterns.append(allowed)
+    starts = motifs.filter(pl.col('position') > 0) if motifs is not None else None
+    if starts is not None:
+        for position, motif in starts.select('position', 'motif').iter_rows():
+            allowed = ['X']*length
+            allowed[position-1:position-1+len(motif)] = list(motif)
+            patterns.append(allowed)
+    queries = [(pattern, va, ja) for va in vs for ja in js for pattern in patterns]
+    masses = np.asarray(pgen_aa_degenerate_batch(model, [q[0] for q in queries],
+        v=[q[1] for q in queries], j=[q[2] for q in queries], threads=threads), dtype=float
+        ).reshape(len(vs)*len(js), len(patterns)).sum(axis=0)
+    if not np.isfinite(masses).all() or (masses < 0).any():
+        raise ValueError('generative model returned invalid probability masses')
+    denominator = float(masses[0])
+
+    def append(frame, values):
+        return frame.with_columns(pl.Series('generative_pgen', values, dtype=pl.Float64),
+            pl.lit(denominator).alias('generative_stratum_pgen')
+        ).with_columns(pl.when(pl.col('generative_pgen').is_null()).then(pl.lit('unsupported_anywhere_union'))
+            .when(pl.col('generative_stratum_pgen') == 0).then(pl.lit('unsupported_generative_stratum'))
+            .otherwise(pl.lit('available')).alias('generative_status'),
+            (pl.col('generative_pgen')/denominator if denominator else pl.lit(None, dtype=pl.Float64)
+            ).alias('generative_fraction')
+        ).with_columns((pl.col('reference_fraction')-pl.col('generative_fraction')).alias('generative_difference'))
+
+    positions = append(positions, masses[1:1+positions.height])
+    if motifs is not None:
+        motifs = append(motifs, [None, *masses[1+positions.height:]])
+    identity = _pgen_model_identity(organism, locus)
+    identity.update(collapse_alleles=False, v_alleles=vs, j_alleles=js,
+        native_batches=1, native_queries=len(queries), distinct_patterns=len(patterns),
+        stratum_pgen=denominator, threads=threads,
+        source_sha256={fn.__name__: sha256(Path(fn.__code__.co_filename))
+            for fn in (load_bundled, pack, pgen_aa_degenerate_batch, alleles_for, generative_position_contrast)})
+    return positions, motifs, identity

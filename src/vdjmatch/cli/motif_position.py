@@ -14,6 +14,8 @@ def register(subparsers):
     p.add_argument('--j-gene', required=True)
     p.add_argument('--junction-length', required=True, type=int)
     p.add_argument('--motif', help='optional exact amino-acid motif, including its start-position counts')
+    p.add_argument('--generative-background', choices=['olga'],
+        help='exact masked-DP V/J/length-conditioned generation probabilities (bundled human OLGA)')
     p.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--output-prefix', required=True)
@@ -42,6 +44,11 @@ def main(a):
         species=organism, locus=a.locus, modes=())
     positions, motifs = position_contrast(selected, events, locus=a.locus, v_gene=a.v_gene,
         j_gene=a.j_gene, junction_length=a.junction_length, motif=a.motif)
+    generative_info = None
+    if a.generative_background:
+        from ..aggregate.motif_position import generative_position_contrast
+        positions, motifs, generative_info = generative_position_contrast(positions, motifs,
+            species=organism, locus=a.locus, threads=a.threads)
     prefix.parent.mkdir(parents=True, exist_ok=True)
     tables = {}
     for suffix, table in [('positions', positions), ('motifs', motifs)]:
@@ -53,13 +60,13 @@ def main(a):
         table.write_csv(path, separator='\t')
         tables[suffix] = dict(path=str(path), sha256=sha256(path), rows=table.height)
     manifest = dict(command='motif-position', options=vars(a) | {'func': 'motif-position'},
-        reference=db.provenance(a.vdjdb), control=control_info, tables=tables,
+        reference=db.provenance(a.vdjdb), control=control_info, generative_background=generative_info, tables=tables,
         reference_records_before_stratum=selected.height, reference_records_loaded=raw.height,
         population_unit='unique full junction/allele-pooled V gene/allele-pooled J gene keys; event weights ignored',
         positions='1-based full junction including conserved anchors; motif position 0 is presence anywhere',
         comparison='reference fraction minus prepared-control fraction conditional on both V/J genes and junction length',
-        interpretation='descriptive background contrast; not calibrated selection or binding evidence',
-        native_batches=0, software={name: version(name) for name in ('vdjmatch', 'seqtree', 'vdjtools', 'polars')},
+        interpretation='empirical rearrangement control is observed, not a pure generative law; optional OLGA probabilities are separately labelled; neither contrast is a fitted ALICE selection coefficient, calibrated significance or binding evidence',
+        native_batches=1 if generative_info else 0, software={name: version(name) for name in ('vdjmatch', 'seqtree', 'vdjtools', 'polars')},
         native_sha256=sha256(Path(native.__file__)),
         source_sha256={fn.__name__: sha256(Path(fn.__code__.co_filename))
             for fn in (main, position_contrast, _gene_expression, db.load, load_control_model)})

@@ -208,6 +208,14 @@ Reference graph morphology
 
 .. autofunction:: vdjmatch.aggregate.motif_position.position_contrast
 
+.. autofunction:: vdjmatch.aggregate.motif_position.generative_position_contrast
+
+.. autofunction:: vdjmatch.aggregate.length_profile.length_histogram
+
+.. autofunction:: vdjmatch.aggregate.length_profile.length_control
+
+.. autofunction:: vdjmatch.aggregate.length_profile.length_summary
+
 .. autofunction:: vdjmatch.aggregate.reference_coverage.reference_graph
 
 .. autofunction:: vdjmatch.aggregate.reference_coverage.leiden_taxa

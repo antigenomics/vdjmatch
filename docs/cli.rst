@@ -1522,6 +1522,18 @@ establish antigen selection, structural contacts, binding confidence or a scorer
 assignment. The manifest records the raw-control identity, retained/excluded rows,
 event counts and normalizer source identity.
 
+The same control enables ``structure.spectratype.tsv`` and the exact histogram
+``structure.spectratype-lengths.tsv``. These use distinct full-junction/allele-pooled
+V-gene/J-gene keys with equal weights in both populations, retaining unresolved
+genes as explicit null categories. Their empirical CDF maximum distance is a KS
+effect size without a p-value; Wasserstein-1 distance is measured in residues.
+Signed mean and ordinary sample-median shifts subtract the control value from
+the reference value. The control's inclusive central interval uses inverse-CDF
+2.5% and 97.5% endpoints (smallest observed length whose cumulative fraction
+reaches the probability). Reference tail mass counts only lengths strictly
+outside those endpoints. Discrete length gaps and void bins need no smoothing,
+Gaussian assumption or disjoint-bin KL comparison.
+
 The control also enables ``structure.motifs.tsv``. Select its projection with
 ``--motif-mode exact3`` (full-amino-acid 3-mers), ``wild4`` (full-amino-acid
 4-mers with one wildcard at each of the four positions), ``imgt3`` (3-mers
@@ -1871,6 +1883,9 @@ vdjmatch motif-position
 Export a descriptive positional amino-acid contrast against an existing prepared
 control within one explicitly chosen species/chain/epitope/V-gene/J-gene/junction-length
 stratum. MHC contexts are pooled; reference source records retain their metadata.
+This prepared rearrangement control is empirical: its frequencies include the
+biology and ascertainment of the observed repertoire, rather than representing
+a pure V(D)J generation law.
 
 .. code-block:: sh
 
@@ -1878,6 +1893,25 @@ stratum. MHC contexts are pooled; reference source records retain their metadata
      --epitope GLCTLVAML --v-gene TRBV6-1 --j-gene TRBJ2-1 --junction-length 17 \
      --control raw-events.tsv.gz --control-model prepared-control --motif GIV \
      --threads 1 --output-prefix motif-position
+
+Add ``--generative-background olga`` to append a separately labelled exact
+generation contrast. The immutable bundled human OLGA model is loaded without
+allele collapsing; every allele pair belonging to the selected genes contributes
+its joint Pgen. One native masked transfer-matrix batch evaluates the all-wildcard
+length denominator, every position/residue numerator, and each optional exact
+motif start. ``generative_fraction`` is numerator Pgen divided by the common
+V/J/length Pgen; ``generative_difference`` is reference fraction minus that
+conditional probability. The model sums generation-event probability mass;
+it does not assign equal weight to all possible junction strings. No simulation,
+refitting or model regeneration occurs. The bundled OLGA source currently
+supports human; other organisms fail explicitly.
+
+The optional motif's anywhere union has no generative estimate (null,
+``unsupported_anywhere_union``), because overlapping starts cannot be added as
+disjoint events. Each start has its own exact conditional estimate. A zero
+generation denominator produces ``unsupported_generative_stratum`` with null
+conditional probabilities and differences. Model files, allele lists, native
+vdjtools binary, DP wrapper and loader identities are pinned in the manifest.
 
 The existing prepared-model loader validates the original raw-control identity,
 manifest, population and event table. Nothing is generated or fitted. Both
