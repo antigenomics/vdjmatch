@@ -458,12 +458,14 @@ def combine_components(components, normalizer_components, reference, queries, *,
     def axis_frames(components):
         columns = ['original_score', 'gapblock_score', 'stem4_score']
         for axis, original, gapblock, stem4, support, weights in definitions:
-            metadata = [*_CASES, *(['pgen_bin'] if conditioned else [])]
+            metadata = [*_CASES, *(['pgen_bin'] if conditioned else []),
+                *[c for c in ('_source_row','_target_row','_observed') if c in components.columns]]
             raw_columns = [original, gapblock, stem4]
             observed = components.select(*metadata, *[pl.col(c).alias(name) for c, name in zip(raw_columns, columns)],
                 pl.col(support).fill_null(False).alias('_original_supported')).join(weights,
                     on=PMHC, how='left', nulls_equal=True, validate='m:1', maintain_order='left')
-            null = normalizer_components.select(*metadata, *[pl.col(c).alias(name) for c, name in zip(raw_columns, columns)])
+            null = normalizer_components.select(*_CASES,*(['pgen_bin'] if conditioned else []),
+                *[pl.col(c).alias(name) for c, name in zip(raw_columns, columns)])
             eligible = pl.all_horizontal(pl.col(THREE_WEIGHTS).is_not_null())
             parts = []
             by = observed.partition_by('pgen_bin', as_dict=True) if conditioned else {(): observed}

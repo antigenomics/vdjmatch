@@ -37,10 +37,14 @@ def inputs(tmp_path):
 
 
 @pytest.mark.parametrize('missing_reference_chain', [False, True])
-def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypatch, missing_reference_chain):
+@pytest.mark.parametrize('details', [False, True])
+def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypatch, missing_reference_chain, details):
     from vdjmatch.evalue import combined
     from vdjmatch.cli.__main__ import main
     sample, reference, control = inputs(tmp_path)
+    pl.read_csv(sample, separator='\t').with_columns(pl.lit('A').alias('epitope'),
+        pl.lit('HLA-A*02:01').alias('mhc_a'),pl.lit('B2M').alias('mhc_b'),
+        pl.lit('MHCI').alias('mhc_class')).write_csv(sample, separator='\t')
     if missing_reference_chain:
         pl.read_csv(sample, separator='\t').with_columns(pl.lit('human').alias('species')).write_csv(sample, separator='\t')
     def constant_pgen(reference, events, **kwargs):
@@ -49,7 +53,8 @@ def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypat
     monkeypatch.setattr(combined, 'compute_pgen', constant_pgen)
     prefix = tmp_path / 'result'
     assert main(['annotate', str(sample), '--vdjdb', str(reference), '--control', str(control),
-        '--locus', 'auto' if missing_reference_chain else 'TRB', '--mock-replicates', '2', '--seed', '7', '-o', str(prefix)]) == 0
+        '--locus', 'auto' if missing_reference_chain else 'TRB', '--mock-replicates', '2', '--seed', '7',
+        '-o', str(prefix)] + (['--details'] if details else [])) == 0
     queries = pl.read_csv(str(prefix) + '.queries.tsv', separator='\t')
     assert queries.height == 4
     assert queries['query_id'].to_list() == ['near', 'far', 'invalid', 'other-species']
@@ -58,8 +63,11 @@ def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypat
     database = pl.read_csv(str(prefix) + '.database.tsv', separator='\t')
     epitopes = pl.read_csv(str(prefix) + '.epitopes.tsv', separator='\t')
     calibration = pl.read_csv(str(prefix) + '.calibration.tsv', separator='\t')
-    assert database.height == 4 and epitopes.height == 4
-    assert set(epitopes['epitope']) == {'A', 'KLGGALQAK'}
+    assert database.height == 4 and epitopes.height == (4 if details else 2)
+    assert set(epitopes['epitope']) == ({'A', 'KLGGALQAK'} if details else {'A'})
+    if not details:
+        assert epitopes['declared_target'].all() and not epitopes['reported_specificity'].any()
+        assert epitopes['p_any'].min() >= 1/3
     assert database['p_both'].null_count() == 2
     assert database.filter(pl.col('calibration_query_id') == queries['calibration_query_id'][1])['p_both'].item() == 1
     assert epitopes.select((pl.col('p_both') == pl.max_horizontal('p_reference', 'p_query')).all()).item()
@@ -69,6 +77,19 @@ def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypat
     assert calibration['reference_species_policy'].unique().to_list() == ['caller_declared']
     assert calibration['seqtree_native_sha256'].str.len_chars().unique().to_list() == [64]
     assert not list(tmp_path.glob('result*.json'))
+
+
+def test_declared_targets_expand_compatible_groups_without_pooling():
+    from vdjmatch.cli.combined import _detail_targets
+    raw = pl.DataFrame({'calibration_query_id':['q','q','other'], 'epitope':['E','F','E'],
+        'mhc_a':['HLA-A*02:01']*3,'mhc_b':['B2M']*3,'mhc_class':['MHCI']*3})
+    reference = pl.DataFrame({'epitope':['E']*4,'mhc_a':['HLA-A*02','HLA-A*02:01','HLA-A*02:02',None],
+        'mhc_b':['B2M']*4,'mhc_class':['MHCI']*4})
+    actual = _detail_targets(raw,pl.DataFrame({'query_id':['q']}),reference)
+    assert actual.height == 3 and actual['query_id'].unique().to_list() == ['q']
+    assert set(actual.filter(pl.col('epitope')=='E')['mhc_a']) == {'HLA-A*02','HLA-A*02:01'}
+    assert actual.filter(pl.col('epitope')=='F')['mhc_a'].item() == 'HLA-A*02:01'
+    assert reference.height == 4
 
 
 def test_preflight_rejects_same_control_and_unsupported_geometry(tmp_path):
@@ -82,7 +103,8 @@ def test_preflight_rejects_same_control_and_unsupported_geometry(tmp_path):
     assert not list(tmp_path.glob('out.*'))
 
 
-def test_mixed_wide_pairs_keep_missing_partner_and_global_identity(tmp_path, monkeypatch):
+@pytest.mark.parametrize('fpr', [None, .025])
+def test_mixed_wide_pairs_keep_missing_partner_and_global_identity(tmp_path, monkeypatch, fpr):
     from vdjmatch.evalue import combined
     from vdjmatch.cli.__main__ import main
     inputs_dir = tmp_path / 'inputs'; inputs_dir.mkdir()
@@ -100,6 +122,7 @@ def test_mixed_wide_pairs_keep_missing_partner_and_global_identity(tmp_path, mon
         'v_call': ['TRAV1-2', 'TRBV1'], 'j_call': ['TRAJ33', 'TRBJ1-1'], 'occurrences': [4, 4]}).write_csv(control, separator='\t')
     calls = []
     def calibrate(queries, reference, raw, **kw):
+        assert kw['report_p'] == (.01 if fpr is None else fpr)
         calls.append((kw['locus'], queries))
         detail = queries.select('query_id').with_columns(pl.lit('E').alias('epitope'),
             *[pl.lit(None, dtype=pl.String).alias(c) for c in ('mhc_a', 'mhc_b', 'mhc_class')],
@@ -111,7 +134,9 @@ def test_mixed_wide_pairs_keep_missing_partner_and_global_identity(tmp_path, mon
         return detail, tails
     monkeypatch.setattr(combined, 'calibrate_combined', calibrate)
     prefix = tmp_path / 'mixed'
-    assert main(['annotate', str(inputs_dir), '--vdjdb', str(reference), '--control', str(control), '-o', str(prefix)]) == 0
+    args = ['annotate', str(inputs_dir), '--vdjdb', str(reference), '--control', str(control), '-o', str(prefix)]
+    assert main(args + ([] if fpr is None else ['--fpr', str(fpr)])) == 0
+    assert pl.read_csv(str(prefix) + '.calibration.tsv', separator='\t')['report_p'].unique().to_list() == [.01 if fpr is None else fpr]
     assert [(locus, q.height) for locus, q in calls] == [('TRB', 2), ('paired', 1)]
     ids = [i for _, q in calls for i in q['query_id']]
     assert len(ids) == len(set(ids)) == 3
@@ -122,6 +147,25 @@ def test_mixed_wide_pairs_keep_missing_partner_and_global_identity(tmp_path, mon
     assert query['calibration_status'].to_list().count('missing_sequence') == 1
     assert pl.read_csv(str(prefix) + '.database.tsv', separator='\t').height == 4
     assert not list(tmp_path.glob('mixed*.json'))
+
+
+@pytest.mark.parametrize('fpr', ['0', '1', '-.01', 'nan', 'inf'])
+def test_invalid_reporting_threshold_fails_before_inputs(fpr):
+    from vdjmatch.cli.__main__ import main
+    with pytest.raises(SystemExit):
+        main(['annotate', 'missing.tsv', '--control', 'missing-control.tsv', '--fpr=' + fpr])
+
+
+def test_reporting_threshold_is_not_silently_ignored_without_calibration(monkeypatch):
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.runner import annotation
+    calls = []
+    monkeypatch.setattr(annotation, 'annotate_repertoires', lambda *args, **kw: calls.append(kw))
+    assert main(['annotate', 'sample.tsv']) == 0
+    assert 'fpr' not in calls[0]
+    with pytest.raises(SystemExit):
+        main(['annotate', 'sample.tsv', '--fpr', '.025'])
+    assert len(calls) == 1
 
 
 def test_control_filter_counts_and_reference_species_aliases(tmp_path):

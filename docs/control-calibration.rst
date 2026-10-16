@@ -19,6 +19,14 @@ Complete-score annotation
 With default ``--background vdjdb-other``, the control opts into the combined
 reference-weighted score and both on-demand tails. ``--mock-replicates`` defaults
 to 199; ``--seed`` defaults to zero. No fitted calibration file is required.
+``--fpr 0.01`` sets the any-call reporting threshold (default 1%); supply a
+different value explicitly when needed. The library equivalent is
+``calibrate_combined(..., report_p=0.01)``. Compact output retains every supported
+label with ``p_any <= fpr``, including ties, and every declared-target row
+regardless of its P-value. Both directional null maxima still span all labels
+and available axes. The threshold is recorded as ``report_p`` in calibration
+metadata. It is a nominal conditional randomization FPR target, not a binding
+probability or an empirically established biological error rate.
 Reference epitope/MHC, ``--evidence-type`` and ``--min-score`` filters apply first.
 Ordinary annotation includes every valid selected reference observation; explicit
 ``--reference-population curated-benchmark`` retains benchmark curation.
@@ -72,11 +80,21 @@ Benchmark ``--exclude-exact`` filters exact hits only. Reference/control populat
 counts, priors, motifs, graph structure and weights remain fixed for every query.
 Each mock reference has its own model, built once rather than refitted per query.
 
-The current complete-score adapter permits at most five million receptor--target
-combinations, including the internal normalization and query-null banks. Larger
-requests fail before scoring. Whole-cohort calibration scaling remains pending.
-Within that output guard, calibration now builds raw components in operation-local
-numeric banks. Full junction/V/J configurations (both chains for genuine pairs)
+Compact output is the default with ``annotate --control``. It retains declared
+targets and reported specificities; ``--details`` requests the full case table.
+Complete declarations expand to compatible reference MHC groups at their source
+resolution, without pooling models. Unavailable declarations remain explicit
+``no_reference_target`` rows. Raw declarations and conflicting labels remain
+in ``.queries.tsv``. Restricting output never restricts the selection population.
+
+Full-detail output retains the five-million-case guard, including internal
+normalization and query-null banks. Compact output instead bounds retained
+provisional detail and the full normalization bank separately at five million
+cases. Its numeric query-null scores and complete-grid coverage bitsets have
+a separate 2 GiB allocation guard. These are allocation limits; whole-cohort
+calibration scaling and resource acceptance remain pending.
+Calibration builds raw components in operation-local numeric banks.
+Full junction/V/J configurations (both chains for genuine pairs)
 share float64 score storage, while a source-row map restores every observation
 and repeated null draw. Models, priors and graph weights retain the complete
 reference. Original scoring consumes one target at a time; grouped kernels
@@ -103,9 +121,10 @@ Here :math:`e` is a full-pMHC target, :math:`a` an available chain axis and
 The reference tail is updated only after all batches, with ties included and
 observed no-hits counted as exceedances on every draw. Missing, duplicate and
 unknown observed cases fail explicitly. Mock raw-component tables are released
-after their counters are updated. Raw components and requested observed detail
-still materialize the case grid: this reduction does not remove the case guard
-or establish whole-cohort resource compliance.
+after their counters are updated. Compact output verifies complete label coverage
+with one bit per source-query/target case, while retaining only declared or
+potentially reportable detailed rows. It never materializes the complete observed
+string case table. This does not establish whole-cohort resource compliance.
 
 Raw gap-block and stem4 collection now consumes bounded observation batches
 directly from the existing native traversal. Each batch carries integer query-row
@@ -113,8 +132,8 @@ and target identities. One sorted numeric map writes its scores into the
 requested case order; repeated or unknown writes fail. Repeated source
 observations retain distinct query rows, and unavailable cases retain missing
 scores. The adapter neither retains the full kernel-detail table nor rebuilds
-a whole-grid hash join for every batch. The outer raw-component case grid still
-exists, so this change alone does not remove its five-million-case guard.
+a whole-grid hash join for every batch. Numeric component arrays still scale
+with the number of distinct receptor configurations times the target count.
 
 Historical density preparation shares one lossless ordered query-junction axis
 across targets. Each target retains CSR edges, unit-edit counts and radii only
@@ -266,6 +285,50 @@ Pgen approximation alone does not establish that assumption. See
 rank tails and the
 `intersection--union discussion <https://pmc.ncbi.nlm.nih.gov/articles/PMC4783210/>`_
 for conjunction inference. The maximum proof above applies directly here.
+
+Reported labels and the any-call threshold
+------------------------------------------
+
+For full-pMHC label :math:`e`, let :math:`U_e(q,R)` be the maximum supported
+score across its available chain axes, and let :math:`M(q,R)=\max_e U_e(q,R)`.
+At the observed label score :math:`u_e=U_e(q,R)`, compact output reports
+
+.. math::
+
+   \widetilde p_{R,e}=\frac{1+\sum_b\mathbf1\{M(q,R^{*(b)})\ge u_e\}}{B_R+1},
+   \qquad
+   \widetilde p_{Q,e}=\frac{1+\sum_b\mathbf1\{M(q^{*(b)},R)\ge u_e\}}{B_Q+1},
+   \qquad
+   p_{{\rm any},e}=\max(\widetilde p_{R,e},\widetilde p_{Q,e}).
+
+These are ``p_reference_any``, ``p_query_any`` and ``p_any``. Each null
+score is the complete-label maximum, including labels omitted from output.
+Fixed-label ``p_reference``, ``p_query`` and ``p_both`` remain separate
+diagnostics. A strong undeclared rival can therefore prevent reporting even
+when a fixed-label P-value is small.
+
+The parameter :math:`\alpha` is ``--fpr`` (library ``report_p``), default
+:math:`0.01`. A supported label passes when :math:`p_{{\rm any},e}\le\alpha`;
+all passing labels and ties are retained. Declared targets always remain and
+have a separate ``declared_target`` flag. ``reported_specificity`` identifies
+which rows pass the threshold. Observed no-hits receive one.
+
+Both tail functions are nonincreasing in the observed score. Thus any supported
+label passes exactly when a supported winning label passes both directional
+complete-label tails. Under the respective conditional validity assumptions,
+this bounds the per-query any-call event by :math:`\alpha`. It does not provide
+a simultaneous error bound across a repertoire's queries.
+
+Compact execution scores the full test-query bank first. It retains observed
+rows with :math:`\widetilde p_{Q,e}\le\alpha`, plus all declarations, then computes
+their reference-direction tails. This is a lossless screen because
+:math:`p_{{\rm any},e}\ge\widetilde p_{Q,e}`. A bitset verifies that every
+source-query/target case appears exactly once in the real model and each mock.
+With :math:`G` labels and :math:`J=B_QH` test queries across :math:`H` represented
+Pgen strata, the auxiliary real-pass storage is :math:`JG` float64 scores,
+:math:`JG+QG` coverage bits for :math:`Q` observed queries, and retained detail.
+Query-null scores are released before reference mocks. Full model populations,
+normalization draws, Pgen strata, axis selection and inclusive tails are unchanged.
 
 Analytic checks for scoped matches
 ----------------------------------

@@ -73,6 +73,11 @@ queries, selections = result["queries"], result["selection"]
 vdjmatch annotate sample.tsv --vdjdb reference.zip --control control.tsv --threads 4 -o calibrated
 ```
 
+Pass the reporting threshold with `--fpr` (default `0.01`); the calibration
+library accepts `report_p=0.01`. Compact reports retain all supported labels
+passing the inclusive any-call threshold, plus declared targets regardless of
+support. Calibration metadata records the threshold as `report_p`.
+
 With default `--background vdjdb-other`, this explicitly opts into the combined
 score. No fitted JSON input/output is required. Outputs are `.queries.tsv`
 (every raw chain row with calibration identity/status), `.database.tsv`

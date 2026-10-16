@@ -79,7 +79,8 @@ def _with_overall(scores):
 
 
 def calibrate_combined(queries, reference, raw_control, *, species, locus, replicates=199,
-                       seed=0, threads=1, exclude_exact=False, model_context=None):
+                       seed=0, threads=1, exclude_exact=False, model_context=None,
+                       detail_targets=None,report_p=.01):
     """Calibrate the actual sum and axis/label selection from one raw control.
 
     One independent unconditional internal normalization bank is held fixed in both directions.
@@ -94,12 +95,17 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
     density and germline priors (beta priors for paired inputs). This candidate recipe is distinct from the
     historical benchmark's separately pinned original prior. An internal context
     can reproduce that comparator without another end-user calibration input.
+
+    ``report_p`` is the configurable any-call reporting threshold (default 0.01).
+    It filters compact reported specificities only; declared targets remain.
     """
     from seqtree import Index
     from .control import _organism
     from ..runner.combined import score_components, combine_components, _reference_population, _check_case_budget
     from ..runner.component_bank import ComponentBank
 
+    if not np.isfinite(report_p) or not 0 < report_p < 1:
+        raise ValueError('report_p must be finite and between zero and one')
     if replicates < 1 or threads < 1 or not queries.height:
         raise ValueError('combined calibration requires queries and positive replicates/threads')
     if queries['query_id'].n_unique() != queries.height or queries['query_id'].null_count():
@@ -111,7 +117,8 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
     reference = _reference_population(reference, _organism(species))
     reference = reference.filter(pl.col('gene').is_in(chains))
     groups = reference.select(PMHC).n_unique()
-    _check_case_budget((queries.height + replicates) * groups)
+    if detail_targets is None:
+        _check_case_budget((queries.height + replicates) * groups)
     controls = {chain: control_events(raw_control, species=species, locus=chain) for chain in chains}
     probabilities = {}
     for chain in chains:
@@ -122,7 +129,8 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
     query_seed, reference_seed = np.random.SeedSequence(seed).spawn(2)
     tagged, normalizers, test_queries = _query_banks(queries, controls, probabilities, locus=locus,
         replicates=replicates, seed=int(query_seed.generate_state(1)[0]))
-    _check_case_budget((tagged.height + normalizers.height + test_queries.height) * groups)
+    _check_case_budget((tagged.height + normalizers.height + test_queries.height) * groups
+        if detail_targets is None else normalizers.height*groups)
     pgen_columns = []
     for chain in chains:
         suffix = ('a' if chain == 'TRA' else 'b') if locus == 'paired' else ''
@@ -151,6 +159,13 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
                 raw.join(q.select('query_id'),on='query_id',how='semi'))
     def unstratified(raw):
         return raw if isinstance(raw,ComponentBank) else raw.drop('pgen_bin')
+    if detail_targets is not None:
+        from .compact_combined import calibrate_compact
+        return calibrate_compact(tagged,normalizers,test_queries,reference,components=components,
+            combine=combine_components,models=iter_mock_models(reference,controls,pgen=probabilities,
+                replicates=replicates,seed=int(reference_seed.generate_state(1)[0])),
+            detail_targets=detail_targets,replicates=replicates,report_p=report_p,pgen_columns=pgen_columns,
+            combine_options=dict(species=species,locus=locus,threads=threads,exclude_exact=exclude_exact))
     bank = pl.concat([normalizers.drop('replicate'), test_queries.drop('replicate')], how='diagonal_relaxed')
     all_queries = pl.concat([tagged, bank], how='diagonal_relaxed')
     real = components(all_queries, reference)

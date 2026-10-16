@@ -67,13 +67,13 @@ def _cmd_annotate(a: argparse.Namespace) -> int:
     if a.control and a.background == 'vdjdb-other':
         from .combined import main
         return main(a)
-    if a.mock_replicates != 199 or a.seed != 0 or a.evidence_type or a.min_score:
-        raise ValueError('mock-replicates, seed and evidence filters require annotate --control with the default background')
+    if a.mock_replicates != 199 or a.seed != 0 or a.fpr != .01 or a.evidence_type or a.min_score:
+        raise ValueError('mock-replicates, seed, fpr and evidence filters require annotate --control with the default background')
     from ..runner.annotation import annotate_repertoires
 
     options = vars(a).copy()
     for name in ("cmd", "func", "sample", "metadata", "vdjdb", "output_prefix",
-                 "locus", "species", "threads", "mock_replicates", "seed", "evidence_type", "min_score"):
+                 "locus", "species", "threads", "mock_replicates", "seed", "fpr", "evidence_type", "min_score"):
         options.pop(name, None)
     annotate_repertoires(a.sample, metadata=a.metadata, reference=a.vdjdb,
         output_prefix=a.output_prefix, locus=a.locus, species=a.species,
@@ -806,12 +806,14 @@ def main(argv: list[str] | None = None) -> int:
     annotation.add_argument('--mock-replicates', type=int, default=199,
                             help='with --control: fresh draws per direction (default: 199)')
     annotation.add_argument('--seed', type=int, default=0, help='with --control: reproducible randomization seed')
+    annotation.add_argument('--fpr', type=float, default=.01,
+                            help='with --control: any-call P-value threshold for reported specificities (default: 0.01)')
     annotation.add_argument('--evidence-type', action='append', help='with --control: filter reference evidence before recalibration')
     annotation.add_argument('--min-score', type=int, default=0, help='with --control: minimum reference evidence score')
     annotation._option_string_actions['--control'].help = 'one raw control repertoire; calibrate the complete combined score on demand'
     basic = {'help', 'vdjdb', 'locus', 'species', 'reference_population', 'epitope', 'mhc_a', 'mhc_b',
              'mhc_match', 'threads', 'verbose', 'control', 'exclude_exact', 'output_prefix', 'metadata',
-             'mock_replicates', 'seed', 'evidence_type', 'min_score'}
+             'mock_replicates', 'seed', 'fpr', 'evidence_type', 'min_score'}
     advanced = annotation.add_argument_group('Advanced scorer diagnostics')
     for action in list(annotation._optionals._group_actions):
         if action.dest not in basic:

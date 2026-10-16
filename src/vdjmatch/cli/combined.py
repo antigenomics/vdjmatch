@@ -3,10 +3,13 @@ from pathlib import Path
 
 
 def _validate(a):
+    import math
+    if not math.isfinite(a.fpr) or not 0 < a.fpr < 1:
+        raise ValueError('fpr must be finite and between zero and one')
     expected = dict(distance_matrix='blosum62', junction_ends='trim3', stem_depth=4,
         stem_weight=1., v_loop_weight=1, v_regions='cdr12plus', alphabet='full',
         position_weighting='uniform', neighbour_weighting='kernel', kernel_scorer='v-bounded',
-        background='vdjdb-other', selection_only=True, rank_signal_prior=.5, knee_floor_factor=.5,
+        background='vdjdb-other', rank_signal_prior=.5, knee_floor_factor=.5,
         chemistry_bandwidth_factor=1.)
     unsupported = [name.replace('_', '-') for name, value in expected.items() if getattr(a, name) != value]
     unsupported += [name.replace('_', '-') for name in ('geometry_extra', 'targets_from_sample',
@@ -153,6 +156,32 @@ def _raw_control(path):
         control_valid_rows=raw.height)
 
 
+def _detail_targets(raw,receptors,reference):
+    """Expand declarations to compatible full reference groups, without pooling models."""
+    import polars as pl
+    from ..aggregate.candidates import PMHC
+    from ..db.schema import mhc_compatible
+    schema={c:pl.String for c in ['query_id',*PMHC]}
+    if 'epitope' not in raw.columns:
+        return pl.DataFrame(schema=schema)
+    declared=raw.rename({'calibration_query_id':'_declared_query'}).join(
+        receptors.select(pl.col('query_id').alias('_declared_query')),on='_declared_query',how='semi')
+    declared=declared.with_columns(*[pl.lit(None,dtype=pl.String).alias(c) for c in PMHC if c not in declared.columns])
+    declared=declared.select(pl.col('_declared_query').alias('query_id'),pl.col(PMHC).cast(pl.String)).filter(
+        pl.col('epitope').is_not_null()&pl.col('epitope').str.strip_chars().ne('')).unique()
+    catalog=reference.select(PMHC).unique()
+    parts=[]
+    for key,part in declared.group_by(PMHC,maintain_order=True):
+        if any(value is None or not value.strip() for value in key):
+            selected=catalog.head(0)
+        else:
+            epitope,a,b,kind=key
+            selected=catalog.filter((pl.col('epitope')==epitope)&(pl.col('mhc_class')==kind)&
+                mhc_compatible('mhc_a',a)&mhc_compatible('mhc_b',b))
+        parts.append(part.select('query_id').join(selected,how='cross') if selected.height else part)
+    return pl.concat(parts).unique() if parts else pl.DataFrame(schema=schema)
+
+
 def main(a):
     import hashlib
     from importlib.metadata import version
@@ -227,7 +256,10 @@ def main(a):
             continue
         events = {chain: events_by_chain[chain] for chain in chains}
         detail, tail = calibrate_combined(receptors, reference, control, species=organism, locus=locus,
-            replicates=a.mock_replicates, seed=a.seed, threads=a.threads, exclude_exact=a.exclude_exact)
+            replicates=a.mock_replicates, seed=a.seed, threads=a.threads, exclude_exact=a.exclude_exact,
+            report_p=a.fpr,
+            detail_targets=_detail_targets(query,receptors,reference.filter(pl.col('gene').is_in(chains)))
+                if a.selection_only else None)
         details.append(detail.with_columns(pl.lit(organism).alias('species'), pl.lit(locus).alias('locus')))
         tails.append(tail.with_columns(pl.lit(organism).alias('species'), pl.lit(locus).alias('locus')))
         source = 'olga' if organism == 'human' else 'arda'
@@ -254,6 +286,9 @@ def main(a):
             null_pairing='independently randomized TRA/TRB events' if locus == 'paired' else 'single-chain events',
             normalization='independent unconditional bank, fixed across both directions; final query nulls Pgen-matched',
             selection='database maximum over full pMHC and available paired axes',
+            detail_scope='declared targets plus reported specificities' if a.selection_only else 'all query-pMHC pairs',
+            report_p=a.fpr,
+            reported_tail='both directional complete-label maxima at each reported label score',
             interpretation='conditional randomization tails, not binding probability; k/B match rates are separate',
             pgen_model_source=source, pgen_model_sha256=digest.hexdigest(),
             seqtree_native_sha256=sha256(Path(native.__file__)), pgen_native_sha256=sha256(Path(pgen_native.__file__)),
@@ -284,6 +319,7 @@ def main(a):
     calibration = pl.DataFrame(metadata) if metadata else pl.DataFrame({'species': [organism], 'locus': [a.locus],
         'query_receptors': [0], 'mock_replicates': [a.mock_replicates], **{k: [v] for k,v in control_counts.items()}})
     calibration = calibration.with_columns(pl.lit(time.monotonic() - start).alias('calculation_seconds'),
+        pl.lit(a.fpr).alias('report_p'),
         pl.lit(EVENT_SAMPLER).alias('reference_event_sampler'))
     prefix.parent.mkdir(parents=True, exist_ok=True)
     for name, frame in [('queries', query), ('database', database), ('epitopes', epitopes), ('calibration', calibration)]:

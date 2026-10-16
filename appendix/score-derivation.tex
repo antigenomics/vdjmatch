@@ -1719,7 +1719,7 @@ Missing support acts as $-\infty$ in this maximum and is exported as a missing s
 Per-epitope exceedances update immediately; a running maximum per query supplies the complete database event after every batch has been consumed.
 Every observed case must occur exactly once per mock, with missing, repeated or unknown cases rejected.
 This changes storage order only: the same ties, no-hit denominators and fixed-model exact-hit masks enter Equation~\eqref{eq:selection-tails}.
-Raw component tables and requested observed detail still materialize the case grid; full-cohort memory and runtime acceptance remain open.
+Numeric component arrays still scale with distinct receptor configurations times target count; full-cohort memory and runtime acceptance remain open.
 
 If both directional P-values are valid for nulls $H_R,H_Q$, then
 $p_{{\rm both},e}=\max(p_{R,e},p_{Q,e})$ is valid for $H_R\cup H_Q$.
@@ -1728,6 +1728,39 @@ No independence assumption is needed.
 This gives a common tail scale for different epitope scoring rules, conditional on their own correctly reproduced nulls; it does not make the scores themselves universal likelihoods.
 Selecting the smallest tail across labels or the strongest paired/marginal axis requires calibration of that complete selection event, not reuse of a component tail.
 The same principle applies when reporting any confident specificity in a repertoire: the reported query/label search scope must match the calibrated event.
+
+\paragraph{Compact reporting with complete-label tails.}
+Let $U_e(q,R)=\max_a T_{e,a}(q,R)$ be the supported axis maximum for full-pMHC label $e$ and let $M(q,R)=\max_e U_e(q,R)$.
+For reference draw $b$ and Pgen-matched query draw $b$, respectively, define
+$M_R^{(b)}(q)=M(q,R^{*(b)})$ and $M_Q^{(b)}=M(q^{*(b)},R)$.
+The reporting tails at an observed label score $u_e=U_e(q,R)$ are
+\[
+\begin{aligned}
+ \widetilde p_{R,e}&=\frac{1+\sum_{b=1}^{B_R}\mathbf1\{M_R^{(b)}(q)\ge u_e\}}{B_R+1},\\
+ \widetilde p_{Q,e}&=\frac{1+\sum_{b=1}^{B_Q}\mathbf1\{M_Q^{(b)}\ge u_e\}}{B_Q+1},\\
+ p_{{\rm any},e}&=\max(\widetilde p_{R,e},\widetilde p_{Q,e}).
+\end{aligned}
+\]
+These differ from the fixed-label tails in Equation~\eqref{eq:selection-tails}: each null score is the complete-label maximum, even when the observed threshold belongs to a nonwinning label.
+All null no-hits remain in the denominator; ties count as exceedances and observed no-hits receive one.
+The parameter $\alpha\in(0,1)$, exposed as \texttt{--fpr} and \texttt{report\_p}, defaults to $0.01$.
+A supported label is reported exactly when $p_{{\rm any},e}\le\alpha$; all ties and every declared target remain in detailed output, with declared targets retained regardless of support or tail.
+The threshold is recorded in calibration metadata.
+
+For fixed null draws both tail functions are nonincreasing in $u_e$.
+Consequently, the event that any supported label passes is the same event as the supported winner $M(q,R)$ passing both complete-label tails.
+Under either valid conditional complete-event null, the corresponding winner tail therefore bounds this per-query any-call event by $\alpha$.
+This is a conditional nominal false-positive rate, not a measured biological error rate, binding posterior or simultaneous guarantee across queries in a repertoire.
+The complete rule/axis/label event must be reproduced inside every draw.
+
+Compact execution first scores the full Pgen-matched query bank against every label, then screens observed detail using $\widetilde p_{Q,e}\le\alpha$.
+This screen is lossless for reporting because $p_{{\rm any},e}\ge\widetilde p_{Q,e}$; declared targets bypass it.
+The retained labels receive the reference-direction tails after every complete mock has been consumed.
+With $Q$ observed queries, $G$ labels and $J=B_QH$ test queries across $H$ represented Pgen strata, execution keeps $JG$ float64 null scores and complete-case bitsets of $QG$ and $JG$ bits, plus retained detail.
+These auxiliary buffers have a combined 2 GiB guard, independent of the raw-component and full-normalizer limits.
+Query-null scores are released before reference mocks, and one running maximum per query is sufficient for each mock.
+Injective codes $iG+g$ and duplicate checks verify that every source-query/label case appears exactly once per model.
+This reduces output storage only: every real and randomized query still searches all labels and available axes, with each model fixed across its queries.
 
 With $B=199$, a plus-one tail cannot be smaller than $1/200=0.005$.
 Many distinct strong raw scores therefore share the same empirical tail.
