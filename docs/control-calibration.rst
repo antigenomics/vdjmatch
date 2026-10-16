@@ -75,6 +75,17 @@ Each mock reference has its own model, built once rather than refitted per query
 The current complete-score adapter permits at most five million receptor--target
 combinations, including the internal normalization and query-null banks. Larger
 requests fail before scoring. Whole-cohort calibration scaling remains pending.
+Within that output guard, calibration now builds raw components in operation-local
+numeric banks. Full junction/V/J configurations (both chains for genuine pairs)
+share float64 score storage, while a source-row map restores every observation
+and repeated null draw. Models, priors and graph weights retain the complete
+reference. Original scoring consumes one target at a time; grouped kernels
+write directly into numeric arrays from one native traversal per geometry and
+population. Source IDs and full pMHC are expanded only in bounded output batches.
+No scoring arrays persist between operations. A separate 12 GiB array-allocation
+guard includes paired temporary factors and arithmetic scratch; the native
+counter retains its own 256 MiB buffer guard. These allocation guards do not
+certify total process RSS or remove the current detailed-output limit.
 Query-direction tails are reduced to counts before reference randomizations;
 wide real-score and query-null tables are then released. Mock combination and
 axis selection consume at most65536 scored cases per batch, with one fixed graph

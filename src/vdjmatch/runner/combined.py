@@ -38,7 +38,7 @@ def _valid_single(queries):
 
 
 def _original(queries, reference, cases, index, prior_background, *, locus, threads, exclude_exact,
-              prior_counts):
+              prior_counts, _consume=None):
     from collections import deque
     from ..match.historical import (density, germline_prior, unpaired_score,
         shared_control_histograms, PreparedBudget)
@@ -48,10 +48,13 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
     query = _valid_single(queries)
     similarities = precompute_v_similarities(query['v'], reference['v'])
     work = []
-    for key, requested in cases.partition_by(PMHC, as_dict=True).items():
+    requested_groups = None if cases is None else cases.partition_by(PMHC, as_dict=True)
+    targets = (reference.select(PMHC).unique(maintain_order=True).iter_rows() if cases is None else
+        requested_groups.keys())
+    for key in targets:
         ref = reference.filter(pl.all_horizontal(*[
             pl.col(name).eq_missing(value) for name, value in zip(PMHC, key)]))
-        selected = query.join(requested.select('query_id'), on='query_id', how='semi')
+        selected = query if cases is None else query.join(requested_groups[key].select('query_id'),on='query_id',how='semi')
         if ref.height and selected.height:
             work.append((selected, ref))
     prepared = deque()
@@ -107,9 +110,15 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
             available = available.with_columns(pl.lit(None, dtype=pl.Float64).alias('original_score'))
         scored = scored.rename({'score': 'original_density'}).join(available.select('query_id', 'original_score'),
             on='query_id', how='left', validate='1:1')
-        rows.append(scored.select(*_CASES, 'original_score', 'original_density', 'historical_original_density',
+        output = scored.select(*_CASES, 'original_score', 'original_density', 'historical_original_density',
             'original_exact_contribution', 'germline_lr').with_columns(
-                (pl.col('original_density') > 0).fill_null(False).alias('original_supported')))
+                (pl.col('original_density') > 0).fill_null(False).alias('original_supported'))
+        if _consume is None:
+            rows.append(output)
+        else:
+            _consume(output)
+    if _consume is not None:
+        return None
     schema = {**{c: cases.schema[c] for c in _CASES}, 'original_score': pl.Float64,
               'original_density': pl.Float64, 'historical_original_density': pl.Float64,
               'original_exact_contribution': pl.Float64, 'germline_lr': pl.Float64, 'original_supported': pl.Boolean}
@@ -118,7 +127,7 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
         pl.col('original_supported').fill_null(False))
 
 
-def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts):
+def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts, _consume=None):
     import numpy as np
     from ..evalue.kernel import grouped_kernel_enrichment, ladder_cutoffs
     from ..match.geometry import (resolve_v_alleles, distance_units, _substitution_costs)
@@ -144,13 +153,27 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
             pl.col('_allele').is_not_null() & pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$').fill_null(False))
         query_keys, search_keys = ['cdr3', '_allele'], ['cdr3', '_allele']
     groups = []
-    for key, requested in cases.partition_by(PMHC, as_dict=True).items():
+    requested_groups = None if cases is None else cases.partition_by(PMHC, as_dict=True)
+    targets = (reference.select(PMHC).unique(maintain_order=True).iter_rows() if cases is None else requested_groups.keys())
+    for key in targets:
         task = dict(zip(PMHC, key))
         part = r.filter(pl.all_horizontal(*[pl.col(name).eq_missing(value) for name, value in task.items()]))
-        subset = q.join(requested.select('query_id'), on='query_id', how='semi')
+        subset = q if cases is None else q.join(requested_groups[key].select('query_id'),on='query_id',how='semi')
         if task['epitope'] is not None and part.height and subset.height:
             groups.append((task, subset, part))
     result = cases
+    if cases is None:
+        if not callable(_consume):
+            raise ValueError('all-label kernel scoring requires a batch consumer')
+        for name,matrix,depth in [('gapblock','clipped',0),('stem4','blosum62',4)]:
+            scale,_ = distance_units(_substitution_costs('full',matrix))
+            grouped_kernel_enrichment(q,r,groups,query_keys=query_keys,search_keys=search_keys,
+                paired=paired,cutoffs=ladder_cutoffs(scale),radius=22.5*scale,kernel_scale=22.5*scale,
+                scorer='v-bounded',assayed=False,species=species,threads=threads,ctrim=3,v_loop_weight=1,
+                alphabet='full',stem_depth=depth,stem_weight=1.,matrix=matrix,
+                v_loop_distances=contexts[matrix],exclude_exact=exclude_exact,_allow_empty_background=True,
+                _scores_only=True,_consume=lambda frame:_consume(name,frame))
+        return None
     # Map once. Native batches carry the original query-row and target axes;
     # never rebuild a full case-grid hash join for every bounded batch.
     target_rows = pl.DataFrame([task for task, _, _ in groups],schema={c:cases.schema[c] for c in PMHC})
@@ -199,7 +222,7 @@ def _reference_population(reference, organism):
 
 
 def score_components(queries, reference, control, *, species, locus, threads=1,
-                     exclude_exact=False, target_masks=None):
+                     exclude_exact=False, target_masks=None, _bank=False):
     """Score retained components in memory, preserving unsupported source cases.
 
     Queries use canonical single ``query_id,cdr3,v,j,locus`` or paired
@@ -222,6 +245,12 @@ def score_components(queries, reference, control, *, species, locus, threads=1,
     with an explicit support flag for call/no-hit handling. No synthetic
     availability flag substitutes for a zero-weight exact edge. Scores are uncalibrated.
     """
+    if _bank:
+        if target_masks is not None:
+            raise ValueError('numeric components retain the complete all-label scope')
+        from .component_bank import score_component_bank
+        return score_component_bank(queries,reference,control,species=species,locus=locus,
+            threads=threads,exclude_exact=exclude_exact)
     from ..evalue.control import _organism
     from ..match.geometry import precompute_v_loop_distances
     from ..match.historical import paired_score, _prepare_prior_background
@@ -392,17 +421,20 @@ def combine_components(components, normalizer_components, reference, queries, *,
     """
     from ..aggregate.combination import THREE_WEIGHTS, null_normalized_evidence, weighted_component_support
     from ..evalue.control import _organism
+    from .component_bank import ComponentBank
 
     if locus not in {'TRA', 'TRB', 'paired'} or threads < 1:
         raise ValueError('combined evidence requires TRA/TRB/paired and positive threads')
     if _consume is not None and not callable(_consume):
         raise ValueError('combined case consumer must be callable')
     required = set(_CASES)
-    if not required.issubset(components.columns) or not required.issubset(normalizer_components.columns):
+    numeric = isinstance(components,ComponentBank)
+    component_columns = [*_CASES,*components.values] if numeric else components.columns
+    if not required.issubset(component_columns) or not required.issubset(normalizer_components.columns):
         raise ValueError('component evidence requires query identities and full pMHC')
-    if components.select(_CASES).is_duplicated().any() or normalizer_components.select(_CASES).is_duplicated().any():
+    if (not numeric and components.select(_CASES).is_duplicated().any()) or normalizer_components.select(_CASES).is_duplicated().any():
         raise ValueError('component query/group cases must be unique')
-    conditioned = 'pgen_bin' in components.columns
+    conditioned = 'pgen_bin' in component_columns
     if conditioned != ('pgen_bin' in normalizer_components.columns):
         raise ValueError('observed and normalizer must declare the same Pgen strata')
     species_name = _organism(species)
@@ -458,6 +490,15 @@ def combine_components(components, normalizer_components, reference, queries, *,
                     parts.append(unavailable)
             axis_scores = pl.concat(parts, how='diagonal_relaxed') if parts else observed.with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in ('score', 'call_score')])
             yield axis, axis_scores.drop('_original_supported')
+    if numeric:
+        rows=[]
+        for part in components.frames():
+            result=_select_axis_frames(axis_frames(part))
+            if _consume is None:
+                rows.append(result)
+            else:
+                _consume(result)
+        return pl.concat(rows).sort(_CASES,nulls_last=True) if _consume is None else None
     if _consume is None:
         return _select_axis_frames(axis_frames(components))
     # Match the grouped native observation-expansion cap. No reference fitting

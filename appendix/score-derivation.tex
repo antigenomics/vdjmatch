@@ -1678,6 +1678,14 @@ Scalar denominators and sequential V/J/length additions retain the original floa
 No reference population is decremented for an exact-hit mask and no computed statistics persist between runs.
 
 \paragraph{Exact streamed reference-tail reduction.}
+Raw components now share numeric storage by complete receptor configuration: full junction, V and J, with both chains retained for a genuine pair.
+Let $\pi(i)$ map source observation $i$ to its configuration among $U$ distinct configurations, and let $Z_k[u,g]$ be component $k$ for target group $g$.
+Every source score is recovered as $Z_k[\pi(i),g]$; repeated reference observations remain in their original models and repeated normalization/test draws remain separate draws.
+Thus storage sharing neither deduplicates statistical observations nor changes the exact-hit filter or source model.
+Single-chain banks retain three float64 scores and one Boolean support flag per configuration--target case; paired banks retain nine scores and three flags, with temporary density/prior factors released before kernel collection.
+An $O(Q+G)$ row/target map restores the $Q$ source identities and $G$ full-pMHC labels only in bounded output batches.
+The raw string case grid is absent from this calibration stage; detailed observed output still has its own case limit, and whole-cohort resource acceptance remains open.
+
 For historical target $e$, let $H_e(q)$ be the ordered PSSM hit list and $b_e(q)$ its unit-edit neighbour count.
 Prepared metadata are retained only on $A_e=\{q:H_e(q)\ne\varnothing\ \text{or}\ b_e(q)>0\}$.
 Outside $A_e$, both counts and edges are zero, so the original density and significance follow their existing no-hit formulas without storing a per-target zero record.

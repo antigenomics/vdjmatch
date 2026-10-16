@@ -98,6 +98,7 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
     from seqtree import Index
     from .control import _organism
     from ..runner.combined import score_components, combine_components, _reference_population, _check_case_budget
+    from ..runner.component_bank import ComponentBank
 
     if replicates < 1 or threads < 1 or not queries.height:
         raise ValueError('combined calibration requires queries and positive replicates/threads')
@@ -144,12 +145,17 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
             alphabet='full', matrix=matrix, v_regions='cdr12plus') for matrix in ('clipped', 'blosum62')}
     def components(q, model):
         return score_components(q, model, model_context, species=species, locus=locus,
-            threads=threads, exclude_exact=exclude_exact)
+            threads=threads, exclude_exact=exclude_exact,_bank=True)
+    def subset(raw,q):
+        return (pl.concat(raw.frames(q)) if isinstance(raw,ComponentBank) else
+                raw.join(q.select('query_id'),on='query_id',how='semi'))
+    def unstratified(raw):
+        return raw if isinstance(raw,ComponentBank) else raw.drop('pgen_bin')
     bank = pl.concat([normalizers.drop('replicate'), test_queries.drop('replicate')], how='diagonal_relaxed')
     all_queries = pl.concat([tagged, bank], how='diagonal_relaxed')
     real = components(all_queries, reference)
-    norm = real.join(normalizers.select('query_id'), on='query_id', how='semi')
-    combined = combine_components(real.drop('pgen_bin'), norm.drop('pgen_bin'), reference, all_queries, species=species, locus=locus,
+    norm = subset(real,normalizers)
+    combined = combine_components(unstratified(real), unstratified(norm) if 'pgen_bin' in norm.columns else norm, reference, all_queries, species=species, locus=locus,
         threads=threads, exclude_exact=exclude_exact)
     observed_detail = combined.join(tagged.select('query_id', 'pgen_bin', *pgen_columns),
         on='query_id', how='inner', validate='m:1')
@@ -185,7 +191,7 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
     for model in iter_mock_models(reference, {chain: controls[chain] for chain in chains},
             pgen=probabilities, replicates=replicates, seed=int(reference_seed.generate_state(1)[0])):
         raw = components(observed_queries, model)
-        mock_norm = raw.join(normalizers.select('query_id'), on='query_id', how='semi')
+        mock_norm = subset(raw,normalizers)
         seen = np.zeros(observed.height, dtype=bool)
         maxima = np.full(database_observed.height, np.nan)
 
@@ -210,7 +216,7 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
                 on='query_id', how='left', validate='m:1')
             np.fmax.at(maxima, by_query['_query'].to_numpy(), by_query['_null_score'].to_numpy())
 
-        mock = combine_components(raw.drop('pgen_bin'), mock_norm.drop('pgen_bin'), model, observed_queries,
+        mock = combine_components(unstratified(raw), unstratified(mock_norm) if 'pgen_bin' in mock_norm.columns else mock_norm, model, observed_queries,
             species=species, locus=locus, threads=threads, exclude_exact=exclude_exact, _consume=consume)
         # Internal adapters may still return one materialized frame.
         if mock is not None:
