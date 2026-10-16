@@ -1568,6 +1568,13 @@ route retains exact-junction mass. Diagnostic manifests record the feature and
 producer-manifest hashes and model identity. These are reusable model features;
 control draws and diagnostic calculations remain fresh within each invocation.
 
+If a requested Pgen bin has too few control events, the diagnostics retain the
+entire reference stratum and report ``control_matching_status=insufficient_control_events``
+with the bin and required/available event counts. Its control envelope is null
+and ``control_replicates=0``; other full-pMHC strata proceed normally. Coverage
+exports explicit unavailable control rows for both taxon resolutions. Bins are
+not widened and reference records are not removed to manufacture a match.
+
 With the same ``--control`` option, ``structure.genes.tsv`` also reports
 ``gene_bits``, ``length_bits`` and ``joint_bits``. These use distinct
 junction/gene keys on **both** sides, rather than the event fractions used by

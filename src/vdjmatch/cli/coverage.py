@@ -44,7 +44,7 @@ def main(a, *, inputs=None):
     from ..aggregate.reference_coverage import reference_graph, leiden_taxa, abundance_coverage, sw_knee
     from ..db.cache import sha256
     from ..evalue.control import _organism
-    from ..evalue.mock_reference import control_events, compute_pgen, iter_mock_references, EVENT_SAMPLER, _pgen_model_identity, _prepare_mock_control, load_pgen_features
+    from ..evalue.mock_reference import control_events, compute_pgen, iter_mock_references, InsufficientControlEvents, EVENT_SAMPLER, _pgen_model_identity, _prepare_mock_control, load_pgen_features
     from ..runner.annotation import _validate_output_paths
     from .structure import reference_groups
 
@@ -110,16 +110,26 @@ def main(a, *, inputs=None):
             selected = reference.filter(pl.col('group_id') == i).rename({'cdr3': 'junction_aa'})
             if not selected.height:
                 continue
-            for mock in iter_mock_references(selected, events, replicates=a.mock_replicates,
-                    seed=stable_seed(task, 'control'), pgen=pgen, species=organism, locus=a.locus, threads=a.threads,
-                    prepared_control=prepared_control):
-                replicate = int(mock['replicate'][0])
-                group = len(populations)
-                records.append(mock.select(pl.col('junction_aa').alias('cdr3'), 'v', 'j',
-                    pl.lit(group).alias('group_id')))
-                populations.append(dict(group_id=group, species=species, locus=a.locus, **task,
-                    population='matched_control', replicate=replicate, source_records=selected.height,
-                    retained_records=mock.height, excluded_records=0))
+            populations[i].update(control_matching_status='available')
+            try:
+                for mock in iter_mock_references(selected, events, replicates=a.mock_replicates,
+                        seed=stable_seed(task, 'control'), pgen=pgen, species=organism, locus=a.locus, threads=a.threads,
+                        prepared_control=prepared_control):
+                    replicate = int(mock['replicate'][0])
+                    group = len(populations)
+                    records.append(mock.select(pl.col('junction_aa').alias('cdr3'), 'v', 'j',
+                        pl.lit(group).alias('group_id')))
+                    populations.append(dict(group_id=group, species=species, locus=a.locus, **task,
+                        population='matched_control', replicate=replicate, source_records=selected.height,
+                        retained_records=mock.height, excluded_records=0))
+            except InsufficientControlEvents as exc:
+                details = dict(control_matching_status='insufficient_control_events',
+                    control_pgen_bin=exc.bin_id, control_required_events=exc.required,
+                    control_available_events=exc.available)
+                populations[i].update(details)
+                populations.append(dict(group_id=len(populations), species=species, locus=a.locus,
+                    **task, population='matched_control', replicate=-1, source_records=selected.height,
+                    retained_records=0, excluded_records=0, **details))
     nodes, edges = reference_graph(pl.concat(records), geometry=a.geometry, radius=a.sw_radius,
         species=organism, locus=a.locus, threads=a.threads, scope=a.scope,
         gap_open=a.gap_open, gap_extend=a.gap_extend, pair_budget=a.pair_budget,
@@ -136,10 +146,13 @@ def main(a, *, inputs=None):
     for context in populations:
         selected = nodes.filter(pl.col('group_id') == context['group_id'])
         if not selected.height:
-            summaries.append(context | dict(taxon_resolution='unavailable', coverage_status='no_valid_occurrences'))
+            for label in ('exact_clonotype', 'leiden_community'):
+                summaries.append(context | dict(taxon_resolution=label,
+                    coverage_status=context.get('control_matching_status', 'no_valid_occurrences')))
             continue
         identity = {k: v for k, v in context.items() if k not in
-            ('group_id', 'source_records', 'retained_records', 'excluded_records')}
+            ('group_id', 'source_records', 'retained_records', 'excluded_records')
+            and not k.startswith('control_')}
         modeled = selected.filter(pl.col('geometry_available'))
         unavailable = selected.filter(~pl.col('geometry_available')).with_columns(pl.lit(None, dtype=pl.Int64).alias('community'))
         local_edges = edge_groups.get((context['group_id'],), edges.head(0))

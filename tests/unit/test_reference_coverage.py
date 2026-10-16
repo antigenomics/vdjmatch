@@ -224,3 +224,37 @@ def test_native_bootstrap_coverage_matches_owning_python_curve():
         np.testing.assert_allclose(curve['coverage_hi'], np.quantile(expected, .975, axis=0), rtol=0, atol=1e-9)
     with pytest.raises(ValueError, match='working memory'):
         abundance_coverage([10_000_000], nboot=5, seed=7)
+
+
+def test_diagnostics_keep_full_strata_when_control_pgen_bin_is_unavailable(tmp_path, monkeypatch):
+    from vdjmatch.cli.__main__ import main
+    import vdjmatch.evalue.mock_reference as mocks
+    reference, control, prefix = (tmp_path/p for p in ('ref.tsv', 'control.tsv', 'out'))
+    seqs=['CASSLAAAF', 'CAGGGGGGF', 'CAWWWWWWF']
+    pl.DataFrame({'cdr3':seqs, 'v':['TRBV1']*3, 'j':['TRBJ1-1']*3,
+        'species':['HomoSapiens']*3, 'gene':['TRB']*3, 'epitope':['DEMO']*3,
+        'mhc_a':['HLA-A*01:01','HLA-A*01:01','HLA-A*02:01']}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':seqs[:2], 'v_call':['TRBV1']*2,
+        'j_call':['TRBJ1-1']*2,'occurrences':[10]*2}).write_csv(control,separator='\t')
+    monkeypatch.setattr(mocks,'compute_pgen',lambda *args,**kwargs:
+        pl.DataFrame({'junction_aa':seqs,'pgen':[.25,.25,0.]}))
+    assert main(['reference-diagnostics','--vdjdb',str(reference),'--control',str(control),
+        '--locus','TRB','--geometry','levenshtein','--mock-replicates','2',
+        '--nboot','3','--output-prefix',str(prefix)])==0
+    motifs=pl.read_csv(str(prefix)+'.motifs.tsv',separator='\t')
+    missing=motifs.filter(pl.col('mhc_a')=='HLA-A*02:01')
+    assert set(missing['motif_mode'])=={'exact3','wild4','imgt3','imgt_wild4'}
+    assert missing['control_replicates'].unique().to_list()==[0]
+    assert missing['control_matching_status'].unique().to_list()==['insufficient_control_events']
+    assert missing['control_tfidf_mean'].null_count()==missing.height
+    assert missing['tfidf'].null_count()==0
+    rows=pl.read_csv(str(prefix)+'.levenshtein.coverage.tsv',separator='\t')
+    observed=rows.filter((pl.col('population')=='reference')&(pl.col('taxon_resolution')=='exact_clonotype'))
+    assert observed['observations'].sum()==3 and observed.height==2
+    absent=rows.filter((pl.col('population')=='matched_control')&(pl.col('mhc_a')=='HLA-A*02:01'))
+    assert absent.height==2 and absent['coverage'].null_count()==2
+    assert absent['coverage_status'].unique().to_list()==['insufficient_control_events']
+    assert absent['control_required_events'].unique().to_list()==[1]
+    assert absent['control_available_events'].unique().to_list()==[0]
+    good=rows.filter((pl.col('population')=='matched_control')&(pl.col('mhc_a')=='HLA-A*01:01'))
+    assert good.height==4 and good['observations'].to_list()==[2]*4
