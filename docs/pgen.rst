@@ -87,7 +87,10 @@ The additional ``human-trb.features.parquet`` contains one row per distinct
 canonical junction in that population, with ``junction_aa``, ``pgen``, ``species``
 and ``locus``. The manifest records the control input hash, excluded noncanonical
 row count and feature-table hash. Control read counts and AA incidence do not
-weight the generative mass. ``scores.tsv`` still retains every selected reference
+weight the generative mass. Shared TRA/TRD V genes and contradictory V/J calls
+do not remove canonical AA keys; conflicting gene rows are counted in the manifest.
+Unambiguously different TRA/TRB control annotations fail validation.
+``scores.tsv`` still retains every selected reference
 observation and its full pMHC metadata. Models remain separate by species and chain.
 The requested feature table is a versioned input to subsequent diagnostics;
 those consumers validate it against its companion manifest.

@@ -107,12 +107,14 @@ def main(a):
     if a.control:
         from vdjtools.io import read_vdjtools
         control_rows = read_vdjtools(a.control)
-        # Shared TRA/TRD V genes do not identify the rearranged chain; J does.
-        j_locus = pl.col('j_call').str.slice(0, 3)
-        control_locus = pl.when(j_locus.is_in(['TRA', 'TRB'])).then(j_locus).otherwise(
-            pl.when(pl.col('locus').is_in(['TRA', 'TRB'])).then(pl.col('locus')).otherwise(None))
-        if control_rows.filter(control_locus.is_not_null() & (control_locus != a.locus)).height:
+        # Shared V genes and contradictory calls do not veto marginal AA mass
+        # in an explicitly declared control population; retain and count conflicts.
+        j_locus, v_locus = pl.col('j_call').str.slice(0, 3), pl.col('locus')
+        if control_rows.filter(v_locus.is_in(['TRA', 'TRB']) & (v_locus == j_locus) &
+                (j_locus != a.locus)).height:
             raise ValueError('control locus does not match --locus')
+        conflicts = control_rows.filter(v_locus.is_in(['TRA', 'TRB']) &
+            j_locus.is_in(['TRA', 'TRB']) & (v_locus != j_locus)).height
         control_rows = control_rows.select(
             pl.col('junction_aa').str.strip_chars().str.to_uppercase().alias('junction_aa_normalized'))
         canonical = control_rows.filter(pl.col('junction_aa_normalized').str.contains(
@@ -120,6 +122,7 @@ def main(a):
         control = dict(path=str(Path(a.control).resolve()), sha256=sha256(Path(a.control)),
             source_rows=control_rows.height, canonical_rows=canonical.height,
             excluded_rows=control_rows.height-canonical.height,
+            conflicting_gene_rows=conflicts,
             reader_sha256=sha256(Path(read_vdjtools.__code__.co_filename)),
             unit='AA junction keys only; control read abundance and AA incidence are not probability weights')
         sequences = pl.concat([sequences, canonical])

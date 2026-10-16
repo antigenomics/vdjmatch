@@ -76,7 +76,7 @@ def test_control_union_features_one_batch(tmp_path, model_path, monkeypatch):
     from vdjtools.model import native
     control = tmp_path/'control.tsv'
     control.write_text('count\tfreq\tcdr3aa\tv\tj\n'
-        '4\t0.5\tCAVRDSNYQLIW\tTRAV1-1\tTRAJ1\n'
+        '4\t0.5\tCAVRDSNYQLIW\tTRAV1-1\tTRBJ1-1\n'
         '4\t0.5\tCAVSDRGSTLGRLYF\tTRDV1\tTRAJ1\n')
     calls = []
     def batch(model, seqs, **kwargs):
@@ -92,6 +92,7 @@ def test_control_union_features_one_batch(tmp_path, model_path, monkeypatch):
     assert features['junction_aa'].to_list() == calls[0][0]
     assert features['pgen'].to_list() == [0.1, 0.1]
     assert manifest['control']['canonical_rows'] == 2
+    assert manifest['control']['conflicting_gene_rows'] == 1
     assert manifest['features']['sha256'] and manifest['options']['mismatches'] == 1
 
 
