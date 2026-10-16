@@ -1678,6 +1678,14 @@ Scalar denominators and sequential V/J/length additions retain the original floa
 No reference population is decremented for an exact-hit mask and no computed statistics persist between runs.
 
 \paragraph{Exact streamed reference-tail reduction.}
+For historical target $e$, let $H_e(q)$ be the ordered PSSM hit list and $b_e(q)$ its unit-edit neighbour count.
+Prepared metadata are retained only on $A_e=\{q:H_e(q)\ne\varnothing\ \text{or}\ b_e(q)>0\}$.
+Outside $A_e$, both counts and edges are zero, so the original density and significance follow their existing no-hit formulas without storing a per-target zero record.
+Unit-edit evidence is retained even if $H_e(q)$ is empty; it cannot be inferred from the PSSM hit list alone.
+The ordered full query-junction axis is shared losslessly across targets, while reference axes and active CSR edges remain target-specific.
+Prepared storage therefore scales with one query axis, $\sum_e|A_e|$ and the retained edges, rather than a full query-axis copy per target.
+Every output query and its unchanged prior, population counts and support status still remain in the score calculation.
+
 Raw gap-block and stem4 score batches carry an observation-row index $u$ and target index $t$.
 For $G$ target groups, the execution key $c=uG+t$ is injective for $0\le t<G$; a sorted key-to-output-row map places every batch into the requested case order.
 Repeated source observations have different $u$ even when they share a native search key.

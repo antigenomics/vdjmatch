@@ -105,6 +105,17 @@ scores. The adapter neither retains the full kernel-detail table nor rebuilds
 a whole-grid hash join for every batch. The outer raw-component case grid still
 exists, so this change alone does not remove its five-million-case guard.
 
+Historical density preparation shares one lossless ordered query-junction axis
+across targets. Each target retains CSR edges, unit-edit counts and radii only
+for queries with an edge or a nonzero unit-edit count. Other queries implicitly
+have no edges, count zero and radius zero; their output density remains zero,
+with the same original prior and support disposition. Unit-only support is
+retained even when the PSSM hit list is empty. Native edge order, complete
+reference representatives and exact-hit filtering are unchanged. The shared
+2 GiB preparation budget counts the raw axes once, sparse per-target storage
+and temporary native-hit objects; it still fails before packing an oversized
+state. These transient in-memory structures are rebuilt for each operation.
+
 Component normalization also keeps each full-pMHC/stratum population separate
 without a Python loop over targets. Null metadata keys receive shared integer
 identities, including missing pMHC fields. Within each represented null source,

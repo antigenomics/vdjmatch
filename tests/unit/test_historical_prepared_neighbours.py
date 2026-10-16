@@ -68,6 +68,24 @@ def test_prepared_axes_reject_wrong_population():
             control_counts=counts,prepared_neighbours=prepared[0])
 
 
+def test_prepared_unit_only_evidence_is_not_discarded():
+    q=pl.DataFrame({'query_id':['unit-only','orphan'],
+        'cdr3':['CASSLAGQAYEQYF','CWWWWWWWWWWWF'],'v':['TRBV19']*2,'j':['TRBJ1-1']*2})
+    r=pl.DataFrame({'cdr3':['CASSLGQAYEQYF'],'v':['TRBV19'],'j':['TRBJ1-1'],
+        'epitope':['E'],'mhc_a':['A'],'mhc_b':['B2M'],'mhc_class':['MHCI']})
+    control=Index.build(['CASSLGQAYEQYF','CASSLGQAYEQFF']);prepared=[]
+    counts=historical.shared_control_histograms(control,[(q,r)],prepared_batches=prepared)
+    p=prepared[0]
+    assert list(p.query_indices)==[0] and not p.refs
+    assert list(p.unit_counts)==[1] and list(p.radii)==[1]
+    expected=historical.density(q,r,control,pool_reference=True,control_counts=counts)
+    actual=historical.density(q,r,control,pool_reference=True,control_counts=counts,
+        prepared_neighbours=p)
+    assert_frame_equal(actual,expected,check_exact=True)
+    assert actual['score'].to_list()==[0.,0.]
+    assert actual['p_enrichment'][0]<1. and actual['p_enrichment'][1]==1.
+
+
 @pytest.mark.parametrize('locus',['TRA','paired'])
 @pytest.mark.parametrize('all_targets',[False,True])
 def test_cli_prepared_vs_old_exact_and_native_call_count(tmp_path,monkeypatch,locus,all_targets):
@@ -122,7 +140,7 @@ def test_empty_internal_multi_target_queries():
     assert out.height==0
 
 
-def test_prepared_csr_zero_edges_has_fixed_width_query_metadata(monkeypatch):
+def test_prepared_csr_zero_edges_share_axis_and_have_no_per_target_query_metadata(monkeypatch):
     from array import array
     n=1000
     q=pl.DataFrame({'cdr3':[f'query-{i}' for i in range(n)]})
@@ -131,13 +149,16 @@ def test_prepared_csr_zero_edges_has_fixed_width_query_metadata(monkeypatch):
         return {s:[] for s in seqs},[[0,0] for s in seqs],dict.fromkeys(seqs,0)
     monkeypatch.setattr(historical,'_density_neighbours',empty)
     batches=[]
-    historical.shared_control_histograms(Index.build(['CASSF']),[(q,r)],prepared_batches=batches)
+    budget=historical.PreparedBudget()
+    historical.shared_control_histograms(Index.build(['CASSF']),[(q,r)]*20,
+        prepared_batches=batches,prepared_budget=budget)
     p=batches[0]
-    assert len(p)==8 and all(isinstance(a,array) for a in p[2:])
-    assert len(p[2])==n+1 and not any(p[2])
-    assert all(len(a)==0 for a in p[3:6])
-    assert len(p[6])==len(p[7])==n
-    assert historical._prepared_size(p[0],p[1],0)>n*145
+    assert all(part.queries is p.queries for part in batches)
+    assert len(p.queries)==n and not p.query_indices
+    assert all(isinstance(a,array) for a in p[2:])
+    assert list(p.offsets)==[0]
+    assert all(len(a)==0 for a in (p.refs,p.substitutions,p.penalties,p.unit_counts,p.radii))
+    assert budget.retained<100000  # One raw query axis, not20 copies of query metadata.
 
 
 def test_prepared_budget_rejects_before_search_for_zero_edge_metadata(monkeypatch):
@@ -175,7 +196,10 @@ def test_prepared_budget_shared_between_chain_collectors(monkeypatch):
     budget=historical.PreparedBudget();alpha=[];beta=[]
     control=Index.build(['CASSF'])
     historical.shared_control_histograms(control,[(q,r)],prepared_batches=alpha,prepared_budget=budget)
-    assert budget.retained==size
+    p=alpha[0]
+    assert budget.retained==historical._query_axis_size(p.queries)+historical._prepared_size(
+        p.queries,p.references,0,active_queries=0,include_query_axis=False)
+    monkeypatch.setattr(historical,'_PREPARED_LIMIT_BYTES',2*budget.retained-1)
     with pytest.raises(ValueError,match='2 GiB.*restrict'):
         historical.shared_control_histograms(control,[(q,r)],prepared_batches=beta,prepared_budget=budget)
     assert len(alpha)==1 and beta==[]
