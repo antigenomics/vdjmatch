@@ -281,3 +281,12 @@ The P-value still ignores V/J. `--max-edits` bounds full-junction Levenshtein
 distance (default5); native workers follow `--threads`, Polars/BLAS helpers use1.
 
 - `reference-structure --control` exports gene-consensus CDR1/CDR2/CDR2.5 residue factors and KL plus `residue_bits_lower`, allowing all compatible background alleles. Keep full-junction/V-key mass after projection, allele ambiguity and one-based model alignment columns explicit; do not sum correlated residue views or interpret the bound as a sampling interval/P-value. See `docs/selection-information.rst`.
+
+### Experimental frozen reference policy
+
+`vdjmatch score-policy components.tsv --policy reference-policy.tsv --output-prefix selected`
+selects existing continuous V/conditional-rank scores using a frozen reference-only
+model. Input columns: species/locus/epitope, original_score (or --original-column),
+rule_v_score/rule_rank_score. Requires the policy companion manifest and table hash.
+It preserves cases, falls back explicitly, does not fit or change defaults, and
+provides no transferred component P/E/posterior. See docs/scoring.rst.

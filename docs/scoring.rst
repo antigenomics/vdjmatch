@@ -655,3 +655,27 @@ remain explicit. Reference keys without local windows are counted separately.
 These are experimental ranking values, with no component P/E-value or binding
 probability. Complete raw-task accuracy and selected-score calibration remain
 required before adoption.
+
+Frozen reference-class score selection (experimental)
+-----------------------------------------------------
+
+``vdjmatch score-policy components.tsv --policy reference-policy.tsv
+--output-prefix selected`` applies a separately frozen reference-only class
+model to final continuous component scores. It preserves row order and identities;
+``--original-column`` names the fallback column (default ``original_score``).
+The table requires species, locus and epitope plus ``rule_v_score`` and
+``rule_rank_score``. The policy's companion ``manifest.json`` must identify a
+reference-model asset without benchmark inputs and pin the policy table hash.
+
+``V_dominant`` selects the V ratio; ``junction_projection_dominant`` selects
+V-weighted complete conditional-distance rank. ``general_fallback`` or an absent
+profile retains the original score. An unavailable selected component remains
+missing: raw scores from different components cannot be mixed across queries.
+The original column stays available separately. The policy
+model, rather than query labels, owns paired chain agreement and linked support.
+
+This command performs no receptor search, fitting or default promotion. It writes
+continuous ``policy_score``, the selected column and an explicit disposition;
+component P-values, E-values and posteriors do not transfer to this selected rule.
+Every component table must be rebuilt freshly through its producing CLI for a
+fresh manuscript-table rebuild. Its final all-label/axis calibration is separate.
