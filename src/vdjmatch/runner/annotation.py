@@ -75,11 +75,11 @@ def _validate_output_paths(prefix, protected):
     protected = {Path(path).resolve() for path in protected}
     for path in protected:
         if (path.is_dir() and prefix.parent.is_relative_to(path)) or (
-                path.parent == prefix.parent and path.name.startswith(prefix.name + ".") and path.name.endswith((".tsv", ".json"))):
+                path.parent == prefix.parent and path.name.startswith(prefix.name + ".") and path.name.endswith((".tsv", ".json", ".parquet", ".pq"))):
             raise ValueError("annotation output path conflicts with an input/reference/metadata file")
     if prefix.parent.exists():
         for output in prefix.parent.iterdir():
-            if (output.name.startswith(prefix.name + ".") and output.name.endswith((".tsv", ".json"))
+            if (output.name.startswith(prefix.name + ".") and output.name.endswith((".tsv", ".json", ".parquet", ".pq"))
                     and any(output.resolve() == path or (path.is_dir() and output.resolve().is_relative_to(path)) or
                             (output.exists() and path.is_file() and output.samefile(path)) for path in protected)):
                 raise ValueError("annotation output path conflicts with an input/reference/metadata file")

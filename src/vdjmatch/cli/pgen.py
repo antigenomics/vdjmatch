@@ -36,7 +36,7 @@ def main(a):
     if a.threads < 1:
         raise ValueError('positive threads required')
     from ..runner.annotation import _validate_output_paths
-    prefix = _validate_output_paths(a.output_prefix, [a.sample] + ([a.control] if a.control else []))
+    prefix = _validate_output_paths(a.output_prefix, [a.sample, a.model_path] + ([a.control] if a.control else []))
     organism = _organism(a.species)
     model_path = Path(a.model_path)
     if not model_path.is_dir():

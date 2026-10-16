@@ -95,6 +95,22 @@ def test_control_union_features_one_batch(tmp_path, model_path, monkeypatch):
     assert manifest['features']['sha256'] and manifest['options']['mismatches'] == 1
 
 
+@pytest.mark.parametrize('link', ['direct', 'symlink', 'hardlink'])
+def test_feature_output_cannot_replace_raw_input(tmp_path, model_path, link, capsys):
+    sample = tmp_path/('bank.features.parquet' if link == 'direct' else 'input.parquet')
+    pl.DataFrame({'junction_aa': ['CAVRDSNYQLIW']}).write_parquet(sample)
+    before = sample.read_bytes()
+    if link == 'symlink':
+        (tmp_path/'bank.features.parquet').symlink_to(sample)
+    elif link == 'hardlink':
+        (tmp_path/'bank.features.parquet').hardlink_to(sample)
+    with pytest.raises(SystemExit):
+        main(['pgen', str(sample), '--control', str(tmp_path/'unused.tsv'),
+            '--model-path', model_path, '--species', 'human', '--locus', 'TRA',
+            '--output-prefix', str(tmp_path/'bank')])
+    assert 'conflicts' in capsys.readouterr().err and sample.read_bytes() == before
+
+
 def test_missing_v_locus_and_zero_mass(tmp_path,model_path,monkeypatch):
     from vdjtools.model import native
     monkeypatch.setattr(native,'pgen_aa_batch',lambda *args,**kwargs:[0.0])
