@@ -174,3 +174,22 @@ def test_sw_knee_uses_reference_nearest_within_pmhc_and_keeps_missing_models(mon
     missing = nodes.filter(~pl.col('geometry_available'))
     assert missing.height == 1 and missing['occurrences'].sum() == 1
     assert not edges.filter(pl.col('a').is_in(missing['node'].implode()) | pl.col('b').is_in(missing['node'].implode())).height
+
+
+def test_edit_search_deduplicates_geometry_only_and_bounds_actual_edges(monkeypatch):
+    import vdjmatch.cluster as cluster
+    from vdjmatch.aggregate.reference_coverage import reference_graph
+    records = pl.DataFrame({'cdr3': ['CASSLAAAF', 'CASSLAAAF', 'CASSLAAAAF']*4,
+        'v': ['TRBV1']*12, 'j': ['TRBJ1-1', 'TRBJ1-2', 'TRBJ1-1']*4,
+        'group_id': np.repeat(np.arange(4), 3)})
+    native = cluster.overlap
+    calls = []
+    def batched(seqs, **kwargs):
+        calls.append(seqs)
+        return native(seqs, **kwargs)
+    monkeypatch.setattr(cluster, 'overlap', batched)
+    nodes, edges = reference_graph(records, geometry='levenshtein', pair_budget=1)
+    assert calls == [['CASSLAAAAF', 'CASSLAAAF']]
+    assert nodes.height == 12 and edges.height == 12
+    groups = nodes.select(pl.col('node').cast(pl.Int64).alias('a'), 'group_id')
+    assert edges.join(groups, on='a').group_by('group_id').len()['len'].to_list() == [3]*4

@@ -143,7 +143,8 @@ def reference_graph(records, *, geometry, radius=None, species='human', locus='T
     pairs = sum(int(n)*(int(n)-1)//2 for n in sizes)
     search = nodes.select('cdr3', 'v', 'j').unique().sort('cdr3', 'v', 'j', nulls_last=True)
     if geometry == 'levenshtein':
-        pairs = search.height*(search.height-1)//2
+        unique_junctions = nodes['cdr3'].n_unique()
+        pairs = unique_junctions*(unique_junctions-1)//2
     if pairs > pair_budget:
         raise ValueError(f'graph pair budget exceeded: {pairs} candidate pairs > {pair_budget}; raise --pair-budget explicitly')
     edge_schema = {'a': pl.Int64, 'b': pl.Int64, 'distance_ceiling': pl.Int64}
@@ -192,23 +193,35 @@ def reference_graph(records, *, geometry, radius=None, species='human', locus='T
     if insertions != deletions:
         raise ValueError('undirected edit graphs require symmetric insertion/deletion budgets')
     nodes = nodes.with_columns(pl.lit(True).alias('geometry_available'))
-    search = search.with_row_index('_search')
-    mapping = nodes.join(search, on=['cdr3', 'v', 'j'], nulls_equal=True, validate='m:1')
+    # Edit geometry does not depend on V/J: search each junction once, then
+    # expand its fixed full-clonotype memberships in bounded table chunks.
+    search = nodes.select('cdr3').unique().sort('cdr3').with_row_index('_search')
+    mapping = nodes.join(search, on='cdr3', validate='m:1')
     hits = overlap(search['cdr3'].to_list(), scope=scope, threads=threads) if search.height else None
     if hits is None:
         return nodes, pl.DataFrame(schema=edge_schema)
     a, b = hits['a_idx'].to_numpy(), hits['b_idx'].to_numpy()
     keep = a < b
-    a, b = a[keep], b[keep]
-    expanded = int(np.dot(np.bincount(a, minlength=search.height),
-        np.bincount(mapping['_search'].to_numpy(), minlength=search.height)))
-    if expanded * 64 > 1024**3:
-        raise ValueError('population edge expansion exceeds 1 GiB budget')
-    global_edges = pl.DataFrame({'_a': a, '_b': b})
-    left = mapping.select(pl.col('_search').alias('_a'), 'group_id', pl.col('node').cast(pl.Int64).alias('a'))
-    right = mapping.select(pl.col('_search').alias('_b'), 'group_id', pl.col('node').cast(pl.Int64).alias('b'))
-    edges = global_edges.join(left, on='_a', validate='m:m').join(right,
-        on=['_b', 'group_id'], validate='m:1').select('a', 'b', pl.lit(radius, dtype=pl.Int64).alias('distance_ceiling'))
+    global_edges = pl.concat([pl.DataFrame({'_a': a[keep], '_b': b[keep]}),
+        search.select(pl.col('_search').cast(pl.Int64).alias('_a'), pl.col('_search').cast(pl.Int64).alias('_b'))])
+    del hits
+    left = mapping.select(pl.col('_search').cast(pl.Int64).alias('_a'), 'group_id', pl.col('node').cast(pl.Int64).alias('a'))
+    right = mapping.select(pl.col('_search').cast(pl.Int64).alias('_b'), 'group_id', pl.col('node').cast(pl.Int64).alias('b'))
+    multiplicity = max(1, int(mapping.group_by('_search').len()['len'].max() or 1))
+    local = max(1, int(mapping.group_by('_search', 'group_id').len()['len'].max() or 1))
+    if multiplicity*local*64 > 256*1024**2:
+        raise ValueError('one edit edge membership expansion exceeds 256 MiB budget')
+    chunk_size = max(1, min(65536, (256*1024**2)//(multiplicity*local*64)))
+    parts, count = [], 0
+    for chunk in global_edges.iter_slices(chunk_size):
+        expanded = chunk.join(left, on='_a', validate='m:m').join(right,
+            on=['_b', 'group_id'], validate='m:m').filter(pl.col('a') < pl.col('b')).select(
+                'a', 'b', pl.lit(radius, dtype=pl.Int64).alias('distance_ceiling'))
+        count += expanded.height
+        if count * 64 > 1024**3:
+            raise ValueError('sparse population edges exceed 1 GiB budget')
+        parts.append(expanded)
+    edges = pl.concat(parts) if parts else pl.DataFrame(schema=edge_schema)
     return nodes, edges.sort('a', 'b')
 
 
