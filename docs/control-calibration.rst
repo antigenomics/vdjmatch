@@ -61,6 +61,13 @@ model assets. It remains opt-in pending whole-task nonregression checks; the
 no-control stem4 default and older real/generative control routes are unchanged.
 Nondefault geometry and target-from-sample selection are rejected before mocks.
 
+The fixed control's V, J and junction-length marginal counts are constructed
+once per calibration operation and reused across targets, chain axes and mock
+references. Event multiplicity, allele pooling and the original scalar
+likelihood-ratio arithmetic are unchanged. These are transient sufficient
+statistics of the supplied control, with no persisted intermediate cache;
+reference counts are still derived from each fixed real or mock model.
+
 Benchmark ``--exclude-exact`` filters exact hits only. Reference/control population
 counts, priors, motifs, graph structure and weights remain fixed for every query.
 Each mock reference has its own model, built once rather than refitted per query.

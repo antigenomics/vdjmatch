@@ -136,7 +136,9 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
         prior = beta.select(pl.col('junction_aa').alias('cdr3'), 'v', 'j', 'event_weight')
         model_context = {'density_index': indexes if locus == 'paired' else indexes[locus], 'prior_background': prior}
     from ..match.geometry import precompute_v_loop_distances
+    from ..match.historical import _prepare_prior_background
     model_context = dict(model_context)
+    model_context['_prior_counts'] = _prepare_prior_background(model_context['prior_background'])
     if 'v_loop_distances' not in model_context:
         model_context['v_loop_distances'] = {matrix: precompute_v_loop_distances(species=species,
             alphabet='full', matrix=matrix, v_regions='cdr12plus') for matrix in ('clipped', 'blosum62')}

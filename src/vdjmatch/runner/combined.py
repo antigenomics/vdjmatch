@@ -37,7 +37,8 @@ def _valid_single(queries):
     return queries.filter(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False))
 
 
-def _original(queries, reference, cases, index, prior_background, *, locus, threads, exclude_exact):
+def _original(queries, reference, cases, index, prior_background, *, locus, threads, exclude_exact,
+              prior_counts):
     from collections import deque
     from ..match.historical import (density, germline_prior, unpaired_score,
         shared_control_histograms, PreparedBudget)
@@ -95,7 +96,8 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
             scored = scored.with_columns(pl.lit(0.0).alias('original_exact_contribution'))
         with_genes = selected.filter(pl.all_horizontal(*[
             pl.col(c).cast(pl.String).str.strip_chars().ne('').fill_null(False) for c in ('v', 'j')]))
-        priors = germline_prior(with_genes, ref, prior_background, include_length=locus == 'TRB', exclude_exact=False)
+        priors = germline_prior(with_genes, ref, prior_background, include_length=locus == 'TRB',
+            exclude_exact=False, _background_counts=prior_counts)
         scored = scored.join(priors.select('query_id', 'germline_lr'), on='query_id', how='left', validate='1:1')
         available = scored.filter(pl.col('score').is_not_null() & pl.col('germline_lr').is_not_null() & (pl.col('n_reference') > 0))
         if available.height:
@@ -201,7 +203,7 @@ def score_components(queries, reference, control, *, species, locus, threads=1,
     """
     from ..evalue.control import _organism
     from ..match.geometry import precompute_v_loop_distances
-    from ..match.historical import paired_score
+    from ..match.historical import paired_score, _prepare_prior_background
     from ..evalue.paired import build_paired_ref
 
     if threads < 1 or locus not in {'TRA', 'TRB', 'paired'}:
@@ -215,6 +217,9 @@ def score_components(queries, reference, control, *, species, locus, threads=1,
     if locus != 'paired':
         reference = reference.filter(pl.col('gene') == locus)
     cases = _cases(queries, reference, target_masks)
+    prior_counts = control.get('_prior_counts')
+    if prior_counts is None:
+        prior_counts = _prepare_prior_background(control['prior_background'])
     contexts = control.get('v_loop_distances')
     if contexts is None:
         contexts = {matrix: precompute_v_loop_distances(species=organism, alphabet='full', matrix=matrix,
@@ -226,7 +231,7 @@ def score_components(queries, reference, control, *, species, locus, threads=1,
         reference = reference.filter(pl.col('gene') == locus)
         query = queries.with_columns(pl.lit(locus).alias('locus'))
         original = _original(query, reference, cases, control['density_index'], control['prior_background'],
-            locus=locus, threads=threads, exclude_exact=exclude_exact)
+            locus=locus, threads=threads, exclude_exact=exclude_exact, prior_counts=prior_counts)
         kernels = _kernel(query, reference, cases, species=organism, threads=threads, paired=False,
             exclude_exact=exclude_exact, contexts=contexts)
         return metadata(original.join(kernels, on=_CASES, how='left', nulls_equal=True, validate='1:1', maintain_order='left'))
@@ -238,7 +243,7 @@ def score_components(queries, reference, control, *, species, locus, threads=1,
             pl.col('v' + suffix).alias('v'), pl.col('j' + suffix).alias('j')).with_columns(pl.lit(chain).alias('locus'))
         ref = reference.filter(pl.col('gene') == chain)
         original = _original(query, ref, cases, control['density_index'][chain], control['prior_background'],
-            locus=chain, threads=threads, exclude_exact=exclude_exact)
+            locus=chain, threads=threads, exclude_exact=exclude_exact, prior_counts=prior_counts)
         kernels = _kernel(query, ref, cases, species=organism, threads=threads, paired=False,
             exclude_exact=exclude_exact, contexts=contexts)
         marginal = original.join(kernels, on=_CASES, how='left', nulls_equal=True, validate='1:1')

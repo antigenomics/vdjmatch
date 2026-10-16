@@ -1660,6 +1660,23 @@ Ties enter the upper tail, all null no-hits remain in the denominator, and obser
 Under the respective conditional exchangeability assumptions, these are conservative Monte Carlo rank P-values.
 Matching Pgen alone does not prove those assumptions.
 
+\paragraph{Fixed-control sufficient statistics.}
+For control events $i$ with positive integer multiplicities $w_i$, let
+$M=\sum_i w_i$ and $C_f(z)=\sum_i w_i\mathbf1\{f(i)=z\}$ for
+$f\in\{V,J,L\}$, where $L$ is full-junction length and V/J alleles are pooled to genes.
+These three marginal tables are sufficient for the retained original control-prior term:
+\[
+ \sum_{f\in\mathcal F}\log\frac{(R_{e,f}(f(q))+1/2)/(N_e+30)}
+                                  {(C_f(f(q))+1/2)/(M+30)}.
+\]
+Here $R_{e,f}$ counts feature values among the $N_e$ first-source-order unique-junction reference representatives;
+$\mathcal F=\{V,J,L\}$ for beta and $\{V,J\}$ for alpha.
+This is the retained additive marginal-prior approximation, not a claim that those rearrangement features are independent.
+Control counts are constructed once within the operation and shared across all real/mock models, with reference counts recomputed for each model.
+The historical paired recipe retains its beta-control population for both chains.
+Scalar denominators and sequential V/J/length additions retain the original floating-point operation order.
+No reference population is decremented for an exact-hit mask and no computed statistics persist between runs.
+
 \paragraph{Exact streamed reference-tail reduction.}
 Component normalization first assigns shared integer identities to its full-pMHC/stratum groups, retaining missing metadata categories.
 For null source $s$, sort all finite pairs $(g,t)$ lexicographically, where $g$ is a group identity and $t$ a score.

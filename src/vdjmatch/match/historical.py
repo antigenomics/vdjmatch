@@ -342,7 +342,34 @@ def legacy_components(queries, reference, control, background, *, threads=1,
     return pl.concat(pieces).with_columns(pl.lit('legacy-heldout-components-v1').alias('estimator'))
 
 
-def germline_prior(queries, reference, background, *, include_length=True, exclude_exact=False):
+def _prior_background(background):
+    weighted = 'event_weight' in background.columns
+    if weighted:
+        from ..io.columns import _integer_count
+        background = background.with_columns(_integer_count('event_weight').alias('event_weight'))
+        if background['event_weight'].null_count() or (background['event_weight'] <= 0).any():
+            raise ValueError('prior event weights must be positive integers')
+    return background, weighted, int(background['event_weight'].sum()) if weighted else background.height
+
+
+def _prior_features(frame):
+    return frame.with_columns(pl.col('v', 'j').str.replace(r'\*.*$', ''),
+        pl.col('cdr3').str.len_chars().alias('length'))
+
+
+def _prepare_prior_background(background):
+    """Operation-local sufficient counts for the fixed V/J/length control prior."""
+    background, weighted, nb = _prior_background(background)
+    if not nb:
+        raise ValueError('germline prior requires nonempty reference and background')
+    background = _prior_features(background)
+    return nb, {column: (background.group_by(column).agg(pl.col('event_weight').sum().alias('_bg_count'))
+        if weighted else background.group_by(column).len().rename({'len': '_bg_count'}))
+        for column in ('v', 'j', 'length')}
+
+
+def germline_prior(queries, reference, background, *, include_length=True, exclude_exact=False,
+                   _background_counts=None):
     """Original smoothed V/J[/junction-length] log likelihood ratio, keyed by query.
 
     Frames use ``cdr3,v,j``. Reference junctions use their first source-order V/J;
@@ -358,21 +385,16 @@ def germline_prior(queries, reference, background, *, include_length=True, exclu
     first-junction unit irrespective of background weights.
     """
     ref = reference.unique('cdr3', keep='first', maintain_order=True)
-    weighted = 'event_weight' in background.columns
-    if weighted:
-        from ..io.columns import _integer_count
-        background = background.with_columns(_integer_count('event_weight').alias('event_weight'))
-        if background['event_weight'].null_count() or (background['event_weight'] <= 0).any():
-            raise ValueError('prior event weights must be positive integers')
-    nr, nb = ref.height, int(background['event_weight'].sum()) if weighted else background.height
+    if _background_counts is not None and exclude_exact:
+        raise ValueError('prepared prior background requires a fixed population')
+    if _background_counts is None:
+        background, weighted, nb = _prior_background(background)
+    else:
+        nb, background_counts = _background_counts
+    nr = ref.height
     if not nr or not nb:
         raise ValueError('germline prior requires nonempty reference and background')
     columns = ['v', 'j'] + (['length'] if include_length else [])
-
-    def features(frame):
-        return frame.with_columns(
-            pl.col('v', 'j').str.replace(r'\*.*$', ''),
-            pl.col('cdr3').str.len_chars().alias('length'))
 
     def counts(population, keys, name, *, background=False):
         if weighted and background:
@@ -381,12 +403,15 @@ def germline_prior(queries, reference, background, *, include_length=True, exclu
 
     if not exclude_exact:
         # Preserve the accepted scalar division and inline null-fill operation order.
-        out = features(queries).select('query_id', *columns)
-        ref, bg = features(ref), features(background)
+        out = _prior_features(queries).select('query_id', *columns)
+        ref = _prior_features(ref)
+        if _background_counts is None:
+            bg = _prior_features(background)
         out = out.with_columns(pl.lit(0.0).alias('germline_lr'))
         for column in columns:
             rc = ref.group_by(column).len().rename({'len': '_ref_count'})
-            bc = counts(bg, column, '_bg_count', background=True)
+            bc = (counts(bg, column, '_bg_count', background=True) if _background_counts is None
+                  else background_counts[column])
             out = (out.join(rc, on=column, how='left', maintain_order='left')
                    .join(bc, on=column, how='left', maintain_order='left')
                    .with_columns((pl.col('germline_lr') +
@@ -398,8 +423,8 @@ def germline_prior(queries, reference, background, *, include_length=True, exclu
             pl.lit(nr, dtype=pl.UInt64).alias('n_reference'),
             pl.lit(nb, dtype=pl.UInt64).alias('background_size'))
 
-    out = features(queries).select('query_id', *(['cdr3'] if exclude_exact else []), *columns)
-    ref, bg = features(ref), features(background)
+    out = _prior_features(queries).select('query_id', *(['cdr3'] if exclude_exact else []), *columns)
+    ref, bg = _prior_features(ref), _prior_features(background)
     out = out.with_columns(pl.lit(0.0).alias('germline_lr'),
         pl.lit(nr, dtype=pl.UInt64).alias('n_reference'),
         pl.lit(nb, dtype=pl.UInt64).alias('background_size'))

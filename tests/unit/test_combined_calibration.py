@@ -6,6 +6,7 @@ def test_complete_score_two_directions_keep_source_roles_and_nohits(monkeypatch)
     import weakref
     from vdjmatch.evalue import combined as module
     from vdjmatch.runner import combined as runner
+    from vdjmatch.match import historical
     from vdjmatch.evalue.mock_reference import control_events, iter_mock_models
     query = pl.DataFrame({'query_id': ['q', 'far'],
         'cdr3': ['CASSMGQETQYF', 'W' * 200], 'v': ['TRBV1'] * 2,
@@ -39,8 +40,15 @@ def test_complete_score_two_directions_keep_source_roles_and_nohits(monkeypatch)
     monkeypatch.setattr(runner, 'score_components', track(runner.score_components))
     monkeypatch.setattr(runner, 'combine_components', track(runner.combine_components))
     monkeypatch.setattr(module, 'iter_mock_models', models)
+    prepared = []
+    prepare = historical._prepare_prior_background
+    def prepare_once(background):
+        prepared.append(background.height)
+        return prepare(background)
+    monkeypatch.setattr(historical, '_prepare_prior_background', prepare_once)
     detail, tails = module.calibrate_combined(query, reference, raw,
         species='human', locus='TRB', replicates=2, seed=7, exclude_exact=True)
+    assert prepared == [3]  # Fixed control shared by real and both mock models.
     assert len(released) == 2
     assert detail.height == 4 and tails.height == 6
     assert tails.filter(pl.col('query_id') == 'far')['p_both'].to_list() == [1.] * 3
@@ -131,8 +139,10 @@ def test_hand_enumerated_complete_score_tails_repeat_label_selection(monkeypatch
             consume(part)
         return None
     monkeypatch.setattr(runner, 'combine_components', streaming_combine)
+    context = {'density_index': None, 'prior_background': raw_control.rename(
+        {'junction_aa': 'cdr3', 'v_call': 'v', 'j_call': 'j'})}
     _, tails = module.calibrate_combined(query, reference, raw_control, species='human', locus='TRB',
-        replicates=3, model_context={'density_index': None, 'prior_background': None})
+        replicates=3, model_context=context)
     q = tails.filter(pl.col('query_id') == 'q')
     for epitope, p_reference, p_query in [('A', .75, .5), ('B', .5, .5), (None, .75, .5)]:
         row = q.filter(pl.col('epitope').eq_missing(epitope))
@@ -150,7 +160,7 @@ def test_hand_enumerated_complete_score_tails_repeat_label_selection(monkeypatch
     monkeypatch.setattr(runner, 'combine_components', missing_group)
     with pytest.raises(RuntimeError, match='every testing group'):
         module.calibrate_combined(query, reference, raw_control, species='human', locus='TRB',
-            replicates=3, model_context={'density_index': None, 'prior_background': None})
+            replicates=3, model_context=context)
     # Streaming mocks must reject missing cases and repeats across batches.
     for duplicate in (False, True):
         def broken_mock(*args, **kwargs):
@@ -164,7 +174,7 @@ def test_hand_enumerated_complete_score_tails_repeat_label_selection(monkeypatch
         monkeypatch.setattr(runner, 'combine_components', broken_mock)
         with pytest.raises(RuntimeError, match='complete observed case grid'):
             module.calibrate_combined(query, reference, raw_control, species='human', locus='TRB',
-                replicates=3, model_context={'density_index': None, 'prior_background': None})
+                replicates=3, model_context=context)
 
 
 def test_current_model_graph_matches_union_induced_weights_and_tails(monkeypatch):
