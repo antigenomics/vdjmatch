@@ -1817,7 +1817,7 @@ Kneedle helper (S=1, strongest confirmed interior knee, no smoothing). Singleton
 strata and unavailable V loops have no nearest distance. If no knee is confirmed,
 the command fails rather than inventing a radius. The selected radius remains
 fixed for all matched controls. It is a geometric diagnostic, not a specificity
-or adequacy threshold. Numeric radii from TCRdist cannot be transferred to raw
+or adequacy threshold. Numeric radii from other geometries cannot be transferred to raw
 SW units.
 
 The reference nearest distances and full strata are exported as ``.sw.knee.tsv``.
