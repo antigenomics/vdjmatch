@@ -113,3 +113,14 @@ def test_full_key_mhc_k_self_gaps_nulls_and_one_native_batch(tmp_path, monkeypat
     for bad in [(), (0,), (True,), (1.5,)]:
         with pytest.raises(ValueError, match='positive integers'):
             coverage.sw_neighbor_knees(nodes, neighbor_orders=bad, **options)
+
+    # A second native chunk must exclude only its own global search index.
+    many = pl.DataFrame({'group_id': [0]*17+[1, 2], 'cdr3': ['CAAAAF']*19,
+        'v': ['TRBV1']*18+['TRBV999'], 'j': [f'TRBJ{i}' for i in range(19)]})
+    before = len(calls)
+    distances, _ = coverage.sw_neighbor_knees(many, neighbor_orders=(1, 2, 5, 10), **options)
+    assert len(calls) == before+1 and calls[-1]['return_hits']
+    assert 'query_reference_ids' not in calls[-1]
+    assert distances.filter(pl.col('group_id') == 0)['neighbor_distance'].to_list() == [0]*68
+    assert distances.filter(pl.col('group_id') == 1)['distance_status'].to_list() == ['insufficient_neighbors']*4
+    assert distances.filter(pl.col('group_id') == 2)['distance_status'].to_list() == ['geometry_unavailable']*4

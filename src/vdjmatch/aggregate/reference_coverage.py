@@ -89,8 +89,8 @@ def sw_neighbor_knees(records, *, species, locus, cdr_loops, gap_open=11, gap_ex
             pair_budget=2_000_000, neighbor_orders=(1,)):
     """Kth-other-clonotype SW distances and pooled knees from one count batch.
 
-    Memberships and full clonotype keys stay fixed; only the query's own vertex
-    is omitted by asking where its inclusive cumulative count exceeds k. Ties at
+    Memberships and full clonotype keys stay fixed; only the query's own search
+    index is omitted from its own target's sparse native hits. Ties at
     zero distance remain other clonotypes. Unmodeled/undersized groups stay null.
     Knees use the existing unsmoothed convex Kneedle S=1 rule, separately per k.
     """
@@ -116,22 +116,37 @@ def sw_neighbor_knees(records, *, species, locus, cdr_loops, gap_open=11, gap_ex
         offsets, targets = _target_csr(modeled, search.height)
         # BLOSUM62 diagonal <=11, local similarity >=0: this encloses every score.
         bound = 22 * int(search['cdr3'].str.len_chars().max()) + int(np.max(distances))
-        row_bytes = 4 * ((2+2*groups)*(bound+1) + 2+3*groups)
-        chunk_size = min(16, (256*1024**2)//row_bytes)
+        largest = int(modeled.group_by('group_id').len()['len'].max())
+        # Bound native hit output and chunk-local ragged rank work before allocation.
+        chunk_size = min(16, (64*1024**2)//(12*largest))
         if chunk_size < 1:
-            raise ValueError('nearest-distance count row exceeds 256 MiB budget')
+            raise ValueError('one target exceeds bounded sparse nearest-distance working memory')
+        self_refs = modeled['_search'].to_numpy()
         for chunk in gapblock.grouped_count_batch(modeled['cdr3'].to_list(), search['cdr3'].to_list(),
-                list(range(bound+1)), reference_target_offsets=offsets, reference_target_ids=targets,
+                [bound], reference_target_offsets=offsets, reference_target_ids=targets,
                 target_peptide_ids=[0]*groups, reference_exclusive_peptide_ids=[-1]*search.height,
                 query_gene_ids=[0]*modeled.height, reference_gene_ids=[0]*search.height,
                 query_group_ids=modeled['_vgroup'].to_list(), reference_group_ids=search['_vgroup'].to_list(),
                 group_distances=distances, matrix=matrix, alignment_mode='local', gap_open=gap_open,
-                gap_extend=gap_extend, threads=threads, chunk_size=chunk_size):
-            own = modeled['group_id'][chunk.start:chunk.stop].to_numpy()
-            curves = np.asarray(chunk.counts)[np.arange(chunk.stop-chunk.start), 1+own, :]
-            for k in orders:
-                found = curves > k
-                nearest[k][chunk.start:chunk.stop] = np.where(found.any(axis=1), found.argmax(axis=1), -1)
+                gap_extend=gap_extend, threads=threads, chunk_size=chunk_size, return_hits=True,
+                query_target_ids=modeled['group_id'].to_list(), max_hit_bytes=64*1024**2):
+            hits = np.asarray(chunk.hits)
+            other = hits[hits[:, 1] != self_refs[hits[:, 0]]]
+            rows = other[:, 0].astype(np.int64)-chunk.start
+            counts = np.bincount(rows, minlength=chunk.stop-chunk.start)
+            width = int(counts.max(initial=0))
+            if width:
+                starts = np.cumsum(counts)-counts
+                columns = np.arange(len(other))-np.repeat(starts, counts)
+                ranked = np.full((len(counts), width), bound+1, dtype=np.int64)
+                ranked[rows, columns] = other[:, 2]
+                valid = [k-1 for k in orders if k <= width]
+                if valid:
+                    ranked.partition(valid, axis=1)
+                    for k in orders:
+                        if k <= width:
+                            nearest[k][chunk.start:chunk.stop] = np.where(counts >= k, ranked[:, k-1], -1)
+            del hits, other, chunk
     curves, summaries = [], []
     for k in orders:
         values = modeled.select('node').with_columns(pl.Series('neighbor_distance', nearest[k]),
@@ -270,12 +285,11 @@ def reference_graph(records, *, geometry, radius=None, species='human', locus='T
     local = max(1, int(mapping.group_by('_search', 'group_id').len()['len'].max() or 1))
     if multiplicity*local*64 > 256*1024**2:
         raise ValueError('one edit edge membership expansion exceeds 256 MiB budget')
-    chunk_size = max(1, min(65536, (256*1024**2)//(multiplicity*local*64)))
+    expanded_edges = global_edges.lazy().join(left.lazy(), on='_a', validate='m:m').join(
+        right.lazy(), on=['_b', 'group_id'], validate='m:m').filter(pl.col('a') < pl.col('b')).select(
+            'a', 'b', pl.lit(radius, dtype=pl.Int64).alias('distance_ceiling'), 'group_id')
     parts, count = [], 0
-    for chunk in global_edges.iter_slices(chunk_size):
-        expanded = chunk.join(left, on='_a', validate='m:m').join(right,
-            on=['_b', 'group_id'], validate='m:m').filter(pl.col('a') < pl.col('b')).select(
-                'a', 'b', pl.lit(radius, dtype=pl.Int64).alias('distance_ceiling'), 'group_id')
+    for expanded in expanded_edges.collect_batches(chunk_size=65536, maintain_order=False, engine='streaming'):
         count += expanded.height
         if edge_sink is None and count * 64 > 1024**3:
             raise ValueError('sparse population edges exceed 1 GiB budget')
