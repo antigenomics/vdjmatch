@@ -115,7 +115,7 @@ def motif_bootstrap(reference, control_events, control, observed, *, pgen, locus
     the observed diagnostic. These are control envelopes, not sampling CIs
     for selection bits or calibrated specificity probabilities.
     """
-    from ..evalue.mock_reference import iter_mock_references, InsufficientControlEvents
+    from ..evalue.mock_reference import iter_mock_references
 
     if replicates < 2:
         raise ValueError('motif bootstrap requires at least two replicates')
@@ -125,28 +125,14 @@ def motif_bootstrap(reference, control_events, control, observed, *, pgen, locus
     axis = observed.select(keys)
     draws = np.empty((replicates, observed.height), dtype=np.float64)
     raw = reference.select(pl.col('cdr3').alias('junction_aa')).with_columns(pl.lit(0).alias('group_id'))
-    try:
-        for i, mock in enumerate(iter_mock_references(raw, control_events, replicates=replicates,
-                seed=seed, pgen=pgen, species=species, locus=locus, threads=threads,
-                prepared_control=prepared_control)):
-            diagnostic = motif_selection_information(mock.rename({'junction_aa': 'cdr3'}),
-                control, locus=locus, mode=control['mode'])
-            draws[i] = axis.join(diagnostic.select(*keys, 'tfidf'), on=keys,
-                how='left', nulls_equal=True, validate='1:1', maintain_order='left')['tfidf'].fill_null(0).to_numpy()
-    except InsufficientControlEvents as exc:
-        return observed.with_columns(pl.lit(0).alias('control_replicates'),
-            pl.lit(replicates).alias('requested_control_replicates'),
-            pl.lit('insufficient_control_events').alias('control_matching_status'),
-            pl.lit(exc.bin_id).alias('control_pgen_bin'),
-            pl.lit(exc.required).alias('control_required_events'),
-            pl.lit(exc.available).alias('control_available_events'),
-            *[pl.lit(None, dtype=pl.Float64).alias(c) for c in
-              ('control_tfidf_mean', 'control_tfidf_lo', 'control_tfidf_hi')])
+    for i, mock in enumerate(iter_mock_references(raw, control_events, replicates=replicates,
+            seed=seed, pgen=pgen, species=species, locus=locus, threads=threads,
+            prepared_control=prepared_control)):
+        diagnostic = motif_selection_information(mock.rename({'junction_aa': 'cdr3'}),
+            control, locus=locus, mode=control['mode'])
+        draws[i] = axis.join(diagnostic.select(*keys, 'tfidf'), on=keys,
+            how='left', nulls_equal=True, validate='1:1', maintain_order='left')['tfidf'].fill_null(0).to_numpy()
     return observed.with_columns(pl.lit(replicates).alias('control_replicates'),
-        pl.lit(replicates).alias('requested_control_replicates'),
-        pl.lit('available').alias('control_matching_status'),
-        *[pl.lit(None, dtype=pl.Int64).alias(c) for c in
-          ('control_pgen_bin', 'control_required_events', 'control_available_events')],
         pl.Series('control_tfidf_mean', draws.mean(axis=0)),
         pl.Series('control_tfidf_lo', np.quantile(draws, .025, axis=0)),
         pl.Series('control_tfidf_hi', np.quantile(draws, .975, axis=0)))

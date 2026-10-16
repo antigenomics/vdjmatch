@@ -198,11 +198,7 @@ def main(a, *, return_inputs=False):
                     replicates=a.mock_replicates, seed=task_seed, threads=a.threads,
                     prepared_control=prepared_control)
             elif a.mock_replicates:
-                motifs = motifs.with_columns(pl.lit(0).alias('control_replicates'),
-                    pl.lit(a.mock_replicates).alias('requested_control_replicates'),
-                    pl.lit('no_valid_occurrences').alias('control_matching_status'),
-                    *[pl.lit(None, dtype=pl.Int64).alias(c) for c in
-                      ('control_pgen_bin', 'control_required_events', 'control_available_events')],
+                motifs = motifs.with_columns(pl.lit(a.mock_replicates).alias('control_replicates'),
                     *[pl.lit(None, dtype=pl.Float64).alias(c) for c in
                       ('control_tfidf_mean', 'control_tfidf_lo', 'control_tfidf_hi')])
             with motif_path.open('ab' if motif_written else 'wb') as stream:

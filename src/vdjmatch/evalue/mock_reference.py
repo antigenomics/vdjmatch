@@ -317,15 +317,6 @@ def _prepare_mock_control(reference, control, *, pgen=None, species='human', loc
     return control, pgen, _organism(species), locus, strata, event_keys, pools
 
 
-class InsufficientControlEvents(ValueError):
-    """A valid requested reference stratum has no complete matched control."""
-
-    def __init__(self, group, bin_id, required, available):
-        self.bin_id, self.required, self.available = int(bin_id), int(required), int(available)
-        label = 'zero_mass' if bin_id == -2147483648 else str(bin_id)
-        super().__init__(f'insufficient control events for group {group!r}, Pgen bin {label}: need {required}, have {available}')
-
-
 def iter_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, replicates: int,
         seed: int = 0, pgen: pl.DataFrame | None = None, species='human', locus='TRB', threads=1,
         prepared_control=None):
@@ -365,7 +356,8 @@ def iter_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, repl
     for group, bin_id, count in counts.iter_rows():
         available = int(pools[bin_id][1][-1]) if bin_id in pools else 0
         if available < count:
-            raise InsufficientControlEvents(group, bin_id, count, available)
+            label = 'zero_mass' if bin_id == -2147483648 else str(bin_id)
+            raise ValueError(f'insufficient control events for group {group!r}, Pgen bin {label}: need {count}, have {available}')
         if available >= 10**9:
             raise ValueError('event stratum exceeds supported limit: fewer than 1000000000 events required')
     rng = np.random.default_rng(seed)
