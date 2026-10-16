@@ -12,7 +12,7 @@ def tokens(s,mode):
 
 
 @pytest.mark.parametrize('paired',[False,True])
-def test_rules_dense_oracle_and_puncture(paired):
+def test_rules_dense_oracle_with_fixed_models_and_hit_exclusion(paired):
     from vdjmatch.match.geometry import distance_matrix,paired_distance_matrix
     r=pl.DataFrame({'seq0':['CASSLGQAYEQYF','CASSLGRAYEQYF','CASSLGRAYEQYF','CASSWGRAYEQYF'],'v0':['TRBV19*01','TRBV19*01','TRBV20-1*01','TRBV19*01']})
     b=r.with_columns(pl.Series('v0',['TRBV20-1*01','TRBV19*01','TRBV20-1*01','TRBV20-1*01']))
@@ -24,15 +24,18 @@ def test_rules_dense_oracle_and_puncture(paired):
     oracle={}
     for side,pop in [('reference',r),('control',b)]:
         keep=[row for row in pop.to_dicts() if any(row[f'seq{i}']!=q[f'seq{i}'][0] for i in axes)]
+        model_same=[row for row in pop.to_dicts() if all(row[f'v{i}'].split('*')[0]==q[f'v{i}'][0].split('*')[0] for i in axes)]
         same=[row for row in keep if all(row[f'v{i}'].split('*')[0]==q[f'v{i}'][0].split('*')[0] for i in axes)]
-        assert out['rule_'+side+'_population'][0]==len(keep)
-        assert out['rule_'+side+'_v_count'][0]==len(same)
+        assert out['rule_'+side+'_population'][0]==pop.height
+        assert out['rule_'+side+'_v_count'][0]==len(model_same)
+        assert out['rule_'+side+'_excluded_hits'][0]==pop.height-len(keep)
         if paired:
             d=paired_distance_matrix(q['seq0'],q['seq1'],[row['seq0'] for row in same],[row['seq1'] for row in same],q['v0'],q['v1'],[row['v0'] for row in same],[row['v1'] for row in same],ctrim=3,v_loop_weight=0)[0]
         else:d=distance_matrix(q['seq0'],[row['seq0'] for row in same],q['v0'],[row['v0'] for row in same],ctrim=3,v_loop_weight=0)[0]
         mass=sum(max(0,1-x/90) for x in d)
         assert out['rule_'+side+'_spatial_mass'][0]==pytest.approx(mass)
-        oracle[side]={'spatial':mass,'distances':d,'same':same}
+        oracle[side]={'spatial':mass,'distances':d,'same':same,'model_same':model_same,
+                      'excluded_v':len(model_same)-len(same)}
         for mode in MOTIFS:
             mass=0
             for row in same:
@@ -46,26 +49,68 @@ def test_rules_dense_oracle_and_puncture(paired):
     n=out['rule_reference_v_count'][0];m=out['rule_control_v_count'][0]
     # Hand factorization: V probability is multiplied once, CDR3 is same-V only.
     for kind in ('spatial',*MOTIFS):
-        rm=oracle['reference'][kind];bm=oracle['control'][kind];prior=(rm+bm+.5)/(n+m+1)
+        rm=oracle['reference'][kind];bm=oracle['control'][kind]
+        prior=(rm+oracle['reference']['excluded_v']+bm+oracle['control']['excluded_v']+.5)/(n+m+1)
         expected=out['rule_v_score'][0]*(rm+prior)/(n+1)/((bm+prior)/(m+1))
         assert out['rule_'+kind+'_score'][0]==pytest.approx(expected)
     neutral=reference_epitope_rules(q,r,r,paired=paired)
     assert all(neutral[c][0]==pytest.approx(1) for c in neutral.columns if c.endswith('_score') and c!='rule_rank_score' and not c.startswith('rule_enriched_'))
     rd=oracle['reference']['distances'];bd=oracle['control']['distances']
     reciprocal=[sum(1/k for k in range(1+sum(bd<x),2+sum(bd<=x)))/(1+sum(bd<=x)-sum(bd<x)) for x in rd]
-    expected=sum(reciprocal)/len(rd)*(len(bd)+1)/sum(1/k for k in range(1,len(bd)+2))
+    expected=sum(reciprocal)/n*(m+1)/sum(1/k for k in range(1,m+2))
     assert out['rule_cdr3_rank'][0]==pytest.approx(expected)
     assert out['rule_rank_score'][0]==pytest.approx(expected*out['rule_v_score'][0])
     for mode in MOTIFS:
         import itertools
         qt=set(itertools.product(*[tokens(q[f'seq{i}'][0],mode) for i in axes]))
-        presence={side:[set(itertools.product(*[tokens(row[f'seq{i}'],mode) for i in axes])) for row in oracle[side]['same']] for side in ('reference','control')}
+        presence={side:[set(itertools.product(*[tokens(row[f'seq{i}'],mode) for i in axes])) for row in oracle[side]['model_same']] for side in ('reference','control')}
         enrichment=sum(max(0,sum(t in s for s in presence['reference'])/n-sum(t in s for s in presence['control'])/m) for t in qt)/len(qt)
         assert out['rule_'+mode+'_enrichment'][0]==pytest.approx(enrichment)
         assert out['rule_enriched_'+mode+'_score'][0]==pytest.approx(out['rule_rank_score'][0]*(1+enrichment))
         assert neutral['rule_'+mode+'_enrichment'][0]==0
+    ordinary=reference_epitope_rules(q,r,b,paired=paired)
+    fixed=[c for c in ordinary.columns if c.endswith(('_population','_v_count','_probability','_enrichment')) or c=='rule_v_score']
+    assert out.select(fixed).equals(ordinary.select(fixed))
     extra=q.with_columns(pl.lit(9).cast(pl.UInt32).alias('query_id'),pl.lit('TRBV20-1*01').alias('v1' if paired else 'v0'))
     assert out.equals(reference_epitope_rules(pl.concat([q,extra]),r,b,paired=paired,exclude_exact=True).head(1))
+    longer=extra.with_columns(*[pl.lit('CAS'+'W'*35+'QYF').alias(f'seq{i}') for i in axes])
+    assert out.equals(reference_epitope_rules(pl.concat([q,longer]),r,b,paired=paired,exclude_exact=True).head(1))
+
+
+@pytest.mark.parametrize('paired',[False,True])
+def test_excluded_only_hits_never_change_models_or_return_as_censored_rank(paired):
+    ref=pl.DataFrame({'seq0':['CASSLGQAYEQYF'],'v0':['TRBV19*01']})
+    if paired:
+        ref=ref.with_columns(pl.col('seq0').alias('seq1'),pl.col('v0').alias('v1'),pl.lit('TRAV1-1*01').alias('v0'))
+    query=ref.with_row_index('query_id')
+    masked=reference_epitope_rules(query,ref,ref,paired=paired,exclude_exact=True)
+    assert masked['rule_reference_population'].item()==masked['rule_reference_v_count'].item()==1
+    assert masked['rule_v_supported'].item() and masked['rule_v_score'].item()==1
+    assert masked['rule_cdr3_rank'].item()==masked['rule_rank_score'].item()==0
+    for mode in MOTIFS:
+        assert masked['rule_reference_'+mode+'_mass'].item()==0
+        assert masked['rule_'+mode+'_enrichment'].item()==0
+
+
+def test_paired_exact_filter_retains_references_sharing_only_one_chain():
+    reference=pl.DataFrame({'seq0':['CAVRDSNYQLIW','CAVRDSNYQLIW','CAVRDTNYQLIW'],
+        'seq1':['CASSLGQAYEQYF','CASSLGRAYEQYF','CASSLGQAYEQYF'],
+        'v0':['TRAV1-1*01']*3,'v1':['TRBV19*01']*3})
+    query=reference.head(1).with_row_index('query_id')
+    out=reference_epitope_rules(query,reference,reference,paired=True,exclude_exact=True)
+    assert out['rule_reference_population'].item()==3
+    assert out['rule_reference_excluded_hits'].item()==out['rule_reference_removed_v'].item()==1
+    assert out['rule_reference_spatial_mass'].item()>0 and out['rule_cdr3_rank'].item()>0
+
+
+def test_filtering_only_same_v_hit_does_not_switch_to_global_v_fallback():
+    reference=pl.DataFrame({'seq0':['CASSLGQAYEQYF','CASSLGRAYEQYF'],
+        'v0':['TRBV19*01','TRBV20-1*01']})
+    control=reference.with_columns(pl.Series('seq0',['CASSWGRAYEQYF','CASSLGRAYEQYF']))
+    query=reference.head(1).with_row_index('query_id')
+    out=reference_epitope_rules(query,reference,control,exclude_exact=True)
+    assert out['rule_reference_v_count'].item()==out['rule_control_v_count'].item()==1
+    assert out['rule_v_supported'].item() and out['rule_cdr3_rank'].item()==0
 
 
 def test_unsupported_v_is_neutral_and_keeps_global_multireference_rank():

@@ -38,8 +38,10 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
     Population predictive V probability is (n_g+p_g)/(N+1). Conditional
     kernel mean is (mass_g+c)/(n_g+1), c=(mass_ref+mass_bg+.5)/(n_g+m_g+1).
     The score is the ratio of their products, counting V once. K is the union
-    of reference/control gene tuples plus one unseen category. All counts are
-    query-punctured; paired kernels compare the same linked reference pair.
+    of reference/control gene tuples plus one unseen category. Population/gene
+    counts, pooled priors and motif frequencies use the fixed full models.
+    Benchmark exclusion masks exact-hit numerators only; paired kernels compare
+    the same linked reference pair. Excluded hits never reappear as censored ranks.
     Rank uses all CDR3-only reference distances within g; if either population
     lacks g, V is neutral and rank uses all V categories. Enriched motifs add a
     bounded correlated sequence bonus, never a calibrated independent likelihood.
@@ -67,9 +69,9 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
             match=pl.all_horizontal(*[pl.col(c)==pl.col(c+'_ref') for c in v])
             removed=same.group_by('_id').agg(pl.len().cast(pl.Int64).alias('_total'),match.sum().cast(pl.Int64).alias('_g'))
         out=out.join(removed,on='_id',how='left',validate='1:1').with_columns(
-            (pl.col('N')-pl.col('_total').fill_null(0)).alias('N'),
-            (pl.col('g')-pl.col('_g').fill_null(0)).alias('g'),pl.col('_g').fill_null(0))
-        return out.select('_id',pl.col('N').alias(side+'_population'),pl.col('g').alias(side+'_v_count'),pl.col('_g').alias(side+'_removed_v'))
+            pl.col('_total').fill_null(0),pl.col('_g').fill_null(0))
+        return out.select('_id',pl.col('N').alias(side+'_population'),pl.col('g').alias(side+'_v_count'),
+            pl.col('_total').alias(side+'_excluded_hits'),pl.col('_g').alias(side+'_removed_v'))
     out=q.select('_id','query_id').join(counts(r,'rule_reference'),on='_id',validate='1:1').join(counts(b,'rule_control'),on='_id',validate='1:1').sort('_id')
     N=pl.col('rule_reference_population');M=pl.col('rule_control_population')
     n=pl.col('rule_reference_v_count');m=pl.col('rule_control_v_count')
@@ -91,12 +93,17 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
     for side,pop in [('reference',r),('control',b)]:out=out.with_columns(pl.Series('rule_'+side+'_spatial_mass',spatial(pop),dtype=pl.Float64))
     def score(kind):
         rm=pl.col('rule_reference_'+kind+'_mass');bm=pl.col('rule_control_'+kind+'_mass')
-        c=(rm+bm+.5)/(n+m+1)
+        # The pooled pseudo-observation is a model statistic, not a filtered
+        # hit statistic. An exact same-V receptor has kernel one when available.
+        available=pl.col('rule_'+kind+'_available') if kind in MOTIFS else pl.lit(True)
+        exact=pl.when(available).then(pl.col('rule_reference_removed_v')+pl.col('rule_control_removed_v')).otherwise(0)
+        c=(rm+bm+exact+.5)/(n+m+1)
         return pl.col('rule_v_score')*((rm+c)/(n+1))/((bm+c)/(m+1))
     out=out.with_columns(score('spatial').alias('rule_spatial_score'))
     # Exhaustive CDR3-only rank uses the same matrix-derived gaps and quantum.
     # This is a finite geometry bound, not a radius/parameter scan.
-    from .local_rank import local_rank_evidence
+    from .local_rank import _harmonic_interval
+    from scipy.special import digamma
     from ..match.geometry import distance_units
     matrix_scale,quantum=distance_units();step=3*quantum
     def ranks(part, conditional):
@@ -110,12 +117,28 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
                 curve,_=paired_total_distance_mass_batch(part['seq0'],part['seq1'],pop['seq0'],pop['seq1'],part['_allele0'],part['_allele1'],pop['_allele0'],pop['_allele1'],cuts,**options)
             else:curve=total_distance_count_batch(part['seq0'],pop['seq0'],part['_allele0'],pop['_allele0'],cuts,**options)
             curves.append(np.asarray(curve).reshape(part.height,bound//step+1))
-        populations=out.filter(pl.col('_id').is_in(part['_id'].implode()))
+        population_rows=out.filter(pl.col('_id').is_in(part['_id'].implode()))
         suffix='_v_count' if conditional else '_population'
-        populations=[populations['rule_'+side+suffix].to_numpy() for side in ('reference','control')]
-        if any(not np.array_equal(curve[:,-1],pop) for curve,pop in zip(curves,populations)):
+        populations=[population_rows['rule_'+side+suffix].to_numpy() for side in ('reference','control')]
+        excluded_suffix='_removed_v' if conditional else '_excluded_hits'
+        excluded=[population_rows['rule_'+side+excluded_suffix].to_numpy() for side in ('reference','control')]
+        if any(not np.array_equal(curve[:,-1],pop-removed) for curve,pop,removed in zip(curves,populations,excluded)):
             raise ArithmeticError('CDR3 rank bound did not cover every eligible reference')
-        return local_rank_evidence(*curves,*populations)['rank_bayes_factor']
+        target,control=curves
+        shells=np.diff(target,axis=1,prepend=0)
+        row,column=np.nonzero(shells)
+        before=np.where(column>0,control[row,column-1],0)
+        # Reduce occupied shells in their fixed distance order. Extra queries
+        # can extend the complete bound, but extra zero bins cannot change a sum.
+        numerator=np.bincount(row,weights=shells[row,column]*_harmonic_interval(before+1,control[row,column]+1),
+            minlength=len(part))
+        N,M=populations
+        result=np.ones(len(part));usable=(N>0)&(M>0)
+        # Complete eligible curves have no censored references. Denominators
+        # retain full model sizes; excluded exact hits contribute zero, not a
+        # far-shell conditional mean. This is ranking evidence, not a P-bound.
+        result[usable]=(M[usable]+1)*numerator[usable]/(N[usable]*(digamma(M[usable]+2)+np.euler_gamma))
+        return result
     rank=ranks(q,True)
     fallback=~out['rule_v_supported'].to_numpy()
     if fallback.any():rank[fallback]=ranks(q.filter(pl.Series(fallback)),False)
@@ -140,13 +163,21 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
             out=out.with_columns(pl.when(pl.col('rule_'+mode+'_available')).then((pl.col('rule_'+side+'_spatial_mass')+pl.col('rule_'+side+'_'+mode+'_mass'))/2)
                 .otherwise(pl.col('rule_'+side+'_spatial_mass')).alias('rule_'+side+'_mixed_'+mode+'_mass'))
         out=out.with_columns(score(mode).alias('rule_'+mode+'_score'),score('mixed_'+mode).alias('rule_mixed_'+mode+'_score'))
-        # Reference enrichment conditional on V; query tokens only look up this
-        # population rule. Puncturing subtracts identical query motif presence.
+        # Reference enrichment is a fixed V-conditioned model statistic. Query
+        # tokens only look up its frequencies; hit exclusion never refits it.
+        if (int(out['rule_reference_v_count'].max() or 0) * int(out['rule_control_v_count'].max() or 0) *
+                int(lengths['_tokens'].max() or 0) > 2**53-1):
+            raise ValueError('conditional motif counts exceed the exactly representable integer budget')
         enriched=qt.join(frequencies[0],on=[*v,*token_cols],how='left',validate='m:1').join(frequencies[1],on=[*v,*token_cols],how='left',validate='m:1')
-        enriched=enriched.join(out.select('_id','rule_reference_v_count','rule_control_v_count','rule_reference_removed_v','rule_control_removed_v'),on='_id',validate='m:1')
-        delta=((pl.col('_reference').fill_null(0).cast(pl.Float64)-pl.col('rule_reference_removed_v'))/pl.col('rule_reference_v_count').clip(lower_bound=1)-
-            (pl.col('_control').fill_null(0).cast(pl.Float64)-pl.col('rule_control_removed_v'))/pl.col('rule_control_v_count').clip(lower_bound=1)).clip(lower_bound=0)
-        enriched=enriched.group_by('_id').agg(delta.mean().alias('_enrichment'))
+        enriched=enriched.join(out.select('_id','rule_reference_v_count','rule_control_v_count'),on='_id',validate='m:1')
+        # Sum the exact positive cross-count differences before one division.
+        # A floating group mean can change its last bit with the query batch.
+        delta=(pl.col('_reference').fill_null(0).cast(pl.Int64)*pl.col('rule_control_v_count')-
+            pl.col('_control').fill_null(0).cast(pl.Int64)*pl.col('rule_reference_v_count')).clip(lower_bound=0)
+        enriched=enriched.group_by('_id').agg(delta.sum().alias('_sum'),pl.len().alias('_terms'),
+            pl.col('rule_reference_v_count').first(),pl.col('rule_control_v_count').first()).select('_id',
+                (pl.col('_sum')/(pl.col('_terms').cast(pl.Int64)*pl.col('rule_reference_v_count').clip(lower_bound=1)*
+                    pl.col('rule_control_v_count').clip(lower_bound=1))).alias('_enrichment'))
         out=out.join(enriched,on='_id',how='left',validate='1:1').with_columns(
             pl.when(pl.col('rule_v_supported')).then(pl.col('_enrichment').fill_null(0)).otherwise(0.0).alias('rule_'+mode+'_enrichment')).drop('_enrichment')
         # Bounded correlated sequence bonus, not independent likelihood evidence.

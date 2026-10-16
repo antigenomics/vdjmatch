@@ -486,7 +486,8 @@ For each population, the predictive conditional J frequency is
 pseudo-observation and a common number ``K`` of observed population J categories plus one unseen category.
 This makes predictions independent of the query batch contents.
 Counts retain distinct full junction/resolved-V keys, explicitly mark conflicting
-or missing J annotations, and apply benchmark exact-query exclusion consistently.
+or missing J annotations. These model frequencies remain fixed under benchmark
+exact-hit exclusion; only the separate sequence-hit list is filtered.
 Missing query J yields a neutral ratio of one. Counts and status are exported.
 
 This is an experimental empirical ranking residual. J usage can remain dependent
@@ -508,20 +509,24 @@ multiplier or length likelihood multiplier.
 The rank score factors predictive V usage and multi-reference CDR3 rank conditional
 on that exact gene category. The native conditional search has **zero V-loop cost**:
 V evidence enters once. Length differences remain in the CDR3 distance. With
-query-punctured target/control totals N/M, same-V counts n/m and kernel masses
-r/b, define p=(n+m+0.5)/(N+M+0.5K), where K is the union of population V categories
+fixed full-model target/control totals N/M and same-V counts n/m,
+define p=(n+m+0.5)/(N+M+0.5K), where K is the union of population V categories
 plus one unseen category. V probabilities are (n+p)/(N+1) and (m+p)/(M+1).
 If either n or m is zero, the V ratio is **one**, CDR3 rank uses the full target
 and control populations, and motif bonuses are zero. This avoids prior-only
 V evidence or erasing sequence evidence for unsupported categories.
-Rank averages normalized reciprocal background ranks over **all references**,
-with conservative tied-distance intervals as in the local-rank model above.
+Rank sums normalized reciprocal eligible-control ranks over the retained reference
+hits and divides by the fixed full reference count. Tied distances use the same
+reciprocal-rank intervals as the local-rank model above. Excluded exact hits
+contribute zero; they do not return as censored references beyond the last bin.
 Exact distance bins cover every finite CDR3-only distance: clipped substitution
 and gap costs are at most twelve per full-junction residue per chain, and distances
 are multiples of three. With exact-hit filtering, final hit counts omit those hits; model population sizes stay fixed.
 
-For the retained kernel diagnostics, the shared conditional pseudo-observation is c=(r+b+0.5)/(n+m+1); conditional
-kernel means are (r+c)/(n+1) and (b+c)/(m+1). The score is the ratio of their
+For the retained kernel diagnostics, let r_model/b_model be full-model kernel
+masses and r_hit/b_hit their exact-filtered hit masses. The shared conditional
+pseudo-observation is c=(r_model+b_model+0.5)/(n+m+1); conditional kernel means
+are (r_hit+c)/(n+1) and (b_hit+c)/(m+1). Thus hit exclusion does not refit c. The score is the ratio of their
 products. These are empirical predictive ranking scores, not calibrated
 P-values, E-values, specificity posteriors or independence claims.
 
@@ -543,12 +548,16 @@ presence frequencies within the supported V category. Let e be the mean of
 max(0, target_frequency-control_frequency) over distinct query token tuples.
 The score is ``rule_rank_score*(1+e)``. The bounded factor is a correlated
 sequence bonus, not an independent likelihood or calibrated probability.
-Rules use reference populations and query puncturing only; query labels never
-select motifs. Too-short queries have e=0.
+Rules use fixed full reference/control frequencies; query labels never select
+motifs and exact-hit filtering does not change their enrichment weights. Too-short queries have e=0.
 
-All motif and population counts puncture identical full junctions only when
-``--exclude-exact`` is explicitly used for benchmarks. Ordinary annotation retains
-exact reference evidence. This option leaves existing comparator/rank fields
+``--exclude-exact`` masks identical full-junction hit contributions only. Population
+counts, V support, priors and motif frequencies stay fixed. Paired filtering
+requires both junctions to match; sharing only one chain does not remove a linked
+reference pair. ``rule_reference_excluded_hits``/``rule_control_excluded_hits``
+count the filtered raw sequence identities; the legacy ``*_removed_v`` fields
+count only filtered same-V hit contributions. Ordinary annotation retains exact
+reference evidence. This option leaves existing comparator/rank fields
 unchanged and does not supply a new end-user call threshold.
 
 Experimental original-based fixed refinement

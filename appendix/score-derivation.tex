@@ -1285,9 +1285,9 @@ V categories plus one unseen category. The diagnostic emits
  S_{\rm chem}=L_{\rm chem\mid V}+L_V.
 \]
 V enters once. This score is not multiplied into another V-containing score.
-All exact full-junction matches are removed across V categories in benchmark
-mode before conditional and global denominators; both full junctions define a
-paired exact match. Their mixture contribution is subtracted analytically.
+Benchmark exact exclusion subtracts only exact full-junction kernel contributions;
+conditional/global population sizes and V priors remain fixed. Both full junctions
+define a paired exact match. The self-mixture contribution is subtracted analytically.
 Reference keys lacking a four-residue core window are explicitly counted as
 unavailable to this component. Query rows, including missing-window/category
 and numerical-tail cases, remain present with their dispositions. Floating
@@ -1568,6 +1568,47 @@ The cross-length nearest-neighbour fraction at query length $l$ is
 Strict ties are not cross-length wins; an empty denominator is unavailable.
 Unlike $1-\sum_lP_e(L=l)^2$, this statistic measures an actual geometric relation, not length diversity alone.
 Neither statistic is, by itself, a validated gap-score weight.
+
+\subsection{Fixed reference rules and exact-hit filtering}
+The experimental V-conditioned rule uses fixed full-model target/control sizes $N,M$ and same-gene counts $n,m$; a linked pair has a joint V-gene tuple.
+With $K$ population gene categories including one unseen category, put
+\[
+ p_g=\frac{n+m+1/2}{N+M+K/2},\qquad
+ \rho_g=\frac{(n+p_g)/(N+1)}{(m+p_g)/(M+1)}.
+\]
+If either population lacks the gene category, use neutral $\rho_g=1$ and global sequence rank.
+Exact exclusion changes neither these counts nor that support decision.
+For a sequence kernel, distinguish full-model masses $r_{\rm model},b_{\rm model}$ from filtered-hit masses $r_{\rm hit},b_{\rm hit}$.
+Its pooled pseudo-observation and score are
+\[
+ c_K=\frac{r_{\rm model}+b_{\rm model}+1/2}{n+m+1},\qquad
+ S_K=\rho_g\frac{(r_{\rm hit}+c_K)/(n+1)}{(b_{\rm hit}+c_K)/(m+1)}.
+\]
+The same fixed model supplies $c_K$ before and after exact-hit filtering.
+
+For the complete sequence-rank calculation, let $(N',M')=(n,m)$ when the gene category is supported and $(N',M')=(N,M)$ otherwise.
+Let $a_i,b_i$ be cumulative retained target/control hit counts at increasing exact distance bins, with $a_0=b_0=0$; the final bin covers every finite eligible distance.
+Define $H_s=\sum_{j=1}^s1/j$ and $h(u,v)=\sum_{j=u}^{v}(1/j)/(v-u+1)$.
+The exported rank is
+\[
+ \mathcal R(q)=\frac{M'+1}{N'H_{M'+1}}
+ \sum_i(a_i-a_{i-1})h(b_{i-1}+1,b_i+1).
+\]
+Full-model denominators remain fixed; an excluded reference contributes zero, rather than returning as a censored observation beyond the last bin.
+No retained reference hits gives zero rank when the model populations are nonempty; empty models remain unavailable.
+This descriptive rank does not transfer a local-rank P-value or posterior guarantee.
+
+For query token set $\mathcal T(q)$, let $u_t,v_t$ be fixed same-gene target/control presence counts for token $t$.
+The correlated enrichment bonus and final experimental rule are
+\[
+ e(q)=\frac{\sum_{t\in\mathcal T(q)}(m u_t-n v_t)_+}{nm|\mathcal T(q)|},\qquad
+ S_{\rm rule}(q)=\rho_g\mathcal R(q)[1+e(q)].
+\]
+Here $(x)_+=\max(0,x)$, and unsupported categories or empty token sets use $e=0$.
+The implementation sums integer cross-count differences before one division, keeping the result independent of query-batch reduction shape.
+Motif frequencies and their enrichment weights are model statistics, so exact exclusion never refits them.
+Likewise the separate conditional-J frequency model remains unchanged by a sequence-hit filter.
+These are empirical ranking diagnostics; their complete rule, gene fallback, paired-axis and label decisions require their own final calibration.
 
 \subsection{Human-readable rules and comparable tails}
 A germline-anchored class has informative V/loop usage relative to control, a motif-constrained class has informative conditional junction motifs, and a distributed-neighbourhood class has informative smooth local enrichment.

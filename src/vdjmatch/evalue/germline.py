@@ -12,6 +12,9 @@ def conditional_j_usage(queries, reference, background, *, paired=False, exclude
     Frames contain query_id (queries only) and seq0/v0/j0 [seq1/v1/j1].
     Distinct full junction/resolved V keys are the observation unit. Conflicting
     or absent J annotations stay explicit categories; query missing J is neutral.
+    All frequency counts and priors use fixed full populations. ``exclude_exact``
+    is retained for caller compatibility and has no effect on this model-only
+    J diagnostic; exact exclusion belongs to the separate sequence hit list.
     """
     axes=range(2 if paired else 1)
     seq=[f'seq{i}' for i in axes];v=[f'v{i}' for i in axes];j=[f'j{i}' for i in axes]
@@ -41,13 +44,6 @@ def conditional_j_usage(queries, reference, background, *, paired=False, exclude
             counts=pop.group_by(keys).len().rename({'len':col})
             out=out.join(counts,on=keys,how='left',validate='m:1',maintain_order='left',nulls_equal=True)
         out=out.with_columns(pl.col('stratum','joint','global').fill_null(0).cast(pl.Int64),pl.lit(pop.height).alias('population'))
-        if exclude_exact and pop.height:
-            exact=q.select('query_id',*seq,*strata,*j).join(pop,on=seq,how='inner',suffix='_ref',nulls_equal=True)
-            sx=pl.all_horizontal([pl.col(c).eq_missing(pl.col(c+'_ref')) for c in strata if c not in [f'length{i}' for i in axes]])
-            jx=pl.all_horizontal([pl.col(c)==pl.col(c+'_ref') for c in j])
-            removed=exact.group_by('query_id').agg(pl.len().alias('_total'),sx.sum().alias('_stratum'),(sx&jx).sum().alias('_joint'),jx.sum().alias('_global'))
-            out=out.join(removed,on='query_id',how='left',validate='1:1',maintain_order='left').with_columns(
-                *[(pl.col(c)-pl.col('_'+('total' if c=='population' else c)).fill_null(0)).alias(c) for c in ['population','stratum','joint','global']])
         out=out.with_columns(((pl.col('joint')+(pl.col('global')+.5)/(pl.col('population')+.5*categories))/(pl.col('stratum')+1)).alias(prefix+'_probability'))
         return out.select('query_id',pl.col(prefix+'_probability'),*[pl.col(c).alias(prefix+'_'+c) for c in ['population','stratum','joint','global']])
     result=predictive(ref,'j_reference').join(predictive(bg,'j_control'),on='query_id',validate='1:1',maintain_order='left')
