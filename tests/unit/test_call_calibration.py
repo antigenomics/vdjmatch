@@ -170,6 +170,49 @@ def test_frozen_null_tails_keep_ties_nohits_and_sources_separate():
         calibration.null_tail_probabilities(queries.with_columns(pl.lit(float('inf')).alias('score')),nulls)
 
 
+@pytest.mark.parametrize('higher', [True, False])
+def test_grouped_null_tails_keep_nullable_groups_sources_and_repeated_query_ids(higher):
+    from polars.testing import assert_frame_equal
+    from vdjmatch.evalue.directional import null_tail_probabilities
+    query = pl.DataFrame({'query_id': ['x', 'y', 'z', 'x', 'z', 'none'],
+        'mhc_a': [None, None, None, 'A', 'A', 'absent'],
+        'score': [8., 11., None, 1., None, None]})
+    null = pl.DataFrame({'query_id': ['a', 'b', 'c', 'd', 'e', 'a', 'c'],
+        'mhc_a': [None] * 5 + ['A'] * 2, 'score': [8., 8., None, 10., None, 1., None],
+        'outcome': ['null'] * 7, 'null_source': ['withheld'] * 3 + ['generated'] * 2 + ['withheld'] * 2})
+    if not higher:
+        query = query.with_columns(-pl.col('score'))
+        null = null.with_columns(-pl.col('score'))
+    scored, detail = null_tail_probabilities(query, null, higher_is_better=higher, group_columns=['mhc_a'])
+    assert scored['p_null'].to_list() == pytest.approx([.75, 1/3, 1., 2/3, 1., 1.])
+    assert scored['E_null'].to_list() == pytest.approx([2/3, 0., 0., .5, 0., 0.])
+    assert detail.filter(pl.col('mhc_a') == 'absent').is_empty()
+    assert detail.filter(pl.col('mhc_a') == 'A')['null_queries'].to_list() == [2, 2]
+    projected, unused = null_tail_probabilities(query, null, higher_is_better=higher,
+        group_columns=['mhc_a'], _details=False)
+    assert unused is None
+    assert_frame_equal(projected, scored, check_exact=True)
+    nullable,_=null_tail_probabilities(query.head(3).with_columns(pl.lit(None).alias('mhc_a')),
+        null.head(5),higher_is_better=higher,group_columns=['mhc_a'])
+    assert nullable['p_null'].to_list() == scored['p_null'].head(3).to_list()
+    with pytest.raises(ValueError, match='unique'):
+        null_tail_probabilities(pl.concat([query, query.head(1)]), null, group_columns=['mhc_a'])
+    with pytest.raises(ValueError, match='missing null'):
+        null_tail_probabilities(query.with_columns(pl.col('score').fill_null(2.)), null, group_columns=['mhc_a'])
+
+
+def test_grouped_null_integer_widths_do_not_merge_large_metadata_values():
+    from vdjmatch.evalue.directional import null_tail_probabilities
+    query=pl.DataFrame({'query_id':['q','q'],
+        'group':pl.Series([2**63,2**63+1],dtype=pl.UInt64),'score':[1.5,1.5]})
+    null=pl.DataFrame({'query_id':['n','n','other'],
+        'group':pl.Series([2**63,2**63+1,-1],dtype=pl.Int128),
+        'score':[1.,2.,3.],'outcome':['null']*3,'null_source':['bank']*3})
+    result,_=null_tail_probabilities(query,null,group_columns=['group'])
+    assert result['p_null'].to_list()==[.5,1.]
+    assert result['E_null'].to_list()==[0.,1.]
+
+
 @pytest.mark.parametrize('score_column',['score','likelihood_score'])
 def test_cli_null_tails_are_bound_to_frozen_calibration_input(tmp_path,score_column):
     parser=argparse.ArgumentParser();calibration.register(parser.add_subparsers())

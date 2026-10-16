@@ -1661,6 +1661,14 @@ Under the respective conditional exchangeability assumptions, these are conserva
 Matching Pgen alone does not prove those assumptions.
 
 \paragraph{Exact streamed reference-tail reduction.}
+Component normalization first assigns shared integer identities to its full-pMHC/stratum groups, retaining missing metadata categories.
+For null source $s$, sort all finite pairs $(g,t)$ lexicographically, where $g$ is a group identity and $t$ a score.
+Let $h_s(g)$ be the offset just after the last finite score of $g$, and $\ell_s(g,x)$ the lower-bound offset of $(g,x)$ in that array.
+Then the number of scores in group $g$ at least as large as $x$ is exactly $h_s(g)-\ell_s(g,x)$.
+The denominator includes all source/group draws, including no-hits, and the conservative source maximum uses only sources represented in that group.
+For $n_s$ null rows and $q$ observed rows, this source reduction uses $O(n_s\log n_s+q\log n_s)$ comparisons and linear working space, without one Python tail call per target.
+It is the same empirical tail, not an approximate binning or a transferred final P-value; the arrays are transient within the operation.
+
 For a fixed mock reference, the current combined-score implementation keeps its graph weights and complete normalization bank fixed while reducing at most $65\,536$ already-scored cases per batch.
 Let $\mathcal C_j(q)$ be disjoint batches of target--axis cases for query $q$, and let $U_{e,a}^{*(b)}(q)$ be their support-gated combined scores for mock $b$.
 The database statistic is unchanged because

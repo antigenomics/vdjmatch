@@ -89,6 +89,18 @@ after their counters are updated. Raw components and requested observed detail
 still materialize the case grid: this reduction does not remove the case guard
 or establish whole-cohort resource compliance.
 
+Component normalization also keeps each full-pMHC/stratum population separate
+without a Python loop over targets. Null metadata keys receive shared integer
+identities, including missing pMHC fields. Within each represented null source,
+finite scores are sorted lexicographically by group and score. The group's end
+offset minus the lower bound of the observed score counts its upper tail:
+ties remain exceedances and null no-hits remain in the denominator. Source
+maxima use only sources represented in that group. Integer-width alignment is
+lossless, and these transient arrays are released within the operation; no
+calculated distribution is cached between runs. The ungrouped tail API retains
+its ordinary scalar-score sort. This changes computation only, not the statistic
+or its final selected-label/axis calibration requirement.
+
 The event being tested
 ----------------------
 

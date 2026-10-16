@@ -153,7 +153,7 @@ def null_normalized_evidence(frame, nulls, *, structure_conditioned=False, three
     """
     import polars as pl
     from ..aggregate.candidates import PMHC
-    from ..evalue.directional import null_tail_probabilities
+    from ..evalue.directional import null_tail_probabilities, _null_group_axes
     keys=['species','locus',*PMHC]
     stratified='normalization_stratum' in frame.columns
     if stratified != ('normalization_stratum' in nulls.columns):
@@ -194,45 +194,47 @@ def null_normalized_evidence(frame, nulls, *, structure_conditioned=False, three
     details=[prefix+name for prefix in ('log_evidence_','contribution_') for name in channel_names] if three_channel else []
     if {'_norm_row','normalized_score',*tail_columns,*details} & set(frame.columns):
         raise ValueError('normalization output columns already exist')
-    background=dict(nulls.group_by(keys,maintain_order=True))
-    rows=[]
-    for key,part in frame.with_row_index('_norm_row').group_by(keys,maintain_order=True):
-        values=part.select(pl.col(columns).cast(pl.Float64)).to_numpy()
-        available=np.isfinite(values).any(axis=1)
-        if three_channel:
-            weights=part.select(pl.col(THREE_WEIGHTS).cast(pl.Float64)).to_numpy()
-            if not np.isfinite(weights).all() or np.any(weights<0) or not np.allclose(weights.sum(axis=1),1.,rtol=0.,atol=1e-12):
-                raise ValueError('three-channel weights must be finite, nonnegative and sum to one')
-            available=(np.isfinite(values) & (weights>0)).any(axis=1)
-        if key not in background:
-            if available.any():raise ValueError('missing null calibration group: '+str(key))
-            tails=[np.ones(part.height) for _ in columns]
-        else:
-            tails=[]
-            for column in columns:
-                calibrated,_=null_tail_probabilities(part.select('query_id',column),
-                    background[key].select('query_id',column,'outcome','null_source'),score_column=column)
-                tails.append(calibrated['p_null'].to_numpy())
-        if three_channel:
-            score=np.sum(weights * -np.log(np.column_stack(tails)),axis=1)
-        elif structure_conditioned:
-            sparse=reference_sparsity(part.with_columns(pl.lit(1.).alias('original_support')))
-            rank_tail=np.full(part.height,-np.inf)
-            np.log(sparse,out=rank_tail,where=sparse>0)
-            rank_tail-=np.log(tails[1])
-            missing_l=~np.isfinite(values[:,0])
-            rank_tail[missing_l]=-np.log(tails[1][missing_l])
-            score=np.maximum(-np.log(tails[0]),rank_tail)
-        else:
-            score=-np.log(np.minimum(*tails))
-        score[~available]=np.nan
-        extra=[]
-        if three_channel:
-            for index,name in enumerate(channel_names):
-                evidence=-np.log(tails[index])
-                extra.extend([pl.Series('log_evidence_'+name,evidence),
-                    pl.Series('contribution_'+name,weights[:,index]*evidence)])
-        rows.append(part.with_columns(*extra,*[pl.Series(name,tail) for name,tail in zip(tail_columns,tails)],
-            pl.Series('normalized_score',score,nan_to_null=True)))
-    return pl.concat(rows).sort('_norm_row').drop('_norm_row') if rows else frame.with_columns(
-        *[pl.lit(None,dtype=pl.Float64).alias(c) for c in [*tail_columns,*details,'normalized_score']])
+    if not frame.height:
+        return frame.with_columns(*[pl.lit(None,dtype=pl.Float64).alias(c)
+            for c in [*tail_columns,*details,'normalized_score']])
+    values=frame.select(pl.col(columns).cast(pl.Float64)).to_numpy()
+    available=np.isfinite(values).any(axis=1)
+    if three_channel:
+        weights=frame.select(pl.col(THREE_WEIGHTS).cast(pl.Float64)).to_numpy()
+        if not np.isfinite(weights).all() or np.any(weights<0) or not np.allclose(weights.sum(axis=1),1.,rtol=0.,atol=1e-12):
+            raise ValueError('three-channel weights must be finite, nonnegative and sum to one')
+        available=(np.isfinite(values) & (weights>0)).any(axis=1)
+    query_keys,null_keys=_null_group_axes(frame,nulls,keys)
+    covered=query_keys.join(null_keys.unique().with_columns(pl.lit(True).alias('_has_null')),
+        on=keys,how='left',nulls_equal=True,validate='m:1',maintain_order='left')['_has_null'].fill_null(False).to_numpy()
+    if np.any(available & ~covered):
+        raise ValueError('missing null calibration group')
+    tails=[]
+    for column in columns:
+        observed=frame.select('query_id',*keys,
+            pl.when(pl.Series(covered)).then(pl.col(column)).otherwise(None).alias(column))
+        calibrated,_=null_tail_probabilities(observed,
+            nulls.select('query_id',*keys,column,'outcome','null_source'),score_column=column,
+            group_columns=keys,_details=False)
+        tails.append(calibrated['p_null'].to_numpy())
+    if three_channel:
+        score=np.sum(weights * -np.log(np.column_stack(tails)),axis=1)
+    elif structure_conditioned:
+        sparse=reference_sparsity(frame.with_columns(pl.lit(1.).alias('original_support')))
+        rank_tail=np.full(frame.height,-np.inf)
+        np.log(sparse,out=rank_tail,where=sparse>0)
+        rank_tail-=np.log(tails[1])
+        missing_l=~np.isfinite(values[:,0])
+        rank_tail[missing_l]=-np.log(tails[1][missing_l])
+        score=np.maximum(-np.log(tails[0]),rank_tail)
+    else:
+        score=-np.log(np.minimum(*tails))
+    score[~available]=np.nan
+    extra=[]
+    if three_channel:
+        for index,name in enumerate(channel_names):
+            evidence=-np.log(tails[index])
+            extra.extend([pl.Series('log_evidence_'+name,evidence),
+                pl.Series('contribution_'+name,weights[:,index]*evidence)])
+    return frame.with_columns(*extra,*[pl.Series(name,tail) for name,tail in zip(tail_columns,tails)],
+        pl.Series('normalized_score',score,nan_to_null=True))

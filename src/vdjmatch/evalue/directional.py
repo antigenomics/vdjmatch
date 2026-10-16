@@ -73,7 +73,29 @@ def directional_tails(observed: pl.DataFrame, reference_null: pl.DataFrame,
             pl.max_horizontal('p_reference', 'p_query').alias('p_both'))
 
 
-def null_tail_probabilities(frame, nulls, *, higher_is_better=True, score_column="score"):
+def _null_group_axes(frame, nulls, columns):
+    """Align nullable metadata and lossless scalar widths before key joins."""
+    axes=[part.select(columns) for part in (frame,nulls)]
+    for column in columns:
+        left,right=(part.schema[column] for part in axes)
+        if left==right:
+            continue
+        if left==pl.Null or right==pl.Null:
+            dtype=right if left==pl.Null else left
+        elif left.is_integer() and right.is_integer():
+            dtype=pl.Int128
+        elif left.is_float() and right.is_float():
+            dtype=pl.Float64
+        elif all(t.base_type() in (pl.String,pl.Categorical,pl.Enum) for t in (left,right)):
+            dtype=pl.String
+        else:
+            raise ValueError('null group column types must match')
+        axes=[part.with_columns(pl.col(column).cast(dtype)) for part in axes]
+    return axes
+
+
+def null_tail_probabilities(frame, nulls, *, higher_is_better=True, score_column="score",
+                            group_columns=(), _details=True):
     """Tail of the existing selected score against each frozen null population.
 
     P=(1+number of null scores at least as extreme)/(1+all null queries),
@@ -82,6 +104,8 @@ def null_tail_probabilities(frame, nulls, *, higher_is_better=True, score_column
     the observed expected false calls per query at that score threshold, not a
     confidence bound. Maxima retain the most conservative represented source.
     Unsupported queries have P=1/E=0 because they make no call.
+    Optional groups keep their own null populations, including nullable pMHC
+    keys. Internal normalization can omit unused per-source detail tables.
     """
     import numpy as np
     import polars as pl
@@ -89,11 +113,16 @@ def null_tail_probabilities(frame, nulls, *, higher_is_better=True, score_column
         raise ValueError('score_column must name a numeric input column')
     if {'p_null','E_null'} & set(frame.columns):
         raise ValueError('null-tail output columns already exist')
+    if (isinstance(group_columns, str) or len(set(group_columns)) != len(group_columns) or
+            any(not isinstance(c, str) or not c.strip() or c in
+                {'query_id', score_column, 'null_source', '_tail_group'} for c in group_columns)):
+        raise ValueError('distinct group column names required')
+    group_columns = list(group_columns)
     for part in (frame, nulls):
-        if missing := {'query_id',score_column} - set(part.columns):
+        if missing := {'query_id',score_column,*group_columns} - set(part.columns):
             raise ValueError('missing columns: '+', '.join(sorted(missing)))
-        if part['query_id'].null_count() or part['query_id'].n_unique()!=part.height:
-            raise ValueError('query_id must be unique and non-null; reduce candidate labels first')
+        if part['query_id'].null_count() or part.select('query_id',*group_columns).n_unique()!=part.height:
+            raise ValueError('query_id must be unique and non-null within each group; reduce candidate labels first')
         if not part[score_column].cast(pl.Float64).drop_nulls().is_finite().all():
             raise ValueError('non-null scores must be finite')
     if not nulls.height or not {'outcome','null_source'} <= set(nulls.columns):
@@ -105,16 +134,45 @@ def null_tail_probabilities(frame, nulls, *, higher_is_better=True, score_column
     sign=1 if higher_is_better else -1
     values=sign*frame[score_column].cast(pl.Float64).to_numpy()
     missing=np.isnan(values)
+    if group_columns:
+        axes=_null_group_axes(frame,nulls,group_columns)
+        groups=pl.concat(axes).unique(maintain_order=True).with_row_index('_tail_group')
+        query_group,null_group=[part.join(groups,on=group_columns,how='left',nulls_equal=True,
+            validate='m:1',maintain_order='left')['_tail_group'].to_numpy() for part in axes]
+        group_count=groups.height
+    else:
+        query_group=np.zeros(frame.height,dtype=np.uint32)
+        null_group=np.zeros(nulls.height,dtype=np.uint32)
+        group_count=1
+    covered=np.bincount(null_group,minlength=group_count)[query_group]>0
+    if np.any(~covered & ~missing):
+        raise ValueError('missing null calibration group')
+    queries=np.rec.fromarrays([query_group,values],names=['group','score']) if group_columns else None
     p=np.zeros(frame.height); e=np.zeros(frame.height); rows=[]
     for source in sorted(nulls['null_source'].unique().to_list()):
-        part=nulls.filter(pl.col('null_source')==source)
-        scores=np.sort(sign*part[score_column].cast(pl.Float64).drop_nulls().to_numpy())
-        counts=len(scores)-np.searchsorted(scores,values,side='left')
+        mask=(nulls['null_source']==source).to_numpy()
+        source_groups=null_group[mask]
+        scores=sign*nulls.filter(pl.Series(mask))[score_column].cast(pl.Float64).to_numpy()
+        valid=~np.isnan(scores)
+        if group_columns:
+            ordered=np.sort(np.rec.fromarrays([source_groups[valid],scores[valid]],names=['group','score']),
+                order=['group','score'])
+            # Lexicographic lower bounds count strictly smaller scores within
+            # each group. Its end minus that bound retains ties as exceedances.
+            counts=np.searchsorted(ordered['group'],query_group,side='right')-np.searchsorted(ordered,queries,side='left')
+        else:
+            ordered=np.sort(scores[valid])
+            counts=len(ordered)-np.searchsorted(ordered,values,side='left')
         counts[missing]=0
-        tail=np.where(missing,1.,(counts+1)/(part.height+1))
-        rate=counts/part.height
-        p=np.maximum(p,tail); e=np.maximum(e,rate)
-        rows.append(frame.select('query_id').with_columns(
-            pl.lit(source).alias('null_source'), pl.lit(part.height).alias('null_queries'),
-            pl.Series('null_tail_count',counts),pl.Series('p_null',tail),pl.Series('E_null',rate)))
-    return frame.with_columns(pl.Series('p_null',p),pl.Series('E_null',e)),pl.concat(rows)
+        draws=np.bincount(source_groups,minlength=group_count)[query_group]
+        present=draws>0
+        tail=np.where(missing,1.,(counts+1)/(draws+1))
+        rate=np.divide(counts,draws,out=np.zeros(frame.height),where=present)
+        p[present]=np.maximum(p[present],tail[present]); e[present]=np.maximum(e[present],rate[present])
+        if _details:
+            rows.append(frame.select('query_id',*group_columns).filter(pl.Series(present)).with_columns(
+                pl.lit(source).alias('null_source'),
+                pl.Series('null_queries',draws[present],dtype=pl.Int32 if int(mask.sum())<2**31 else pl.Int64),
+                pl.Series('null_tail_count',counts[present]),pl.Series('p_null',tail[present]),pl.Series('E_null',rate[present])))
+    p[~covered]=1.
+    return frame.with_columns(pl.Series('p_null',p),pl.Series('E_null',e)),pl.concat(rows) if _details else None
