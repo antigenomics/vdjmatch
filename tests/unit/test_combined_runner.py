@@ -8,6 +8,26 @@ from vdjmatch.runner.combined import score_components
 from vdjmatch.aggregate.candidates import PMHC
 
 
+def _check_kernel_projection(monkeypatch):
+    from vdjmatch.evalue import kernel
+    from polars.testing import assert_frame_equal
+    original = kernel.grouped_kernel_enrichment
+
+    def checked(*args, **kwargs):
+        assert kwargs.pop('_scores_only', False)
+        full = original(*args, **kwargs)
+        slim = original(*args, _scores_only=True, **kwargs)
+        if full is None:
+            assert slim is None
+        else:
+            columns = ['query_id', *PMHC, 'kernel_score']
+            assert slim.columns == columns
+            assert_frame_equal(slim, full.select(columns), check_exact=True)
+        return slim
+
+    monkeypatch.setattr(kernel, 'grouped_kernel_enrichment', checked)
+
+
 def _single():
     seqs = ['CASSLGQETQYF', 'CASSIGQETQYF', 'CATSLGQETQYF']
     reference = pl.DataFrame({'cdr3': seqs, 'v': ['TRBV1'] * 3, 'j': ['TRBJ1-1'] * 3,
@@ -33,7 +53,8 @@ def test_single_epitope_custom_reference_keeps_bounded_kernel_evidence():
     assert result['stem4_score'].item() > 0
 
 
-def test_actual_single_components_preserve_original_oracle_and_missing_rows():
+def test_actual_single_components_preserve_original_oracle_and_missing_rows(monkeypatch):
+    _check_kernel_projection(monkeypatch)
     from vdjmatch.match.historical import density, germline_prior, unpaired_score
     queries, reference, context = _single()
     scored = score_components(queries, reference, context, species='human', locus='TRB', threads=1, exclude_exact=True)
@@ -58,7 +79,8 @@ def test_actual_single_components_preserve_original_oracle_and_missing_rows():
     assert restricted.select(scored.columns).equals(scored.filter(pl.col('query_id') == 'q').head(1))
 
 
-def test_paired_marginals_survive_absent_linked_model_and_original_is_log_sum():
+def test_paired_marginals_survive_absent_linked_model_and_original_is_log_sum(monkeypatch):
+    _check_kernel_projection(monkeypatch)
     reference = pl.DataFrame({'cdr3': ['CAVRDSNYQLIW', 'CASSLGQETQYF', 'CAVRDTNYQLIW', 'CASSIGQETQYF'],
         'v': ['TRAV1-2', 'TRBV1', 'TRAV1-2', 'TRBV1'], 'j': ['TRAJ33', 'TRBJ1-1', 'TRAJ33', 'TRBJ1-1'],
         'gene': ['TRA', 'TRB', 'TRA', 'TRB'], 'species': ['HomoSapiens'] * 4,
@@ -154,8 +176,14 @@ def test_actual_paired_complete_calibration_retains_linked_roles_and_nohits(monk
     assert tails['p_both'].to_list() == tails.select(pl.max_horizontal('p_reference', 'p_query')).to_series().to_list()
     # Repeat the complete synthetic pipeline with the retained materialized oracle.
     from vdjmatch.runner import combined as runner
+    from vdjmatch.evalue import kernel
     from polars.testing import assert_frame_equal
     monkeypatch.setattr(runner, '_select_axis_frames', lambda frames: _all_axis_oracle(list(frames)))
+    enrichment = kernel.grouped_kernel_enrichment
+    def full_diagnostics(*args, **kwargs):
+        kwargs.pop('_scores_only', None)
+        return enrichment(*args, **kwargs)
+    monkeypatch.setattr(kernel, 'grouped_kernel_enrichment', full_diagnostics)
     old_detail, old_tails = calibration.calibrate_combined(query, reference, control,
         species='human', locus='paired', replicates=2, seed=17, threads=1)
     assert_frame_equal(detail.select(old_detail.columns).sort(['query_id', *PMHC]),

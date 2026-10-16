@@ -153,7 +153,8 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
             paired=paired, cutoffs=ladder_cutoffs(scale), radius=22.5 * scale, kernel_scale=22.5 * scale,
             scorer='v-bounded', assayed=True, species=species, threads=threads, ctrim=3, v_loop_weight=1,
             alphabet='full', stem_depth=depth, stem_weight=1.0, matrix=matrix,
-            v_loop_distances=contexts[matrix], exclude_exact=exclude_exact, _allow_empty_background=True)
+            v_loop_distances=contexts[matrix], exclude_exact=exclude_exact, _allow_empty_background=True,
+            _scores_only=True)
         if scores is None:
             scores = cases.head(0).with_columns(pl.lit(None, dtype=pl.Float64).alias('kernel_score'))
         result = result.join(scores.select(*_CASES, pl.when(pl.col('kernel_score') > 0).then(
