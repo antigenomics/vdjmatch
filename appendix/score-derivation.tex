@@ -1340,6 +1340,49 @@ The V-conditioned masked-four-mer score and reference/control gene counts are im
 A complete information-directed selector and its whole-cohort calibration remain to be established.
 The original/general score is retained when the available features do not support a more specific rule.
 
+\subsection{Implemented motif and sampling diagnostics}
+The motif table retains the full-AA three-mer and single-wildcard four-mer views alongside their eleven-class IMGT projections.
+For a fixed species/locus, a control document is a distinct full-junction/V-gene key; repeated windows count once.
+Let $M$ be the number of these control keys and $d_t$ the number containing token $t$.
+If $n_{e,z,t}$ target keys in V/length stratum $z$ contain $t$ and $N_e$ is the target's total key count, the separate retrieval diagnostic is
+\[
+ \operatorname{IDF}(t)=1+\ln\frac{M+1}{d_t+1},\qquad
+ \operatorname{TFIDF}_{e,z,t}=\frac{n_{e,z,t}}{N_e}\operatorname{IDF}(t).
+\]
+There is no vector normalisation, and these weights are not selection bits or specificity probabilities.
+The existing control sampler matches source-record counts in one-bit marginal-Pgen strata, drawing joint junction/V/J event slots without replacement before applying the same junction/V-key reduction.
+It does not constrain V/J or length.
+IDF remains fixed; absent mock features contribute zero.
+The exported mean and 2.5/97.5 percentiles describe the matched-control TF--IDF distribution, not uncertainty on a fitted recognition probability.
+
+The \texttt{reference-coverage} CLI retains VDJdb occurrence abundance at exact full-junction/V/J-call resolution and after seeded Leiden partitioning of each full-pMHC graph.
+Supplied alleles remain part of the exact key; graph vertices are distinct keys, while their abundance counts retain repeated source records.
+The edit graph uses explicit symmetric insertion/deletion budgets.
+The full Smith--Waterman graph uses raw BLOSUM62, gap cost $g_o+(r-1)g_e$ for a run of length $r$, and summed distances $s(a,a)+s(b,b)-2s(a,b)$ over the full anchor-inclusive junction and declared germline loops.
+The defaults include CDR1, CDR2 and CDR2.5; the CLI also permits explicit smaller loop sets.
+It applies no junction trimming or stem/kernel surrogate.
+The SW radius is supplied explicitly.
+One native graph batch serves the union of real/mock search keys; binary target-count chunks expose SW edges without retaining a query/reference distance matrix.
+Each real/mock population receives its own unweighted RBConfiguration-modularity Leiden partition, at the supplied resolution and seed, including isolated vertices.
+
+For either taxon resolution, let $n_i$ be taxon $i$'s occurrence count, $n=\sum_i n_i$, $S$ the observed richness, and $f_1,f_2$ the numbers of taxa observed once and twice.
+The adapter reuses vdjtools' finite-sample Chao1 and coverage implementation:
+\[
+ \widehat S=S+f_0,\qquad
+ f_0=\frac{n-1}{n}
+ \begin{cases}f_1^2/(2f_2),&f_2>0,\\ f_1(f_1-1)/2,&f_2=0.\end{cases}
+\]
+For $f_1>0$, set $A=nf_0/(nf_0+f_1)$; then $\widehat C=1-(f_1/n)A$.
+With no singletons, this estimator gives one.
+Unseen mass $1-\widehat C$ is distinct from estimated unseen-type fraction $(\widehat S-S)/\widehat S$.
+The zero-doubleton branch is labelled; boundary values, including a single taxon observed once, do not establish sufficient sampling.
+vdjtools supplies richness curves through twice the observed occurrence effort and normal bootstrap intervals.
+The coverage envelope uses the same owning augmented-assemblage probability law and coverage function, with percentile endpoints.
+Each population's partition remains fixed within occurrence rarefaction; this conditional calculation does not establish exhaustion of unseen communities.
+Database-occurrence coverage is not population-wide TCR coverage, and this community-as-taxon adaptation is not a distance-weighted functional-diversity estimator.
+Donor/study incidence Chao2 remains a separate sampling model.
+Pair-count, membership-expansion and augmented-bootstrap guards bound execution before the associated allocations; important full-cohort time/memory gates remain open.
+
 \subsection{Likelihood ratios, selection factors and bits}
 Fix species, locus and full peptide--MHC restriction, denoted by context $c$; write $e$ for the target within that context and suppress $c$ in the equations.
 Let $x=(L,V,J,Z)$ describe an anchor-inclusive junction, its length $L$, gene calls $V,J$, and remaining sequence features $Z$.

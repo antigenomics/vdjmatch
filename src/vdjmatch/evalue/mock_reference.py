@@ -11,6 +11,26 @@ from ..io.columns import _integer_count, _resolve
 EVENT_SAMPLER = "uniform-event-slots-v1"
 
 
+def _pgen_model_identity(species, locus):
+    """Hash the existing immutable bundled model inputs and native implementation."""
+    import hashlib
+    import json
+    from importlib.resources import files
+    from pathlib import Path
+    import vdjtools._core as native_core
+    from ..db.cache import sha256
+
+    organism = _organism(species)
+    source = 'olga' if organism == 'human' else 'arda'
+    key = locus if source == 'olga' else organism + '_' + locus
+    root = files('vdjtools.model') / '_bundled' / source / key
+    hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in sorted(root.iterdir(), key=lambda p: p.name) if p.is_file()}
+    return dict(source=source, organism=organism, locus=locus, files=hashes,
+        sha256=hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest(),
+        native_sha256=sha256(Path(native_core.__file__)))
+
+
 def _sample_event_indices(cumulative, count, rng):
     """Draw uniform event slots, then map to keys without expanding the pool.
 

@@ -2,6 +2,23 @@
 from pathlib import Path
 
 
+def reference_groups(raw, a):
+    """Fixed full-pMHC groups or declared compatible unions shared by diagnostics."""
+    import polars as pl
+    from ..aggregate.candidates import PMHC
+    if a.targets_from_sample:
+        from ..io.airr import _read_table
+        from .historical import assayed_targets
+        targets = _read_table(a.targets_from_sample)
+        if a.epitope:
+            targets = targets.filter(pl.col('epitope').is_in(a.epitope))
+        if 'query_id' not in targets.columns:
+            targets = targets.with_row_index('query_id')
+        return [(task, selected) for task, _, selected in
+            assayed_targets(targets.select('query_id'), targets, raw, a.species)]
+    return [(dict(zip(PMHC, key)), part) for key, part in raw.group_by(PMHC, maintain_order=True)]
+
+
 def register(subparsers):
     p = subparsers.add_parser('reference-structure', help=__doc__)
     p.add_argument('--vdjdb', required=True)
@@ -13,6 +30,9 @@ def register(subparsers):
     p.add_argument('--control', help='raw rearrangement control for descriptive V/J event-frequency ratios')
     p.add_argument('--motif-mode', choices=['exact3', 'imgt3', 'wild4', 'imgt_wild4'],
                    default='imgt_wild4', help='control-relative motif projection (default: imgt_wild4)')
+    p.add_argument('--mock-replicates', type=int, default=0,
+                   help='Pgen-matched control TF-IDF envelopes; zero disables, otherwise at least two')
+    p.add_argument('--seed', type=int, default=0)
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
@@ -43,6 +63,10 @@ def main(a):
         raise ValueError('positive threads required')
     if a.motif_mode != 'imgt_wild4' and not a.control:
         raise ValueError('--motif-mode requires --control')
+    if a.mock_replicates < 0 or a.mock_replicates == 1 or a.seed < 0:
+        raise ValueError('mock-replicates must be zero or at least two; seed must be nonnegative')
+    if a.mock_replicates and not a.control:
+        raise ValueError('--mock-replicates requires --control')
     protected = [a.vdjdb]+([a.targets_from_sample] if a.targets_from_sample else [])+([a.control] if a.control else [])
     prefix = _validate_output_paths(a.output_prefix, protected)
     organism = _organism(a.species)
@@ -62,28 +86,22 @@ def main(a):
             event_keys=events.height, total_events=int(events['event_weight'].sum()),
             reader_sha256=sha256(Path(_raw_control.__code__.co_filename)),
             event_normalizer_sha256=sha256(Path(control_events.__code__.co_filename)))
-        del control_raw, events
+        del control_raw
     raw = db.load(a.vdjdb, species=species, gene=a.locus, epitope=a.epitope)
     if a.reference_population == 'all-valid':
         raw = raw.with_columns(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('reference_valid'))
     model = load_v_loops(organism)
     raw = raw.with_columns(resolve_v_alleles(raw['v'],model,locus=a.locus).alias('_allele'))
     available = pl.col('reference_valid') & pl.col('_allele').is_not_null() & (pl.col('cdr3').str.len_chars() >= 8)
-    if a.targets_from_sample:
-        from ..io.airr import _read_table
-        from .historical import assayed_targets
-        targets = _read_table(a.targets_from_sample)
-        if a.epitope:
-            targets = targets.filter(pl.col('epitope').is_in(a.epitope))
-        if 'query_id' not in targets.columns:
-            targets = targets.with_row_index('query_id')
-        groups = [(task, selected) for task, _, selected in
-            assayed_targets(targets.select('query_id'),targets,raw,a.species)]
-    else:
-        groups = [(dict(zip(PMHC,key)), part) for key,part in raw.group_by(PMHC,maintain_order=True)]
+    groups = reference_groups(raw, a)
     # One batched native search for the whole reference population, then subset its
     # edges by declared target membership; no per-epitope native search loop.
     mixture_available = pl.col('reference_valid') & pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
+    pgen = None
+    if a.mock_replicates:
+        from ..evalue.mock_reference import compute_pgen, _pgen_model_identity
+        pgen = compute_pgen(raw.filter(mixture_available).rename({'cdr3': 'junction_aa'}),
+            events, species=organism, locus=a.locus, threads=a.threads)
     selected_nodes = [source.filter(mixture_available).select('cdr3') for _,source in groups]
     nodes = (pl.concat(selected_nodes).unique(maintain_order=True) if selected_nodes else raw.head(0).select('cdr3')).with_row_index('_node')
     pairs = overlap(nodes['cdr3'].to_list(),scope='1,0,0,1',threads=a.threads) if nodes.height else None
@@ -145,6 +163,18 @@ def main(a):
         if control_motifs is not None:
             motifs = motif_selection_information(source.filter(mixture_available), control_motifs, locus=a.locus, mode=a.motif_mode).with_columns(
                 *[pl.lit(value).alias(key) for key, value in gene_context.items()])
+            if a.mock_replicates and source.filter(mixture_available).height:
+                import hashlib
+                from ..aggregate.motif_information import motif_bootstrap
+                task_seed = int.from_bytes(hashlib.sha256(json.dumps(
+                    [a.seed, species, a.locus, task], sort_keys=True).encode()).digest()[:8], 'little')
+                motifs = motif_bootstrap(source.filter(mixture_available), events, control_motifs,
+                    motifs, pgen=pgen, locus=a.locus, species=organism,
+                    replicates=a.mock_replicates, seed=task_seed, threads=a.threads)
+            elif a.mock_replicates:
+                motifs = motifs.with_columns(pl.lit(a.mock_replicates).alias('control_replicates'),
+                    *[pl.lit(None, dtype=pl.Float64).alias(c) for c in
+                      ('control_tfidf_mean', 'control_tfidf_lo', 'control_tfidf_hi')])
             with motif_path.open('ab' if motif_written else 'wb') as stream:
                 motifs.write_csv(stream, separator='\t', include_header=not motif_written)
             motif_written = True
@@ -256,7 +286,7 @@ def main(a):
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(dict(reference=db.provenance(a.vdjdb),
         reference_population=a.reference_population, species=species,locus=a.locus,threads=a.threads,
         epitope=a.epitope, targets_sha256=sha256(Path(a.targets_from_sample)) if a.targets_from_sample else None,
-        software={name:version(name) for name in ('vdjmatch','seqtree','polars','numpy')},
+        software={name:version(name) for name in ('vdjmatch','seqtree','vdjtools','polars','numpy')},
         native_sha256=sha256(Path(native_core.__file__)),
         v_model_sha256=sha256(Path(load_v_loops.__code__.co_filename).parents[1]/'resources/vloops'/f'{organism}_v_loops.tsv'),
         loader_sha256=sha256(Path(db.load.__code__.co_filename)),
@@ -284,6 +314,14 @@ def main(a):
             statistic='presence log2 likelihood ratio and binary presence/absence KL; overlapping tokens are not independent',
             joint_projection='stratum_bits + presence_bits = joint_presence_bits; whole-population junction/V-gene totals; one token projection only',
             row_policy='reference-observed tokens only; no automatic scorer/threshold; missing control support stays unavailable',
+            tfidf='TF=n/total_reference_keys; IDF=1+ln((total_control_keys+1)/(global_control_document_frequency+1)); documents=distinct junction/V-gene keys',
+            control_resampling=(dict(replicates=a.mock_replicates, seed=a.seed,
+                law='existing uniform event-slot sampling without replacement within one-bit Pgen strata; source-record counts matched before key deduplication; no V/J/length matching',
+                envelope='2.5/97.5 percentiles of matched control TF-IDF; absent mock features zero; fixed full-control IDF',
+                seed_policy='SHA256(seed,species,locus,full-pMHC task), first 8 bytes little-endian',
+                pgen_model='bundled human OLGA or mouse ARDA; fresh native marginal junction Pgen',
+                pgen_model_identity=_pgen_model_identity(organism, a.locus),
+                pgen_source_sha256=sha256(Path(compute_pgen.__code__.co_filename))) if a.mock_replicates else None),
             reference_keys_without_fourmer=int(gene_usage.filter((pl.col("segment")=="V") &
                 (pl.col("length_scope")=="exact_length") & (pl.col("junction_length")<4))["junction_gene_keys"].sum()),
             reducer_sha256=sha256(Path(motif_selection_information.__code__.co_filename)),

@@ -198,6 +198,30 @@ Keep these binary selection bits separate from TF-IDF, bootstrap uncertainty
 and final specificity probabilities. Each invocation uses the same one native
 graph batch; the existing 256 MiB count-buffer guard applies to every mode.
 
+Motif rows now include global-control document frequency, `idf` and `tfidf`:
+documents are distinct junction/V-gene keys, IDF is `1+ln((M+1)/(df+1))`, and TF
+is row-stratum motif presence divided by all target keys (no vector norm).
+`--mock-replicates 50 --seed 0` adds matched-control TF-IDF mean/95% envelopes.
+Fresh vdjtools Pgen feeds the existing joint-event sampler; record counts are
+matched before key deduplication, with no V/J/length matching. Keep the fixed
+IDF, absent mock features as zero, and these descriptive envelopes distinct
+from uncertainty on selection bits or final specificity probabilities.
+
+`reference-coverage --vdjdb REFERENCE --locus TRB --geometry levenshtein
+--scope 1,1,1,1 --nboot 50 --threads 4 --output-prefix OUT` uses optional
+`vdjmatch[diagnostics]` (seeded Leiden). `--geometry sw --sw-radius R` requests
+full SW/BLOSUM62 self-score distances over the complete junction and CDR1/2/2.5;
+`--cdr-loops` explicitly chooses a smaller loop set. No trimmed/stem surrogate.
+One population search batch supplies every real/mock graph; pair/membership/
+expansion/bootstrap guards fail explicitly. Supply `--control RAW_CONTROL
+--mock-replicates 50` for matched control populations with their own partitions.
+VDJdb occurrence counts are retained at exact junction/V/J-call and Leiden
+community resolution. `.coverage.tsv` separates Chao1 richness, coverage/unseen
+mass and unseen-type fraction; `.rarefaction.tsv` has effort/coverage curves
+and uncertainty, reusing vdjtools statistics/augmented bootstrap. Partitions
+are fixed within each population's rarefaction; no claim of unseen-family
+exhaustion, donor/study incidence inference or automatic adequacy cutoff.
+
 `combine-evidence EVIDENCE --null-evidence NULLS --three-channel --output SCORES`
 puts `original_score`, `gapblock_score`, `stem4_score` on conservative matched
 null-tail scales and sums their explicit `original_weight`, `gapblock_weight`,

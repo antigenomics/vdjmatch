@@ -204,6 +204,14 @@ Reference graph morphology
 
 .. autofunction:: vdjmatch.aggregate.motif_information.motif_selection_information
 
+.. autofunction:: vdjmatch.aggregate.motif_information.motif_bootstrap
+
+.. autofunction:: vdjmatch.aggregate.reference_coverage.reference_graph
+
+.. autofunction:: vdjmatch.aggregate.reference_coverage.leiden_taxa
+
+.. autofunction:: vdjmatch.aggregate.reference_coverage.abundance_coverage
+
 .. autofunction:: vdjmatch.aggregate.germline_information.germline_projection_map
 
 .. autofunction:: vdjmatch.aggregate.germline_information.iter_germline_information

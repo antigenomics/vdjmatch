@@ -91,6 +91,53 @@ def test_bounded_motif_counts_match_existing_tokenizer_and_count_presence():
     assert counts[:, lookup['XAAA']].tolist() == [2, 1, 1]
 
 
+def test_tfidf_uses_control_keys_as_documents_and_keeps_binary_information():
+    from vdjmatch.aggregate.motif_information import motif_population, motif_selection_information
+    records = pl.DataFrame({'cdr3': ['CAAAAAAF', 'CAGGGGGF'], 'v': ['TRBV1'] * 2})
+    result = motif_selection_information(records, motif_population(records, locus='TRB'), locus='TRB')
+    row = result.filter((pl.col('length_scope') == 'all_lengths') & (pl.col('motif') == 'XAAA')).row(0, named=True)
+    assert row['control_document_frequency'] == 1 and row['total_control_keys'] == 2
+    assert row['idf'] == pytest.approx(1 + math.log(3/2))
+    assert row['tfidf'] == pytest.approx(.5 * (1 + math.log(3/2)))
+    assert row['motif_information_bits'] == 0
+
+
+def test_pgen_matched_motif_envelope_is_seeded_and_cli_uses_one_pgen_batch(tmp_path, monkeypatch):
+    import json
+    import vdjmatch.evalue.mock_reference as mocks
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.aggregate.motif_information import motif_population, motif_selection_information, motif_bootstrap
+    records = pl.DataFrame({'cdr3': ['CAAAAAAAF'] * 2, 'v': ['TRBV1'] * 2})
+    events = pl.DataFrame({'junction_aa': ['CAAAAAAAF', 'CAGGGGGGF'],
+        'v': ['TRBV1'] * 2, 'j': ['TRBJ1-1'] * 2, 'event_weight': [5, 5]})
+    pgen = events.select('junction_aa').with_columns(pl.lit(.25).alias('pgen'))
+    control = motif_population(events.rename({'junction_aa': 'cdr3'}), locus='TRB', mode='exact3')
+    observed = motif_selection_information(records, control, locus='TRB', mode='exact3')
+    kwargs = dict(pgen=pgen, locus='TRB', species='human', replicates=5, seed=17)
+    envelope = motif_bootstrap(records, events, control, observed, **kwargs)
+    assert envelope.equals(motif_bootstrap(records, events, control, observed, **kwargs))
+    assert envelope.select(observed.columns).equals(observed)
+    assert envelope['control_tfidf_mean'].min() >= 0
+    assert envelope.filter(pl.col('control_tfidf_lo') > pl.col('control_tfidf_hi')).is_empty()
+    calls = []
+    def compute(reference, pool, **options):
+        calls.append((reference.height, pool.height))
+        return pgen
+    monkeypatch.setattr(mocks, 'compute_pgen', compute)
+    reference, raw_control, prefix = (tmp_path / f for f in ('ref.tsv', 'control.tsv', 'out'))
+    records.with_columns(pl.lit('TRBJ1-1').alias('j'), pl.lit('HomoSapiens').alias('species'),
+        pl.lit('TRB').alias('gene'), pl.lit('DEMO').alias('epitope')).write_csv(reference, separator='\t')
+    events.rename({'v': 'v_call', 'j': 'j_call', 'event_weight': 'occurrences'}).write_csv(raw_control, separator='\t')
+    assert main(['reference-structure', '--vdjdb', str(reference), '--control', str(raw_control),
+        '--locus', 'TRB', '--motif-mode', 'exact3', '--mock-replicates', '5', '--seed', '17',
+        '--output-prefix', str(prefix)]) == 0
+    assert calls == [(2, 2)]
+    rows = pl.read_csv(str(prefix) + '.motifs.tsv', separator='\t')
+    assert rows['control_replicates'].unique().to_list() == [5]
+    manifest = json.loads((tmp_path / 'out.manifest.json').read_text())
+    assert manifest['motif_information']['control_resampling']['replicates'] == 5
+
+
 def test_motif_selection_uses_matching_key_units_and_retains_missing_support():
     from vdjmatch.aggregate.motif_information import motif_population, motif_selection_information
     reference = pl.DataFrame({'cdr3': ['CAAAAAAF', 'CAAAAAAF', 'CAAAAACF', 'CAGGGGGF', 'CAAAAAAAF'],

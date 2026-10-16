@@ -1532,8 +1532,26 @@ and once-per-junction/V-gene presence, with the same V/length denominators and
 missing-control statuses. Their information values describe separate, dependent
 projections and must not be added together. The bounded counter reuses the
 existing tokenizer and rejects a count buffer above 256 MiB before allocation.
-These are binary selection-information diagnostics; they do not calculate
-TF-IDF, bootstrap uncertainty or a final specificity probability.
+The separate ``idf`` and ``tfidf`` fields use control junction/V keys as
+documents: ``idf=1+ln((M+1)/(df+1))`` and ``tfidf=(n/N)*idf``. Here ``M``
+is the number of distinct control junction/V keys, ``df`` their global motif
+document frequency, ``N`` the target's total junction/V-key count and ``n``
+the keys containing the motif in the row's V/length stratum. Repeated windows
+count once per document. No vector norm is applied. The same global IDF is
+used for both length scopes; TF-IDF and binary selection bits remain separate.
+
+Add ``--mock-replicates 50 --seed 0`` to export ``control_tfidf_mean``,
+``control_tfidf_lo`` and ``control_tfidf_hi`` in the same motif table. These
+are the mean and 2.5/97.5 percentiles from the existing Pgen-matched control
+sampler, with IDF fixed. Source-record counts are matched within one-bit Pgen
+strata before both real and mock populations collapse to junction/V keys.
+Joint junction/V/J event slots are sampled without replacement; V/J and length
+are not matching constraints. An absent mock token/stratum contributes zero.
+These are matched-control envelopes, not confidence intervals for selection
+bits or final specificity probabilities. Replicates default to zero (off),
+and otherwise must be at least two. One fresh native vdjtools Pgen batch
+covers the selected reference/control union. Per-target seeds are stable
+under target ordering. No calculated predictions or backgrounds are loaded.
 
 With the same ``--control`` option, ``structure.genes.tsv`` also reports
 ``gene_bits``, ``length_bits`` and ``joint_bits``. These use distinct
@@ -1713,3 +1731,61 @@ query-null diagnostic and ``database_p``/null-table/manifest outputs. It does no
 provide the two new conditional directions. Neither route calibrates the
 V-loop/combined VDJmatch score, a winning antigen label or genuine paired
 recognition; those require their complete scoring and selection adapters.
+
+vdjmatch reference-coverage
+---------------------------
+
+Install ``vdjmatch[diagnostics]`` for the seeded Leiden adapter. Compute database
+occurrence coverage at exact-clonotype and Leiden-community resolution:
+
+.. code-block:: sh
+
+   vdjmatch reference-coverage --vdjdb reference.zip --species human --locus TRB \
+     --epitope DEMO --geometry levenshtein --scope 1,1,1,1 \
+     --nboot 50 --seed 0 --threads 4 --output-prefix coverage-edit
+   vdjmatch reference-coverage --vdjdb reference.zip --species human --locus TRB \
+     --epitope DEMO --geometry sw --sw-radius 40 --cdr-loops cdr12plus \
+     --gap-open 11 --gap-extend 1 --nboot 50 --seed 0 --threads 4 \
+     --output-prefix coverage-sw
+
+``DEMO`` and radius 40 illustrate syntax; the command does not select a
+scientific radius or a sufficiency cutoff. Supply the intended graph scale.
+The edit graph uses the declared substitution/insertion/deletion/total budgets;
+insertion and deletion budgets must be symmetric for an undirected graph.
+SW uses full local BLOSUM62 alignment independently for the full junction and
+the selected germline CDR1/CDR2/CDR2.5 loops, summing
+``SW(a,a)+SW(b,b)-2*SW(a,b)`` across loops. ``--cdr-loops cdr12`` omits CDR2.5;
+``junction`` explicitly requests junction-only SW. There is no trimming, stem4
+or bounded-kernel substitution. Germline templates reuse the existing allele
+resolver; unresolved/invalid loop templates fail explicitly. Gaps cost
+``gap_open+(length-1)*gap_extend`` in raw BLOSUM62 score units.
+
+Vertices are distinct full-junction/V-call/J-call keys, with supplied alleles
+retained. Every valid source occurrence remains an abundance count. Leiden
+uses unweighted undirected graphs, RBConfiguration modularity, the explicit
+``--leiden-resolution`` (default 1), a stable seed and iterations until stable.
+Isolates remain singleton communities. Organism, chain and full pMHC stay
+separate. ``--targets-from-sample`` uses the same compatible-union reader as
+``reference-structure``. ``--reference-population`` has the same curation choices.
+
+The five final TSVs are ``.populations.tsv`` (source/retained/excluded counts),
+``.communities.tsv`` (vertex keys, occurrence counts and memberships),
+``.edges.tsv`` (vertex IDs and the inclusive ``distance_ceiling``, not exact
+edge distances), ``.coverage.tsv`` (Chao1 richness, coverage, unseen mass,
+unseen-type fraction and entropy) and ``.rarefaction.tsv`` (richness and coverage
+against occurrence effort, with uncertainty). The latter also supplies richness
+against coverage without an additional calculation. See :doc:`selection-information`
+for the estimators. The manifest records inputs, model/source/native identities,
+geometry, partition parameters, seeds and versions. Missing V/J calls remain
+explicit in the exact key; full SW with germline loops requires resolvable V.
+
+Add ``--control RAW_CONTROL --mock-replicates 50`` for Pgen-matched reference-size
+control populations, using the same event-slot law as the motif diagnostic.
+Each mock gets its own graph partition; each population's occurrence bootstrap
+then holds its complete partition fixed. One native graph batch per invocation
+serves all real/mock populations, with unique search keys shared during that
+operation. Full SW uses bounded binary target-count chunks, not a retained
+pairwise distance matrix. The default ``--pair-budget 2000000`` limits unique
+key comparisons before search; it can be raised explicitly. Memberships, graph
+expansion and Chao bootstrap buffers have separate allocation guards. A small
+synthetic check does not establish full-cohort time/memory acceptance.

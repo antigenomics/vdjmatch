@@ -47,6 +47,7 @@ def motif_selection_information(reference, control, *, locus, mode='imgt_wild4')
     if control['mode'] != mode:
         raise ValueError('reference and control motif mode must match')
     observed = motif_population(reference, locus=locus, mode=mode)
+    document_frequency = control['all_lengths'][1].sum(axis=0)
     parts = []
     for scope in ('all_lengths', 'exact_length'):
         strata, counts = observed[scope]
@@ -82,6 +83,7 @@ def motif_selection_information(reference, control, *, locus, mode='imgt_wild4')
             'junction_length': strata['junction_length'].gather(row), 'length_scope': pl.Series([scope] * len(row), dtype=pl.String),
             'motif': observed['vocabulary']['t0'].gather(token),
             'reference_keys': N, 'control_keys': M, 'reference_with_motif': n, 'control_with_motif': m,
+            'control_document_frequency': document_frequency[token],
             'reference_fraction': p, 'control_fraction': pl.Series(q, nan_to_null=True),
             'presence_bits': pl.Series(bits, nan_to_null=True),
             'motif_information_bits': pl.Series(information, nan_to_null=True), 'information_status': pl.Series(status, dtype=pl.String)}))
@@ -96,6 +98,40 @@ def motif_selection_information(reference, control, *, locus, mode='imgt_wild4')
         pl.when((pl.col('control_with_motif') > 0) & (control_total > 0)).then(
             ((pl.col('reference_with_motif') / reference_total) /
              (pl.col('control_with_motif') / control_total)).log(2)).alias('joint_presence_bits')
-    ).with_columns(pl.lit(mode).alias('motif_mode'),
+    ).with_columns(
+        ((pl.lit(control_total + 1) / (pl.col('control_document_frequency') + 1)).log() + 1).alias('idf'),
+        pl.lit(mode).alias('motif_mode'),
         pl.lit('imgt11' if 'imgt' in mode else 'full20').alias('motif_alphabet')
+    ).with_columns((pl.col('reference_with_motif') / reference_total * pl.col('idf')).alias('tfidf')
     ).sort('length_scope', 'v_gene', 'junction_length', 'motif', nulls_last=True)
+
+
+def motif_bootstrap(reference, control_events, control, observed, *, pgen, locus,
+                    species, replicates, seed, threads=1):
+    """Pgen-matched control-resampling envelope for the observed TF-IDF rows.
+
+    Reuse the existing event-slot sampler and vdjtools native Pgen map. Draws
+    match source-record counts, then deduplicate the same junction/V keys as
+    the observed diagnostic. These are control envelopes, not sampling CIs
+    for selection bits or calibrated specificity probabilities.
+    """
+    from ..evalue.mock_reference import iter_mock_references
+
+    if replicates < 2:
+        raise ValueError('motif bootstrap requires at least two replicates')
+    if 3 * (replicates + 2) * observed.height * 8 > 256 * 1024**2:
+        raise ValueError('motif bootstrap envelope exceeds 256 MiB; select fewer targets/tokens or replicates')
+    keys = ['v_gene', 'junction_length', 'length_scope', 'motif']
+    axis = observed.select(keys)
+    draws = np.empty((replicates, observed.height), dtype=np.float64)
+    raw = reference.select(pl.col('cdr3').alias('junction_aa')).with_columns(pl.lit(0).alias('group_id'))
+    for i, mock in enumerate(iter_mock_references(raw, control_events, replicates=replicates,
+            seed=seed, pgen=pgen, species=species, locus=locus, threads=threads)):
+        diagnostic = motif_selection_information(mock.rename({'junction_aa': 'cdr3'}),
+            control, locus=locus, mode=control['mode'])
+        draws[i] = axis.join(diagnostic.select(*keys, 'tfidf'), on=keys,
+            how='left', nulls_equal=True, validate='1:1', maintain_order='left')['tfidf'].fill_null(0).to_numpy()
+    return observed.with_columns(pl.lit(replicates).alias('control_replicates'),
+        pl.Series('control_tfidf_mean', draws.mean(axis=0)),
+        pl.Series('control_tfidf_lo', np.quantile(draws, .025, axis=0)),
+        pl.Series('control_tfidf_hi', np.quantile(draws, .975, axis=0)))

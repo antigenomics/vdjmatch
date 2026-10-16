@@ -236,3 +236,46 @@ Use :doc:`cli` for ``motif-evidence`` and ``reference-structure --control``. The
 See :doc:`scoring` for the current default reducers and :doc:`control-calibration`
 for the two control directions. The information-directed selector described here
 is a mathematical development objective, not an additional CLI mode.
+
+Database occurrence coverage
+----------------------------
+
+``reference-coverage`` reuses vdjtools' iNEXT abundance estimators and
+augmented-assemblage bootstrap. Let :math:`n_i` be the VDJdb occurrence count
+of taxon :math:`i`, :math:`n=\sum_i n_i`, :math:`S` the number of observed taxa,
+and :math:`f_1,f_2` the numbers with abundance one and two. Taxa are either exact
+full-junction/V/J-call keys or Leiden communities; a community sums its members'
+counts. These are database occurrences, not cells or reads.
+
+The finite-sample Chao1 estimate is
+
+.. math::
+
+   \widehat S=S+f_0,\qquad
+   f_0=\frac{n-1}{n}
+   \begin{cases} f_1^2/(2f_2),&f_2>0,\\ f_1(f_1-1)/2,&f_2=0.\end{cases}
+
+For :math:`f_1>0`, set :math:`A=nf_0/(nf_0+f_1)`. Estimated coverage at observed
+effort is :math:`\widehat C=1-(f_1/n)A`; with no singletons it is one under this
+estimator. The zero-doubleton branch is explicitly labelled. In particular, a
+single observed taxon with one occurrence has no information about unseen taxa:
+the estimator's boundary value is not a sufficiency finding.
+
+Unseen probability mass is :math:`1-\widehat C`. Estimated unseen-type fraction
+is :math:`(\widehat S-S)/\widehat S`; these quantities answer different questions.
+vdjtools provides interpolation/extrapolation through twice the observed effort,
+with normal 95% bootstrap intervals for richness. Coverage receives a 2.5/97.5
+percentile envelope from the same owning augmented-assemblage probability law,
+evaluated with vdjtools' coverage function. Bootstrap replicates and seeds are
+explicit. The adapter bounds the augmented support before sampling, including
+the potentially large zero-doubleton unseen assemblage. It calls the owning
+``vdjtools.stats.inext._bootstrap_probs`` implementation rather than copying it.
+The native bootstrap currently requires total occurrences below :math:`2^{31}`.
+
+The formulas follow the
+`iNEXT abundance implementation <https://github.com/JohnsonHsieh/iNEXT/blob/master/R/iNEXT.r>`_.
+The graph partition is held fixed within occurrence rarefaction; its conditional
+plateau does not establish exhaustion of unseen communities. The community
+adaptation is distinct from distance-weighted functional diversity. This command
+does not implement donor/study incidence Chao2 or a numeric adequacy threshold.
+The requested source-incidence route remains a separate sampling model.

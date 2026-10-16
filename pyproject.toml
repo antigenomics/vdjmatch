@@ -35,6 +35,7 @@ bench = ["psutil", "huggingface_hub", "matplotlib", "seaborn", "scikit-learn", "
 control = ["seqtree[control]", "huggingface_hub"]  # TRA/mouse controls beyond bundled human TRB
 ndn = ["arda-mapper>=2.36.0"]       # opt-in fixed V/J versus NDN geometry
 ods = ["ezodf"]                   # read supplied comparison golden .ods tables in tests
+diagnostics = ["leidenalg>=0.11,<0.13"]  # seeded Leiden; Chao/bootstrap reuse vdjtools
 # `marimo edit docs/notebooks/precursor_compendium.py` -- the interactive walkthrough of
 # prediction against measured naive precursor frequency. matplotlib draws its figures.
 notebook = ["marimo", "matplotlib", "huggingface_hub"]
