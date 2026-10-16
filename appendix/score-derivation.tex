@@ -1756,9 +1756,18 @@ The complete rule/axis/label event must be reproduced inside every draw.
 Compact execution first scores the full Pgen-matched query bank against every label, then screens observed detail using $\widetilde p_{Q,e}\le\alpha$.
 This screen is lossless for reporting because $p_{{\rm any},e}\ge\widetilde p_{Q,e}$; declared targets bypass it.
 The retained labels receive the reference-direction tails after every complete mock has been consumed.
-With $Q$ observed queries, $G$ labels and $J=B_QH$ test queries across $H$ represented Pgen strata, execution keeps $JG$ float64 null scores and complete-case bitsets of $QG$ and $JG$ bits, plus retained detail.
-These auxiliary buffers have a combined 2 GiB guard, independent of the raw-component and full-normalizer limits.
-Query-null scores are released before reference mocks, and one running maximum per query is sufficient for each mock.
+For $Q$ observed queries, $G$ labels and $J=B_QH$ test queries across $H$ Pgen strata, let $F_{h,e}$ contain the finite supported test scores for stratum $h$ and target $e$.
+For finite observed threshold $t$, the unchanged fixed-label tail is
+\[
+ p_{Q,e}(t\mid h)=\frac{1+\sum_{x\in F_{h,e}}\mathbf1\{x\ge t\}}{B_Q+1}.
+\]
+Null no-hits remain in $B_Q$, finite zero scores remain in $F_{h,e}$, and observed no-hits receive one.
+Sorting the $S=\sum_{h,e}|F_{h,e}|$ UInt64-key/float64-score records by stratum/target key gives contiguous fixed-label distributions using $16S$ raw bytes.
+Each test-query maximum retains the all-label statistic; coverage bitsets retain $QG+JG$ bits.
+The conservative allocation guard reserves $48S+32(Q+J)+\lceil QG/8\rceil+\lceil JG/8\rceil+16\,\mathrm{MiB}$ bytes for records, copies, sort scratch, maxima and bin indexes.
+The 2 GiB limit is checked before scoring and every finite append; raw-component, normalization and retained-detail budgets are separate.
+Dense support fails explicitly, without dropping draws, labels, strata or scores.
+Records are released before reference mocks, each of which needs one running maximum per observed query.
 Injective codes $iG+g$ and duplicate checks verify that every source-query/label case appears exactly once per model.
 This reduces output storage only: every real and randomized query still searches all labels and available axes, with each model fixed across its queries.
 

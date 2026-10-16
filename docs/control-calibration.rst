@@ -90,8 +90,8 @@ in ``.queries.tsv``. Restricting output never restricts the selection population
 Full-detail output retains the five-million-case guard, including internal
 normalization and query-null banks. Compact output instead bounds retained
 provisional detail and the full normalization bank separately at five million
-cases. Its numeric query-null scores and complete-grid coverage bitsets have
-a separate 2 GiB allocation guard. These are allocation limits; whole-cohort
+cases. Its finite query-null score records, complete-grid coverage bitsets and
+associated sorting scratch have a separate 2 GiB allocation guard. These are allocation limits; whole-cohort
 calibration scaling and resource acceptance remain pending.
 Calibration builds raw components in operation-local numeric banks.
 Full junction/V/J configurations (both chains for genuine pairs)
@@ -325,9 +325,26 @@ their reference-direction tails. This is a lossless screen because
 :math:`p_{{\rm any},e}\ge\widetilde p_{Q,e}`. A bitset verifies that every
 source-query/target case appears exactly once in the real model and each mock.
 With :math:`G` labels and :math:`J=B_QH` test queries across :math:`H` represented
-Pgen strata, the auxiliary real-pass storage is :math:`JG` float64 scores,
-:math:`JG+QG` coverage bits for :math:`Q` observed queries, and retained detail.
-Query-null scores are released before reference mocks. Full model populations,
+Pgen strata, let :math:`F_{h,e}` be the multiset of finite supported test scores
+for stratum :math:`h` and target :math:`e`. A finite observed threshold :math:`t`
+has the unchanged fixed-label tail
+
+.. math::
+
+   p_{Q,e}(t\mid h)=\frac{1+\sum_{x\in F_{h,e}}\mathbf1\{x\ge t\}}{B_Q+1}.
+
+Null no-hits do not enter the numerator but remain in :math:`B_Q`; their omission
+from score storage changes no tail or hit rate. Finite zero scores remain in the
+multiset, and observed no-hits still receive one. Records use an integer
+stratum/target key and float64 score, sorted by key only after collection.
+One running maximum per test query supplies the full-label query tail.
+For :math:`S=\sum_{h,e}|F_{h,e}|` finite records, raw score storage is
+:math:`16S` bytes, plus :math:`JG+QG` coverage bits, query maxima/bin indexes,
+sorting scratch and retained detail. The conservative auxiliary guard reserves
+:math:`48S+32(Q+J)+\lceil JG/8\rceil+\lceil QG/8\rceil+16\,\mathrm{MiB}` bytes.
+It is checked before scoring and before appending each finite batch; dense
+support can still exceed it and fails explicitly. Query-null scores are
+released before reference mocks. Full model populations,
 normalization draws, Pgen strata, axis selection and inclusive tails are unchanged.
 
 Analytic checks for scoped matches

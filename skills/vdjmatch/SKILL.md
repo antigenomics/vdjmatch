@@ -77,6 +77,9 @@ Pass the reporting threshold with `--fpr` (default `0.01`); the calibration
 library accepts `report_p=0.01`. Compact reports retain all supported labels
 passing the inclusive any-call threshold, plus declared targets regardless of
 support. Calibration metadata records the threshold as `report_p`.
+Query-null storage keeps finite supported scores and per-draw all-label maxima;
+no-hits remain in every denominator. The 2 GiB auxiliary guard includes finite
+record growth and sorting scratch; full raw-component limits remain separate.
 
 With default `--background vdjdb-other`, this explicitly opts into the combined
 score. No fitted JSON input/output is required. Outputs are `.queries.tsv`

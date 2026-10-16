@@ -78,7 +78,7 @@ def test_complete_case_bitset_rejects_duplicates_unknown_and_missing():
 
 
 @pytest.mark.parametrize('threshold', [.004, .005, .01])
-def test_reported_ties_and_undeclared_rival_enter_both_any_call_tails(threshold):
+def test_reported_ties_and_undeclared_rival_enter_both_any_call_tails(threshold, monkeypatch):
     from vdjmatch.evalue.compact_combined import calibrate_compact
     from vdjmatch.runner.component_bank import ComponentBank
     from vdjmatch.aggregate.candidates import PMHC
@@ -89,7 +89,12 @@ def test_reported_ties_and_undeclared_rival_enter_both_any_call_tails(threshold)
     tests=pl.DataFrame({'query_id':['test'+str(i) for i in range(199)],'replicate':range(199),'pgen_bin':['bin']*199})
     requested=pl.DataFrame({'query_id':['near','near','far'],'epitope':['A','C','A'],
         'mhc_a':['A']*3,'mhc_b':['B2M']*3,'mhc_class':['MHCI']*3})
-    for rival in (False,True):
+    original_full = np.full
+    def no_dense_nulls(shape, *args, **kwargs):
+        assert shape != (199, 3), 'query-null storage must omit the dense draw/label matrix'
+        return original_full(shape, *args, **kwargs)
+    monkeypatch.setattr(np, 'full', no_dense_nulls)
+    for rival in (False,True,None):
         def components(rows,model):
             values=np.zeros((rows.height,3))
             if model['model'][0]==0:
@@ -100,8 +105,12 @@ def test_reported_ties_and_undeclared_rival_enter_both_any_call_tails(threshold)
                         values[i]=np.nan
                     elif rival:
                         values[i,1]=20
+                    elif rival is None:
+                        values[i]=np.nan
             elif rival:
                 values[:,1]=20
+            elif rival is None:
+                values[:]=np.nan
             return ComponentBank(rows.select('query_id').with_row_index('_query_row'),model.select(PMHC),
                 {'score':values.copy(),'call_score':values})
         def combine(raw,norm,model,rows,*,_consume,**kwargs):
@@ -116,7 +125,43 @@ def test_reported_ties_and_undeclared_rival_enter_both_any_call_tails(threshold)
         assert near_a['reported_specificity'].item()==passes
         fixed=tails.filter((pl.col('query_id')=='near')&(pl.col('epitope')=='A'))
         assert fixed['p_both'].item()==.005  # Fixed-label evidence alone would miss the rival.
+        assert fixed['query_hit_draws'].item() == (0 if rival is None else 199)
+        assert fixed['reference_hit_draws'].item() == (0 if rival is None else 199)
         reported=detail.filter(pl.col('reported_specificity'))
         assert sorted(reported['epitope'])==(['A','B'] if passes else [])
         assert detail.filter(pl.col('declared_target')).height==3
         assert detail.height==(4 if passes else 3)
+
+
+def test_sparse_query_null_budget_keeps_nohits_and_stops_before_overallocation(monkeypatch):
+    from vdjmatch.evalue import compact_combined as compact
+    from vdjmatch.runner.component_bank import ComponentBank
+    from vdjmatch.aggregate.candidates import PMHC
+    r=pl.DataFrame({'epitope':['A'],'mhc_a':['A'],'mhc_b':['B2M'],'mhc_class':['MHCI']})
+    q=pl.DataFrame({'query_id':['q'],'pgen_bin':['bin']})
+    normalizers=pl.DataFrame({'query_id':['norm'],'replicate':[0]})
+    tests=pl.DataFrame({'query_id':['test'],'replicate':[0],'pgen_bin':['bin']})
+    requested=q.select('query_id').join(r,how='cross')
+    calls=[];finite=False
+    def components(rows,model):
+        calls.append(rows.height)
+        scores=np.full((rows.height,1),0. if finite else np.nan)
+        return ComponentBank(rows.select('query_id').with_row_index('_query_row'),model.select(PMHC),
+            {'score':scores,'call_score':scores})
+    def combine(raw,norm,model,rows,*,_consume,**kwargs):
+        for frame in raw.frames():_consume(frame)
+    def run():
+        return compact.calibrate_compact(q,normalizers,tests,r,components=components,combine=combine,
+            models=iter([r]),detail_targets=requested,replicates=1,report_p=.01,pgen_columns=[],combine_options={})
+    base=compact._query_null_bytes(1,1,1)
+    monkeypatch.setattr(compact,'_QUERY_NULL_LIMIT_BYTES',base-1)
+    with pytest.raises(ValueError,match='query-null buffer budget'):run()
+    assert not calls
+    monkeypatch.setattr(compact,'_QUERY_NULL_LIMIT_BYTES',base)
+    detail,tails=run()
+    assert detail['p_any'].item()==1. and tails['query_draws'].to_list()==[1,1]
+    assert tails['query_hit_draws'].to_list()==[0,0]
+    finite=True;calls.clear()
+    with pytest.raises(ValueError,match='query-null buffer budget'):run()
+    assert len(calls)==1  # fail on finite storage before any mock is built
+    assert compact._query_null_bytes(89393,309843,2201)<2*1024**3

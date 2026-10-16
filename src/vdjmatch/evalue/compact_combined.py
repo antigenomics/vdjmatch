@@ -8,6 +8,13 @@ from ..aggregate.candidates import PMHC
 from ..runner.component_bank import ComponentBank
 
 _KEYS=['query_id',*PMHC]
+_QUERY_NULL_LIMIT_BYTES=2*1024**3
+
+
+def _query_null_bytes(queries,draws,targets,finite=0):
+    # Include coverage, maxima/bin indexes, finite records and sort/copy scratch.
+    return ((queries*targets+7)//8+(draws*targets+7)//8+
+        32*(queries+draws)+48*finite+16*1024**2)
 
 
 def _mark(seen,rows,targets,n_queries,n_targets):
@@ -53,7 +60,8 @@ def calibrate_compact(tagged,normalizers,test_queries,reference,*,components,com
     Reported-label tails compare that label's score with complete-label maxima
     in both directions. Query-null screening only discards labels that cannot
     pass the final max-of-directions criterion. Fixed-target diagnostic tails
-    remain separate. No observations or null no-hits leave any denominator.
+    remain separate. Only finite query-null values are stored, keyed by Pgen
+    stratum and target; no observations or null no-hits leave any denominator.
     """
     from ..runner.combined import _check_case_budget,_CASE_LIMIT
     if not np.isfinite(report_p) or not 0<report_p<1:
@@ -69,7 +77,7 @@ def calibrate_compact(tagged,normalizers,test_queries,reference,*,components,com
     if not nt:
         raise ValueError('compact calibration requires reference targets')
     test_count=test_queries.height
-    if test_count*nt*8+(nq*nt+7)//8+(test_count*nt+7)//8>2*1024**3:
+    if _query_null_bytes(nq,test_count,nt)>_QUERY_NULL_LIMIT_BYTES:
         raise ValueError('compact query-null buffer budget exceeded')
     query_rows=tagged.select('query_id').with_row_index('_source_row')
     bins=tagged.select('pgen_bin').unique(maintain_order=True).with_row_index('_bin')
@@ -83,7 +91,8 @@ def calibrate_compact(tagged,normalizers,test_queries,reference,*,components,com
     missing=declared.filter(pl.col('_target_row').is_null())
     declared=declared.filter(pl.col('_target_row').is_not_null())
     declared_codes=np.sort(declared['_source_row'].to_numpy().astype(np.uint64)*nt+declared['_target_row'].to_numpy())
-    test_scores=np.full((test_count,nt),np.nan)
+    test_max=np.full(test_count,np.nan)
+    null_parts=[];finite_nulls=0
     observed_max=np.full(nq,np.nan)
     parts=[];retained=0;template=None;query_max=None
     def bank(q,model,plan):
@@ -102,19 +111,26 @@ def calibrate_compact(tagged,normalizers,test_queries,reference,*,components,com
     seen_test=np.zeros((test_count*nt+7)//8,dtype=np.uint8)
     seen_observed=np.zeros((nq*nt+7)//8,dtype=np.uint8)
     def consume_real(frame):
-        nonlocal query_max,retained,template
+        nonlocal query_max,retained,template,finite_nulls
         template=frame.head(0)
         null=frame.filter(~pl.col('_observed'))
         rows=null['_source_row'].to_numpy();groups=null['_target_row'].to_numpy()
         _mark(seen_test,rows,groups,test_count,nt)
-        test_scores[rows,groups]=null['call_score'].to_numpy()
+        null_scores=null['call_score'].to_numpy()
+        np.fmax.at(test_max,rows,null_scores)
+        finite=np.isfinite(null_scores)
+        finite_nulls+=int(finite.sum())
+        if _query_null_bytes(nq,test_count,nt,finite_nulls)>_QUERY_NULL_LIMIT_BYTES:
+            raise ValueError('compact query-null buffer budget exceeded')
+        if finite.any():
+            null_parts.append(pl.DataFrame({'_null_group':test_bins[rows[finite]].astype(np.uint64)*nt+groups[finite],
+                '_null_score':null_scores[finite]}))
         observed=frame.filter(pl.col('_observed'))
         if not observed.height:
             return
         if query_max is None:
             _complete(seen_test,test_count*nt)
-            maxima=np.fmax.reduce(test_scores,axis=1)
-            query_max=[maxima[rows] for rows in bin_rows]
+            query_max=[test_max[rows] for rows in bin_rows]
         rows=observed['_source_row'].to_numpy();groups=observed['_target_row'].to_numpy()
         _mark(seen_observed,rows,groups,nq,nt)
         scores=observed['call_score'].to_numpy()
@@ -138,7 +154,7 @@ def calibrate_compact(tagged,normalizers,test_queries,reference,*,components,com
     combine(raw,norm,reference,all_queries,_consume=consume_real,**combine_options)
     _complete(seen_test,test_count*nt);_complete(seen_observed,nq*nt)
     if query_max is None:
-        maxima=np.fmax.reduce(test_scores,axis=1);query_max=[maxima[rows] for rows in bin_rows]
+        query_max=[test_max[rows] for rows in bin_rows]
     if missing.height:
         absent=missing.select(_KEYS).with_columns(*[pl.lit(None,dtype=dtype).alias(c)
             for c,dtype in template.schema.items() if c not in _KEYS]).join(query_rows,
@@ -155,6 +171,11 @@ def calibrate_compact(tagged,normalizers,test_queries,reference,*,components,com
             pl.lit(0,dtype=pl.Int64).alias('_query_any'),pl.lit(0,dtype=pl.Int64).alias('_query_any_hits')).with_row_index('_case')
     _check_case_budget(detail.height)
     del raw,norm,all_queries,parts,consume_real,seen_test,seen_observed
+    sparse=(pl.concat(null_parts,rechunk=True) if null_parts else
+        pl.DataFrame(schema={'_null_group':pl.UInt64,'_null_score':pl.Float64}))
+    null_parts.clear()
+    sparse=sparse.sort('_null_group')
+    null_groups=sparse['_null_group'].to_numpy();null_scores=sparse['_null_score'].to_numpy()
     obs_scores=detail['call_score'].to_numpy();obs_rows=detail['_source_row'].to_numpy()
     groups=detail['_target_row'].to_numpy();valid=groups>=0
     codes=obs_rows[valid].astype(np.uint64)*nt+groups[valid].astype(np.uint64)
@@ -163,12 +184,14 @@ def calibrate_compact(tagged,normalizers,test_queries,reference,*,components,com
     work=detail.filter(pl.col('_target_row')>=0).with_columns(pl.Series('_bin',qbins[obs_rows[valid]]))
     for (b,g),part in work.partition_by(['_bin','_target_row'],as_dict=True).items():
         indices=part['_case'].to_numpy()
-        query_fixed[indices],query_hits[indices]=_counts(obs_scores[indices],test_scores[bin_rows[b],g],replicates)
+        key=b*nt+g
+        lo,hi=np.searchsorted(null_groups,key,side='left'),np.searchsorted(null_groups,key,side='right')
+        query_fixed[indices],query_hits[indices]=_counts(obs_scores[indices],null_scores[lo:hi],replicates)
     database_query=np.zeros(nq,dtype=np.int64);database_query_hits=np.zeros(nq,dtype=np.int64)
     for i,distribution in enumerate(query_max):
         indices=np.flatnonzero(qbins==i)
         database_query[indices],database_query_hits[indices]=_counts(observed_max[indices],distribution,replicates)
-    del test_scores,work,query_max
+    del sparse,null_groups,null_scores,null_parts,test_max,work,query_max
     fixed=np.where(valid,0,replicates).astype(np.int64);fixed_hits=np.zeros(detail.height,dtype=np.int64)
     any_counts=np.zeros(detail.height,dtype=np.int64)
     database_reference=np.zeros(nq,dtype=np.int64);database_reference_hits=np.zeros(nq,dtype=np.int64)
