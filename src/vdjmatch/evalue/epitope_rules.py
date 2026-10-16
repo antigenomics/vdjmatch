@@ -31,7 +31,7 @@ def _tokens(frame, axes, mode, *, full_junction=False, wildcard_positions=(1,2))
 
 
 def reference_epitope_rules(queries, reference, background, *, paired=False,
-                            exclude_exact=False, species='human', threads=1, radius=90):
+                            exclude_exact=False, species='human', threads=1, radius=90, v_loop_distances=None):
     """Frames: query_id, seq0/v0 [seq1/v1], with resolved V alleles.
 
     For a supported joint gene category g, shared prior p_g=(n_g+m_g+.5)/(N+M+.5K).
@@ -46,10 +46,14 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
     lacks g, V is neutral and rank uses all V categories. Enriched motifs add a
     bounded correlated sequence bonus, never a calibrated independent likelihood.
     """
-    from ..match.geometry import total_distance_count_batch,paired_total_distance_mass_batch,distance_cutoff
+    from ..match.geometry import grouped_total_distance_count_batch,distance_cutoff,precompute_v_loop_distances
     if not 0<radius<2**28/200:raise ValueError('positive radius below native V barrier required')
     native_radius=distance_cutoff(radius)
     if native_radius==0:raise ValueError('positive radius in native units required')
+    if v_loop_distances is None:v_loop_distances=precompute_v_loop_distances(species=species)
+    if any(v_loop_distances.get(k)!=value for k,value in
+           [('species',species),('matrix','clipped'),('alphabet','full')]):
+        raise ValueError('epitope rules require matching species, clipped matrix and full alphabet')
     if queries['query_id'].null_count() or queries['query_id'].n_unique()!=queries.height:
         raise ValueError('unique non-null query IDs required')
     axes=range(2 if paired else 1);seq=[f'seq{i}' for i in axes];v=[f'v{i}' for i in axes]
@@ -81,16 +85,6 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
     out=out.with_columns(supported.alias('rule_v_supported'),
         pl.when(supported).then(pl.col('rule_reference_v_probability')/pl.col('rule_control_v_probability')).otherwise(1.0).alias('rule_v_score'),
         pl.when((N>0)&(M>0)).then(pl.lit('empirical_reference_rule_only')).otherwise(pl.lit('empty_population')).alias('rule_status'))
-    def spatial(pop):
-        if not pop.height or not q.height:return [0.0]*q.height
-        options=dict(species=species,threads=threads,ctrim=3,exclude_exact=exclude_exact,v_loop_weight=0,same_v_gene=True)
-        cut=[[native_radius]]*q.height
-        if paired:
-            _,mass=paired_total_distance_mass_batch(q['seq0'],q['seq1'],pop['seq0'],pop['seq1'],q['_allele0'],q['_allele1'],pop['_allele0'],pop['_allele1'],cut,**options)
-        else:
-            _,mass=total_distance_count_batch(q['seq0'],pop['seq0'],q['_allele0'],pop['_allele0'],cut,linear_mass=True,**options)
-        return [row[0]/native_radius for row in mass]
-    for side,pop in [('reference',r),('control',b)]:out=out.with_columns(pl.Series('rule_'+side+'_spatial_mass',spatial(pop),dtype=pl.Float64))
     def score(kind):
         rm=pl.col('rule_reference_'+kind+'_mass');bm=pl.col('rule_control_'+kind+'_mass')
         # The pooled pseudo-observation is a model statistic, not a filtered
@@ -99,49 +93,65 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
         exact=pl.when(available).then(pl.col('rule_reference_removed_v')+pl.col('rule_control_removed_v')).otherwise(0)
         c=(rm+bm+exact+.5)/(n+m+1)
         return pl.col('rule_v_score')*((rm+c)/(n+1))/((bm+c)/(m+1))
-    out=out.with_columns(score('spatial').alias('rule_spatial_score'))
     # Exhaustive CDR3-only rank uses the same matrix-derived gaps and quantum.
     # This is a finite geometry bound, not a radius/parameter scan.
     from .local_rank import _harmonic_interval
     from scipy.special import digamma
     from ..match.geometry import distance_units
     matrix_scale,quantum=distance_units();step=3*quantum
+    # One union traversal supplies both populations' CDFs; shared keys retain
+    # membership in both models. Never deduplicate across model memberships.
+    keys=[*seq,*['_allele'+str(i) for i in axes]]
+    members=pl.concat([pop.select(keys).with_columns(pl.lit(side).alias('_side'))
+                       for side,pop in enumerate((r,b))])
+    union=members.select(keys).unique(maintain_order=True).with_row_index('_ref')
+    members=members.join(union,on=keys,how='left',validate='m:1').sort('_ref','_side')
+    offsets=np.r_[0,np.cumsum(np.bincount(members['_ref'].to_numpy(),minlength=union.height))].tolist()
+    native_reference=union.select(*seq,*[pl.col('_allele'+str(i)).alias('v'+str(i)) for i in axes])
+    bound=3*matrix_scale*sum(max((f[f'seq{i}'].str.len_chars().max() or 0) for f in (q,r,b)) for i in axes)
+    cuts=list(range(0,200*bound+1,200*step))
+    weights=np.maximum(0,native_radius-np.asarray(cuts,dtype=np.int64))
+    # Seven uint32 channels: whole, two target, two same-V, two exclusive.
+    # Only compact per-query masses/ranks survive each bounded native chunk.
+    chunk_size=max(1,min(65536,(256*1024**2)//(7*len(cuts)*4)))
+    mass=np.zeros((q.height,2));rank=np.ones(q.height)
     def ranks(part, conditional):
-        bound=3*matrix_scale*sum(max((f[f'seq{i}'].str.len_chars().max() or 0) for f in (q,r,b)) for i in axes)
-        cuts=[list(range(0,200*bound+1,200*step))]*part.height
-        curves=[]
-        for pop in (r,b):
-            options=dict(species=species,threads=threads,ctrim=3,exclude_exact=exclude_exact,v_loop_weight=0,same_v_gene=conditional)
-            if not pop.height or not part.height:curve=np.zeros((part.height,bound//step+1))
-            elif paired:
-                curve,_=paired_total_distance_mass_batch(part['seq0'],part['seq1'],pop['seq0'],pop['seq1'],part['_allele0'],part['_allele1'],pop['_allele0'],pop['_allele1'],cuts,**options)
-            else:curve=total_distance_count_batch(part['seq0'],pop['seq0'],part['_allele0'],pop['_allele0'],cuts,**options)
-            curves.append(np.asarray(curve).reshape(part.height,bound//step+1))
-        population_rows=out.filter(pl.col('_id').is_in(part['_id'].implode()))
-        suffix='_v_count' if conditional else '_population'
-        populations=[population_rows['rule_'+side+suffix].to_numpy() for side in ('reference','control')]
-        excluded_suffix='_removed_v' if conditional else '_excluded_hits'
-        excluded=[population_rows['rule_'+side+excluded_suffix].to_numpy() for side in ('reference','control')]
-        if any(not np.array_equal(curve[:,-1],pop-removed) for curve,pop,removed in zip(curves,populations,excluded)):
-            raise ArithmeticError('CDR3 rank bound did not cover every eligible reference')
-        target,control=curves
-        shells=np.diff(target,axis=1,prepend=0)
-        row,column=np.nonzero(shells)
-        before=np.where(column>0,control[row,column-1],0)
-        # Reduce occupied shells in their fixed distance order. Extra queries
-        # can extend the complete bound, but extra zero bins cannot change a sum.
-        numerator=np.bincount(row,weights=shells[row,column]*_harmonic_interval(before+1,control[row,column]+1),
-            minlength=len(part))
-        N,M=populations
-        result=np.ones(len(part));usable=(N>0)&(M>0)
-        # Complete eligible curves have no censored references. Denominators
-        # retain full model sizes; excluded exact hits contribute zero, not a
-        # far-shell conditional mean. This is ranking evidence, not a P-bound.
-        result[usable]=(M[usable]+1)*numerator[usable]/(N[usable]*(digamma(M[usable]+2)+np.euler_gamma))
-        return result
-    rank=ranks(q,True)
+        if not part.height:return
+        native_query=part.select(*seq,*[pl.col('_allele'+str(i)).alias('v'+str(i)) for i in axes])
+        iterator=grouped_total_distance_count_batch(native_query,native_reference,cuts,
+            paired=paired,species=species,threads=threads,ctrim=3,v_loop_weight=0,
+            same_v_gene=conditional,exclude_exact=exclude_exact,v_loop_distances=v_loop_distances,
+            chunk_size=chunk_size,reference_target_offsets=offsets,
+            reference_target_ids=members['_side'].to_list(),target_peptide_ids=[0,1],
+            reference_exclusive_peptide_ids=[-1]*union.height)
+        for chunk in iterator:
+            ids=part['_id'].slice(chunk.start,chunk.stop-chunk.start).to_numpy()
+            curves=np.asarray(chunk.counts)[:,1:3,:]
+            suffix='_v_count' if conditional else '_population'
+            populations=[out['rule_'+side+suffix].to_numpy()[ids] for side in ('reference','control')]
+            excluded_suffix='_removed_v' if conditional else '_excluded_hits'
+            excluded=[out['rule_'+side+excluded_suffix].to_numpy()[ids] for side in ('reference','control')]
+            if any(not np.array_equal(curves[:,i,-1],pop-removed) for i,(pop,removed) in enumerate(zip(populations,excluded))):
+                raise ArithmeticError('CDR3 rank bound did not cover every eligible reference')
+            if conditional:
+                shells=np.diff(curves.astype(np.int64),axis=2,prepend=0)
+                mass[ids]=shells@weights/native_radius
+            target,control=curves[:,0,:],curves[:,1,:]
+            shells=np.diff(target,axis=1,prepend=0)
+            row,column=np.nonzero(shells)
+            before=np.where(column>0,control[row,column-1],0).astype(np.int64)
+            # Occupied shells retain their fixed distance/reduction order.
+            numerator=np.bincount(row,weights=shells[row,column]*_harmonic_interval(before+1,control[row,column].astype(np.int64)+1),
+                minlength=len(ids))
+            N,M=populations
+            result=np.ones(len(ids));usable=(N>0)&(M>0)
+            result[usable]=(M[usable]+1)*numerator[usable]/(N[usable]*(digamma(M[usable]+2)+np.euler_gamma))
+            rank[ids]=result
+    ranks(q,True)
     fallback=~out['rule_v_supported'].to_numpy()
-    if fallback.any():rank[fallback]=ranks(q.filter(pl.Series(fallback)),False)
+    if fallback.any():ranks(q.filter(pl.Series(fallback)),False)
+    out=out.with_columns(*[pl.Series('rule_'+side+'_spatial_mass',mass[:,i]) for i,side in enumerate(('reference','control'))])
+    out=out.with_columns(score('spatial').alias('rule_spatial_score'))
     out=out.with_columns(pl.Series('rule_cdr3_rank',rank)).with_columns(
         (pl.col('rule_v_score')*pl.col('rule_cdr3_rank')).alias('rule_rank_score'))
     for mode in MOTIFS:

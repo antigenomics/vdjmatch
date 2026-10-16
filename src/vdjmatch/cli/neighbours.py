@@ -667,7 +667,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                     from ..evalue.epitope_rules import reference_epitope_rules
                     residual=reference_epitope_rules(features(part,True),features(reference_part),
                         features(r.filter(pl.col('epitope')!=task['epitope'])),paired=paired,exclude_exact=a.exclude_exact,
-                        species=organism,threads=a.threads,radius=a.radius)
+                        species=organism,threads=a.threads,radius=a.radius,
+                        v_loop_distances=(v_loop_distances if a.distance_matrix=='clipped' and a.alphabet=='full' else None))
                 else:
                     from ..match.chemistry import local_chemistry_evidence
                     residual=local_chemistry_evidence(features(part,True),features(reference_part),

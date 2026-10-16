@@ -880,14 +880,20 @@ def _grouped_preset_options(preset,queries,references,axes,options,context,paire
 def grouped_total_distance_count_batch(queries, references, thresholds, *, paired=False,
         species='human', threads=1, ctrim=2, v_loop_weight=1, alphabet='full',
         stem_depth=0, stem_weight=1.0, matrix='clipped', v_loop_distances=None,
-        exclude_exact=False, chunk_size=64, v_regions=None, position_weighting='uniform', geometry_preset=None, **memberships):
+        exclude_exact=False, chunk_size=64, v_regions=None, position_weighting='uniform', geometry_preset=None, same_v_gene=False, **memberships):
     """One shared reference traversal with bounded label-count chunks.
 
     Frames use ``seq0/v0`` (TRA for linked pairs) and ``seq1/v1`` (TRB).
     Label memberships are CSR arrays on the deduplicated reference-key axis.
-    Geometry, same-gene auxiliaries and exact puncturing retain the established
+    ``same_v_gene=True`` conditions on the resolved joint V gene tuple and
+    requires cutoffs below the native group barrier, as for ordinary counts.
+    Geometry, same-gene auxiliaries and exact-hit filtering retain the established
     count contract; no kernel arithmetic or query-label fitting occurs here.
     """
+    if same_v_gene and any(t>=2**28 for t in thresholds):
+        raise ValueError('conditional V thresholds must be below the native group barrier')
+    if same_v_gene and geometry_preset is not None:
+        raise ValueError('conditional V counts do not support geometry presets')
     if geometry_preset is not None and geometry_preset not in GEOMETRY_PRESETS:
         raise ValueError('unknown geometry preset')
     if geometry_preset is not None and (ctrim!=3 or alphabet!='full' or position_weighting!='uniform'):
@@ -943,13 +949,13 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
     if paired:
         axes0,shared,options=_paired_count_geometry(axes[0][0],axes[1][0],axes[0][1],axes[1][1],
             axes[0][2],axes[1][2],axes[0][3],axes[1][3],species=species,threads=threads,
-            ctrim=ctrim,position_weighting='uniform',v_loop_weight=v_loop_weight,same_v_gene=False,
+            ctrim=ctrim,position_weighting='uniform',v_loop_weight=v_loop_weight,same_v_gene=same_v_gene,
             alphabet=alphabet,stem_depth=stem_depth,stem_weight=stem_weight,matrix=matrix,v_loop_distances=context)
         native_axes=(axes0[0][0],axes0[1][0],axes0[0][1],axes0[1][1])
         options={**shared,**options}
     else:
         q,r,options=_total_distance_options(*axes[0],species,threads,ctrim,'uniform',
-            v_loop_weight=v_loop_weight,alphabet=alphabet,stem_depth=stem_depth,
+            v_loop_weight=v_loop_weight,same_v_gene=same_v_gene,alphabet=alphabet,stem_depth=stem_depth,
             stem_weight=stem_weight,matrix=matrix,v_loop_distances=context)
         native_axes=(q,r)
     if position_weighting=='significance-trimmed':

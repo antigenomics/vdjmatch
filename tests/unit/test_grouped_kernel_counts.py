@@ -53,3 +53,24 @@ def test_grouped_exact_exclusion_rejects_old_native_model_semantics(monkeypatch)
     empty=pl.DataFrame(schema={'seq0':pl.String,'v0':pl.String})
     with pytest.raises(RuntimeError,match='hit-list-only exact exclusion'):
         geometry.grouped_total_distance_count_batch(empty,empty,[0],exclude_exact=True)
+
+
+@pytest.mark.parametrize('paired', [False, True])
+def test_grouped_same_v_counts_match_existing_conditional_counts(paired):
+    import numpy as np
+    q=pl.DataFrame({'seq0':['CASSLGQAYEQYF'],'v0':['TRBV19*01']})
+    r=pl.DataFrame({'seq0':['CASSLGQAYEQYF','CASSLGRAYEQYF','CASSWGRAYEQYF'],
+        'v0':['TRBV19*02','TRBV19*01','TRBV20-1*01']})
+    if paired:
+        q=q.rename({'seq0':'seq1','v0':'v1'}).with_columns(pl.lit('CAVRDSNYQLIW').alias('seq0'),pl.lit('TRAV12-2*01').alias('v0'))
+        r=r.rename({'seq0':'seq1','v0':'v1'}).with_columns(pl.lit('CAVRDSNYQLIW').alias('seq0'),pl.lit('TRAV12-2*02').alias('v0'))
+    cuts=[0,600,6000,48000]
+    for exclude in (False,True):
+        options=dict(paired=paired,ctrim=3,v_loop_weight=0,same_v_gene=True,exclude_exact=exclude,
+            reference_target_offsets=[0,1,2,3],reference_target_ids=[0,0,0],
+            target_peptide_ids=[0],reference_exclusive_peptide_ids=[0,0,0])
+        chunks=list(geometry.grouped_total_distance_count_batch(q,r,cuts,**options))
+        expected=[1,1,2,2] if not exclude else [0,0,1,1]
+        np.testing.assert_array_equal(np.asarray(chunks[0].counts)[0,1],expected)
+    with pytest.raises(ValueError,match='native group barrier'):
+        geometry.grouped_total_distance_count_batch(q,r,[2**28],**options)

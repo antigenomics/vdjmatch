@@ -138,6 +138,32 @@ def test_rank_keeps_multiple_references_beyond_local_radius():
     assert out['rule_cdr3_rank'][0]==pytest.approx(1/(1+1/2+1/3))
 
 
+@pytest.mark.parametrize('paired',[False,True])
+def test_rules_reuse_grouped_curves_and_preserve_chunk_identity(monkeypatch,paired):
+    from vdjmatch.match import geometry
+    r=pl.DataFrame({'seq0':['CASSLGQAYEQYF','CASSLGRAYEQYF','CASSWGRAYEQYF'],
+        'v0':['TRBV19*01','TRBV19*02','TRBV20-1*01']})
+    b=r.head(2)
+    if paired:
+        r=r.rename({'seq0':'seq1','v0':'v1'}).with_columns(pl.lit('CAVRDSNYQLIW').alias('seq0'),pl.lit('TRAV12-2*01').alias('v0'))
+        b=r.head(2)
+    q=r.with_row_index('query_id')
+    expected=reference_epitope_rules(q,r,b,paired=paired,exclude_exact=True,radius=89.7)
+    calls=[];native=geometry.grouped_total_distance_count_batch
+    def one_row(*args,**kwargs):
+        calls.append((args,kwargs))
+        return native(*args,**(kwargs|{'chunk_size':1}))
+    monkeypatch.setattr(geometry,'grouped_total_distance_count_batch',one_row)
+    actual=reference_epitope_rules(q,r,b,paired=paired,exclude_exact=True,radius=89.7)
+    assert actual.equals(expected)
+    # Conditional curves supply mass and rank; only the unsupported gene needs
+    # an unconditional fallback. Shared reference/control keys remain shared.
+    assert len(calls)==2
+    assert calls[0][1]['same_v_gene'] and not calls[1][1]['same_v_gene']
+    assert calls[0][0][1].height==r.height
+    assert calls[1][0][0].height==1
+
+
 def test_motif_classes_wildcards_and_short_sequences():
     from vdjmatch.evalue.epitope_rules import _tokens
     q=pl.DataFrame({'_id':[0,1],'seq0':['CASAILVSTDEQYF','CASSQYF'],'v0':['TRBV19','TRBV19']})

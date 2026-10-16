@@ -523,6 +523,25 @@ Exact distance bins cover every finite CDR3-only distance: clipped substitution
 and gap costs are at most twelve per full-junction residue per chain, and distances
 are multiples of three. With exact-hit filtering, final hit counts omit those hits; model population sizes stay fixed.
 
+One cumulative distance count supplies both the triangular kernel mass and
+the rank statistic. For retained hits at distances :math:`d_j`, define
+:math:`C(t)=\sum_j\mathbf1\{d_j\le t\}`. At positive radius :math:`r`,
+
+.. math::
+
+   K(r)=\sum_j(1-d_j/r)_+
+       =\frac1r\int_0^r C(t)\,dt
+       =\frac1r\sum_i [C(d_i)-C(d_{i-1})](r-d_i)_+.
+
+Here :math:`d_i` are the exact increasing distance bins, the count before the
+first bin is zero, and :math:`z_+=\max(0,z)`. The identity follows by integrating
+each hit indicator. Thus smooth spatial mass and discrete rank can use one
+native traversal of shared reference/control keys, retaining both memberships.
+Bounded count chunks are reduced immediately to per-query masses and ranks.
+Spatial mass remains same-V-conditioned; only an unsupported V category's rank
+uses an additional unconditional traversal. This changes computation, not the
+score or its calibration requirements.
+
 For the retained kernel diagnostics, let r_model/b_model be full-model kernel
 masses and r_hit/b_hit their exact-filtered hit masses. The shared conditional
 pseudo-observation is c=(r_model+b_model+0.5)/(n+m+1); conditional kernel means

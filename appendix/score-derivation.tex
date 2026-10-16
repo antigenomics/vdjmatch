@@ -1586,6 +1586,20 @@ Its pooled pseudo-observation and score are
 \]
 The same fixed model supplies $c_K$ before and after exact-hit filtering.
 
+For retained reference hits at distances $d_j$, define the cumulative distance count $C(t)=\sum_j\mathbf1\{d_j\le t\}$.
+For a positive radius $r$, the triangular kernel mass has the exact representation
+\[
+ K(r)=\sum_j(1-d_j/r)_+
+ =\frac1r\int_0^r C(t)\,dt
+ =\frac1r\sum_i\{C(d_i)-C(d_{i-1})\}(r-d_i)_+.
+\]
+Here $d_i$ are the increasing exact distance bins, the count before the first bin is zero, and $(z)_+=\max(0,z)$.
+Integrating each hit indicator proves the identity, including zero-distance hits and zero-weight boundary ties.
+The same cumulative counts therefore supply smooth spatial mass and discrete sequence rank without changing either statistic.
+The implementation traverses the union of reference/control search keys with both memberships retained and reduces bounded count chunks immediately.
+Spatial mass remains same-gene-conditioned; only an unsupported category's rank requires an additional unconditional traversal.
+This computational identity supplies no new probability guarantee.
+
 For the complete sequence-rank calculation, let $(N',M')=(n,m)$ when the gene category is supported and $(N',M')=(N,M)$ otherwise.
 Let $a_i,b_i$ be cumulative retained target/control hit counts at increasing exact distance bins, with $a_0=b_0=0$; the final bin covers every finite eligible distance.
 Define $H_s=\sum_{j=1}^s1/j$ and $h(u,v)=\sum_{j=u}^{v}(1/j)/(v-u+1)$.
