@@ -277,6 +277,7 @@ def main(a):
             sampling_unit='distinct full-junction/V-gene keys on both sides',
             scopes='within V, pooled lengths and exact length',
             statistic='presence log2 likelihood ratio and binary presence/absence KL; overlapping tokens are not independent',
+            joint_projection='stratum_bits + presence_bits = joint_presence_bits; whole-population junction/V-gene totals; one token projection only',
             row_policy='reference-observed tokens only; no automatic scorer/threshold; missing control support stays unavailable',
             reference_keys_without_fourmer=int(gene_usage.filter((pl.col("segment")=="V") &
                 (pl.col("length_scope")=="exact_length") & (pl.col("junction_length")<4))["junction_gene_keys"].sum()),

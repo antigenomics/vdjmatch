@@ -137,6 +137,11 @@ comparison. A positive conditional term can outweigh stratum depletion;
 neither term alone is a receptor veto. This is one joint feature projection,
 not a sum over overlapping motifs or a new score-selection rule. Unobserved
 control support remains unavailable instead of receiving an invented floor.
+The same ``.motifs.tsv`` export appends ``total_reference_keys``,
+``total_control_keys``, ``stratum_bits`` and ``joint_presence_bits``. The first
+two are whole-population totals, not within-stratum counts; the last two are
+the stratum term and direct joint-count term in the identity above. Existing
+conditional presence bits, binary KL and availability statuses remain separate.
 
 Germline-loop information with allele ambiguity
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

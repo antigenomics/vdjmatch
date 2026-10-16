@@ -1507,6 +1507,7 @@ Thus a depleted germline category can contain a strongly enriched conditional ju
 The V/length and motif terms must use identical strata and population units; a pooled marginal V factor cannot replace the V/length term in an exact-length comparison.
 Neither factor is a receptor veto, and adding overlapping token terms would not preserve this single-projection likelihood identity.
 Unobserved control support remains unavailable rather than receiving an invented probability floor.
+The same \texttt{.motifs.tsv} diagnostic appends whole-population \texttt{total\_reference\_keys} and \texttt{total\_control\_keys}, together with \texttt{stratum\_bits} and direct-count \texttt{joint\_presence\_bits}; the conditional motif fields and availability statuses remain separate.
 
 \subsection{Germline-loop projections with allele ambiguity}
 The germline diagnostic projects existing V-gene counts onto aligned CDR1, CDR2 and CDR2.5 columns, using full residues and eleven-class IMGT reductions separately.

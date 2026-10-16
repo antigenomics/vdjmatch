@@ -35,6 +35,12 @@ def test_motif_selection_uses_matching_key_units_and_retains_missing_support():
     assert row['reference_keys'] == row['control_keys'] == 3
     assert row['reference_with_motif'] == 2 and row['control_with_motif'] == 1
     assert row['presence_bits'] == pytest.approx(1.)
+    assert row['total_reference_keys'] == 4 and row['total_control_keys'] == 3
+    assert row['stratum_bits'] == pytest.approx(math.log2(3/4))
+    assert row['joint_presence_bits'] == pytest.approx(math.log2(1.5))
+    supported = result.filter(pl.col('joint_presence_bits').is_not_null())
+    assert supported['joint_presence_bits'].to_list() == pytest.approx(
+        supported.select(pl.col('stratum_bits') + pl.col('presence_bits')).to_series().to_list())
     expected = 2/3 * math.log2(2) + 1/3 * math.log2(.5)
     assert row['motif_information_bits'] == pytest.approx(expected)
     assert row['information_status'] == 'available'
@@ -42,9 +48,12 @@ def test_motif_selection_uses_matching_key_units_and_retains_missing_support():
     missing = result.filter(pl.col('v_gene') == 'TRBV2')
     assert missing.height and missing['reference_keys'].unique().to_list() == [1]
     assert missing['motif_information_bits'].null_count() == missing.height
+    assert missing['stratum_bits'].null_count() == missing.height
+    assert missing['joint_presence_bits'].null_count() == missing.height
     assert not result.select(pl.col('presence_bits').is_infinite().any()).item()
     identical = motif_selection_information(control, background, locus='TRB')
     assert identical['motif_information_bits'].to_list() == pytest.approx([0.] * identical.height)
+    assert identical['joint_presence_bits'].to_list() == pytest.approx([0.] * identical.height)
 
 
 def test_binary_motif_depletion_and_unobserved_absence_are_distinct():

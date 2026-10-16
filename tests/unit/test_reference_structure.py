@@ -128,6 +128,12 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     assert motifs['reference_keys'].unique().to_list() == [2]
     assert motifs['control_keys'].unique().to_list() == [1]
     assert 'motif_information_bits' in motifs.columns
+    assert motifs['total_reference_keys'].unique().to_list() == [2]
+    assert motifs['total_control_keys'].unique().to_list() == [2]
+    assert motifs['stratum_bits'].to_list() == [1.] * motifs.height
+    finite = motifs.filter(pl.col('joint_presence_bits').is_not_null())
+    assert finite['joint_presence_bits'].to_list() == pytest.approx(
+        finite.select(pl.col('stratum_bits') + pl.col('presence_bits')).to_series().to_list())
     mapping = pl.read_csv(str(controlled)+'.germline-map.tsv', separator='\t')
     allele_column = mapping.filter((pl.col('v_gene')=='TRBV19') & (pl.col('loop')=='cdr2') &
         (pl.col('alignment_column')==2) & (pl.col('alphabet')=='full'))

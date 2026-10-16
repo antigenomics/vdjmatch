@@ -37,6 +37,9 @@ def motif_selection_information(reference, control, *, locus):
     their KL values are not an additive joint sequence information estimate.
     Emit reference-observed tokens, retaining missing control strata/support.
     ``control`` is this invocation's :func:`motif_population` from control keys.
+    Whole-population counts also expose the matched stratum factor and joint
+    stratum/token presence evidence. These are single-feature projections;
+    overlapping tokens must not be added as independent evidence.
     """
     observed = motif_population(reference, locus=locus)
     parts = []
@@ -77,4 +80,15 @@ def motif_selection_information(reference, control, *, locus):
             'reference_fraction': p, 'control_fraction': pl.Series(q, nan_to_null=True),
             'presence_bits': pl.Series(bits, nan_to_null=True),
             'motif_information_bits': pl.Series(information, nan_to_null=True), 'information_status': pl.Series(status, dtype=pl.String)}))
-    return pl.concat(parts).sort('length_scope', 'v_gene', 'junction_length', 'motif', nulls_last=True)
+    reference_total = int(observed['exact_length'][0]['keys'].sum())
+    control_total = int(control['exact_length'][0]['keys'].sum())
+    return pl.concat(parts).with_columns(
+        pl.lit(reference_total, dtype=pl.UInt64).alias('total_reference_keys'),
+        pl.lit(control_total, dtype=pl.UInt64).alias('total_control_keys')).with_columns(
+        pl.when((pl.col('control_keys') > 0) & (control_total > 0)).then(
+            ((pl.col('reference_keys') / reference_total) /
+             (pl.col('control_keys') / control_total)).log(2)).alias('stratum_bits'),
+        pl.when((pl.col('control_with_motif') > 0) & (control_total > 0)).then(
+            ((pl.col('reference_with_motif') / reference_total) /
+             (pl.col('control_with_motif') / control_total)).log(2)).alias('joint_presence_bits')
+    ).sort('length_scope', 'v_gene', 'junction_length', 'motif', nulls_last=True)
