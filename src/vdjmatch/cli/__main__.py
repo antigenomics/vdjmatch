@@ -844,6 +844,8 @@ def main(argv: list[str] | None = None) -> int:
     register_control_model(sub)
     from .reference_pairing import register as register_reference_pairing
     register_reference_pairing(sub)
+    from .reference_density import register as register_reference_density
+    register_reference_density(sub)
     from .fixed_scope import register as register_fixed_scope
     register_fixed_scope(sub)
     register_fixed_scope(sub, trained=True)
@@ -853,7 +855,7 @@ def main(argv: list[str] | None = None) -> int:
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
     evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
-    evidence_commands.update({'reference-diagnostics', 'prepare-control'})
+    evidence_commands.update({'reference-diagnostics', 'prepare-control', 'reference-density'})
     if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
         evidence_commands.add('annotate')
     kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")

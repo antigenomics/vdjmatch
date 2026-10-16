@@ -1823,6 +1823,27 @@ expansion and Chao bootstrap buffers have separate allocation guards. A small
 synthetic check does not establish full-cohort time/memory acceptance.
 
 
+vdjmatch reference-density
+---------------------------
+
+Export kth-other-clonotype SW distances and pooled epsilon knees without
+refitting communities:
+
+.. code-block:: sh
+
+   vdjmatch reference-density --vdjdb reference.zip --species human --locus TRB \
+     --epitope DEMO --cdr-loops cdr12plus --threads 4 --output-prefix density
+
+The default neighbour orders are 1, 2, 5 and 10; repeat ``--neighbor-order K``
+to choose others. All orders share one native cumulative-count batch. Distinct
+full junction/V/J clonotypes are neighbours only within the same exact pMHC;
+self is counted once and excluded by the condition ``count > K``. Zero-distance
+ties remain neighbours. Unresolved geometry, insufficient neighbours and missing
+confirmed knees have explicit null/status outputs. Knees pool the selected
+species/chain distances across its exact pMHC groups. This diagnostic leaves the
+community graph's existing k=1 radius rule unchanged.
+
+
 vdjmatch reference-pairing
 ---------------------------
 

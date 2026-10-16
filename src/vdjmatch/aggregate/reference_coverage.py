@@ -85,14 +85,19 @@ def _target_csr(mapping, n):
     return offsets.tolist(), ordered['group_id'].to_list()
 
 
-def sw_knee(records, *, species, locus, cdr_loops, gap_open=11, gap_extend=1, threads=1,
-            pair_budget=2_000_000):
-    """One reference-only batch; nearest other clonotype within each full pMHC.
+def sw_neighbor_knees(records, *, species, locus, cdr_loops, gap_open=11, gap_extend=1, threads=1,
+            pair_budget=2_000_000, neighbor_orders=(1,)):
+    """Kth-other-clonotype SW distances and pooled knees from one count batch.
 
-    Pool those distances once across the selected species/chain reference. The
-    fixed convex Kneedle S=1 helper supplies one radius for real and mock graphs.
-    Singleton and unresolved-loop vertices have no nearest distance, never zero.
+    Memberships and full clonotype keys stay fixed; only the query's own vertex
+    is omitted by asking where its inclusive cumulative count exceeds k. Ties at
+    zero distance remain other clonotypes. Unmodeled/undersized groups stay null.
+    Knees use the existing unsmoothed convex Kneedle S=1 rule, separately per k.
     """
+    orders = tuple(neighbor_orders)
+    if not orders or any(isinstance(k, bool) or not isinstance(k, (int, np.integer)) or k < 1 for k in orders):
+        raise ValueError('neighbor_orders must contain positive integers')
+    orders = tuple(sorted(set(map(int, orders))))
     from seqtree import gapblock
     from ..match.geometry import kneedle_radius
     nodes = records.select('group_id', 'cdr3', 'v', 'j').unique().sort(
@@ -105,33 +110,67 @@ def sw_knee(records, *, species, locus, cdr_loops, gap_open=11, gap_extend=1, th
     pairs = modeled.height * search.height
     if pairs > pair_budget:
         raise ValueError(f'knee pair budget exceeded: {pairs} > {pair_budget}')
-    if not modeled.height:
+    nearest = {k: np.full(modeled.height, -1, dtype=np.int64) for k in orders}
+    if modeled.height:
+        groups = int(nodes['group_id'].max())+1
+        offsets, targets = _target_csr(modeled, search.height)
+        # BLOSUM62 diagonal <=11, local similarity >=0: this encloses every score.
+        bound = 22 * int(search['cdr3'].str.len_chars().max()) + int(np.max(distances))
+        row_bytes = 4 * ((2+2*groups)*(bound+1) + 2+3*groups)
+        chunk_size = min(16, (256*1024**2)//row_bytes)
+        if chunk_size < 1:
+            raise ValueError('nearest-distance count row exceeds 256 MiB budget')
+        for chunk in gapblock.grouped_count_batch(modeled['cdr3'].to_list(), search['cdr3'].to_list(),
+                list(range(bound+1)), reference_target_offsets=offsets, reference_target_ids=targets,
+                target_peptide_ids=[0]*groups, reference_exclusive_peptide_ids=[-1]*search.height,
+                query_gene_ids=[0]*modeled.height, reference_gene_ids=[0]*search.height,
+                query_group_ids=modeled['_vgroup'].to_list(), reference_group_ids=search['_vgroup'].to_list(),
+                group_distances=distances, matrix=matrix, alignment_mode='local', gap_open=gap_open,
+                gap_extend=gap_extend, threads=threads, chunk_size=chunk_size):
+            own = modeled['group_id'][chunk.start:chunk.stop].to_numpy()
+            curves = np.asarray(chunk.counts)[np.arange(chunk.stop-chunk.start), 1+own, :]
+            for k in orders:
+                found = curves > k
+                nearest[k][chunk.start:chunk.stop] = np.where(found.any(axis=1), found.argmax(axis=1), -1)
+    curves, summaries = [], []
+    for k in orders:
+        values = modeled.select('node').with_columns(pl.Series('neighbor_distance', nearest[k]),
+            pl.lit(True).alias('geometry_available'))
+        curve = nodes.join(values, on='node', how='left', validate='1:1').with_columns(
+            pl.col('geometry_available').fill_null(False),
+            pl.when(pl.col('neighbor_distance') >= 0).then(pl.col('neighbor_distance'))
+                .otherwise(None).alias('neighbor_distance'),
+            pl.lit(k, dtype=pl.Int64).alias('neighbor_order'))
+        curve = curve.with_columns(
+            pl.when(~pl.col('geometry_available')).then(pl.lit('geometry_unavailable'))
+            .when(pl.col('neighbor_distance').is_null()).then(pl.lit('insufficient_neighbors'))
+            .otherwise(pl.lit('available')).alias('distance_status'))
+        distances = curve['neighbor_distance'].drop_nulls().to_numpy()
+        radius = kneedle_radius(distances)
+        summaries.append(dict(neighbor_order=k, epsilon_knee=None if radius is None else int(radius),
+            distances_count=len(distances), reference_clonotypes=nodes.height,
+            modeled_clonotypes=modeled.height, unmodeled_clonotypes=nodes.height-modeled.height,
+            insufficient_neighbor_clonotypes=modeled.height-len(distances),
+            knee_status=('available' if radius is not None else 'no_modeled_vertices' if not modeled.height
+                else 'no_neighbors' if not len(distances) else 'no_knee')))
+        curves.append(curve)
+    summary = pl.DataFrame(summaries, schema_overrides={'epsilon_knee': pl.Int64})
+    return pl.concat(curves).sort('node', 'neighbor_order'), summary
+
+
+def sw_knee(records, *, species, locus, cdr_loops, gap_open=11, gap_extend=1, threads=1,
+            pair_budget=2_000_000):
+    """Existing k=1 pooled radius and node-order curve; unsupported knees raise."""
+    curves, summary = sw_neighbor_knees(records, species=species, locus=locus,
+        cdr_loops=cdr_loops, gap_open=gap_open, gap_extend=gap_extend, threads=threads,
+        pair_budget=pair_budget)
+    if not summary['modeled_clonotypes'].item():
         raise ValueError('no modeled SW vertices for radius selection')
-    groups = int(nodes['group_id'].max())+1
-    offsets, targets = _target_csr(modeled, search.height)
-    # BLOSUM62 diagonal <=11, local similarity >=0: this encloses every score.
-    bound = 22 * int(search['cdr3'].str.len_chars().max()) + int(np.max(distances))
-    row_bytes = 4 * ((2+2*groups)*(bound+1) + 2+3*groups)
-    chunk_size = min(16, (256*1024**2)//row_bytes)
-    if chunk_size < 1:
-        raise ValueError('nearest-distance count row exceeds 256 MiB budget')
-    nearest = []
-    for chunk in gapblock.grouped_count_batch(modeled['cdr3'].to_list(), search['cdr3'].to_list(),
-            list(range(bound+1)), reference_target_offsets=offsets, reference_target_ids=targets,
-            target_peptide_ids=[0]*groups, reference_exclusive_peptide_ids=[-1]*search.height,
-            query_gene_ids=[0]*modeled.height, reference_gene_ids=[0]*search.height,
-            query_group_ids=modeled['_vgroup'].to_list(), reference_group_ids=search['_vgroup'].to_list(),
-            group_distances=distances, matrix=matrix, alignment_mode='local', gap_open=gap_open,
-            gap_extend=gap_extend, threads=threads, chunk_size=chunk_size):
-        own = modeled['group_id'][chunk.start:chunk.stop].to_numpy()
-        curves = np.asarray(chunk.counts)[np.arange(chunk.stop-chunk.start), 1+own, :]
-        found = curves > 1  # only this vertex is excluded; the fixed model is intact
-        nearest.extend(int(row.argmax()) if row.any() else None for row in found)
-    curve = nodes.join(modeled.select('node').with_columns(
-        pl.Series('nearest_distance', nearest, dtype=pl.Int64)), on='node', how='left', validate='1:1')
-    radius = kneedle_radius(curve['nearest_distance'].drop_nulls().to_numpy())
+    radius = summary['epsilon_knee'].item()
     if radius is None:
         raise ValueError('reference nearest-distance curve has no confirmed Kneedle boundary; supply --sw-radius')
+    curve = curves.select('node', 'group_id', 'cdr3', 'v', 'j',
+        pl.col('neighbor_distance').alias('nearest_distance'))
     return int(radius), curve
 
 
