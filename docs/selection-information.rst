@@ -121,6 +121,13 @@ The first can be negative for a depleted motif; the second is the Kullback–Lei
 
 The shipping ``reference-structure --control`` command writes these reference-observed token projections to ``.motifs.tsv``. It reuses the existing tokenizer in bounded blocks and reduces once-per-key presence counts, with one control model per species/locus and one fixed model per target. Tables are written one target at a time without retaining every target’s motif rows. Overlapping tokens are dependent: their binary divergences are not an additive estimate of joint sequence information. These descriptive projections help identify informative families and motifs; the retained MF–IKF retrieval score, final rule selection and complete-score calibration remain distinct calculations.
 
+``--motif-mode`` selects ``exact3`` (full-AA 3-mers), ``wild4`` (full-AA
+4-mers with one wildcard in each possible position), ``imgt3`` or
+``imgt_wild4`` (default). The latter two reduce residues to the eleven IMGT
+classes before counting. ``motif_mode`` and ``motif_alphabet`` identify the
+projection in every output row. The same binary-information formulas apply
+to all four views; these values are distinct from TF-IDF retrieval weights.
+
 A depleted germline category can still contain a strongly selected junction
 solution. Let :math:`N_{\rm all},M_{\rm all}` count all reference/control keys in
 the same declared populations. The joint presence evidence factors exactly as

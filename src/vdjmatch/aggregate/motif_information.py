@@ -6,12 +6,13 @@ from .structure import _gene_expression
 from ..match.motifs import masked_motif_presence_counts
 
 
-def motif_population(records, *, locus):
+def motif_population(records, *, locus, mode='imgt_wild4'):
     """Transient fixed key/count populations for both declared length scopes.
 
     Input cdr3/v uses anchor-inclusive junctions. Alleles and J annotations do
     not multiply a full-junction/V-gene key; unknown reference genes stay null.
     Caller selects species/locus before this reduction. No event/read weighting.
+    ``mode`` selects exact3/imgt3/wild4/imgt_wild4 in the existing tokenizer.
     """
     if locus not in {'TRA', 'TRB'}:
         raise ValueError('motif population requires TRA or TRB')
@@ -21,16 +22,17 @@ def motif_population(records, *, locus):
     frame = keys.join(strata.select('v_gene', 'junction_length', '_stratum'),
         on=['v_gene', 'junction_length'], nulls_equal=True, validate='m:1', maintain_order='left').select(
             pl.col('cdr3').alias('seq0'), pl.col('_stratum').alias('v0')).with_row_index('_id')
-    counts, vocabulary = masked_motif_presence_counts(frame)
+    counts, vocabulary = masked_motif_presence_counts(frame, mode=mode)
     pooled = strata.group_by('v_gene', maintain_order=True).agg(pl.col('keys').sum()).with_row_index('_pooled')
     indices = strata.select('v_gene').join(pooled, on='v_gene', nulls_equal=True, validate='m:1', maintain_order='left')['_pooled'].to_numpy()
     pooled_counts = np.zeros((pooled.height, vocabulary.height), dtype=np.int64)
     np.add.at(pooled_counts, indices, counts)
     pooled = pooled.rename({'_pooled': '_stratum'}).with_columns(pl.lit(None, dtype=pl.UInt32).alias('junction_length'))
-    return {'exact_length': (strata, counts), 'all_lengths': (pooled, pooled_counts), 'vocabulary': vocabulary}
+    return {'exact_length': (strata, counts), 'all_lengths': (pooled, pooled_counts),
+            'vocabulary': vocabulary, 'mode': mode}
 
 
-def motif_selection_information(reference, control, *, locus):
+def motif_selection_information(reference, control, *, locus, mode='imgt_wild4'):
     """Per-token presence likelihood ratios and Bernoulli KL within V/length.
 
     Each token is one binary projection. Overlapping tokens are dependent;
@@ -40,8 +42,11 @@ def motif_selection_information(reference, control, *, locus):
     Whole-population counts also expose the matched stratum factor and joint
     stratum/token presence evidence. These are single-feature projections;
     overlapping tokens must not be added as independent evidence.
+    Reference and control must use the same ``mode`` (default imgt_wild4).
     """
-    observed = motif_population(reference, locus=locus)
+    if control['mode'] != mode:
+        raise ValueError('reference and control motif mode must match')
+    observed = motif_population(reference, locus=locus, mode=mode)
     parts = []
     for scope in ('all_lengths', 'exact_length'):
         strata, counts = observed[scope]
@@ -91,4 +96,6 @@ def motif_selection_information(reference, control, *, locus):
         pl.when((pl.col('control_with_motif') > 0) & (control_total > 0)).then(
             ((pl.col('reference_with_motif') / reference_total) /
              (pl.col('control_with_motif') / control_total)).log(2)).alias('joint_presence_bits')
+    ).with_columns(pl.lit(mode).alias('motif_mode'),
+        pl.lit('imgt11' if 'imgt' in mode else 'full20').alias('motif_alphabet')
     ).sort('length_scope', 'v_gene', 'junction_length', 'motif', nulls_last=True)

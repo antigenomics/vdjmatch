@@ -1522,6 +1522,19 @@ establish antigen selection, structural contacts, binding confidence or a scorer
 assignment. The manifest records the raw-control identity, retained/excluded rows,
 event counts and normalizer source identity.
 
+The control also enables ``structure.motifs.tsv``. Select its projection with
+``--motif-mode exact3`` (full-amino-acid 3-mers), ``wild4`` (full-amino-acid
+4-mers with one wildcard at each of the four positions), ``imgt3`` (3-mers
+in the eleven IMGT classes), or ``imgt_wild4`` (the existing default).
+Each row labels ``motif_mode`` and ``motif_alphabet``; the manifest records
+window size and mask positions. All views use full anchor-inclusive junctions
+and once-per-junction/V-gene presence, with the same V/length denominators and
+missing-control statuses. Their information values describe separate, dependent
+projections and must not be added together. The bounded counter reuses the
+existing tokenizer and rejects a count buffer above 256 MiB before allocation.
+These are binary selection-information diagnostics; they do not calculate
+TF-IDF, bootstrap uncertainty or a final specificity probability.
+
 With the same ``--control`` option, ``structure.genes.tsv`` also reports
 ``gene_bits``, ``length_bits`` and ``joint_bits``. These use distinct
 junction/gene keys on **both** sides, rather than the event fractions used by

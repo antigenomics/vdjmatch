@@ -11,6 +11,8 @@ def register(subparsers):
     p.add_argument('--targets-from-sample', help='compatible pMHC unions declared in an AIRR table')
     p.add_argument('--reference-population', choices=['curated-benchmark','all-valid'], default='curated-benchmark')
     p.add_argument('--control', help='raw rearrangement control for descriptive V/J event-frequency ratios')
+    p.add_argument('--motif-mode', choices=['exact3', 'imgt3', 'wild4', 'imgt_wild4'],
+                   default='imgt_wild4', help='control-relative motif projection (default: imgt_wild4)')
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
@@ -39,6 +41,8 @@ def main(a):
     start = time.monotonic()
     if a.threads < 1:
         raise ValueError('positive threads required')
+    if a.motif_mode != 'imgt_wild4' and not a.control:
+        raise ValueError('--motif-mode requires --control')
     protected = [a.vdjdb]+([a.targets_from_sample] if a.targets_from_sample else [])+([a.control] if a.control else [])
     prefix = _validate_output_paths(a.output_prefix, protected)
     organism = _organism(a.species)
@@ -51,7 +55,7 @@ def main(a):
         control_raw, control_info = _raw_control(a.control)
         events = control_events(control_raw, species=organism, locus=a.locus)
         control_usage = control_gene_usage(events, locus=a.locus)
-        control_motifs = motif_population(events.rename({'junction_aa': 'cdr3'}), locus=a.locus)
+        control_motifs = motif_population(events.rename({'junction_aa': 'cdr3'}), locus=a.locus, mode=a.motif_mode)
         prefix.parent.mkdir(parents=True, exist_ok=True)
         motif_path = Path(str(prefix)+'.motifs.tsv')
         control_info.update(path=str(Path(a.control).resolve()), sha256=sha256(Path(a.control)),
@@ -139,7 +143,7 @@ def main(a):
         gene_tables.append(reference_gene_usage(source.filter(mixture_available), locus=a.locus).with_columns(
             *[pl.lit(value).alias(key) for key, value in gene_context.items()]))
         if control_motifs is not None:
-            motifs = motif_selection_information(source.filter(mixture_available), control_motifs, locus=a.locus).with_columns(
+            motifs = motif_selection_information(source.filter(mixture_available), control_motifs, locus=a.locus, mode=a.motif_mode).with_columns(
                 *[pl.lit(value).alias(key) for key, value in gene_context.items()])
             with motif_path.open('ab' if motif_written else 'wb') as stream:
                 motifs.write_csv(stream, separator='\t', include_header=not motif_written)
@@ -272,8 +276,9 @@ def main(a):
         control=control_info,
         gene_control_comparison=('reference record/key fractions divided by control event fractions; no smoothing; unresolved genes, absent control genes and absent control lengths explicit; descriptive composition only'
             if control_info is not None else None),
-        motif_information=(dict(rows=motif_rows, k=4, masks=[0,1,2,3],
-            alphabet='11 IMGT classes', token_scope='full junction; once-per-key presence',
+        motif_information=(dict(rows=motif_rows, mode=a.motif_mode,
+            k=4 if 'wild' in a.motif_mode else 3, masks=[0,1,2,3] if 'wild' in a.motif_mode else [],
+            alphabet='11 IMGT classes' if 'imgt' in a.motif_mode else '20 amino acids', token_scope='full junction; once-per-key presence',
             sampling_unit='distinct full-junction/V-gene keys on both sides',
             scopes='within V, pooled lengths and exact length',
             statistic='presence log2 likelihood ratio and binary presence/absence KL; overlapping tokens are not independent',

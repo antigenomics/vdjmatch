@@ -59,29 +59,33 @@ def masked_motif_scores(queries, reference, *, exclude_exact=False, target_refer
             pl.len().alias('supported_motifs')))
 
 
-def masked_motif_presence_counts(frame):
-    """Bounded counts of existing reduced masked-4-mer presence by integer v0.
+def masked_motif_presence_counts(frame, *, mode='imgt_wild4'):
+    """Bounded counts of full/reduced 3-mer or masked-4-mer presence by v0.
 
     ``_id,seq0,v0`` identify unique input keys, full junctions and nonnegative
     contiguous stratum IDs. Repeated windows count once per input key. Return
-    an int64 stratum/token histogram and its fixed 5,324-token vocabulary.
+    an int64 stratum/token histogram and its fixed vocabulary. ``mode`` uses
+    the existing tokenizer's exact3/imgt3/wild4/imgt_wild4 definitions.
     Uses the existing tokenizer in blocks; no per-sequence Python/search calls.
     """
     from itertools import product
     import numpy as np
-    from ..evalue.epitope_rules import IMGT_CLASSES
+    from ..evalue.epitope_rules import IMGT_CLASSES, MOTIFS
 
+    if mode not in MOTIFS:
+        raise ValueError('unknown motif mode')
     if (not frame.schema['v0'].is_integer() or frame['_id'].null_count() or
             frame['_id'].n_unique() != frame.height or frame['v0'].null_count() or
             frame.filter((pl.col('v0') < 0) | ~pl.col('seq0').str.contains(
                 r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)).height):
         raise ValueError('motif counts require unique IDs, valid full junctions and nonnegative strata')
-    letters = list(dict.fromkeys(IMGT_CLASSES.values()))
+    letters = list(dict.fromkeys(IMGT_CLASSES.values())) if 'imgt' in mode else list('ACDEFGHIKLMNPQRSTVWY')
+    k = 4 if 'wild' in mode else 3
     tokens = []
-    for mask in range(4):
+    for mask in (range(4) if k == 4 else [None]):
         for parts in product(letters, repeat=3):
             word = ''.join(parts)
-            tokens.append(word[:mask] + 'X' + word[mask:])
+            tokens.append(word[:mask] + 'X' + word[mask:] if mask is not None else word)
     vocabulary = pl.DataFrame({'t0': tokens}).with_row_index('_token_id')
     groups = int(frame['v0'].max()) + 1 if frame.height else 0
     if groups * len(tokens) * 8 > 256 * 1024**2:
@@ -90,9 +94,9 @@ def masked_motif_presence_counts(frame):
     longest = frame['seq0'].str.len_chars().max() or 0
     # Measured expanded-token memory is below 256 B/row; budget a full 256 MiB
     # block, including its tokenizer joins/unique/group reduction temporaries.
-    rows = min(65536, max(1, (256 * 1024**2) // (4 * max(1, longest - 3) * 256)))
+    rows = min(65536, max(1, (256 * 1024**2) // ((4 if k == 4 else 1) * max(1, longest - k + 1) * 256)))
     for part in frame.iter_slices(rows):
-        frequencies = _tokens(part, [0], 'imgt_wild4', full_junction=True,
+        frequencies = _tokens(part, [0], mode, full_junction=True,
             wildcard_positions=(0, 1, 2, 3)).group_by('v0', 't0').len().join(
                 vocabulary, on='t0', validate='m:1')
         counts[frequencies['v0'].to_numpy(), frequencies['_token_id'].to_numpy()] += frequencies['len'].to_numpy()

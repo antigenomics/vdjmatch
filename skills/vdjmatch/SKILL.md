@@ -190,6 +190,14 @@ not background enrichment or proof of germline contacts.
 These features do not fit fusion weights or calibrate recognition. Any harmonized
 score sum still needs matched component identities and final-selection calibration.
 
+With `--control`, choose `--motif-mode exact3` for full-AA 3-mers or `wild4`
+for full-AA 4-mers with all four single-wildcard masks. `imgt3` and the default
+`imgt_wild4` use eleven IMGT classes. `.motifs.tsv` labels the mode/alphabet;
+counts retain once-per-junction/V-gene presence and fixed V/length denominators.
+Keep these binary selection bits separate from TF-IDF, bootstrap uncertainty
+and final specificity probabilities. Each invocation uses the same one native
+graph batch; the existing 256 MiB count-buffer guard applies to every mode.
+
 `combine-evidence EVIDENCE --null-evidence NULLS --three-channel --output SCORES`
 puts `original_score`, `gapblock_score`, `stem4_score` on conservative matched
 null-tail scales and sums their explicit `original_weight`, `gapblock_weight`,
