@@ -11,6 +11,7 @@ from ..aggregate.candidates import PMHC
 
 _CASES = ['query_id', *PMHC]
 _CASE_LIMIT = 5_000_000
+_COMBINATION_BATCH_ROWS = 65536
 
 
 def _check_case_budget(cases):
@@ -334,7 +335,7 @@ def _select_axis_frames(frames):
 
 
 def combine_components(components, normalizer_components, reference, queries, *, species, locus,
-                       threads=1, exclude_exact=False, hamming_edges=None):
+                       threads=1, exclude_exact=False, hamming_edges=None, _consume=None):
     """Normalize matching components, graph-weight each axis, then select its max.
 
     The normalizer is an independent internally drawn bank, scored on the SAME
@@ -360,12 +361,16 @@ def combine_components(components, normalizer_components, reference, queries, *,
 
     ``hamming_edges`` optionally supplies a transient full-population edge table,
     or a TRA/TRB mapping of such tables, to reuse one union graph across models.
+    Internal calibration can consume bounded case batches instead of retaining
+    combined detail. Graph weights and the complete normalizer remain fixed.
     """
     from ..aggregate.combination import THREE_WEIGHTS, null_normalized_evidence, weighted_component_support
     from ..evalue.control import _organism
 
     if locus not in {'TRA', 'TRB', 'paired'} or threads < 1:
         raise ValueError('combined evidence requires TRA/TRB/paired and positive threads')
+    if _consume is not None and not callable(_consume):
+        raise ValueError('combined case consumer must be callable')
     required = set(_CASES)
     if not required.issubset(components.columns) or not required.issubset(normalizer_components.columns):
         raise ValueError('component evidence requires query identities and full pMHC')
@@ -392,7 +397,7 @@ def combine_components(components, normalizer_components, reference, queries, *,
         weights = _graph_weights(reference, chain=locus, threads=threads,
             hamming_edges=hamming_edges)
         definitions = [('single', 'original_score', 'gapblock_score', 'stem4_score', 'original_supported', weights)]
-    def axis_frames():
+    def axis_frames(components):
         columns = ['original_score', 'gapblock_score', 'stem4_score']
         for axis, original, gapblock, stem4, support, weights in definitions:
             metadata = [*_CASES, *(['pgen_bin'] if conditioned else [])]
@@ -427,4 +432,10 @@ def combine_components(components, normalizer_components, reference, queries, *,
                     parts.append(unavailable)
             axis_scores = pl.concat(parts, how='diagonal_relaxed') if parts else observed.with_columns(*[pl.lit(None, dtype=pl.Float64).alias(c) for c in ('score', 'call_score')])
             yield axis, axis_scores.drop('_original_supported')
-    return _select_axis_frames(axis_frames())
+    if _consume is None:
+        return _select_axis_frames(axis_frames(components))
+    # Match the grouped native observation-expansion cap. No reference fitting
+    # or native search occurs inside this reduction over already scored cases.
+    for part in components.iter_slices(_COMBINATION_BATCH_ROWS):
+        _consume(_select_axis_frames(axis_frames(part)))
+    return None

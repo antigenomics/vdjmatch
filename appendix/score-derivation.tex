@@ -1646,6 +1646,20 @@ Ties enter the upper tail, all null no-hits remain in the denominator, and obser
 Under the respective conditional exchangeability assumptions, these are conservative Monte Carlo rank P-values.
 Matching Pgen alone does not prove those assumptions.
 
+\paragraph{Exact streamed reference-tail reduction.}
+For a fixed mock reference, the current combined-score implementation keeps its graph weights and complete normalization bank fixed while reducing at most $65\,536$ already-scored cases per batch.
+Let $\mathcal C_j(q)$ be disjoint batches of target--axis cases for query $q$, and let $U_{e,a}^{*(b)}(q)$ be their support-gated combined scores for mock $b$.
+The database statistic is unchanged because
+\[
+ \max_{(e,a)\in\bigcup_j\mathcal C_j(q)}U_{e,a}^{*(b)}(q)
+ =\max_j\max_{(e,a)\in\mathcal C_j(q)}U_{e,a}^{*(b)}(q).
+\]
+Missing support acts as $-\infty$ in this maximum and is exported as a missing score when every case is unsupported.
+Per-epitope exceedances update immediately; a running maximum per query supplies the complete database event after every batch has been consumed.
+Every observed case must occur exactly once per mock, with missing, repeated or unknown cases rejected.
+This changes storage order only: the same ties, no-hit denominators and fixed-model exact-hit masks enter Equation~\eqref{eq:selection-tails}.
+Raw component tables and requested observed detail still materialize the case grid; full-cohort memory and runtime acceptance remain open.
+
 If both directional P-values are valid for nulls $H_R,H_Q$, then
 $p_{{\rm both},e}=\max(p_{R,e},p_{Q,e})$ is valid for $H_R\cup H_Q$.
 Indeed, under $H_R$, $\Pr(p_{{\rm both},e}\le\alpha)\le\Pr(p_{R,e}\le\alpha)\le\alpha$, and the same holds under $H_Q$.

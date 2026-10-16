@@ -25,7 +25,8 @@ def test_complete_score_two_directions_keep_source_roles_and_nohits(monkeypatch)
     def track(function):
         def call(*args, **kwargs):
             result = function(*args, **kwargs)
-            transient.append(weakref.ref(result))
+            if result is not None:
+                transient.append(weakref.ref(result))
             return result
         return call
     def models(*args, **kwargs):
@@ -121,7 +122,15 @@ def test_hand_enumerated_complete_score_tails_repeat_label_selection(monkeypatch
             values.append(value)
         return scored.with_columns(pl.Series('score', values, dtype=pl.Float64),
             pl.Series('call_score', values, dtype=pl.Float64))
-    monkeypatch.setattr(runner, 'combine_components', combine)
+    def streaming_combine(*args, **kwargs):
+        consume = kwargs.pop('_consume', None)
+        frame = combine(*args, **kwargs)
+        if consume is None:
+            return frame
+        for part in frame.iter_slices(1):
+            consume(part)
+        return None
+    monkeypatch.setattr(runner, 'combine_components', streaming_combine)
     _, tails = module.calibrate_combined(query, reference, raw_control, species='human', locus='TRB',
         replicates=3, model_context={'density_index': None, 'prior_background': None})
     q = tails.filter(pl.col('query_id') == 'q')
@@ -142,12 +151,27 @@ def test_hand_enumerated_complete_score_tails_repeat_label_selection(monkeypatch
     with pytest.raises(RuntimeError, match='every testing group'):
         module.calibrate_combined(query, reference, raw_control, species='human', locus='TRB',
             replicates=3, model_context={'density_index': None, 'prior_background': None})
+    # Streaming mocks must reject missing cases and repeats across batches.
+    for duplicate in (False, True):
+        def broken_mock(*args, **kwargs):
+            consume = kwargs.pop('_consume', None)
+            frame = combine(*args, **kwargs)
+            if consume is None:
+                return frame
+            consume(frame if duplicate else frame.filter(pl.col('epitope') != 'B'))
+            if duplicate:
+                consume(frame.filter(pl.col('query_id') == 'q').head(1))
+        monkeypatch.setattr(runner, 'combine_components', broken_mock)
+        with pytest.raises(RuntimeError, match='complete observed case grid'):
+            module.calibrate_combined(query, reference, raw_control, species='human', locus='TRB',
+                replicates=3, model_context={'density_index': None, 'prior_background': None})
 
 
 def test_current_model_graph_matches_union_induced_weights_and_tails(monkeypatch):
     """Unused control vertices cannot join components or enlarge graph searches."""
     from vdjmatch.evalue import combined as module
     from vdjmatch.runner import combined as runner
+    monkeypatch.setattr(runner, '_COMBINATION_BATCH_ROWS', 1)
     from vdjmatch import cluster
     from vdjmatch.aggregate.candidates import PMHC
     from vdjmatch.aggregate.reference_combination import graph_mixture_weights

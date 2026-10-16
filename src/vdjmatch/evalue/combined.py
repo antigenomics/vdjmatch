@@ -78,13 +78,6 @@ def _with_overall(scores):
         _overall(scores).select(*_KEYS, 'score').with_columns(pl.lit('database').alias('test_scope'))])
 
 
-def _same_cases(observed, randomized):
-    keys = [*_KEYS, 'test_scope']
-    if (randomized.select(keys).is_duplicated().any() or randomized.height != observed.height or
-            observed.select(keys).join(randomized.select(keys), on=keys, how='anti', nulls_equal=True).height):
-        raise RuntimeError('randomized scoring did not preserve the complete observed case grid')
-
-
 def calibrate_combined(queries, reference, raw_control, *, species, locus, replicates=199,
                        seed=0, threads=1, exclude_exact=False, model_context=None):
     """Calibrate the actual sum and axis/label selection from one raw control.
@@ -159,7 +152,6 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
     observed_detail = combined.join(tagged.select('query_id', 'pgen_bin', *pgen_columns),
         on='query_id', how='inner', validate='m:1')
     observed = _with_overall(observed_detail).with_row_index('_case')
-    case_keys = [*_KEYS, 'test_scope']
     exceed = np.zeros(observed.height, dtype=np.int64)
     reference_hit_draws = np.zeros(observed.height, dtype=np.int64)
     observed_queries = pl.concat([tagged, normalizers.drop('replicate')], how='diagonal_relaxed')
@@ -185,20 +177,48 @@ def calibrate_combined(queries, reference, raw_control, *, species, locus, repli
     # Retain requested observed detail and compact tail counts only. Wide
     # real/bank frames must not overlap every subsequent mock population.
     del real, norm, combined, bank, all_queries, test, tagged_observed, test_queries, distributions
+    epitope_observed = observed.filter(pl.col('test_scope') == 'epitope').select(*_KEYS, '_case')
+    database_observed = observed.filter(pl.col('test_scope') == 'database').with_row_index('_query')
+    observed_values = observed['score'].to_numpy()
     for model in iter_mock_models(reference, {chain: controls[chain] for chain in chains},
             pgen=probabilities, replicates=replicates, seed=int(reference_seed.generate_state(1)[0])):
         raw = components(observed_queries, model)
         mock_norm = raw.join(normalizers.select('query_id'), on='query_id', how='semi')
-        mock = combine_components(raw.drop('pgen_bin'), mock_norm.drop('pgen_bin'), model, observed_queries, species=species, locus=locus,
-            threads=threads, exclude_exact=exclude_exact).join(tagged.select('query_id'), on='query_id', how='semi')
-        mock_cases = _with_overall(mock)
-        _same_cases(observed, mock_cases)
-        compared = observed.join(mock_cases.rename({'score': '_null_score'}), on=case_keys,
-            how='left', nulls_equal=True, validate='1:1', maintain_order='left')
-        reference_hit_draws += compared['_null_score'].is_not_null().cast(pl.Int64).to_numpy()
-        exceed += compared.select((pl.col('score').is_null() |
-            (pl.col('_null_score') >= pl.col('score')).fill_null(False)).cast(pl.Int64)).to_series().to_numpy()
-        del raw, mock_norm, mock, mock_cases, compared
+        seen = np.zeros(observed.height, dtype=bool)
+        maxima = np.full(database_observed.height, np.nan)
+
+        def count(indices, values):
+            reference_hit_draws[indices] += ~np.isnan(values)
+            exceed[indices] += np.isnan(observed_values[indices]) | (values >= observed_values[indices])
+
+        def consume(frame):
+            scores = frame.join(tagged.select('query_id'), on='query_id', how='semi').select(
+                *_KEYS, pl.col('call_score').alias('_null_score'))
+            if scores.select(_KEYS).is_duplicated().any():
+                raise RuntimeError('randomized scoring did not preserve the complete observed case grid')
+            matched = scores.join(epitope_observed, on=_KEYS, how='left', nulls_equal=True, validate='1:1')
+            if matched['_case'].null_count():
+                raise RuntimeError('randomized scoring did not preserve the complete observed case grid')
+            indices = matched['_case'].to_numpy()
+            if seen[indices].any():
+                raise RuntimeError('randomized scoring did not preserve the complete observed case grid')
+            seen[indices] = True
+            count(indices, matched['_null_score'].to_numpy())
+            by_query = scores.join(database_observed.select('query_id', '_query'),
+                on='query_id', how='left', validate='m:1')
+            np.fmax.at(maxima, by_query['_query'].to_numpy(), by_query['_null_score'].to_numpy())
+
+        mock = combine_components(raw.drop('pgen_bin'), mock_norm.drop('pgen_bin'), model, observed_queries,
+            species=species, locus=locus, threads=threads, exclude_exact=exclude_exact, _consume=consume)
+        # Internal adapters may still return one materialized frame.
+        if mock is not None:
+            consume(mock)
+        indices = database_observed['_case'].to_numpy()
+        count(indices, maxima)
+        seen[indices] = True
+        if not seen.all():
+            raise RuntimeError('randomized scoring did not preserve the complete observed case grid')
+        del raw, mock_norm, mock, consume, count, seen, maxima
     tails = observed.drop('_case').with_columns(pl.Series('reference_exceedances', exceed),
         pl.Series('query_exceedances', query_exceed), pl.lit(replicates).alias('reference_draws'),
         pl.lit(replicates).alias('query_draws'), pl.Series('reference_hit_draws', reference_hit_draws),

@@ -146,6 +146,8 @@ def test_ordinary_exact_singleton_closed_form_retains_historical_density():
 
 def test_actual_paired_complete_calibration_retains_linked_roles_and_nohits(monkeypatch):
     from vdjmatch.evalue import combined as calibration
+    from vdjmatch.runner import combined as runner
+    monkeypatch.setattr(runner, '_COMBINATION_BATCH_ROWS', 1)
     reference = pl.DataFrame({'cdr3': ['CAVRDSNYQLIW'] * 2 + ['CASSLGQETQYF'] * 2 + ['CAVRDTNYQLIW', 'CASSIGQETQYF'],
         'v': ['TRAV1-2'] * 2 + ['TRBV1'] * 2 + ['TRAV1-2', 'TRBV1'],
         'j': ['TRAJ33'] * 2 + ['TRBJ1-1'] * 2 + ['TRAJ33', 'TRBJ1-1'],
@@ -184,6 +186,11 @@ def test_actual_paired_complete_calibration_retains_linked_roles_and_nohits(monk
         kwargs.pop('_scores_only', None)
         return enrichment(*args, **kwargs)
     monkeypatch.setattr(kernel, 'grouped_kernel_enrichment', full_diagnostics)
+    combine = runner.combine_components
+    def materialized(*args, **kwargs):
+        kwargs.pop('_consume', None)
+        return combine(*args, **kwargs)
+    monkeypatch.setattr(runner, 'combine_components', materialized)
     old_detail, old_tails = calibration.calibrate_combined(query, reference, control,
         species='human', locus='paired', replicates=2, seed=17, threads=1)
     assert_frame_equal(detail.select(old_detail.columns).sort(['query_id', *PMHC]),

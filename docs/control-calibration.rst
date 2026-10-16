@@ -69,9 +69,25 @@ The current complete-score adapter permits at most five million receptor--target
 combinations, including the internal normalization and query-null banks. Larger
 requests fail before scoring. Whole-cohort calibration scaling remains pending.
 Query-direction tails are reduced to counts before reference randomizations;
-wide real-score and query-null tables are then released. Each mock's score tables
-are released after its tail counts are updated. Requested observed detail,
-complete case identities and all no-hit denominators remain retained.
+wide real-score and query-null tables are then released. Mock combination and
+axis selection consume at most65536 scored cases per batch, with one fixed graph
+weight model and the same full normalizer bank. Per-epitope exceedances update
+immediately; one running maximum per query carries database selection across
+batches. If :math:`\mathcal C_1,\ldots,\mathcal C_J` partition a query's cases,
+
+.. math::
+
+   \max_{(e,a)\in\cup_j\mathcal C_j}T_{e,a}
+   =\max_j\max_{(e,a)\in\mathcal C_j}T_{e,a}.
+
+Here :math:`e` is a full-pMHC target, :math:`a` an available chain axis and
+:math:`T_{e,a}` its support-gated combined score. No-hit maxima remain missing.
+The reference tail is updated only after all batches, with ties included and
+observed no-hits counted as exceedances on every draw. Missing, duplicate and
+unknown observed cases fail explicitly. Mock raw-component tables are released
+after their counters are updated. Raw components and requested observed detail
+still materialize the case grid: this reduction does not remove the case guard
+or establish whole-cohort resource compliance.
 
 The event being tested
 ----------------------
