@@ -39,7 +39,7 @@ def test_numeric_bank_matches_materialized_components_and_keeps_repeated_sources
     monkeypatch.setattr(combined,'_cases',forbidden)
     bank=component_bank.score_component_bank(q,r,context,species=species,locus=locus,exclude_exact=exclude)
     assert bank.mapping['_query_row'].n_unique()==3
-    assert all(value.shape==(3,2) for value in bank.values.values())
+    assert all(not isinstance(value,np.ndarray) for value in bank.values.values())
     monkeypatch.setattr(component_bank,'_BATCH_ROWS',4)
     parts=list(bank.frames())
     assert all(part.height<=4 for part in parts)
@@ -49,7 +49,7 @@ def test_numeric_bank_matches_materialized_components_and_keeps_repeated_sources
     assert subset.height==4
     assert_frame_equal(subset.sort('query_id',*PMHC),actual.filter(pl.col('query_id').is_in(['far','q'])).sort(
         'query_id',*PMHC),check_exact=True)
-    assert all(value.dtype in (np.dtype('float64'),np.dtype('bool')) for value in bank.values.values())
+    assert all(actual.schema[c] in (pl.Float64,pl.Boolean) for c in bank.values)
 
 
 def test_component_array_budget_fails_before_scoring(monkeypatch):
@@ -63,3 +63,36 @@ def test_component_array_budget_fails_before_scoring(monkeypatch):
     with pytest.raises(ValueError,match='component array budget'):
         component_bank.score_component_bank(q,r,{'density_index':None,'prior_background':None},
             species='human',locus='TRB')
+
+
+@pytest.mark.parametrize('include_length',[False,True])
+def test_fixed_prior_reconstruction_preserves_unknowns_weights_and_500_activation(include_length):
+    from itertools import product
+    from vdjmatch.runner.component_bank import _original_model,_SparseScores
+    from vdjmatch.match.historical import _prepare_prior_background,germline_prior,unpaired_score
+    sequences=['CASS'+''.join(x)+'ETQYF' for x in list(product('ACDEFGHIKLMNPQRSTVWY',repeat=3))[:500]]
+    ref=pl.DataFrame({'cdr3':sequences+sequences[:499],'v':['TRBV1']*999,'j':['TRBJ1-1']*999,
+        'epitope':['A']*500+['B']*499,'mhc_a':['A']*999,'mhc_b':['B2M']*999,'mhc_class':['MHCI']*999})
+    targets=ref.select(PMHC).unique(maintain_order=True).with_row_index('_bank_target')
+    q=pl.DataFrame({'query_id':range(6),'cdr3':['CASSLGQETQYF','CASSMGQETQYF','CAVRDSNYQLIW','W'*80,'CA*F',None],
+        'v':['TRBV1*01','TRBV1','TRBV2',None,'TRBV1','TRBV1'],'j':['TRBJ1-1']*6})
+    background=pl.DataFrame({'cdr3':['CASSLGQETQYF','CAVRDSNYQLIW'],'v':['TRBV1','TRBV2'],
+        'j':['TRBJ1-1','TRBJ2-1'],'event_weight':[2**32+13,17]})
+    model=_original_model(q,ref,targets,_prepare_prior_background(background),include_length,lambda size:None)
+    # One supported density at a missing-gene query must not fabricate a score.
+    model.density=_SparseScores(np.array([0,1,6,7],dtype=np.uint64),np.ones(4),2,0.)
+    order=np.array([4,1,0,5,2,3,1],dtype=np.uint32)
+    density,prior,score,support=model.evaluate(order)
+    expected_prior=np.full((6,2),np.nan);expected_score=np.full((6,2),np.nan)
+    valid=q.filter(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$')&pl.col('v').is_not_null())
+    all_density=model.density.take(np.arange(6,dtype=np.uint32)).reshape(6,2)
+    for i,label in enumerate(['A','B']):
+        r=ref.filter(pl.col('epitope')==label)
+        p=germline_prior(valid,r,background,include_length=include_length)
+        indices=p['query_id'].to_numpy()
+        expected_prior[indices,i]=p['germline_lr'].to_numpy()
+        expected_score[indices,i]=unpaired_score(all_density[indices,i],p['germline_lr'],r.height,log_scale=True).to_numpy()
+    np.testing.assert_array_equal(prior,expected_prior[order].reshape(-1))
+    np.testing.assert_array_equal(score,expected_score[order].reshape(-1))
+    np.testing.assert_array_equal(support,density>0)
+    assert support.reshape(-1,2)[5].all() and np.isnan(score.reshape(-1,2)[5]).all()

@@ -401,6 +401,12 @@ def _prepare_prior_background(background):
         for column in ('v', 'j', 'length')}
 
 
+def _prior_log_ratio(reference_count,background_count,n_reference,n_background):
+    """Retained marginal-prior arithmetic, shared by full and bounded evaluation."""
+    return (((reference_count.fill_null(0)+.5)/(n_reference+30))/
+        ((background_count.fill_null(0)+.5)/(n_background+30))).log()
+
+
 def germline_prior(queries, reference, background, *, include_length=True, exclude_exact=False,
                    _background_counts=None):
     """Original smoothed V/J[/junction-length] log likelihood ratio, keyed by query.
@@ -448,8 +454,7 @@ def germline_prior(queries, reference, background, *, include_length=True, exclu
             out = (out.join(rc, on=column, how='left', maintain_order='left')
                    .join(bc, on=column, how='left', maintain_order='left')
                    .with_columns((pl.col('germline_lr') +
-                       (((pl.col('_ref_count').fill_null(0) + .5) / (nr + 30)) /
-                        ((pl.col('_bg_count').fill_null(0) + .5) / (nb + 30))).log())
+                       _prior_log_ratio(pl.col('_ref_count'),pl.col('_bg_count'),nr,nb))
                        .alias('germline_lr'))
                    .drop('_ref_count', '_bg_count'))
         return out.select('query_id', 'germline_lr').with_columns(

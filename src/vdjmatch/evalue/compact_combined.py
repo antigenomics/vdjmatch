@@ -5,7 +5,7 @@ import numpy as np
 import polars as pl
 
 from ..aggregate.candidates import PMHC
-from ..runner.component_bank import ComponentBank
+from ..runner.component_bank import ComponentBank, _mark
 
 _KEYS=['query_id',*PMHC]
 _QUERY_NULL_LIMIT_BYTES=2*1024**3
@@ -15,18 +15,6 @@ def _query_null_bytes(queries,draws,targets,finite=0):
     # Include coverage, maxima/bin indexes, finite records and sort/copy scratch.
     return ((queries*targets+7)//8+(draws*targets+7)//8+
         32*(queries+draws)+48*finite+16*1024**2)
-
-
-def _mark(seen,rows,targets,n_queries,n_targets):
-    if np.any((rows<0)|(rows>=n_queries)) or np.any((targets<0)|(targets>=n_targets)):
-        raise RuntimeError('randomized scoring contains unknown cases')
-    codes=rows.astype(np.uint64)*n_targets+targets
-    if len(np.unique(codes))!=len(codes):
-        raise RuntimeError('randomized scoring repeats cases')
-    offsets=(codes//8).astype(np.intp);bits=np.left_shift(np.uint8(1),(codes%8).astype(np.uint8))
-    if np.any(seen[offsets]&bits):
-        raise RuntimeError('randomized scoring repeats cases')
-    np.bitwise_or.at(seen,offsets,bits)
 
 
 def _complete(seen,cases):

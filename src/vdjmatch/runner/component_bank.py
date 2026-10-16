@@ -1,4 +1,4 @@
-"""Operation-local numeric components; expand source observations only in batches."""
+"""Operation-local sparse components; reconstruct fixed priors only in batches."""
 from dataclasses import dataclass
 
 import numpy as np
@@ -10,14 +10,109 @@ _BATCH_ROWS = 65536
 _ARRAY_LIMIT_BYTES = 12 * 1024**3
 
 
+def _mark(seen,rows,targets,n_queries,n_targets):
+    if np.any((rows<0)|(rows>=n_queries)) or np.any((targets<0)|(targets>=n_targets)):
+        raise RuntimeError('randomized scoring contains unknown cases')
+    codes=rows.astype(np.uint64)*n_targets+targets
+    if len(np.unique(codes))!=len(codes):
+        raise RuntimeError('randomized scoring repeats cases')
+    offsets=(codes//8).astype(np.intp);bits=np.left_shift(np.uint8(1),(codes%8).astype(np.uint8))
+    if np.any(seen[offsets]&bits):
+        raise RuntimeError('randomized scoring repeats cases')
+    np.bitwise_or.at(seen,offsets,bits)
+
+
+@dataclass
+class _SparseScores:
+    codes: np.ndarray
+    scores: np.ndarray
+    groups: int
+    default: float = np.nan
+
+    def take(self,rows):
+        codes=(rows.astype(np.uint64)[:,None]*self.groups+np.arange(self.groups,dtype=np.uint64)).reshape(-1)
+        positions=np.searchsorted(self.codes,codes)
+        found=np.flatnonzero(positions<len(self.codes))
+        found=found[self.codes[positions[found]]==codes[found]]
+        out=np.full(len(codes),self.default)
+        out[found]=self.scores[positions[found]]
+        return out
+
+
+def _sparse(parts,groups,default=np.nan):
+    codes=np.concatenate([p[0] for p in parts]) if parts else np.empty(0,dtype=np.uint64)
+    scores=np.concatenate([p[1] for p in parts]) if parts else np.empty(0)
+    parts.clear()
+    order=np.argsort(codes)
+    return _SparseScores(codes[order],scores[order],groups,default)
+
+
+@dataclass
+class _OriginalModel:
+    density: _SparseScores
+    sizes: np.ndarray
+    available: np.ndarray
+    features: list
+    background_size: int
+
+    def evaluate(self,rows):
+        from ..match.historical import _prior_log_ratio,unpaired_score
+        groups=len(self.sizes)
+        density=self.density.take(rows)
+        sizes=np.tile(self.sizes,len(rows))
+        valid=np.repeat(self.available[rows],groups)&(sizes>0)
+        prior=np.zeros(len(sizes))
+        for codes,counts,background in self.features:
+            selected=codes[rows]
+            prior=pl.DataFrame({'prior':prior,'reference':counts[selected].reshape(-1),
+                'background':np.repeat(background[selected],groups),'size':sizes}).select(
+                    (pl.col('prior')+_prior_log_ratio(pl.col('reference'),pl.col('background'),
+                        pl.col('size'),self.background_size)).alias('prior'))['prior'].to_numpy().copy()
+        prior[~valid]=np.nan
+        score=np.full(len(sizes),np.nan)
+        if valid.any():
+            score[valid]=unpaired_score(density[valid],prior[valid],pl.Series(sizes[valid]),log_scale=True).to_numpy()
+        return density,prior,score,density>0
+
+
+def _original_model(queries,reference,targets,background,include_length,reserve):
+    """Fixed reference/control marginal counts; no query-specific model changes."""
+    from ..match.historical import _prior_features
+    features=_prior_features(queries)
+    ref=_prior_features(reference.unique([*PMHC,'cdr3'],keep='first',maintain_order=True)).join(
+        targets,on=PMHC,how='left',nulls_equal=True,validate='m:1')
+    groups=targets.height
+    reserve(groups*8+queries.height)
+    sizes=np.zeros(groups,dtype=np.uint64)
+    counts=ref.group_by('_bank_target').len()
+    sizes[counts['_bank_target'].to_numpy()]=counts['len'].to_numpy()
+    available=queries.select((pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$') &
+        pl.all_horizontal(pl.col('v','j').cast(pl.String).str.strip_chars().ne(''))).fill_null(False)).to_series().to_numpy()
+    prepared=[]
+    nb,marginals=background
+    for column in ['v','j']+(['length'] if include_length else []):
+        axis=features.select(column).unique(maintain_order=True).with_row_index('_feature')
+        reserve(queries.height*4+axis.height*(groups*4+8))
+        codes=features.select(column).join(axis,on=column,how='left',nulls_equal=True,
+            validate='m:1',maintain_order='left')['_feature'].to_numpy()
+        matrix=np.zeros((axis.height,groups),dtype=np.uint32)
+        # Ordinary joins intentionally do not match null feature values, as in germline_prior.
+        rc=ref.group_by('_bank_target',column).len().join(axis,on=column,how='inner',validate='m:1')
+        matrix[rc['_feature'].to_numpy(),rc['_bank_target'].to_numpy()]=rc['len'].to_numpy()
+        bc=axis.join(marginals[column],on=column,how='left',validate='1:1',maintain_order='left')
+        prepared.append((codes,matrix,bc['_bg_count'].fill_null(0).cast(pl.UInt64).to_numpy()))
+    return _OriginalModel(_sparse([],groups,0.),sizes,available,prepared,nb)
+
+
 @dataclass
 class ComponentBank:
     mapping: pl.DataFrame
     targets: pl.DataFrame
     values: dict
+    originals: dict | None = None
 
     def frames(self, queries=None):
-        """Reproduce requested source IDs, including repeated receptor observations."""
+        """Reproduce every source case, including zero-density continuous priors."""
         mapping = self.mapping
         if queries is not None:
             mapping = queries.select('query_id').join(mapping,on='query_id',how='left',
@@ -28,26 +123,42 @@ class ComponentBank:
         if not groups:
             return
         for part in mapping.iter_slices(max(1,_BATCH_ROWS//groups)):
-            rows = part['_query_row'].to_numpy()
+            rows=part['_query_row'].to_numpy()
+            data={name:(value.take(rows) if isinstance(value,_SparseScores) else value[rows].reshape(-1))
+                for name,value in self.values.items() if value is not None}
+            if self.originals is not None:
+                original={name:model.evaluate(rows) for name,model in self.originals.items()}
+                for name,(_,_,score,support) in original.items():
+                    data['original_'+name+'_score' if name else 'original_score']=score
+                    data['original_supported_'+name if name else 'original_supported']=support
+                if 'alpha' in original:
+                    from ..match.historical import paired_score
+                    da,pa,_,sa=original['alpha'];db,pb,_,sb=original['beta']
+                    valid=np.isfinite(pa)&np.isfinite(pb)
+                    paired=np.full(len(pa),np.nan)
+                    if valid.any():
+                        paired[valid]=paired_score(pl.Series(db[valid]),pl.Series(da[valid]),
+                            pl.Series(pa[valid])+pl.Series(pb[valid]),log_scale=True).to_numpy()
+                    data['original_score']=paired;data['original_supported']=sa&sb
             yield part.drop('_query_row').join(self.targets,how='cross').with_columns(*[
-                pl.Series(name,value[rows].reshape(-1),nan_to_null=True)
-                for name,value in self.values.items()])
+                pl.Series(name,data[name],nan_to_null=True) for name in self.values])
 
 
 def score_component_bank(queries,reference,control,*,species,locus,threads=1,exclude_exact=False):
-    """Score every label once on deduplicated raw receptor configurations.
+    """Collect positive raw support and reconstruct unchanged fixed priors.
 
-    Raw arrays use float64 scores and Boolean support. No source label, Pgen
-    stratum or assay outcome changes a model or scoring key. Source identities
-    and repeated null draws are restored by ``frames``. The allocation guard
-    includes paired temporary factors and bounded arithmetic scratch; it does
-    not certify whole-process RSS or the manuscript resource gate.
+    Missing kernel evidence remains missing; original density defaults to zero.
+    Original priors use fixed per-feature reference/control counts, with the
+    original floating-point operation order and sparse-reference activation.
+    Every source observation is restored in bounded full-label batches. The
+    12 GiB allocation guard includes sparse-record copies and arithmetic scratch;
+    it does not establish whole-process RSS or the manuscript resource gate.
     """
     from . import combined
     from ..evalue.control import _organism
     from ..evalue.paired import build_paired_ref
     from ..match.geometry import precompute_v_loop_distances
-    from ..match.historical import _prepare_prior_background,paired_score
+    from ..match.historical import _prepare_prior_background
 
     if threads<1 or locus not in {'TRA','TRB','paired'}:
         raise ValueError('component scoring requires positive threads and TRA/TRB/paired locus')
@@ -67,9 +178,14 @@ def score_component_bank(queries,reference,control,*,species,locus,threads=1,exc
     mapping=queries.select('query_id',*keys).join(unique.rename({'query_id':'_query_row'}),
         on=keys,how='left',nulls_equal=True,validate='m:1',maintain_order='left').select('query_id','_query_row')
     shape=(unique.height,targets.height)
-    required=shape[0]*shape[1]*(80 if paired else 32)+_BATCH_ROWS*8*32
-    if required>_ARRAY_LIMIT_BYTES or targets.height>_BATCH_ROWS:
-        raise ValueError('component array budget exceeded; reduce the receptor population')
+    coverage=(shape[0]*shape[1]+7)//8
+    used=0
+    def reserve(size):
+        nonlocal used
+        used+=size
+        if used>_ARRAY_LIMIT_BYTES or targets.height>_BATCH_ROWS:
+            raise ValueError('component array budget exceeded; reduce the receptor population')
+    reserve(2*coverage+max(_BATCH_ROWS*8*32,unique.height*8*32))
     prior_counts=control.get('_prior_counts')
     if prior_counts is None:
         prior_counts=_prepare_prior_background(control['prior_background'])
@@ -77,66 +193,44 @@ def score_component_bank(queries,reference,control,*,species,locus,threads=1,exc
     if contexts is None:
         contexts={matrix:precompute_v_loop_distances(species=species,alphabet='full',matrix=matrix,
             v_regions='cdr12plus') for matrix in ('clipped','blosum62')}
-    values={}
-    def value(name):
-        if name not in values:
-            boolean=name.startswith('original_supported')
-            values[name]=np.full(shape,False if boolean else np.nan,dtype=bool if boolean else np.float64)
-        return values[name]
+    values={};originals={};parts={}
     target_rows=targets.with_row_index('_bank_target')
-    def receiver(columns,kernel=False):
-        seen=np.zeros(shape,dtype=bool)
+    def receiver(column,name):
+        seen=np.zeros(coverage,dtype=np.uint8)
+        collected=parts.setdefault(name,[])
         def consume(frame):
             frame=frame.join(target_rows,on=PMHC,how='left',nulls_equal=True,validate='m:1')
             if frame['_bank_target'].null_count():
                 raise RuntimeError('component batch contains unknown targets')
             q=frame['query_id'].to_numpy();t=frame['_bank_target'].to_numpy()
-            if np.any(q>=shape[0]) or seen[q,t].any() or np.unique(q.astype(np.uint64)*shape[1]+t).size!=len(q):
-                raise RuntimeError('component batch contains unknown or repeated cases')
-            seen[q,t]=True
-            for source,dest in columns:
-                raw=frame[source].to_numpy()
-                value(dest)[q,t]=np.where(raw>0,raw,np.nan) if kernel else raw
+            _mark(seen,q,t,*shape)
+            raw=frame[column].to_numpy();keep=raw>0
+            if keep.any():
+                reserve(int(keep.sum())*48)  # retained records plus packing/sort copies
+                collected.append((q[keep].astype(np.uint64)*shape[1]+t[keep],raw[keep]))
         return consume
     lanes=[('TRA','a','alpha'),('TRB','b','beta')] if paired else [(locus,'','')]
     for chain,suffix,name in lanes:
         query=(unique.select('query_id',*[pl.col(c+suffix).alias(c) for c in ('cdr3','v','j')])
             if paired else unique).with_columns(pl.lit(chain).alias('locus'))
         ref=reference.filter(pl.col('gene')==chain)
-        columns=[('original_score','original_'+name+'_score' if paired else 'original_score'),
-            ('original_supported','original_supported_'+name if paired else 'original_supported')]
-        if paired:
-            columns += [('original_density','_'+name+'_density'),('germline_lr','_'+name+'_prior')]
-        consume=receiver(columns)
+        model=_original_model(query,ref,target_rows,prior_counts,chain=='TRB',reserve)
+        consume=receiver('original_density',name)
         combined._original(query,ref,None,control['density_index'][chain] if paired else control['density_index'],
             control['prior_background'],locus=chain,threads=threads,exclude_exact=exclude_exact,
             prior_counts=prior_counts,_consume=consume)
         del consume
-    if paired:
-        factors=[value('_'+name+'_'+kind).reshape(-1) for name,kind in
-            [('beta','density'),('alpha','density'),('alpha','prior'),('beta','prior')]]
-        result=value('original_score').reshape(-1)
-        part=None
-        for start in range(0,len(result),_BATCH_ROWS):
-            part=[x[start:start+_BATCH_ROWS] for x in factors]
-            valid=np.isfinite(np.column_stack(part)).all(axis=1)
-            if valid.any():
-                beta,alpha,pa,pb=[pl.Series(x[valid]) for x in part]
-                indices=np.flatnonzero(valid)+start
-                result[indices]=paired_score(beta,alpha,pa+pb,log_scale=True).to_numpy()
-        values['original_supported']=value('original_supported_alpha') & value('original_supported_beta')
-        del factors,result,part
-        for name in ('_alpha_density','_alpha_prior','_beta_density','_beta_prior'):
-            del values[name]
+        model.density=_sparse(parts.pop(name,[]),shape[1],0.)
+        originals[name]=model
     for chain,suffix,name in lanes:
         query=(unique.select('query_id',*[pl.col(c+suffix).alias(c) for c in ('cdr3','v','j')])
             if paired else unique).with_columns(pl.lit(chain).alias('locus'))
         ref=reference.filter(pl.col('gene')==chain)
         consumers={}
         def consume(kind,frame):
-            if kind not in consumers:
-                consumers[kind]=receiver([('kernel_score',kind+'_'+name+'_score' if paired else kind+'_score')],kernel=True)
-            consumers[kind](frame)
+            key=kind+'_'+name+'_score' if paired else kind+'_score'
+            if key not in consumers:consumers[key]=receiver('kernel_score',key)
+            consumers[key](frame)
         combined._kernel(query,ref,None,species=species,threads=threads,paired=False,
             exclude_exact=exclude_exact,contexts=contexts,_consume=consume)
         del consumers,consume
@@ -145,9 +239,9 @@ def score_component_bank(queries,reference,control,*,species,locus,threads=1,exc
             reference=reference.with_columns(pl.lit('0').alias('complex_id'))
         consumers={}
         def consume(kind,frame):
-            if kind not in consumers:
-                consumers[kind]=receiver([('kernel_score',kind+'_linked_score')],kernel=True)
-            consumers[kind](frame)
+            key=kind+'_linked_score'
+            if key not in consumers:consumers[key]=receiver('kernel_score',key)
+            consumers[key](frame)
         combined._kernel(unique,build_paired_ref(reference),None,species=species,threads=threads,paired=True,
             exclude_exact=exclude_exact,contexts=contexts,_consume=consume)
         del consumers,consume
@@ -156,5 +250,5 @@ def score_component_bank(queries,reference,control,*,species,locus,threads=1,exc
             'original_supported_alpha','original_supported_beta'] if paired else
            ['original_score','original_supported','gapblock_score','stem4_score'])
     for name in names:
-        value(name)
-    return ComponentBank(mapping,targets,values)
+        values[name]=None if name.startswith('original') else _sparse(parts.pop(name,[]),shape[1])
+    return ComponentBank(mapping,targets,values,originals)
