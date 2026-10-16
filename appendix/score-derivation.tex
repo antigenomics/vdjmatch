@@ -1495,6 +1495,19 @@ Tables are written one target at a time without retaining every target's motif r
 Overlapping tokens are dependent: their binary divergences are not an additive estimate of joint sequence information.
 These descriptive projections help identify informative families and motifs; the retained MF--IKF retrieval score, final rule selection and complete-score calibration remain distinct calculations.
 
+\paragraph{Conditional evidence can overcome stratum depletion.}
+Let $N_{\rm all},M_{\rm all}$ count all reference/control junction/V-gene keys in the same declared populations.
+For positive matched counts, the joint presence evidence is
+\[
+ \log_2\frac{n/N_{\rm all}}{m/M_{\rm all}}
+ =\underbrace{\log_2\frac{N/N_{\rm all}}{M/M_{\rm all}}}_{\text{V/length stratum}}
+ +\underbrace{\log_2\frac{n/N}{m/M}}_{\text{conditional motif}}.
+\]
+Thus a depleted germline category can contain a strongly enriched conditional junction solution.
+The V/length and motif terms must use identical strata and population units; a pooled marginal V factor cannot replace the V/length term in an exact-length comparison.
+Neither factor is a receptor veto, and adding overlapping token terms would not preserve this single-projection likelihood identity.
+Unobserved control support remains unavailable rather than receiving an invented probability floor.
+
 \subsection{Germline-loop projections with allele ambiguity}
 The germline diagnostic projects existing V-gene counts onto aligned CDR1, CDR2 and CDR2.5 columns, using full residues and eleven-class IMGT reductions separately.
 Columns are one-based positions in the bundled alignment, not structural residue numbers.

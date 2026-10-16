@@ -121,6 +121,23 @@ The first can be negative for a depleted motif; the second is the Kullback–Lei
 
 The shipping ``reference-structure --control`` command writes these reference-observed token projections to ``.motifs.tsv``. It reuses the existing tokenizer in bounded blocks and reduces once-per-key presence counts, with one control model per species/locus and one fixed model per target. Tables are written one target at a time without retaining every target’s motif rows. Overlapping tokens are dependent: their binary divergences are not an additive estimate of joint sequence information. These descriptive projections help identify informative families and motifs; the retained MF–IKF retrieval score, final rule selection and complete-score calibration remain distinct calculations.
 
+A depleted germline category can still contain a strongly selected junction
+solution. Let :math:`N_{\rm all},M_{\rm all}` count all reference/control keys in
+the same declared populations. The joint presence evidence factors exactly as
+
+.. math::
+
+   \log_2\frac{n/N_{\rm all}}{m/M_{\rm all}}
+   =\underbrace{\log_2\frac{N/N_{\rm all}}{M/M_{\rm all}}}_{\text{V/length stratum}}
+   +\underbrace{\log_2\frac{n/N}{m/M}}_{\text{conditional motif}}.
+
+Only matched population units and the same stratum permit this addition. A
+pooled marginal V factor cannot replace the V/length term in an exact-length
+comparison. A positive conditional term can outweigh stratum depletion;
+neither term alone is a receptor veto. This is one joint feature projection,
+not a sum over overlapping motifs or a new score-selection rule. Unobserved
+control support remains unavailable instead of receiving an invented floor.
+
 Germline-loop information with allele ambiguity
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
