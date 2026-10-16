@@ -77,7 +77,8 @@ def test_control_union_features_one_batch(tmp_path, model_path, monkeypatch):
     control = tmp_path/'control.tsv'
     control.write_text('count\tfreq\tcdr3aa\tv\tj\n'
         '4\t0.5\tCAVRDSNYQLIW\tTRAV1-1\tTRBJ1-1\n'
-        '4\t0.5\tCAVSDRGSTLGRLYF\tTRDV1\tTRAJ1\n')
+        '4\t0.5\tCAVSDRGSTLGRLYF\tTRDV1\tTRAJ1\n'
+        '1\t0.1\tCASSF\tTRBV1\tTRBJ1-1\n')
     calls = []
     def batch(model, seqs, **kwargs):
         calls.append((seqs, kwargs))
@@ -86,13 +87,15 @@ def test_control_union_features_one_batch(tmp_path, model_path, monkeypatch):
     _, out, manifest = run(tmp_path, model_path,
         pl.DataFrame({'junction_aa': ['CAVRDSNYQLIW'] * 2}),
         '--control', str(control), '--mismatches', '1')
-    assert calls == [(['CAVRDSNYQLIW', 'CAVSDRGSTLGRLYF'], {'mismatches': 1, 'threads': 1})]
+    assert calls == [(['CASSF', 'CAVRDSNYQLIW', 'CAVSDRGSTLGRLYF'], {'mismatches': 1, 'threads': 1})]
     assert out.height == 2
     features = pl.read_parquet(tmp_path/'result.features.parquet')
     assert features['junction_aa'].to_list() == calls[0][0]
-    assert features['pgen'].to_list() == [0.1, 0.1]
-    assert manifest['control']['canonical_rows'] == 2
+    assert features['pgen'].to_list() == [0.1, 0.1, 0.1]
+    assert features['locus'].to_list() == ['TRA'] * 3
+    assert manifest['control']['canonical_rows'] == 3
     assert manifest['control']['conflicting_gene_rows'] == 1
+    assert manifest['control']['other_chain_first_call_rows'] == 1
     assert manifest['features']['sha256'] and manifest['options']['mismatches'] == 1
 
 

@@ -89,7 +89,10 @@ and ``locus``. The manifest records the control input hash, excluded noncanonica
 row count and feature-table hash. Control read counts and AA incidence do not
 weight the generative mass. Shared TRA/TRD V genes and contradictory V/J calls
 do not remove canonical AA keys; conflicting gene rows are counted in the manifest.
-Unambiguously different TRA/TRB control annotations fail validation.
+Other-chain first V/J calls in pooled AA data are also counted, without rejecting
+the sequence keys. The feature-table species/locus identify the selected generative
+model; they do not reassign observed receptors to a chain. Downstream observed
+controls retain their separate raw NT/V/J normalization and chain selection.
 ``scores.tsv`` still retains every selected reference
 observation and its full pMHC metadata. Models remain separate by species and chain.
 The requested feature table is a versioned input to subsequent diagnostics;

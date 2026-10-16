@@ -107,12 +107,11 @@ def main(a):
     if a.control:
         from vdjtools.io import read_vdjtools
         control_rows = read_vdjtools(a.control)
-        # Shared V genes and contradictory calls do not veto marginal AA mass
-        # in an explicitly declared control population; retain and count conflicts.
+        # Pooled AA gene calls are descriptive; these keys are scored under
+        # the explicitly selected model, without conditioning on V/J.
         j_locus, v_locus = pl.col('j_call').str.slice(0, 3), pl.col('locus')
-        if control_rows.filter(v_locus.is_in(['TRA', 'TRB']) & (v_locus == j_locus) &
-                (j_locus != a.locus)).height:
-            raise ValueError('control locus does not match --locus')
+        other_chain = control_rows.filter(v_locus.is_in(['TRA', 'TRB']) &
+            (v_locus == j_locus) & (j_locus != a.locus)).height
         conflicts = control_rows.filter(v_locus.is_in(['TRA', 'TRB']) &
             j_locus.is_in(['TRA', 'TRB']) & (v_locus != j_locus)).height
         control_rows = control_rows.select(
@@ -123,6 +122,7 @@ def main(a):
             source_rows=control_rows.height, canonical_rows=canonical.height,
             excluded_rows=control_rows.height-canonical.height,
             conflicting_gene_rows=conflicts,
+            other_chain_first_call_rows=other_chain,
             reader_sha256=sha256(Path(read_vdjtools.__code__.co_filename)),
             unit='AA junction keys only; control read abundance and AA incidence are not probability weights')
         sequences = pl.concat([sequences, canonical])
