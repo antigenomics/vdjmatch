@@ -48,23 +48,7 @@ def main(a, *, inputs=None):
     from .structure import reference_groups
 
     start = time.monotonic()
-    if a.threads < 1 or a.nboot < 2 or a.seed < 0 or a.mock_replicates < 0 or a.mock_replicates == 1:
-        raise ValueError('positive threads, nboot>=2, seed>=0 and mock-replicates zero or >=2 required')
-    if bool(a.control) != bool(a.mock_replicates):
-        raise ValueError('--control and --mock-replicates>=2 must be supplied together')
-    if a.geometry == 'sw' and a.sw_radius is None and not a.sw_radius_knee:
-        raise ValueError('full SW requires explicit --sw-radius; no radius is selected automatically')
-    if a.sw_radius is not None and a.sw_radius_knee:
-        raise ValueError('select explicit radius or reference Kneedle, not both')
-    if a.geometry == 'levenshtein' and (a.sw_radius is not None or a.sw_radius_knee):
-        raise ValueError('--sw-radius applies only to SW geometry')
-    if a.geometry == 'sw' and a.scope != '1,1,1,1':
-        raise ValueError('--scope applies only to Levenshtein geometry')
-    try:
-        import igraph
-        import leidenalg
-    except ImportError as exc:
-        raise ValueError('Leiden requires vdjmatch[diagnostics]') from exc
+    validate_options(a)
     protected = [a.vdjdb] + ([a.control] if a.control else []) + ([a.targets_from_sample] if a.targets_from_sample else [])
     prefix = _validate_output_paths(a.output_prefix, protected)
     organism = _organism(a.species)
@@ -205,3 +189,34 @@ def main(a, *, inputs=None):
         graph_preparation_seconds=graph_seconds, tables={path.name:sha256(path) for path in tables}, seconds=time.monotonic()-start)
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
     return 0
+
+
+def validate_options(a):
+    """Reject invalid/unsupported graph requests before any raw computation."""
+    if a.threads < 1 or a.nboot < 2 or a.seed < 0 or a.mock_replicates < 0 or a.mock_replicates == 1:
+        raise ValueError('positive threads, nboot>=2, seed>=0 and mock-replicates zero or >=2 required')
+    if bool(a.control) != bool(a.mock_replicates):
+        raise ValueError('--control and --mock-replicates>=2 must be supplied together')
+    if a.geometry == 'sw' and a.sw_radius is None and not a.sw_radius_knee:
+        raise ValueError('full SW requires --sw-radius or --sw-radius-knee')
+    if a.sw_radius is not None and a.sw_radius_knee:
+        raise ValueError('select explicit radius or reference Kneedle, not both')
+    if a.geometry == 'levenshtein' and (a.sw_radius is not None or a.sw_radius_knee):
+        raise ValueError('--sw-radius applies only to SW geometry')
+    if a.geometry == 'sw' and a.scope != '1,1,1,1':
+        raise ValueError('--scope applies only to Levenshtein geometry')
+    try:
+        import igraph
+        import leidenalg
+    except ImportError as exc:
+        raise ValueError('Leiden requires vdjmatch[diagnostics]') from exc
+    import math
+    if a.pair_budget < 1 or a.gap_open < 0 or a.gap_extend < 0 or not math.isfinite(a.leiden_resolution) or a.leiden_resolution <= 0:
+        raise ValueError('positive pair budget/resolution and nonnegative gap costs required')
+    if a.sw_radius is not None and not 0 <= a.sw_radius < 2**28:
+        raise ValueError('SW radius must be nonnegative and below 2**28')
+    if a.geometry == 'levenshtein':
+        from ..match.scope import parse_scope
+        _, insertions, deletions, _ = parse_scope(a.scope)
+        if insertions != deletions:
+            raise ValueError('undirected edit graphs require symmetric insertion/deletion budgets')

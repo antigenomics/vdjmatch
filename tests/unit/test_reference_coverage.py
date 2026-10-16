@@ -123,7 +123,8 @@ def test_reference_coverage_cli_uses_one_batch_for_real_and_control_graphs(tmp_p
     assert len(manifest['tables']) == 5 and manifest['control']['replicates'] == 2
 
 
-def test_combined_diagnostics_loads_control_and_pgen_once(tmp_path, monkeypatch):
+@pytest.mark.parametrize('geometry', ['levenshtein', 'both'])
+def test_combined_diagnostics_loads_control_and_pgen_once(tmp_path, monkeypatch, geometry):
     pytest.importorskip('leidenalg')
     import json
     import vdjmatch.evalue.mock_reference as mocks
@@ -139,9 +140,12 @@ def test_combined_diagnostics_loads_control_and_pgen_once(tmp_path, monkeypatch)
         calls.append('pgen')
         return pool.select('junction_aa').with_columns(pl.lit(.25).alias('pgen'))
     monkeypatch.setattr(mocks, 'compute_pgen', pgen)
-    assert main(['reference-diagnostics', '--vdjdb', str(reference), '--control', str(control),
-        '--locus', 'TRB', '--geometry', 'levenshtein', '--mock-replicates', '2', '--nboot', '3',
-        '--output-prefix', str(prefix)]) == 0
+    args = ['reference-diagnostics', '--vdjdb', str(reference), '--control', str(control),
+        '--locus', 'TRB', '--geometry', geometry, '--scope', '2,1,1,2', '--mock-replicates', '2', '--nboot', '3',
+        '--output-prefix', str(prefix)]
+    if geometry == 'both':
+        args += ['--sw-radius', '20']
+    assert main(args) == 0
     assert calls == ['pgen']
     motifs = pl.read_csv(str(prefix)+'.motifs.tsv', separator='\t')
     assert set(motifs['motif_mode']) == {'exact3', 'wild4', 'imgt3', 'imgt_wild4'}
@@ -193,3 +197,11 @@ def test_edit_search_deduplicates_geometry_only_and_bounds_actual_edges(monkeypa
     assert nodes.height == 12 and edges.height == 12
     groups = nodes.select(pl.col('node').cast(pl.Int64).alias('a'), 'group_id')
     assert edges.join(groups, on='a').group_by('group_id').len()['len'].to_list() == [3]*4
+
+
+def test_combined_invalid_graph_fails_before_loading_raw_inputs(tmp_path, capsys):
+    from vdjmatch.cli.__main__ import main
+    with pytest.raises(SystemExit, match='2'):
+        main(['reference-diagnostics', '--vdjdb', str(tmp_path/'missing'), '--control', str(tmp_path/'missing-control'),
+            '--locus', 'TRB', '--output-prefix', str(tmp_path/'out')])
+    assert '--sw-radius or --sw-radius-knee' in capsys.readouterr().err
