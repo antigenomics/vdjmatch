@@ -43,7 +43,7 @@ def main(a, *, inputs=None):
     from ..aggregate.reference_coverage import reference_graph, leiden_taxa, abundance_coverage, sw_knee
     from ..db.cache import sha256
     from ..evalue.control import _organism
-    from ..evalue.mock_reference import control_events, compute_pgen, iter_mock_references, EVENT_SAMPLER, _pgen_model_identity
+    from ..evalue.mock_reference import control_events, compute_pgen, iter_mock_references, EVENT_SAMPLER, _pgen_model_identity, _prepare_mock_control
     from ..runner.annotation import _validate_output_paths
     from .structure import reference_groups
 
@@ -88,7 +88,10 @@ def main(a, *, inputs=None):
             del control_raw
             pgen = compute_pgen(reference.rename({'cdr3': 'junction_aa'}), events,
                 species=organism, locus=a.locus, threads=a.threads)
+            prepared_control = _prepare_mock_control(reference.rename({'cdr3': 'junction_aa'}), events,
+                pgen=pgen, species=organism, locus=a.locus, threads=a.threads)
         else:
+            prepared_control = inputs['prepared_control']
             events, pgen, control_info = inputs['events'], inputs['pgen'], dict(inputs['control_info'])
         control_info.update(sha256=sha256(Path(a.control)), events=int(events['event_weight'].sum()),
             event_keys=events.height, sampler=EVENT_SAMPLER, replicates=a.mock_replicates,
@@ -99,7 +102,8 @@ def main(a, *, inputs=None):
             if not selected.height:
                 continue
             for mock in iter_mock_references(selected, events, replicates=a.mock_replicates,
-                    seed=stable_seed(task, 'control'), pgen=pgen, species=organism, locus=a.locus, threads=a.threads):
+                    seed=stable_seed(task, 'control'), pgen=pgen, species=organism, locus=a.locus, threads=a.threads,
+                    prepared_control=prepared_control):
                 replicate = int(mock['replicate'][0])
                 group = len(populations)
                 records.append(mock.select(pl.col('junction_aa').alias('cdr3'), 'v', 'j',

@@ -109,11 +109,13 @@ def main(a, *, return_inputs=False):
     # One batched native search for the whole reference population, then subset its
     # edges by declared target membership; no per-epitope native search loop.
     mixture_available = pl.col('reference_valid') & pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
-    pgen = None
+    pgen, prepared_control = None, None
     if a.mock_replicates:
-        from ..evalue.mock_reference import compute_pgen, _pgen_model_identity
+        from ..evalue.mock_reference import compute_pgen, _pgen_model_identity, _prepare_mock_control
         pgen = compute_pgen(raw.filter(mixture_available).rename({'cdr3': 'junction_aa'}),
             events, species=organism, locus=a.locus, threads=a.threads)
+        prepared_control = _prepare_mock_control(raw.rename({'cdr3': 'junction_aa'}), events,
+            pgen=pgen, species=organism, locus=a.locus, threads=a.threads)
     mark('reference_and_pgen')
     selected_nodes = [source.filter(mixture_available).select('cdr3') for _,source in groups]
     nodes = (pl.concat(selected_nodes).unique(maintain_order=True) if selected_nodes else raw.head(0).select('cdr3')).with_row_index('_node')
@@ -184,7 +186,8 @@ def main(a, *, return_inputs=False):
                     [a.seed, species, a.locus, task], sort_keys=True).encode()).digest()[:8], 'little')
                 motifs = motif_bootstrap(source.filter(mixture_available), events, control_motif,
                     motifs, pgen=pgen, locus=a.locus, species=organism,
-                    replicates=a.mock_replicates, seed=task_seed, threads=a.threads)
+                    replicates=a.mock_replicates, seed=task_seed, threads=a.threads,
+                    prepared_control=prepared_control)
             elif a.mock_replicates:
                 motifs = motifs.with_columns(pl.lit(a.mock_replicates).alias('control_replicates'),
                     *[pl.lit(None, dtype=pl.Float64).alias(c) for c in
@@ -358,4 +361,5 @@ def main(a, *, return_inputs=False):
         interpretation='reference-only morphology and fixed graph-mixture heuristic; no label fit, recognition probability or P/E-value',
         source_sha256=sha256(Path(__file__)), reducer_sha256=sha256(Path(graph_profiles.__code__.co_filename)),
         stage_seconds=stages, tables={str(p.name):sha256(p) for p in tables}, seconds=time.monotonic()-start),indent=2)+'\n')
-    return dict(raw=raw, events=events, pgen=pgen, control_info=control_info) if return_inputs else 0
+    return dict(raw=raw, events=events, pgen=pgen, control_info=control_info,
+        prepared_control=prepared_control) if return_inputs else 0

@@ -252,3 +252,26 @@ def test_event_slot_sampler_matches_exhaustive_hypergeometric_law():
         assert np.array_equal(a, b)
         assert len(a) == count
         assert np.all(np.bincount(a, minlength=3) <= weight)
+
+
+def test_prepared_control_preserves_seeded_draws_and_rejects_wrong_inputs():
+    from vdjmatch.evalue.mock_reference import _prepare_mock_control
+    reference = pl.DataFrame({'group_id': [2, 0, 2, 0],
+        'junction_aa': ['CAAF', 'CACF', 'CAAF', 'CACF']})
+    control = pl.DataFrame({'junction_aa': ['CACF', 'CAAF', 'CAAF', 'CADF'],
+        'v': ['TRBV2', 'TRBV1', 'TRBV2', 'TRBV1'], 'j': ['TRBJ1'] * 4,
+        'event_weight': [7, 5, 3, 9], 'pgen': [0.] * 4})
+    pgen = pl.DataFrame({'junction_aa': ['CAAF', 'CACF', 'CADF'],
+        'pgen': [.25, .25, .125]})
+    prepared = _prepare_mock_control(reference, control, pgen=pgen)
+    options = dict(replicates=4, seed=19, pgen=pgen)
+    original = list(iter_mock_references(reference, control, **options))
+    reused = list(iter_mock_references(reference, control, prepared_control=prepared, **options))
+    assert all(a.equals(b) for a, b in zip(original, reused))
+    assert all(not cumulative.flags.writeable for _, cumulative in prepared[-1].values())
+    for other_control, other_pgen, species, locus in (
+            (control.clone(), pgen, 'human', 'TRB'), (control, pgen.clone(), 'human', 'TRB'),
+            (control, pgen, 'mouse', 'TRB'), (control, pgen, 'human', 'TRA')):
+        with pytest.raises(ValueError, match='same control/Pgen'):
+            list(iter_mock_references(reference, other_control, replicates=2,
+                pgen=other_pgen, species=species, locus=locus, prepared_control=prepared))

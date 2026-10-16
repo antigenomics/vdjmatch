@@ -214,8 +214,35 @@ def pgen_strata(pgen: pl.DataFrame) -> pl.DataFrame:
     return pgen.select('junction_aa').with_columns(pl.Series('pgen_bin', bins))
 
 
+def _prepare_mock_control(reference, control, *, pgen=None, species='human', locus='TRB', threads=1):
+    """Prepare immutable event pools for this execution, never persisted or RNG state.
+
+    The tuple binds the exact control/Pgen objects and species/locus. Callers
+    must keep those frames unchanged and pass the same objects when reusing it.
+    """
+    event_keys = ['junction_aa', *[c for c in ('v', 'j') if c in control.columns]]
+    if control.select(event_keys).n_unique() != control.height:
+        raise ValueError('control must have unique normalized event keys')
+    # Always discard any source-supplied Pgen; only a fresh explicit map is used.
+    pgen = compute_pgen(reference, control, species=species, locus=locus, threads=threads) if pgen is None else pgen
+    strata = pgen_strata(pgen).rename({'pgen_bin': '_bin'})
+    pool = control.select(*event_keys, 'event_weight').join(strata, on='junction_aa', how='left', validate='m:1')
+    if pool['_bin'].null_count():
+        raise ValueError('Pgen map must cover every reference and control junction')
+    pool = pool.with_columns(_integer_count('event_weight').alias('event_weight'))
+    if pool['event_weight'].null_count() or (pool['event_weight'] <= 0).any():
+        raise ValueError('control event weights must be positive integers')
+    pool = pool.sort(event_keys)
+    pools = {key[0]: (part.select(event_keys), np.cumsum(part['event_weight'].to_numpy(), dtype=np.int64))
+             for key, part in pool.partition_by('_bin', as_dict=True).items()}
+    for _, cumulative in pools.values():
+        cumulative.flags.writeable = False
+    return control, pgen, _organism(species), locus, strata, event_keys, pools
+
+
 def iter_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, replicates: int,
-        seed: int = 0, pgen: pl.DataFrame | None = None, species='human', locus='TRB', threads=1):
+        seed: int = 0, pgen: pl.DataFrame | None = None, species='human', locus='TRB', threads=1,
+        prepared_control=None):
     """Yield one replicate of null event memberships matching every reference source row.
 
     ``reference`` has ``group_id,junction_aa``; repeated source rows remain in
@@ -227,6 +254,8 @@ def iter_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, repl
     reference/control overlaps remain eligible random matches. Insufficient
     strata fail; sampled controls are not asserted experimental nonbinders.
     ``pgen`` is an optional in-memory computed map for composition/testing.
+    Internal ``prepared_control`` reuses only this execution's validated pools;
+    target counts, RNG streams and sampled memberships remain fresh per call.
     The supported pool limit remains fewer than one billion events per stratum.
     Uniform event-slot sampling preserves the previous hypergeometric law but
     changes seeded realizations; provenance records ``EVENT_SAMPLER``.
@@ -236,22 +265,16 @@ def iter_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, repl
     reference = reference.select('group_id', 'junction_aa')
     if not reference.height or any(reference[c].null_count() for c in reference.columns):
         raise ValueError('reference requires nonempty non-null group_id and junction_aa')
-    event_keys = ['junction_aa', *[c for c in ('v', 'j') if c in control.columns]]
-    if control.select(event_keys).n_unique() != control.height:
-        raise ValueError('control must have unique normalized event keys')
-    # Always discard any source-supplied Pgen; only a fresh explicit map is used.
-    pgen = compute_pgen(reference, control, species=species, locus=locus, threads=threads) if pgen is None else pgen
-    strata = pgen_strata(pgen).rename({'pgen_bin': '_bin'})
+    if prepared_control is None:
+        prepared_control = _prepare_mock_control(reference, control, pgen=pgen,
+            species=species, locus=locus, threads=threads)
+    elif (prepared_control[0] is not control or prepared_control[1] is not pgen or
+            prepared_control[2:4] != (_organism(species), locus)):
+        raise ValueError('prepared control requires the same control/Pgen objects and species/locus')
+    _, _, _, _, strata, event_keys, pools = prepared_control
     targets = reference.join(strata, on='junction_aa', how='left', validate='m:1')
-    pool = control.select(*event_keys, 'event_weight').join(strata, on='junction_aa', how='left', validate='m:1')
-    if targets['_bin'].null_count() or pool['_bin'].null_count():
+    if targets['_bin'].null_count():
         raise ValueError('Pgen map must cover every reference and control junction')
-    pool = pool.with_columns(_integer_count('event_weight').alias('event_weight'))
-    if pool['event_weight'].null_count() or (pool['event_weight'] <= 0).any():
-        raise ValueError('control event weights must be positive integers')
-    pool = pool.sort(event_keys)
-    pools = {key[0]: (part.select(event_keys), np.cumsum(part['event_weight'].to_numpy(), dtype=np.int64))
-             for key, part in pool.partition_by('_bin', as_dict=True).items()}
     counts = targets.group_by('group_id', '_bin').len().sort('group_id', '_bin')
     for group, bin_id, count in counts.iter_rows():
         available = int(pools[bin_id][1][-1]) if bin_id in pools else 0

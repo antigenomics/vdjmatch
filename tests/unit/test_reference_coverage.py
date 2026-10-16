@@ -140,13 +140,18 @@ def test_combined_diagnostics_loads_control_and_pgen_once(tmp_path, monkeypatch,
         calls.append('pgen')
         return pool.select('junction_aa').with_columns(pl.lit(.25).alias('pgen'))
     monkeypatch.setattr(mocks, 'compute_pgen', pgen)
+    prepare = mocks._prepare_mock_control
+    def prepare_once(*args, **kwargs):
+        calls.append('prepare')
+        return prepare(*args, **kwargs)
+    monkeypatch.setattr(mocks, '_prepare_mock_control', prepare_once)
     args = ['reference-diagnostics', '--vdjdb', str(reference), '--control', str(control),
         '--locus', 'TRB', '--geometry', geometry, '--scope', '2,1,1,2', '--mock-replicates', '2', '--nboot', '3',
         '--output-prefix', str(prefix)]
     if geometry == 'both':
         args += ['--sw-radius', '20']
     assert main(args) == 0
-    assert calls == ['pgen']
+    assert calls == ['pgen', 'prepare']
     motifs = pl.read_csv(str(prefix)+'.motifs.tsv', separator='\t')
     assert set(motifs['motif_mode']) == {'exact3', 'wild4', 'imgt3', 'imgt_wild4'}
     manifest = json.loads((tmp_path/'out.levenshtein.manifest.json').read_text())
@@ -205,3 +210,17 @@ def test_combined_invalid_graph_fails_before_loading_raw_inputs(tmp_path, capsys
         main(['reference-diagnostics', '--vdjdb', str(tmp_path/'missing'), '--control', str(tmp_path/'missing-control'),
             '--locus', 'TRB', '--output-prefix', str(tmp_path/'out')])
     assert '--sw-radius or --sw-radius-knee' in capsys.readouterr().err
+
+
+def test_native_bootstrap_coverage_matches_owning_python_curve():
+    from vdjtools.stats import bootstrap_abundances, sample_coverage
+    from vdjmatch.aggregate.reference_coverage import abundance_coverage
+    for counts in ([1, 1, 2, 4], [1]*15000):
+        _, curve = abundance_coverage(counts, nboot=5, seed=7, threads=2)
+        depths = curve['m'].to_list()
+        expected = np.asarray([sample_coverage(draw, m=depths)['sample_coverage'].to_numpy()
+            for draw in bootstrap_abundances(counts, nboot=5, seed=7)])
+        np.testing.assert_allclose(curve['coverage_lo'], np.quantile(expected, .025, axis=0), rtol=0, atol=1e-9)
+        np.testing.assert_allclose(curve['coverage_hi'], np.quantile(expected, .975, axis=0), rtol=0, atol=1e-9)
+    with pytest.raises(ValueError, match='working memory'):
+        abundance_coverage([10_000_000], nboot=5, seed=7)

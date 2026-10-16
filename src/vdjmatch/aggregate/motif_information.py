@@ -107,7 +107,7 @@ def motif_selection_information(reference, control, *, locus, mode='imgt_wild4')
 
 
 def motif_bootstrap(reference, control_events, control, observed, *, pgen, locus,
-                    species, replicates, seed, threads=1):
+                    species, replicates, seed, threads=1, prepared_control=None):
     """Pgen-matched control-resampling envelope for the observed TF-IDF rows.
 
     Reuse the existing event-slot sampler and vdjtools native Pgen map. Draws
@@ -126,7 +126,8 @@ def motif_bootstrap(reference, control_events, control, observed, *, pgen, locus
     draws = np.empty((replicates, observed.height), dtype=np.float64)
     raw = reference.select(pl.col('cdr3').alias('junction_aa')).with_columns(pl.lit(0).alias('group_id'))
     for i, mock in enumerate(iter_mock_references(raw, control_events, replicates=replicates,
-            seed=seed, pgen=pgen, species=species, locus=locus, threads=threads)):
+            seed=seed, pgen=pgen, species=species, locus=locus, threads=threads,
+            prepared_control=prepared_control)):
         diagnostic = motif_selection_information(mock.rename({'junction_aa': 'cdr3'}),
             control, locus=locus, mode=control['mode'])
         draws[i] = axis.join(diagnostic.select(*keys, 'tfidf'), on=keys,

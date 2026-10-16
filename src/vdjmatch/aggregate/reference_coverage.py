@@ -1,4 +1,6 @@
 """Occurrence-weighted reference communities and vdjtools Chao/iNEXT adapters."""
+from itertools import islice
+
 import numpy as np
 import polars as pl
 
@@ -23,13 +25,20 @@ def abundance_coverage(counts, *, nboot=50, seed=0, threads=1):
     if total >= 2**31:
         raise ValueError('occurrence total exceeds vdjtools native bootstrap int32 range')
     estimate = float(asymptotic_diversity(x, q=0, se=False)['estimator'].item())
-    if (len(x) + total) * 32 + nboot * 41 * 16 > 256 * 1024**2:
+    working_bytes = (len(x) + total) * 32 + nboot * 41 * 16
+    # Include retained draws, float coercion, Python lists, native copies and sample scratch.
+    batch_size = min(nboot, (256 * 1024**2 - working_bytes) // (96 * total))
+    if batch_size < 1:
         raise ValueError('abundance bootstrap working memory exceeds 256 MiB')
     curve = rarefaction_batch([x], q=0, nboot=nboot, seed=seed, threads=threads).drop('sample')
     depths = curve['m'].to_list()
     coverage_draws = np.empty((nboot, len(depths)))
-    for i, draw in enumerate(bootstrap_abundances(x, nboot=nboot, seed=seed)):
-        coverage_draws[i] = sample_coverage(draw, m=depths)['sample_coverage'].to_numpy()
+    draws = bootstrap_abundances(x, nboot=nboot, seed=seed)
+    for start in range(0, nboot, batch_size):
+        end = min(start + batch_size, nboot)
+        block = rarefaction_batch(list(islice(draws, end - start)), q=0, sizes=depths,
+            se=False, threads=threads).sort('sample', 'm')
+        coverage_draws[start:end] = block['sample_coverage'].to_numpy().reshape(end - start, len(depths))
     curve = curve.with_columns(pl.Series('coverage_lo', np.quantile(coverage_draws, .025, axis=0)),
         pl.Series('coverage_hi', np.quantile(coverage_draws, .975, axis=0)))
     coverage = float(sample_coverage(x))

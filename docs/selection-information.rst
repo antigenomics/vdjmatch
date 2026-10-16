@@ -266,7 +266,7 @@ is :math:`(\widehat S-S)/\widehat S`; these quantities answer different question
 vdjtools provides interpolation/extrapolation through twice the observed effort,
 with normal 95% bootstrap intervals for richness. Coverage receives a 2.5/97.5
 percentile envelope from the same owning augmented-assemblage probability law,
-evaluated with vdjtools' coverage function. Bootstrap replicates and seeds are
+evaluated through vdjtools' bounded native rarefaction batches. Bootstrap replicates and seeds are
 explicit. vdjtools samples a large equal-probability unseen pool through an
 aggregated unseen category and uniform virtual taxon IDs. This preserves the
 augmented-assemblage law with memory proportional to observations rather than

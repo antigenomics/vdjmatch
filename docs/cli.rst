@@ -1799,8 +1799,8 @@ vdjmatch reference-diagnostics
 ------------------------------
 
 Run all four motif views and both occurrence/community geometries in one fresh
-invocation. The raw control and native Pgen preparation are shared in memory
-only for that invocation; no computed intermediates are saved or reused.
+invocation. The raw control, native Pgen and immutable event-pool preparation
+are shared in memory only for that invocation; no computed intermediates are saved or reused.
 
 .. code-block:: sh
 
