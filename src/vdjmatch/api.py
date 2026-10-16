@@ -121,9 +121,15 @@ class Annotator:
         )
 
     @classmethod
-    def from_path(cls, path, *, species=None, asset="default", **filters):
-        frame = db.load(path, asset=asset, species=species, **filters)
-        return cls(VdjdbIndex.build(frame), provenance=db.provenance(path))
+    def from_path(cls, path, *, species=None, asset="default", threads=4, **filters):
+        from .db.index import load_or_build_index
+
+        index, profiles, manifest = load_or_build_index(
+            path, asset=asset, species=species, threads=threads, **filters)
+        result = cls(index, provenance=manifest["identity"]["source"])
+        result.reference_profiles = profiles
+        result.reference_index_manifest = manifest
+        return result
 
     @classmethod
     def from_frame(cls, vdj, *, species=None):

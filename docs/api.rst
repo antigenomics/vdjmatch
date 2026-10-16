@@ -8,6 +8,16 @@ The public API is re-exported from the top-level :mod:`vdjmatch` package —
 :class:`vdjmatch.api.Annotator` and the module-level :func:`vdjmatch.annotate` shortcut. The
 submodules below expose the building blocks (VDJdb access, the search index, E-values, I/O).
 
+Saved reference assets
+----------------------
+
+``Annotator.from_path(path, threads=4)`` prepares or reopens an adjacent native
+reference bundle. ``reference_profiles`` exposes its flat pooled-epitope/full-pMHC
+class table; ``reference_index_manifest`` records the bundle path and identity.
+Source/filter changes invalidate reuse. ``Annotator.latest`` uses the same path.
+``Annotator.from_frame`` keeps anonymous references in memory.
+See :doc:`cli` for the descriptive decision rules and the ``vdjmatch index`` command.
+
 Batch repertoire annotation
 ---------------------------
 

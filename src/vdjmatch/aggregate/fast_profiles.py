@@ -1,4 +1,4 @@
-"""Literal fixed-reference classes from V concentration and edit-1 enrichment."""
+"""Fast fixed-reference descriptors; supported classes require noise validation."""
 from __future__ import annotations
 
 import math
@@ -6,7 +6,7 @@ import polars as pl
 
 from .structure import _gene_expression
 
-PROFILE_RECIPE = 'v1:source>=30;V-key-majority>=1/2;nonidentical-Levenshtein1-within/rest-pair-density>1;pooled-and-pMHC'
+PROFILE_RECIPE = 'v2-descriptors:source>=30;nonidentical-Levenshtein1;pooled-and-pMHC;classification-pending-noise-validation'
 _MHC = ['mhc_a', 'mhc_b', 'mhc_class']
 _CONTEXT = ['level', 'species', 'gene', 'epitope', *_MHC]
 _SCHEMA = {name: pl.String for name in ['level', 'species', 'locus', 'epitope', *_MHC,
@@ -133,11 +133,7 @@ def reference_profiles(reference: pl.DataFrame, *, threads=4) -> pl.DataFrame:
         keys, missing, maximum = data.get('reference_v_keys', 0), data.get('unresolved_v_keys', 0), data.get('_max_v_keys', 0)
         v_majority = (True if 2*maximum >= keys else None if 2*(maximum+missing) >= keys else False) if keys else None
         eligible = target['valid_source_records'] >= 30
-        label = ('v_majority' if v_majority else 'no_v_majority')+'__'+('neighbor_enriched' if enriched else 'not_neighbor_enriched')
-        if not eligible:
-            label = 'insufficient_source_records'
-        elif v_majority is None or enriched is None:
-            label = 'unresolved_axes'
+        label = 'pending_noise_validation' if eligible else 'insufficient_source_records'
         output.append({key: target[key] for key in ['level', 'species', 'epitope', *_MHC]} |
             dict(locus=target['gene'], source_records=target['source_records'],
                 valid_source_records=target['valid_source_records'],

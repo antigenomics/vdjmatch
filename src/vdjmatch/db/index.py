@@ -98,6 +98,8 @@ def load_or_build_index(source, *, asset='default', species=None, threads=4, **f
     if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
         raise ValueError('prepared reference requires positive threads')
     source = Path(source).expanduser().resolve()
+    if not source.exists():
+        raise FileNotFoundError(source)
     identity = _identity(source, asset=asset, species=species, filters=filters)
     encoded = json.dumps(identity, sort_keys=True, separators=(',', ':'))
     digest = hashlib.sha256(encoded.encode()).hexdigest()

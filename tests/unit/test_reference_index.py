@@ -17,6 +17,14 @@ def reference_file(path):
     return path
 
 
+def test_missing_source_does_not_create_sidecars(tmp_path):
+    from vdjmatch.db.index import load_or_build_index
+    source = tmp_path/'missing.tsv'
+    with pytest.raises(FileNotFoundError):
+        load_or_build_index(source)
+    assert not source.with_name(source.name+'.vdjmatch').exists()
+
+
 def test_saved_native_roundtrip_preserves_keys_observations_and_skips_producers(tmp_path, monkeypatch):
     from vdjmatch.db.index import load_or_build_index
     from vdjmatch import db

@@ -170,7 +170,11 @@ def test_cmd_match_writes_params_json(tmp_path, monkeypatch):
 
     class _Idx:
         genes = ["TRB"]
+        reference = pl.DataFrame({"gene": ["TRB"]})
     monkeypatch.setattr(cli.match.VdjdbIndex, "build", classmethod(lambda cls, *a, **k: _Idx()))
+    from vdjmatch.db import index as prepared
+    monkeypatch.setattr(prepared, "load_or_build_index", lambda *a, **k:
+        (_Idx(), pl.DataFrame(), {"identity": {"source": {"source": "test"}}}))
     monkeypatch.setattr(cli.match, "load_vdjam", lambda: "M")
     empty = pl.DataFrame()
     monkeypatch.setattr(cli, "annotate_sample",

@@ -7,7 +7,8 @@ The console script provides reference management, annotation and benchmark comma
 vdjmatch update
 ---------------
 
-Fetch and retain a latest or pinned VDJdb release input for CLI and API use.
+Fetch and retain a latest or pinned VDJdb release input, and prepare its adjacent
+native index and epitope/pMHC profiles for CLI and API use.
 
 .. code-block:: bash
 
@@ -29,6 +30,50 @@ Fetch and retain a latest or pinned VDJdb release input for CLI and API use.
      - Specific release tag; omit to resolve latest.
    * - ``--force``
      - Fetch the requested release again.
+
+vdjmatch index
+--------------
+
+Prepare a fetched or custom reference using the annotation ingestion rules.
+No query repertoire, Pgen model or external control is required.
+
+.. code-block:: bash
+
+   vdjmatch index --threads 4
+   vdjmatch index --vdjdb reference.tsv --threads 4
+   vdjmatch index --vdjdb reference.zip --species HomoSapiens --threads 4
+
+The printed sibling directory ``REFERENCE.vdjmatch/IDENTITY/`` contains saved
+native indexes, normalized observations, ``profiles.tsv``, ``profiles.parquet``
+and a checksummed manifest. Unchanged references reopen these assets without
+rebuilding or reclassifying. Source bytes, filters, implementation and native
+format determine identity; incomplete or corrupt assets rebuild from the source.
+The reference's parent directory must be writable. ``Annotator.from_path`` and
+public annotation commands also prepare these assets automatically. ``index``
+and ``update`` accept a positive ``--threads`` budget (default 4).
+
+Profiles retain separate species and TRA/TRB chains, at pooled-peptide and
+observed full-pMHC levels. Eligibility requires at least 30 valid source records;
+distinct-junction count is shown alongside. V concentration and neighbour
+enrichment are descriptive fields. The structural classifier is being revised to
+compare V-usage KL and additional V-conditioned motif information against
+finite-sample noise; eligible rows currently report ``pending_noise_validation``.
+Neither the ``v_majority`` nor the ``neighbor_enriched`` flag is a noise test.
+
+Neighbour enrichment is ``(w/Pw)/(b/Pb)``. ``w`` counts unordered distinct
+within-target Levenshtein-one pairs; ``b`` counts target-to-background pairs.
+``Pw`` and ``Pb`` count nonidentical pair opportunities with length difference
+at most one. Background is the distinct-junction union annotated to any other
+peptide in the same species/chain, including shared-label junctions. Exact pairs
+contribute to neither count nor opportunity; exact sharing is reported separately.
+Source duplicates do not increase graph or V-key evidence.
+
+The table also reports the fraction of distinct target junctions with a
+within-target neighbour. Missing background, no neighbour evidence or inadequate
+coverage remains explicit. These classes describe reference structure; they do
+not fit assay labels, select a scoring default or supply binding probabilities.
+Pooled modal MHC annotations are distinct from actual full-pMHC profiles;
+unlinked chains do not create a paired-receptor class.
 
 vdjmatch annotate
 -----------------

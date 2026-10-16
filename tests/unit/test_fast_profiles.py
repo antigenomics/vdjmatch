@@ -106,3 +106,14 @@ def test_hand_counted_shared_background_and_adjacent_length_opportunities():
     assert context['within_opportunities'] == context['within_neighbor_pairs'] == 1
     assert context['between_opportunities'] == 5 and context['between_neighbor_pairs'] == 4
     assert context['neighbor_enrichment'] == pytest.approx(1.25)
+
+
+def test_a_twofold_ratio_does_not_supply_a_noise_validated_class():
+    from vdjmatch.aggregate.fast_profiles import reference_profiles
+    raw = reference([('HomoSapiens', 'TRB', 'A', s, 'TRBV19', 'HLA-A*02:01')
+        for s in ['CASSF', 'CASAF', 'CASSSF'] for _ in range(10)] +
+        [('HomoSapiens', 'TRB', 'B', 'CALAF', 'TRBV19', 'HLA-A*02:01')])
+    result = reference_profiles(raw, threads=1).filter(pl.col('epitope') == 'A')
+    assert result['neighbor_enrichment'].to_list() == [2., 2.]
+    assert result['neighbor_enriched'].to_list() == [True, True]
+    assert result['profile_class'].to_list() == ['pending_noise_validation'] * 2

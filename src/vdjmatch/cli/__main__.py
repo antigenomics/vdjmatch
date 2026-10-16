@@ -60,6 +60,26 @@ def _cmd_update(a: argparse.Namespace) -> int:
     db = __getattr__("db")
     path = db.fetch_latest(asset=a.asset, pin=a.pin, force=a.force, cache=a.cache)
     print(f"VDJdb {a.asset} cached at {path}")
+    _prepare_reference(path, asset=a.asset, threads=a.threads)
+    return 0
+
+
+def _prepare_reference(path, *, asset="default", species=None, threads=4):
+    from ..db.index import load_or_build_index
+
+    index, profiles, manifest = load_or_build_index(
+        path, asset=asset, species=species, threads=threads)
+    print(f"Reference index: {manifest['artifact_path']}")
+    print(f"Epitope/pMHC profiles: {Path(manifest['artifact_path']) / 'profiles.tsv'} "
+          f"({profiles.height:,} rows)")
+    return index, profiles, manifest
+
+
+def _cmd_index(a: argparse.Namespace) -> int:
+    path = a.vdjdb
+    if path is None:
+        path = __getattr__("db").fetch_latest(asset=a.asset, pin=a.pin, cache=a.cache)
+    _prepare_reference(path, asset=a.asset, species=a.species, threads=a.threads)
     return 0
 
 
@@ -181,19 +201,21 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "evidence_type",
         )
     }
-    vdj = db.load(
+    from ..db.index import load_or_build_index
+    index, _, index_manifest = load_or_build_index(
         reference,
         asset=a.asset,
         species=reference_species,
+        threads=p.threads,
         min_score=p.min_score,
         **reference_filters,
     )
-    index = match.VdjdbIndex.build(vdj)
+    vdj = index.reference
     print(
         f"VDJdb: {vdj.height:,} observations; indexed loci {index.genes}",
         file=sys.stderr,
     )
-    reference_provenance = db.provenance(reference)
+    reference_provenance = index_manifest["identity"]["source"]
     controls, control_provenance = None, {}
     if supplied_controls or getattr(a, "fresh_control", False):
         from ..evalue.control import raw_background
@@ -472,6 +494,7 @@ def main(argv: list[str] | None = None) -> int:
         help="bundle/table role (default: primary, historical long fallback)",
     )
     up.add_argument("--cache", default=None, help="reference download directory")
+    up.add_argument("--threads", type=int, default=4, help="native indexing threads (default: 4)")
     up.add_argument(
         "--pin", default=None, help="pin a specific release tag (default: latest)"
     )
@@ -479,6 +502,15 @@ def main(argv: list[str] | None = None) -> int:
         "--force", action="store_true", help="re-download even if already cached"
     )
     up.set_defaults(func=_cmd_update)
+
+    ix = sub.add_parser("index", help="prepare a saved native reference index and epitope/pMHC classes")
+    ix.add_argument("--vdjdb", help="custom reference table, archive or directory; otherwise fetch VDJdb")
+    ix.add_argument("--asset", default="default", choices=["slim", "full", "default", "primary", "legacy", "airr"])
+    ix.add_argument("--species", default=None, help="optional reference species filter")
+    ix.add_argument("--threads", type=int, default=4)
+    ix.add_argument("--cache", default=None, help="reference download directory")
+    ix.add_argument("--pin", default=None, help="pin a release when fetching VDJdb")
+    ix.set_defaults(func=_cmd_index)
 
     m = sub.add_parser(
         "match",
@@ -859,7 +891,7 @@ def main(argv: list[str] | None = None) -> int:
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
     evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
-    evidence_commands.update({'reference-diagnostics', 'prepare-control', 'reference-density', 'score-policy', 'motif-position'})
+    evidence_commands.update({'reference-diagnostics', 'prepare-control', 'reference-density', 'score-policy', 'motif-position', 'index', 'update'})
     if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
         evidence_commands.add('annotate')
     kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
