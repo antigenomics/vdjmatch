@@ -13,11 +13,14 @@ from .cache import locked, publish, sha256, staging, valid
 
 
 def _identity(source, *, asset, species, filters):
+    from importlib import import_module
     from importlib.metadata import version
     import seqtree._core as native
-    from ..aggregate import fast_profiles
+    from ..aggregate import fast_profiles, structure
+    from ..cli import epitope
     from ..match import engine
     from . import schema, vdjdb
+    overlap = import_module('vdjmatch.cluster.overlap')
 
     if not all(callable(getattr(Index, name, None)) for name in ('build', 'save', 'load')):
         raise RuntimeError('prepared references require native seqtree index save/load support')
@@ -30,7 +33,8 @@ def _identity(source, *, asset, species, filters):
             {k: v for k, v in filters.items() if v is not None}, default=os.fspath)),
         profile_recipe=fast_profiles.PROFILE_RECIPE,
         source_sha256={name: sha256(Path(module.__file__)) for name, module in
-            [('normalizer', schema), ('loader', vdjdb), ('engine', engine), ('profiles', fast_profiles)]} |
+            [('normalizer', schema), ('loader', vdjdb), ('engine', engine), ('profiles', fast_profiles),
+             ('profile_genes', structure), ('profile_populations', epitope), ('profile_graph', overlap)]} |
             {'bundle': sha256(Path(__file__))},
         native=dict(version=version('seqtree'), sha256=sha256(Path(native.__file__)),
             capabilities=['Index.build', 'Index.save', 'Index.load']))
