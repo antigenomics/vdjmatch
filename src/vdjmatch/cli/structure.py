@@ -116,7 +116,7 @@ def main(a, *, return_inputs=False):
     mixture_available = pl.col('reference_valid') & pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
     pgen, prepared_control, feature_identity = None, None, None
     if a.mock_replicates:
-        from ..evalue.mock_reference import compute_pgen, _pgen_model_identity, _prepare_mock_control, load_pgen_features
+        from ..evalue.mock_reference import compute_pgen, _pgen_model_identity, _prepare_mock_control, load_pgen_features, PGEN_BINNING
         reference = raw.filter(mixture_available).rename({'cdr3': 'junction_aa'})
         if a.pgen_features:
             pgen, feature_identity = load_pgen_features(a.pgen_features, reference, events,
@@ -347,7 +347,7 @@ def main(a, *, return_inputs=False):
             joint_projection='stratum_bits + presence_bits = joint_presence_bits; whole-population junction/V-gene totals; one token projection only',
             row_policy='reference-observed tokens only; no automatic scorer/threshold; missing control support stays unavailable',
             tfidf='TF=n/total_reference_keys; IDF=1+ln((total_control_keys+1)/(global_control_document_frequency+1)); documents=distinct junction/V-gene keys',
-            control_resampling=(dict(replicates=a.mock_replicates, seed=a.seed,
+            control_resampling=(dict(replicates=a.mock_replicates, seed=a.seed, pgen_binning=PGEN_BINNING,
                 law='existing uniform event-slot sampling without replacement within one-bit Pgen strata; source-record counts matched before key deduplication; no V/J/length matching',
                 envelope='2.5/97.5 percentiles of matched control TF-IDF; absent mock features zero; fixed full-control IDF',
                 seed_policy='SHA256(seed,species,locus,full-pMHC task), first 8 bytes little-endian',

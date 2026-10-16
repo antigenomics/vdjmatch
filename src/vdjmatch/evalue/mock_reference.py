@@ -9,6 +9,7 @@ from ..io.columns import _integer_count, _resolve
 
 
 EVENT_SAMPLER = "uniform-event-slots-v1"
+PGEN_BINNING = "rounded log2(Pgen), ties-to-even; absent zero-mass control bin uses lowest occupied control bin"
 
 
 def _pgen_model_identity(species, locus):
@@ -312,6 +313,9 @@ def _prepare_mock_control(reference, control, *, pgen=None, species='human', loc
     pool = pool.sort(event_keys)
     pools = {key[0]: (part.select(event_keys), np.cumsum(part['event_weight'].to_numpy(), dtype=np.int64))
              for key, part in pool.partition_by('_bin', as_dict=True).items()}
+    if -2147483648 not in pools and pools:
+        strata = strata.with_columns(pl.when(pl.col('_bin') == -2147483648)
+            .then(pl.lit(min(pools))).otherwise(pl.col('_bin')).alias('_bin'))
     for _, cumulative in pools.values():
         cumulative.flags.writeable = False
     return control, pgen, _organism(species), locus, strata, event_keys, pools
@@ -324,7 +328,8 @@ def iter_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, repl
 
     ``reference`` has ``group_id,junction_aa``; repeated source rows remain in
     the target counts. ``control`` is normalized by :func:`normalize_control`.
-    Match rounded log2(Pgen) in fixed one-bit bins, with a separate zero bin.
+    Match rounded log2(Pgen) in fixed one-bit bins. If controls have no zero
+    bin, zero-mass references use the lowest occupied control bin.
     Sample integer event slots without replacement within each group/replicate;
     independent events sharing an AA junction retain repeated membership rows.
     Search-key deduplication belongs to the downstream scorer. Incidental

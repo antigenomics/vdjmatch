@@ -275,3 +275,12 @@ def test_prepared_control_preserves_seeded_draws_and_rejects_wrong_inputs():
         with pytest.raises(ValueError, match='same control/Pgen'):
             list(iter_mock_references(reference, other_control, replicates=2,
                 pgen=other_pgen, species=species, locus=locus, prepared_control=prepared))
+
+
+def test_zero_reference_mass_uses_lowest_occupied_control_bin():
+    reference=pl.DataFrame({'group_id':[0,0], 'junction_aa':['CREF','CREF']})
+    control=pl.DataFrame({'junction_aa':['CAAF','CACF'],'event_weight':[3,3]})
+    pgen=pl.DataFrame({'junction_aa':['CREF','CAAF','CACF'],'pgen':[0.,2**-6,2**-4]})
+    sampled=sample_mock_references(reference,control,replicates=2,pgen=pgen)
+    assert sampled.height==4 and sampled['junction_aa'].to_list()==['CAAF']*4
+    assert pgen['pgen'].to_list()==[0.,2**-6,2**-4]

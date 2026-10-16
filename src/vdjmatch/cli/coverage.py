@@ -44,7 +44,7 @@ def main(a, *, inputs=None):
     from ..aggregate.reference_coverage import reference_graph, leiden_taxa, abundance_coverage, sw_knee
     from ..db.cache import sha256
     from ..evalue.control import _organism
-    from ..evalue.mock_reference import control_events, compute_pgen, iter_mock_references, EVENT_SAMPLER, _pgen_model_identity, _prepare_mock_control, load_pgen_features
+    from ..evalue.mock_reference import control_events, compute_pgen, iter_mock_references, EVENT_SAMPLER, PGEN_BINNING, _pgen_model_identity, _prepare_mock_control, load_pgen_features
     from ..runner.annotation import _validate_output_paths
     from .structure import reference_groups
 
@@ -102,7 +102,7 @@ def main(a, *, inputs=None):
             feature_identity = inputs['pgen_features']
             events, pgen, control_info = inputs['events'], inputs['pgen'], dict(inputs['control_info'])
         control_info.update(sha256=sha256(Path(a.control)), events=int(events['event_weight'].sum()),
-            event_keys=events.height, sampler=EVENT_SAMPLER, replicates=a.mock_replicates,
+            event_keys=events.height, sampler=EVENT_SAMPLER, replicates=a.mock_replicates, pgen_binning=PGEN_BINNING,
             pgen_features=feature_identity,
             pgen_model=feature_identity['model'] if feature_identity else _pgen_model_identity(organism, a.locus),
             pgen_source_sha256=sha256(Path(compute_pgen.__code__.co_filename)))

@@ -1563,7 +1563,9 @@ uncollapsed model files. The consumer verifies the complete consumed model-file
 set against its bundled model and requires sorted unique canonical junctions,
 finite probabilities in [0,1], and coverage of every valid reference/control
 junction. It performs no Pgen recomputation when features are supplied. The
-matching bins then use closed Hamming-1 probability mass; the default fresh
+matching bins then use closed Hamming-1 probability mass. If the controls have no
+zero-mass bin, zero-Pgen reference records use the lowest occupied control bin;
+the stored probabilities remain unchanged. The default fresh
 route retains exact-junction mass. Diagnostic manifests record the feature and
 producer-manifest hashes and model identity. These are reusable model features;
 control draws and diagnostic calculations remain fresh within each invocation.
