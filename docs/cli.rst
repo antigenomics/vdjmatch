@@ -1865,6 +1865,40 @@ clonotype denominators separately; missing linked evidence leaves marginal
 support intact. Compatible-MHC union tables are rejected.
 
 
+vdjmatch motif-position
+-----------------------
+
+Export a descriptive positional amino-acid contrast against an existing prepared
+control within one explicitly chosen species/chain/epitope/V-gene/J-gene/junction-length
+stratum. MHC contexts are pooled; reference source records retain their metadata.
+
+.. code-block:: sh
+
+   vdjmatch motif-position --vdjdb reference.zip --species human --locus TRB \
+     --epitope GLCTLVAML --v-gene TRBV6-1 --j-gene TRBJ2-1 --junction-length 17 \
+     --control raw-events.tsv.gz --control-model prepared-control --motif GIV \
+     --threads 1 --output-prefix motif-position
+
+The existing prepared-model loader validates the original raw-control identity,
+manifest, population and event table. Nothing is generated or fitted. Both
+populations count unique full-junction/V-gene/J-gene keys with equal weight;
+read abundance and prepared event weights are ignored. Alleles are pooled by
+the shared gene normalizer (uppercase unambiguous locus-matching calls, allele
+suffix removed); ambiguous calls cannot enter the selected stratum. The default
+``curated-benchmark`` population retains existing curation exclusions.
+
+``.positions.tsv`` contains all 20 canonical residues at every 1-based full-junction
+position, including conserved anchors, with observed and control counts,
+denominators, proportions and their signed difference (observed minus control).
+No pseudocounts or log ratios are used. A zero control denominator produces
+``unsupported_control_stratum`` and null control fractions/differences; an empty
+reference stratum fails explicitly. Optional ``.motifs.tsv`` reports an exact
+motif at every possible start and at position zero for presence anywhere, counting
+each key once. ``.manifest.json`` records input/output hashes, arguments, counting
+rules and software/native identities. These are background frequency contrasts,
+not fitted ALICE selection coefficients, calibrated significance or binding claims.
+
+
 vdjmatch reference-diagnostics
 ------------------------------
 

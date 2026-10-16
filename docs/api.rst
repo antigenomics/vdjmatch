@@ -206,6 +206,8 @@ Reference graph morphology
 
 .. autofunction:: vdjmatch.aggregate.motif_information.motif_bootstrap
 
+.. autofunction:: vdjmatch.aggregate.motif_position.position_contrast
+
 .. autofunction:: vdjmatch.aggregate.reference_coverage.reference_graph
 
 .. autofunction:: vdjmatch.aggregate.reference_coverage.leiden_taxa
