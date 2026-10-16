@@ -1549,9 +1549,24 @@ Joint junction/V/J event slots are sampled without replacement; V/J and length
 are not matching constraints. An absent mock token/stratum contributes zero.
 These are matched-control envelopes, not confidence intervals for selection
 bits or final specificity probabilities. Replicates default to zero (off),
-and otherwise must be at least two. One fresh native vdjtools Pgen batch
-covers the selected reference/control union. Per-target seeds are stable
-under target ordering. No calculated predictions or backgrounds are loaded.
+and otherwise must be at least two. By default one fresh native vdjtools exact
+junction-Pgen batch covers the selected reference/control union. Per-target
+seeds are stable under target ordering.
+
+``reference-structure``, ``reference-coverage`` and ``reference-diagnostics``
+also accept ``--pgen-features PREFIX.features.parquet`` with ``--control`` and
+``--mock-replicates``. This explicitly reuses the requested durable Hamming-1
+Pgen features written by ``pgen --control CONTROL --mismatches 1``. The companion
+``PREFIX.manifest.json`` travels with the table; its filename and SHA256 bind
+the feature data. It must identify species/locus, ``mismatches=1`` and
+uncollapsed model files. The consumer verifies the complete consumed model-file
+set against its bundled model and requires sorted unique canonical junctions,
+finite probabilities in [0,1], and coverage of every valid reference/control
+junction. It performs no Pgen recomputation when features are supplied. The
+matching bins then use closed Hamming-1 probability mass; the default fresh
+route retains exact-junction mass. Diagnostic manifests record the feature and
+producer-manifest hashes and model identity. These are reusable model features;
+control draws and diagnostic calculations remain fresh within each invocation.
 
 With the same ``--control`` option, ``structure.genes.tsv`` also reports
 ``gene_bits``, ``length_bits`` and ``joint_bits``. These use distinct

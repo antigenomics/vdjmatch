@@ -18,7 +18,10 @@ loader and native binary hashes, options, input hash, row dispositions and timin
 No model download or new model fitting occurs.
 
 This is marginal ``P(junction_aa)``: all V/J alleles and recombination scenarios in
-the model contribute, with zero allowed amino-acid mismatches. Input V/J annotations
+the model contribute. The default ``--mismatches 0`` uses exact amino-acid identity;
+``--mismatches 1`` sums the inclusive Hamming ball (same length, at most one
+substitution, no indels). All junction positions, including anchors, enter this
+calculation. Input V/J annotations
 are preserved but do not condition the probability. This is neither an antigen
 specificity probability nor a probability calibrated from the annotation score.
 The model's generative mass does not include post-recombination selection merely
@@ -29,7 +32,8 @@ result per chain row; the command does not infer a joint pair probability.
 non-null ``query_id`` values. If absent, ``query_id`` is the zero-based raw row
 ordinal. ``junction_aa_normalized`` records uppercase, whitespace-stripped input;
 anchors are never fabricated from bare ``cdr3_aa``. Canonical amino-acid junctions
-of the selected species/locus are sent to one native batch. Missing locus metadata
+of the selected species/locus are deduplicated and sent to one native batch, then
+joined back to every input observation. Missing locus metadata
 uses the explicit ``--locus``; missing V/J calls do not prevent marginal Pgen.
 Explicitly different species/loci, missing junctions and noncanonical sequences
 remain in the table with an explanatory ``status`` and null probabilities.
@@ -68,3 +72,22 @@ Pgen remains marginal over the model's V/J alleles; database V/J annotations,
 epitopes and study metadata do not condition it. Local reference tables and
 release directories are also supported by the existing loader. AIRR remains the
 default when ``--vdjdb`` is absent.
+
+Reusable junction features
+--------------------------
+
+To compute the reference/control union once, supply a native ``vdjtools`` control
+AA table. Its legacy ``cdr3aa`` contains the conserved anchors::
+
+   vdjmatch pgen reference.zip --vdjdb --control control.aa.vdjtools.tsv.gz \
+       --model-path /path/to/raw/model --species human --locus TRB \
+       --mismatches 1 --threads 12 --output-prefix human-trb
+
+The additional ``human-trb.features.parquet`` contains one row per distinct
+canonical junction in that population, with ``junction_aa``, ``pgen``, ``species``
+and ``locus``. The manifest records the control input hash, excluded noncanonical
+row count and feature-table hash. Control read counts and AA incidence do not
+weight the generative mass. ``scores.tsv`` still retains every selected reference
+observation and its full pMHC metadata. Models remain separate by species and chain.
+The requested feature table is a versioned input to subsequent diagnostics;
+those consumers validate it against its companion manifest.

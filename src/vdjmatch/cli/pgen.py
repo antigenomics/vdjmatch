@@ -6,9 +6,12 @@ def register(subparsers):
     p = subparsers.add_parser('pgen', help='marginal full-junction generation probability')
     p.add_argument('sample', help='AIRR junction table, or a local reference with --vdjdb')
     p.add_argument('--vdjdb', action='store_true', help='load SAMPLE as a local VDJdb reference table, ZIP or directory')
+    p.add_argument('--control', help='native vdjtools control AA table; score the distinct sample/control union and write .features.parquet')
     p.add_argument('--model-path', required=True, help='explicit native vdjtools raw model directory')
     p.add_argument('--species', required=True, help='human or mouse (standard species aliases accepted)')
     p.add_argument('--locus', choices=['TRA', 'TRB'], required=True)
+    p.add_argument('--mismatches', type=int, choices=[0, 1], default=0,
+                   help='inclusive AA Hamming radius, without indels (default: 0)')
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
@@ -32,6 +35,8 @@ def main(a):
     start = time.perf_counter()
     if a.threads < 1:
         raise ValueError('positive threads required')
+    from ..runner.annotation import _validate_output_paths
+    prefix = _validate_output_paths(a.output_prefix, [a.sample] + ([a.control] if a.control else []))
     organism = _organism(a.species)
     model_path = Path(a.model_path)
     if not model_path.is_dir():
@@ -78,8 +83,8 @@ def main(a):
     if 'locus' in fields:
         locus = pl.col(fields['locus']).cast(pl.String).str.strip_chars().str.to_uppercase()
     elif 'v' in fields:
-        prefix = pl.col(fields['v']).cast(pl.String).str.slice(0, 3).str.to_uppercase()
-        locus = pl.when(prefix.is_in(['TRA', 'TRB'])).then(prefix).otherwise(None)
+        v_prefix = pl.col(fields['v']).cast(pl.String).str.slice(0, 3).str.to_uppercase()
+        locus = pl.when(v_prefix.is_in(['TRA', 'TRB'])).then(v_prefix).otherwise(None)
     else:
         locus = pl.lit(None, dtype=pl.String)
     raw = raw.with_columns(locus.alias('_pgen_locus'))
@@ -97,28 +102,58 @@ def main(a):
         .when(~pl.col('junction_aa_normalized').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$'))
         .then(pl.lit('invalid_junction')).otherwise(pl.lit('scored')).alias('status'))
     selected = rows.filter(pl.col('status') == 'scored')
+    sequences = selected.select('junction_aa_normalized')
+    control = None
+    if a.control:
+        from vdjtools.io import read_vdjtools
+        control_rows = read_vdjtools(a.control)
+        if control_rows.filter(pl.col('locus').is_not_null() & (pl.col('locus') != a.locus)).height:
+            raise ValueError('control locus does not match --locus')
+        control_rows = control_rows.select(
+            pl.col('junction_aa').str.strip_chars().str.to_uppercase().alias('junction_aa_normalized'))
+        canonical = control_rows.filter(pl.col('junction_aa_normalized').str.contains(
+            r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False))
+        control = dict(path=str(Path(a.control).resolve()), sha256=sha256(Path(a.control)),
+            source_rows=control_rows.height, canonical_rows=canonical.height,
+            excluded_rows=control_rows.height-canonical.height,
+            reader_sha256=sha256(Path(read_vdjtools.__code__.co_filename)),
+            unit='AA junction keys only; control read abundance and AA incidence are not probability weights')
+        sequences = pl.concat([sequences, canonical])
+        del control_rows, canonical
+    sequences = sequences.unique().sort('junction_aa_normalized')
+    print(f'pgen: {sequences.height} distinct {organism} {a.locus} junctions, Hamming <= {a.mismatches}', flush=True)
     native_start = time.perf_counter()
-    probabilities = np.asarray(native.pgen_aa_batch(model, selected['junction_aa_normalized'].to_list(),
-                               mismatches=0, threads=a.threads) if selected.height else [], dtype=np.float64)
+    probabilities = np.asarray(native.pgen_aa_batch(model, sequences['junction_aa_normalized'].to_list(),
+                               mismatches=a.mismatches, threads=a.threads) if sequences.height else [], dtype=np.float64)
     native_wall = time.perf_counter() - native_start
-    if probabilities.shape != (selected.height,) or not np.all(
+    if probabilities.shape != (sequences.height,) or not np.all(
             np.isfinite(probabilities) & (probabilities >= 0) & (probabilities <= 1)):
         raise RuntimeError('native Pgen returned an invalid probability; no scores written')
-    scored = selected.select('query_id').with_columns(pl.Series('pgen', probabilities))
+    scored = selected.select('query_id', 'junction_aa_normalized').join(
+        sequences.with_columns(pl.Series('pgen', probabilities)), on='junction_aa_normalized',
+        how='left', validate='m:1').select('query_id', 'pgen')
     rows = rows.join(scored, on='query_id', how='left', validate='1:1', maintain_order='left').with_columns(
         pl.when(pl.col('pgen') == 0).then(pl.lit('zero_mass')).otherwise(pl.col('status')).alias('status'),
         pl.when(pl.col('pgen') > 0).then(pl.col('pgen').log10()).otherwise(None).alias('log10_pgen'),
         pl.col('pgen').is_not_null().alias('available')).drop('_pgen_locus')
-    prefix = Path(a.output_prefix)
     prefix.parent.mkdir(parents=True, exist_ok=True)
     from .__main__ import _flat_table
     _flat_table(rows).write_csv(str(prefix) + '.scores.tsv', separator='\t')
+    features = None
+    if a.control:
+        feature_path = Path(str(prefix) + '.features.parquet')
+        sequences.rename({'junction_aa_normalized': 'junction_aa'}).with_columns(
+            pl.Series('pgen', probabilities), pl.lit(organism).alias('species'),
+            pl.lit(a.locus).alias('locus')).write_parquet(feature_path)
+        features = dict(path=feature_path.name, sha256=sha256(feature_path))
     manifest = {
         'estimator': 'marginal-full-junction-pgen-v1',
-        'probability': 'P(junction_aa), summed over all model V/J and recombination scenarios; mismatches=0',
+        'probability': f'P(Hamming(junction_aa, generated_junction_aa) <= {a.mismatches}); '
+                       'same length, no indels; summed over all model V/J and recombination scenarios',
         'sequence_contract': 'full anchor-inclusive junction; AIRR junction_aa or normalized VDJdb cdr3; no anchor fabrication',
         'input_format': 'vdjdb' if a.vdjdb else 'airr',
         'reference': reference,
+        'control': control, 'features': features,
         'sample': {'sha256': sha256(Path(a.sample))} if Path(a.sample).is_file() else reference,
         'model': {'sha256': model_hash, 'files': hashes, 'metadata': json.loads(model.manifest.to_json()),
                   'collapse_alleles': False, 'anchor_repair': 'vdjtools load_model'},
@@ -127,8 +162,9 @@ def main(a):
                      'model_io_sha256': sha256(Path(model_io.__file__)), 'native_bridge_sha256': sha256(Path(native.__file__)),
                      'formatter_sha256': sha256(Path(_flat_table.__code__.co_filename))},
         'options': {'species': organism, 'locus': a.locus, 'threads': a.threads,
+                    'mismatches': a.mismatches,
                     'model_path': str(model_path.resolve()), 'sample': str(Path(a.sample).resolve()), 'vdjdb': a.vdjdb},
-        'counts': {'input_rows': raw.height, 'native_rows': selected.height,
+        'counts': {'input_rows': raw.height, 'selected_rows': selected.height, 'native_rows': sequences.height,
                    'dispositions': dict(rows.group_by('status').len().iter_rows())},
         'ingestion': ingestion, 'timing_seconds': {'native_batch': native_wall, 'total': time.perf_counter() - start},
     }

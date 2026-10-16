@@ -13,6 +13,7 @@ def register(subparsers):
     add_graph_options(p)
     p.add_argument('--control', help='raw joint junction/V/J recombination-event control')
     p.add_argument('--mock-replicates', type=int, default=0)
+    p.add_argument('--pgen-features', help='validated PREFIX.features.parquet Hamming-1 bank for control matching')
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--output-prefix', required=True)
@@ -43,13 +44,15 @@ def main(a, *, inputs=None):
     from ..aggregate.reference_coverage import reference_graph, leiden_taxa, abundance_coverage, sw_knee
     from ..db.cache import sha256
     from ..evalue.control import _organism
-    from ..evalue.mock_reference import control_events, compute_pgen, iter_mock_references, EVENT_SAMPLER, _pgen_model_identity, _prepare_mock_control
+    from ..evalue.mock_reference import control_events, compute_pgen, iter_mock_references, EVENT_SAMPLER, _pgen_model_identity, _prepare_mock_control, load_pgen_features
     from ..runner.annotation import _validate_output_paths
     from .structure import reference_groups
 
     start = time.monotonic()
     validate_options(a)
     protected = [a.vdjdb] + ([a.control] if a.control else []) + ([a.targets_from_sample] if a.targets_from_sample else [])
+    if a.pgen_features:
+        protected += [a.pgen_features, a.pgen_features.removesuffix('.features.parquet')+'.manifest.json']
     prefix = _validate_output_paths(a.output_prefix, protected)
     organism = _organism(a.species)
     species = {'human': 'HomoSapiens', 'mouse': 'MusMusculus'}[organism]
@@ -79,23 +82,29 @@ def main(a, *, inputs=None):
         a.sw_radius, knee_curve = sw_knee(reference, species=organism, locus=a.locus,
             cdr_loops=loops, gap_open=a.gap_open, gap_extend=a.gap_extend,
             threads=a.threads, pair_budget=a.pair_budget)
-    control_info = None
+    control_info, feature_identity = None, None
     if a.control:
         from .combined import _raw_control
         if inputs is None:
             control_raw, control_info = _raw_control(a.control)
             events = control_events(control_raw, species=organism, locus=a.locus)
             del control_raw
-            pgen = compute_pgen(reference.rename({'cdr3': 'junction_aa'}), events,
-                species=organism, locus=a.locus, threads=a.threads)
+            if a.pgen_features:
+                pgen, feature_identity = load_pgen_features(a.pgen_features,
+                    reference.rename({'cdr3': 'junction_aa'}), events, species=organism, locus=a.locus)
+            else:
+                pgen = compute_pgen(reference.rename({'cdr3': 'junction_aa'}), events,
+                    species=organism, locus=a.locus, threads=a.threads)
             prepared_control = _prepare_mock_control(reference.rename({'cdr3': 'junction_aa'}), events,
                 pgen=pgen, species=organism, locus=a.locus, threads=a.threads)
         else:
             prepared_control = inputs['prepared_control']
+            feature_identity = inputs['pgen_features']
             events, pgen, control_info = inputs['events'], inputs['pgen'], dict(inputs['control_info'])
         control_info.update(sha256=sha256(Path(a.control)), events=int(events['event_weight'].sum()),
             event_keys=events.height, sampler=EVENT_SAMPLER, replicates=a.mock_replicates,
-            pgen_model=_pgen_model_identity(organism, a.locus),
+            pgen_features=feature_identity,
+            pgen_model=feature_identity['model'] if feature_identity else _pgen_model_identity(organism, a.locus),
             pgen_source_sha256=sha256(Path(compute_pgen.__code__.co_filename)))
         for i, (task, _) in enumerate(groups):
             selected = reference.filter(pl.col('group_id') == i).rename({'cdr3': 'junction_aa'})
@@ -201,6 +210,8 @@ def validate_options(a):
         raise ValueError('positive threads, nboot>=2, seed>=0 and mock-replicates zero or >=2 required')
     if bool(a.control) != bool(a.mock_replicates):
         raise ValueError('--control and --mock-replicates>=2 must be supplied together')
+    if a.pgen_features and (not a.control or not a.mock_replicates):
+        raise ValueError('--pgen-features requires --control and --mock-replicates>=2')
     if a.geometry == 'sw' and a.sw_radius is None and not a.sw_radius_knee:
         raise ValueError('full SW requires --sw-radius or --sw-radius-knee')
     if a.sw_radius is not None and a.sw_radius_knee:

@@ -32,6 +32,7 @@ def register(subparsers, name='reference-structure'):
                    default='imgt_wild4', help='control-relative motif projection (default: imgt_wild4)')
     p.add_argument('--mock-replicates', type=int, default=0,
                    help='Pgen-matched control TF-IDF envelopes; zero disables, otherwise at least two')
+    p.add_argument('--pgen-features', help='validated PREFIX.features.parquet Hamming-1 bank for control matching')
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--output-prefix', required=True)
@@ -74,7 +75,11 @@ def main(a, *, return_inputs=False):
         raise ValueError('mock-replicates must be zero or at least two; seed must be nonnegative')
     if a.mock_replicates and not a.control:
         raise ValueError('--mock-replicates requires --control')
+    if a.pgen_features and (not a.mock_replicates or not a.control):
+        raise ValueError('--pgen-features requires --control and --mock-replicates>=2')
     protected = [a.vdjdb]+([a.targets_from_sample] if a.targets_from_sample else [])+([a.control] if a.control else [])
+    if a.pgen_features:
+        protected += [a.pgen_features, a.pgen_features.removesuffix('.features.parquet')+'.manifest.json']
     prefix = _validate_output_paths(a.output_prefix, protected)
     organism = _organism(a.species)
     species = {'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
@@ -109,11 +114,15 @@ def main(a, *, return_inputs=False):
     # One batched native search for the whole reference population, then subset its
     # edges by declared target membership; no per-epitope native search loop.
     mixture_available = pl.col('reference_valid') & pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
-    pgen, prepared_control = None, None
+    pgen, prepared_control, feature_identity = None, None, None
     if a.mock_replicates:
-        from ..evalue.mock_reference import compute_pgen, _pgen_model_identity, _prepare_mock_control
-        pgen = compute_pgen(raw.filter(mixture_available).rename({'cdr3': 'junction_aa'}),
-            events, species=organism, locus=a.locus, threads=a.threads)
+        from ..evalue.mock_reference import compute_pgen, _pgen_model_identity, _prepare_mock_control, load_pgen_features
+        reference = raw.filter(mixture_available).rename({'cdr3': 'junction_aa'})
+        if a.pgen_features:
+            pgen, feature_identity = load_pgen_features(a.pgen_features, reference, events,
+                species=organism, locus=a.locus)
+        else:
+            pgen = compute_pgen(reference, events, species=organism, locus=a.locus, threads=a.threads)
         prepared_control = _prepare_mock_control(raw.rename({'cdr3': 'junction_aa'}), events,
             pgen=pgen, species=organism, locus=a.locus, threads=a.threads)
     mark('reference_and_pgen')
@@ -342,8 +351,10 @@ def main(a, *, return_inputs=False):
                 law='existing uniform event-slot sampling without replacement within one-bit Pgen strata; source-record counts matched before key deduplication; no V/J/length matching',
                 envelope='2.5/97.5 percentiles of matched control TF-IDF; absent mock features zero; fixed full-control IDF',
                 seed_policy='SHA256(seed,species,locus,full-pMHC task), first 8 bytes little-endian',
-                pgen_model='bundled human OLGA or mouse ARDA; fresh native marginal junction Pgen',
-                pgen_model_identity=_pgen_model_identity(organism, a.locus),
+                pgen_model=('validated durable Hamming-1 marginal junction Pgen' if feature_identity else
+                    'bundled human OLGA or mouse ARDA; fresh native marginal junction Pgen'),
+                pgen_features=feature_identity,
+                pgen_model_identity=feature_identity['model'] if feature_identity else _pgen_model_identity(organism, a.locus),
                 pgen_source_sha256=sha256(Path(compute_pgen.__code__.co_filename))) if a.mock_replicates else None),
             reference_keys_without_fourmer=int(gene_usage.filter((pl.col("segment")=="V") &
                 (pl.col("length_scope")=="exact_length") & (pl.col("junction_length")<4))["junction_gene_keys"].sum()),
@@ -362,4 +373,4 @@ def main(a, *, return_inputs=False):
         source_sha256=sha256(Path(__file__)), reducer_sha256=sha256(Path(graph_profiles.__code__.co_filename)),
         stage_seconds=stages, tables={str(p.name):sha256(p) for p in tables}, seconds=time.monotonic()-start),indent=2)+'\n')
     return dict(raw=raw, events=events, pgen=pgen, control_info=control_info,
-        prepared_control=prepared_control) if return_inputs else 0
+        prepared_control=prepared_control, pgen_features=feature_identity) if return_inputs else 0

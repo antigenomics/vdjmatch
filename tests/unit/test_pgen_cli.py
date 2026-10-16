@@ -49,9 +49,50 @@ def test_marginal_oracle_and_raw_identity(tmp_path,model_path,monkeypatch):
                                      'unselected_species','unselected_locus']
     assert np.array_equal(out['pgen'].head(2).cast(pl.Float64).to_numpy(),expected)
     assert out['pgen'].tail(4).null_count()==4
-    assert calls==[([seq,seq],{'mismatches':0,'threads':4})]
+    assert calls==[([seq],{'mismatches':0,'threads':4})]
     assert manifest['model']['collapse_alleles'] is False
+    assert manifest['counts']['native_rows']==1
     assert len(manifest['model']['sha256'])==64 and manifest['counts']['input_rows']==6
+
+
+def test_one_mismatch_mass_preserves_rows(tmp_path, model_path):
+    from vdjtools.model import load_model, native
+    from vdjmatch.evalue.mock_reference import load_pgen_features
+    seq = 'CAVRDSNYQLIW'
+    expected = native.pgen_aa_batch(load_model(model_path, validate=True), [seq], mismatches=1)[0]
+    control = tmp_path/'control.tsv'
+    control.write_text(f'count\tfreq\tcdr3aa\tv\tj\n1\t1\t{seq}\tTRAV1-1\tTRAJ1\n')
+    frame = pl.DataFrame({'junction_aa': [seq, seq]})
+    _, out, manifest = run(tmp_path, model_path,
+        frame, '--mismatches', '1', '--control', str(control))
+    assert out['pgen'].cast(pl.Float64).to_list() == [expected, expected]
+    assert manifest['options']['mismatches'] == 1
+    assert 'no indels' in manifest['probability']
+    features, _ = load_pgen_features(tmp_path/'result.features.parquet', frame, frame, locus='TRA')
+    assert features['pgen'].to_list() == [expected]
+
+
+def test_control_union_features_one_batch(tmp_path, model_path, monkeypatch):
+    from vdjtools.model import native
+    control = tmp_path/'control.tsv'
+    control.write_text('count\tfreq\tcdr3aa\tv\tj\n'
+        '4\t0.5\tCAVRDSNYQLIW\tTRAV1-1\tTRAJ1\n'
+        '4\t0.5\tCAVSDRGSTLGRLYF\tTRAV1-1\tTRAJ1\n')
+    calls = []
+    def batch(model, seqs, **kwargs):
+        calls.append((seqs, kwargs))
+        return [0.1] * len(seqs)
+    monkeypatch.setattr(native, 'pgen_aa_batch', batch)
+    _, out, manifest = run(tmp_path, model_path,
+        pl.DataFrame({'junction_aa': ['CAVRDSNYQLIW'] * 2}),
+        '--control', str(control), '--mismatches', '1')
+    assert calls == [(['CAVRDSNYQLIW', 'CAVSDRGSTLGRLYF'], {'mismatches': 1, 'threads': 1})]
+    assert out.height == 2
+    features = pl.read_parquet(tmp_path/'result.features.parquet')
+    assert features['junction_aa'].to_list() == calls[0][0]
+    assert features['pgen'].to_list() == [0.1, 0.1]
+    assert manifest['control']['canonical_rows'] == 2
+    assert manifest['features']['sha256'] and manifest['options']['mismatches'] == 1
 
 
 def test_missing_v_locus_and_zero_mass(tmp_path,model_path,monkeypatch):

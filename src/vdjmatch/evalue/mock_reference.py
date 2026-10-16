@@ -28,7 +28,84 @@ def _pgen_model_identity(species, locus):
               for p in sorted(root.iterdir(), key=lambda p: p.name) if p.is_file()}
     return dict(source=source, organism=organism, locus=locus, files=hashes,
         sha256=hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest(),
+        metadata=json.loads((root/'manifest.json').read_text()),
         native_sha256=sha256(Path(native_core.__file__)))
+
+
+def load_pgen_features(path, reference, control, *, species='human', locus='TRB'):
+    """Validate an explicitly supplied Hamming-1 feature bank and its producer identity.
+
+    These requested durable model features are distinct from resampled controls.
+    Require the complete reference/control junction union; never fill missing mass
+    or trust a Pgen column supplied in an ordinary rearrangement table.
+    """
+    import hashlib
+    import json
+    from pathlib import Path
+    from ..db.cache import sha256
+
+    path = Path(path).resolve()
+    if not path.name.endswith('.features.parquet'):
+        raise ValueError('Pgen features require PREFIX.features.parquet and PREFIX.manifest.json')
+    manifest_path = path.with_name(path.name.removesuffix('.features.parquet')+'.manifest.json')
+    manifest = json.loads(manifest_path.read_text())
+    if not isinstance(manifest, dict) or any(not isinstance(manifest.get(key), dict)
+            for key in ('features', 'options', 'model')):
+        raise ValueError('Pgen feature manifest requires features, options and model identities')
+    feature, options, model = (manifest[key] for key in ('features', 'options', 'model'))
+    organism = _organism(species)
+    if (type(options.get('mismatches')) is not int or options['mismatches'] != 1 or
+            _organism(options.get('species')) != organism or options.get('locus') != locus):
+        raise ValueError('Pgen features must match species/locus and Hamming mismatches=1')
+    recorded_path = feature.get('path')
+    if not isinstance(recorded_path, str) or Path(recorded_path).name != path.name:
+        raise ValueError('Pgen feature manifest basename does not match the requested table')
+    relative = Path(recorded_path).name if Path(recorded_path).is_absolute() else recorded_path
+    if (manifest_path.parent/relative).resolve() != path:
+        raise ValueError('Pgen feature manifest path does not resolve beside its table')
+    table_hash = sha256(path)
+    if feature.get('sha256') != table_hash:
+        raise ValueError('Pgen feature table SHA256 does not match its manifest')
+    files, metadata = model.get('files'), model.get('metadata')
+    expected = _pgen_model_identity(organism, locus)
+    if (model.get('collapse_alleles') is not False or not isinstance(files, dict) or not files or
+            any(expected['files'].get(name) != digest for name, digest in files.items()) or
+            not isinstance(metadata, dict) or _organism(metadata.get('organism')) != organism or metadata.get('locus') != locus):
+        raise ValueError('Pgen feature model files/metadata do not match the uncollapsed species/locus model')
+    expected_metadata = expected['metadata']
+    if any(metadata.get(key) != expected_metadata[key] for key in ('events', 'chain_type')):
+        raise ValueError('Pgen feature model event/chain metadata does not match the bundled model')
+    names = [*expected_metadata['events'], 'genes_v', 'genes_j']
+    if expected_metadata['chain_type'] == 'VDJ':
+        names.append('genes_d')
+    consumed = {'manifest.json', *[next(name+suffix for suffix in ('.parquet', '.tsv', '.csv')
+        if name+suffix in expected['files']) for name in names]}
+    if 'training.json' in expected['files']:
+        consumed.add('training.json')
+    if set(files) != consumed:
+        raise ValueError('Pgen feature model must identify every consumed event and gene file')
+    digest = hashlib.sha256(''.join(f'{name}\t{files[name]}\n' for name in sorted(files)).encode()).hexdigest()
+    if model.get('sha256') != digest:
+        raise ValueError('Pgen feature model SHA256 does not match its consumed files')
+    frame = pl.read_parquet(path)
+    required = {'junction_aa', 'pgen', 'species', 'locus'}
+    if (not required <= set(frame.columns) or not frame.schema['pgen'].is_numeric() or
+            any(frame.schema[c] != pl.String for c in ('junction_aa', 'species', 'locus'))):
+        raise ValueError('Pgen feature table requires junction_aa, numeric pgen, species and locus')
+    frame = frame.with_columns(pl.col('pgen').cast(pl.Float64))
+    if (any(frame[c].null_count() for c in required) or
+            frame['junction_aa'].n_unique() != frame.height or not frame['junction_aa'].is_sorted() or
+            frame.filter(~pl.col('junction_aa').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$') |
+                ~pl.col('pgen').is_finite() | ~pl.col('pgen').is_between(0, 1) |
+                (pl.col('species') != organism) | (pl.col('locus') != locus)).height):
+        raise ValueError('Pgen features require sorted unique canonical junctions, matching species/locus and finite probabilities in [0,1]')
+    needed = pl.concat([reference.select('junction_aa'), control.select('junction_aa')]).unique()
+    missing = needed.join(frame.select('junction_aa'), on='junction_aa', how='anti').height
+    if missing:
+        raise ValueError(f'Pgen features do not cover {missing} required reference/control junctions')
+    identity = dict(path=str(path), sha256=table_hash, manifest_path=str(manifest_path),
+        manifest_sha256=sha256(manifest_path), options=options, model=model, rows=frame.height)
+    return frame.select('junction_aa', pl.col('pgen').cast(pl.Float64)), identity
 
 
 def _sample_event_indices(cumulative, count, rng):
