@@ -96,6 +96,15 @@ after their counters are updated. Raw components and requested observed detail
 still materialize the case grid: this reduction does not remove the case guard
 or establish whole-cohort resource compliance.
 
+Raw gap-block and stem4 collection now consumes bounded observation batches
+directly from the existing native traversal. Each batch carries integer query-row
+and target identities. One sorted numeric map writes its scores into the
+requested case order; repeated or unknown writes fail. Repeated source
+observations retain distinct query rows, and unavailable cases retain missing
+scores. The adapter neither retains the full kernel-detail table nor rebuilds
+a whole-grid hash join for every batch. The outer raw-component case grid still
+exists, so this change alone does not remove its five-million-case guard.
+
 Component normalization also keeps each full-pMHC/stratum population separate
 without a Python loop over targets. Null metadata keys receive shared integer
 identities, including missing pMHC fields. Within each represented null source,

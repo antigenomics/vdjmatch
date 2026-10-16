@@ -102,3 +102,40 @@ def test_sparse_union_keeps_different_source_targets_and_skips_unrequested_chunk
         scorer='v-bounded',assayed=True)
     assert seen==[(2,2)]
     assert out.select('query_id','epitope').rows()==[(0,'A'),(1,'A'),(2,'B')]
+
+
+@pytest.mark.parametrize('assayed',[False,True])
+def test_score_consumer_preserves_every_case_without_retaining_batches(monkeypatch,assayed):
+    import weakref
+    from vdjmatch.evalue import kernel
+    from vdjmatch.match import geometry
+    from vdjmatch.aggregate.candidates import PMHC
+    q=pl.DataFrame({'query_id':range(700),'cdr3':['CASSLGQAYEQYF']*700,
+        '_allele':['TRBV19*01']*700})
+    r=pl.DataFrame({'cdr3':['CASSLGQAYEQYF']*128,'_allele':['TRBV19*01']*128,
+        'epitope':['E'+str(i) for i in range(128)]})
+    groups=[({'epitope':e,'mhc_a':None,'mhc_b':'B2M','mhc_class':'MHCI'},q,
+        r.filter(pl.col('epitope')==e)) for e in r['epitope']]
+    options=dict(query_keys=['cdr3','_allele'],search_keys=['cdr3','_allele'],paired=False,
+        cutoffs=[0,4],radius=4,kernel_scale=22.5,scorer='v-bounded',assayed=assayed,
+        matrix='blosum62',ctrim=3,stem_depth=4,_scores_only=True)
+    expected=kernel.grouped_kernel_enrichment(q,r,groups,**options)
+    native=geometry.grouped_total_distance_count_batch;calls=[]
+    def counted(*args,**kwargs):
+        calls.append(1)
+        return native(*args,**kwargs)
+    monkeypatch.setattr(geometry,'grouped_total_distance_count_batch',counted)
+    retained=[];parts=[]
+    def consume(frame):
+        assert all(ref() is None for ref in retained)
+        retained.append(weakref.ref(frame))
+        assert frame.height<=65536
+        assert frame.columns==['query_id',*PMHC,'kernel_score','_target','_query_order']
+        assert frame['_query_order'].max()<q.height and frame['_target'].max()<len(groups)
+        parts.append(frame.select('query_id',*PMHC,'kernel_score'))
+    result=kernel.grouped_kernel_enrichment(q,r,groups,_consume=consume,**options)
+    assert result is None and calls==[1]
+    assert all(ref() is None for ref in retained)
+    assert [part.height for part in parts]==[65536,24064]
+    assert_frame_equal(pl.concat(parts).sort('query_id',*PMHC),
+        expected.sort('query_id',*PMHC),check_exact=True)

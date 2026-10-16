@@ -1678,6 +1678,12 @@ Scalar denominators and sequential V/J/length additions retain the original floa
 No reference population is decremented for an exact-hit mask and no computed statistics persist between runs.
 
 \paragraph{Exact streamed reference-tail reduction.}
+Raw gap-block and stem4 score batches carry an observation-row index $u$ and target index $t$.
+For $G$ target groups, the execution key $c=uG+t$ is injective for $0\le t<G$; a sorted key-to-output-row map places every batch into the requested case order.
+Repeated source observations have different $u$ even when they share a native search key.
+Unknown or repeated writes fail, unavailable cases retain missing scores, and one native batch traversal per geometry/population supplies all observations.
+This removes the retained detailed kernel table and repeated full-grid joins, but not the outer raw-component grid or its resource gate.
+
 Component normalization first assigns shared integer identities to its full-pMHC/stratum groups, retaining missing metadata categories.
 For null source $s$, sort all finite pairs $(g,t)$ lexicographically, where $g$ is a group identity and $t$ a score.
 Let $h_s(g)$ be the offset just after the last finite score of $g$, and $\ell_s(g,x)$ the lower-bound offset of $(g,x)$ in that array.

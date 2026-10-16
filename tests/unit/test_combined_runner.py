@@ -15,15 +15,26 @@ def _check_kernel_projection(monkeypatch):
 
     def checked(*args, **kwargs):
         assert kwargs.pop('_scores_only', False)
+        consume = kwargs.pop('_consume', None)
         full = original(*args, **kwargs)
-        slim = original(*args, _scores_only=True, **kwargs)
+        parts = []
+        def checked_consume(frame):
+            parts.append(frame.select('query_id',*PMHC,'kernel_score'))
+            consume(frame)
+        slim = original(*args, _scores_only=True,
+            **({'_consume': checked_consume} if consume is not None else {}), **kwargs)
+        if consume is not None:
+            assert slim is None
+            slim = pl.concat(parts).sort('query_id', *PMHC) if parts else None
+            if full is not None:
+                full = full.sort('query_id', *PMHC)
         if full is None:
             assert slim is None
         else:
             columns = ['query_id', *PMHC, 'kernel_score']
             assert slim.columns == columns
             assert_frame_equal(slim, full.select(columns), check_exact=True)
-        return slim
+        return None if consume is not None else slim
 
     monkeypatch.setattr(kernel, 'grouped_kernel_enrichment', checked)
 

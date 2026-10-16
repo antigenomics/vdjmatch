@@ -119,6 +119,7 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
 
 
 def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts):
+    import numpy as np
     from ..evalue.kernel import grouped_kernel_enrichment, ladder_cutoffs
     from ..match.geometry import (resolve_v_alleles, distance_units, _substitution_costs)
 
@@ -150,19 +151,39 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
         if task['epitope'] is not None and part.height and subset.height:
             groups.append((task, subset, part))
     result = cases
+    # Map once. Native batches carry the original query-row and target axes;
+    # never rebuild a full case-grid hash join for every bounded batch.
+    target_rows = pl.DataFrame([task for task, _, _ in groups],schema={c:cases.schema[c] for c in PMHC})
+    case_rows = cases.with_row_index('_kernel_case').join(q.select('query_id').with_row_index('_query_order'),
+        on='query_id',how='inner',validate='m:1').join(target_rows.with_row_index('_target'),
+            on=PMHC,how='inner',nulls_equal=True,validate='m:1')
+    codes = case_rows['_query_order'].to_numpy().astype(np.uint64)*len(groups)+case_rows['_target'].to_numpy()
+    order = np.argsort(codes)
+    codes = codes[order]
+    case_indices = case_rows['_kernel_case'].to_numpy()[order]
+    del case_rows, order, target_rows
     for name, matrix, depth in [('gapblock', 'clipped', 0), ('stem4', 'blosum62', 4)]:
+        values = np.full(cases.height, np.nan)
+        seen = np.zeros(cases.height, dtype=bool)
+        def consume(scores):
+            batch_codes = scores['_query_order'].to_numpy().astype(np.uint64)*len(groups)+scores['_target'].to_numpy()
+            positions = np.searchsorted(codes,batch_codes)
+            if np.any(positions>=len(codes)) or np.any(codes[positions]!=batch_codes):
+                raise RuntimeError('kernel batch contains unknown cases')
+            indices = case_indices[positions]
+            if seen[indices].any() or np.unique(indices).size!=len(indices):
+                raise RuntimeError('kernel batch repeats cases')
+            seen[indices] = True
+            raw = scores['kernel_score'].to_numpy()
+            values[indices] = np.where(raw > 0, raw, np.nan)
         scale, _ = distance_units(_substitution_costs('full', matrix))
-        scores = grouped_kernel_enrichment(q, r, groups, query_keys=query_keys, search_keys=search_keys,
+        grouped_kernel_enrichment(q, r, groups, query_keys=query_keys, search_keys=search_keys,
             paired=paired, cutoffs=ladder_cutoffs(scale), radius=22.5 * scale, kernel_scale=22.5 * scale,
             scorer='v-bounded', assayed=True, species=species, threads=threads, ctrim=3, v_loop_weight=1,
             alphabet='full', stem_depth=depth, stem_weight=1.0, matrix=matrix,
             v_loop_distances=contexts[matrix], exclude_exact=exclude_exact, _allow_empty_background=True,
-            _scores_only=True)
-        if scores is None:
-            scores = cases.head(0).with_columns(pl.lit(None, dtype=pl.Float64).alias('kernel_score'))
-        result = result.join(scores.select(*_CASES, pl.when(pl.col('kernel_score') > 0).then(
-            pl.col('kernel_score')).otherwise(None).alias(name + '_score')),
-            on=_CASES, how='left', nulls_equal=True, validate='1:1', maintain_order='left')
+            _scores_only=True, _consume=consume)
+        result = result.with_columns(pl.Series(name + '_score', values, nan_to_null=True))
     return result
 
 

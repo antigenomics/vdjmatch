@@ -119,14 +119,17 @@ def _compact_kernel_selection(scores, exact, permutation, starts, peptides):
 def grouped_kernel_selection(queries, references, groups, *, query_keys, search_keys,
         paired, cutoffs, radius, kernel_scale, scorer, assayed=False, withheld_column=None,
         position_weighting='uniform', geometry_preset=None, _detailed=False, progress=False,
-        _allow_empty_background=False, _scores_only=False, **geometry):
+        _allow_empty_background=False, _scores_only=False, _consume=None, **geometry):
     """Compact all-label selection from one bounded native reference traversal.
 
     Memberships deduplicate search keys separately from pMHC annotations. Other
     peptide counts subtract only keys exclusive to that peptide; shared labels
     and unselected peptides remain in the background. No predictions persist.
     The complete-score runner retains only pMHC keys and the selected score;
-    detailed diagnostics remain available to other callers.
+    detailed diagnostics remain available to other callers. An internal consumer
+    can receive each detailed observation batch directly, without retaining the
+    complete table or starting another native search. Consumer batches include
+    the integer execution axes ``_target`` and ``_query_order`` for keyed writes.
     """
     import polars as pl
     from ..match.geometry import grouped_total_distance_count_batch, distance_cutoff
@@ -134,6 +137,8 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         raise ValueError('unknown kernel scorer')
     if _scores_only and not _detailed:
         raise ValueError('score projection requires detailed kernel mode')
+    if _consume is not None and (not _detailed or not callable(_consume)):
+        raise ValueError('kernel consumer requires detailed mode and a callable')
     if not groups or not queries.height:
         return None,set()
     if progress:
@@ -164,6 +169,12 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         from ..aggregate.candidates import PMHC
         targets=targets.with_columns(*[pl.Series(c,[task[c] for task,_,_ in groups],dtype=pl.String)
             for c in PMHC if c!='epitope'])
+        detail_columns=(['query_id',*PMHC,'kernel_score'] if _scores_only else
+            ['query_id','n_control','control_weight','control_population','n_reference',
+             'reference_weight','reference_population','expected_count','enrichment_status',
+             'enrichment','zero_control_hits','zero_control_weight','exact_reference_count',
+             *['kernel_'+w+'_'+d for w in ('all','v','vonly') for d in ('bounded','rare')],
+             'kernel_score','kernel_status',*PMHC])
     peptides=targets.select('epitope').unique(maintain_order=True).with_row_index('_peptide')
     target_peptides=targets.join(peptides,on='epitope',nulls_equal=True,maintain_order='left')['_peptide'].to_numpy()
     members=pl.concat([part.select(search_keys).unique().with_columns(pl.lit(i).alias('_target'))
@@ -355,8 +366,11 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
                 expanded=(part.join(allowed,on='query_id',how='inner').join(values,on=['_row','_target'],how='inner')
                     if assayed else part.join(values,on='_row',how='inner'))
                 expanded=expanded.join(targets,on='_target',how='left',validate='m:1')
-                states.append(expanded.select('query_id',*PMHC,'kernel_score','_target','_query_order')
-                    if _scores_only else expanded.drop('_row','_radius_hit'))
+                if _consume is None:
+                    states.append(expanded.select('query_id',*PMHC,'kernel_score','_target','_query_order')
+                        if _scores_only else expanded.drop('_row','_radius_hit'))
+                else:
+                    _consume(expanded.select(*detail_columns,'_target','_query_order'))
             continue
         chunk_mapping=chunk_mapping.select('query_id','_row')
         columns=['selected_epitope','kernel_score','kernel_competing_score','tied_peptides','exact_peptides']
@@ -371,14 +385,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
             selected=select_kernel(expanded.select('query_id').unique(),expanded)
             states.append(selected.select('query_id',*columns))
     if _detailed and states:
-        from ..aggregate.candidates import PMHC
-        columns=['query_id','n_control','control_weight','control_population','n_reference',
-            'reference_weight','reference_population','expected_count','enrichment_status',
-            'enrichment','zero_control_hits','zero_control_weight','exact_reference_count',
-            *['kernel_'+w+'_'+d for w in ('all','v','vonly') for d in ('bounded','rare')],
-            'kernel_score','kernel_status',*PMHC]
-        return pl.concat(states).sort('_target','_query_order').select(
-            ['query_id',*PMHC,'kernel_score'] if _scores_only else columns),hit_ids
+        return pl.concat(states).sort('_target','_query_order').select(detail_columns),hit_ids
     return pl.concat(states) if states else None,hit_ids
 
 
