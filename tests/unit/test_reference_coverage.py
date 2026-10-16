@@ -224,3 +224,30 @@ def test_native_bootstrap_coverage_matches_owning_python_curve():
         np.testing.assert_allclose(curve['coverage_hi'], np.quantile(expected, .975, axis=0), rtol=0, atol=1e-9)
     with pytest.raises(ValueError, match='working memory'):
         abundance_coverage([10_000_000], nboot=5, seed=7)
+
+
+def test_combined_uses_persisted_control_reductions_without_rebuilding(tmp_path, monkeypatch):
+    from vdjmatch.cli.__main__ import main
+    import vdjmatch.evalue.mock_reference as mocks
+    from vdjmatch.cli import combined
+    seqs=['CASSLAAAF','CASSLAAAAF','CAGGGGGGF']
+    reference,control,prefix,loaded=(tmp_path/p for p in ('ref.tsv','control.tsv','fresh','loaded'))
+    pl.DataFrame({'cdr3':seqs,'v':['TRBV1']*3,'j':['TRBJ1-1']*3,
+        'species':['HomoSapiens']*3,'gene':['TRB']*3,'epitope':['DEMO']*3}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':seqs,'v_call':['TRBV1']*3,'j_call':['TRBJ1-1']*3,
+        'occurrences':[10]*3}).write_csv(control,separator='\t')
+    monkeypatch.setattr(mocks,'compute_pgen',lambda ref,pool,**kwargs:
+        pool.select('junction_aa').with_columns(pl.lit(.25).alias('pgen')))
+    args=['reference-diagnostics','--vdjdb',str(reference),'--control',str(control),
+        '--locus','TRB','--geometry','levenshtein','--mock-replicates','2','--nboot','3']
+    assert main(args+['--output-prefix',str(prefix)])==0
+    model=tmp_path/'control-model'
+    assert main(['prepare-control','--control',str(control),'--species','human','--locus','TRB',
+        '--output-dir',str(model)])==0
+    monkeypatch.setattr(combined,'_raw_control',lambda *_:(_ for _ in ()).throw(AssertionError('raw control rebuilt')))
+    assert main(args+['--control-model',str(model),'--output-prefix',str(loaded)])==0
+    for suffix in ('.motifs.tsv','.genes.tsv','.information.tsv','.structures.tsv',
+                   '.levenshtein.coverage.tsv','.levenshtein.communities.tsv'):
+        a=pl.read_csv(str(prefix)+suffix,separator='\t',infer_schema_length=None)
+        b=pl.read_csv(str(loaded)+suffix,separator='\t',infer_schema_length=None)
+        assert a.equals(b),suffix

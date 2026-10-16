@@ -28,6 +28,7 @@ def register(subparsers, name='reference-structure'):
     p.add_argument('--targets-from-sample', help='compatible pMHC unions declared in an AIRR table')
     p.add_argument('--reference-population', choices=['curated-benchmark','all-valid'], default='curated-benchmark')
     p.add_argument('--control', help='raw rearrangement control for descriptive V/J event-frequency ratios')
+    p.add_argument('--control-model', help='prepared immutable control directory from prepare-control')
     p.add_argument('--motif-mode', choices=['exact3', 'imgt3', 'wild4', 'imgt_wild4', 'all'],
                    default='imgt_wild4', help='control-relative motif projection (default: imgt_wild4)')
     p.add_argument('--mock-replicates', type=int, default=0,
@@ -69,6 +70,8 @@ def main(a, *, return_inputs=False):
         print(f'reference-structure {label}: {stages[label]:.3f}s', flush=True)
     if a.threads < 1:
         raise ValueError('positive threads required')
+    if getattr(a, 'control_model', None) and not a.control:
+        raise ValueError('--control-model requires its original --control input for validation')
     if a.motif_mode != 'imgt_wild4' and not a.control:
         raise ValueError('--motif-mode requires --control')
     if a.mock_replicates < 0 or a.mock_replicates == 1 or a.seed < 0:
@@ -88,22 +91,29 @@ def main(a, *, return_inputs=False):
     if a.control:
         from .combined import _raw_control
         from ..evalue.mock_reference import control_events
-        control_raw, control_info = _raw_control(a.control)
-        events = control_events(control_raw, species=organism, locus=a.locus)
-        control_usage = control_gene_usage(events, locus=a.locus)
-        mark('raw_control')
         modes = ['exact3', 'wild4', 'imgt3', 'imgt_wild4'] if a.motif_mode == 'all' else [a.motif_mode]
-        control_motifs = {}
-        for mode in modes:
-            control_motifs[mode] = motif_population(events.rename({'junction_aa': 'cdr3'}), locus=a.locus, mode=mode)
-            mark('control_motifs_'+mode)
+        if getattr(a, 'control_model', None):
+            from .control_model import load_control_model
+            events, control_usage, control_motifs, control_info = load_control_model(
+                a.control_model, a.control, species=organism, locus=a.locus, modes=modes)
+            mark('control_model_loading')
+        else:
+            control_raw, control_info = _raw_control(a.control)
+            events = control_events(control_raw, species=organism, locus=a.locus)
+            control_usage = control_gene_usage(events, locus=a.locus)
+            mark('raw_control')
+            control_motifs = {}
+            for mode in modes:
+                control_motifs[mode] = motif_population(events.rename({'junction_aa': 'cdr3'}), locus=a.locus, mode=mode)
+                mark('control_motifs_'+mode)
+            del control_raw
         prefix.parent.mkdir(parents=True, exist_ok=True)
         motif_path = Path(str(prefix)+'.motifs.tsv')
         control_info.update(path=str(Path(a.control).resolve()), sha256=sha256(Path(a.control)),
-            event_keys=events.height, total_events=int(events['event_weight'].sum()),
-            reader_sha256=sha256(Path(_raw_control.__code__.co_filename)),
-            event_normalizer_sha256=sha256(Path(control_events.__code__.co_filename)))
-        del control_raw
+            event_keys=events.height, total_events=int(events['event_weight'].sum()))
+        if not getattr(a, 'control_model', None):
+            control_info.update(reader_sha256=sha256(Path(_raw_control.__code__.co_filename)),
+                event_normalizer_sha256=sha256(Path(control_events.__code__.co_filename)))
     raw = db.load(a.vdjdb, species=species, gene=a.locus, epitope=a.epitope)
     if a.reference_population == 'all-valid':
         raw = raw.with_columns(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('reference_valid'))

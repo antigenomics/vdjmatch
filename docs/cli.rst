@@ -1564,11 +1564,20 @@ set against its bundled model and requires sorted unique canonical junctions,
 finite probabilities in [0,1], and coverage of every valid reference/control
 junction. It performs no Pgen recomputation when features are supplied. The
 matching bins then use closed Hamming-1 probability mass. If the controls have no
-zero-mass bin, zero-Pgen reference records use the lowest occupied control bin;
+zero-mass bin, zero-Pgen reference records use the lowest occupied control bin
+with enough event slots for the selected zero-mass reference records;
 the stored probabilities remain unchanged. The default fresh
 route retains exact-junction mass. Diagnostic manifests record the feature and
 producer-manifest hashes and model identity. These are reusable model features;
 control draws and diagnostic calculations remain fresh within each invocation.
+
+Compute fixed control reductions once with ``prepare-control --control RAW
+--species human --locus TRB --threads 12 --output-dir NEW_DIRECTORY``. It stores
+the normalized event table, gene counts and four motif-count models with raw-input
+and file hashes. Supply ``--control-model NEW_DIRECTORY`` alongside the original
+``--control RAW`` in later structure, coverage or combined diagnostics to reuse
+these explicit prepared inputs. The consumer validates their population and
+hashes; matched draws, reference features, graphs and bootstrap outputs are fresh.
 
 With the same ``--control`` option, ``structure.genes.tsv`` also reports
 ``gene_bits``, ``length_bits`` and ``joint_bits``. These use distinct

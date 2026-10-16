@@ -12,6 +12,7 @@ def register(subparsers):
     p.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
     add_graph_options(p)
     p.add_argument('--control', help='raw joint junction/V/J recombination-event control')
+    p.add_argument('--control-model', help='prepared immutable control directory from prepare-control')
     p.add_argument('--mock-replicates', type=int, default=0)
     p.add_argument('--pgen-features', help='validated PREFIX.features.parquet Hamming-1 bank for control matching')
     p.add_argument('--seed', type=int, default=0)
@@ -86,9 +87,14 @@ def main(a, *, inputs=None):
     if a.control:
         from .combined import _raw_control
         if inputs is None:
-            control_raw, control_info = _raw_control(a.control)
-            events = control_events(control_raw, species=organism, locus=a.locus)
-            del control_raw
+            if getattr(a, 'control_model', None):
+                from .control_model import load_control_model
+                events, _, _, control_info = load_control_model(a.control_model, a.control,
+                    species=organism, locus=a.locus, modes=())
+            else:
+                control_raw, control_info = _raw_control(a.control)
+                events = control_events(control_raw, species=organism, locus=a.locus)
+                del control_raw
             if a.pgen_features:
                 pgen, feature_identity = load_pgen_features(a.pgen_features,
                     reference.rename({'cdr3': 'junction_aa'}), events, species=organism, locus=a.locus)
@@ -208,6 +214,8 @@ def validate_options(a):
     """Reject invalid/unsupported graph requests before any raw computation."""
     if a.threads < 1 or a.nboot < 2 or a.seed < 0 or a.mock_replicates < 0 or a.mock_replicates == 1:
         raise ValueError('positive threads, nboot>=2, seed>=0 and mock-replicates zero or >=2 required')
+    if getattr(a, 'control_model', None) and not a.control:
+        raise ValueError('--control-model requires its original --control input for validation')
     if bool(a.control) != bool(a.mock_replicates):
         raise ValueError('--control and --mock-replicates>=2 must be supplied together')
     if a.pgen_features and (not a.control or not a.mock_replicates):

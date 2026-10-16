@@ -9,7 +9,7 @@ from ..io.columns import _integer_count, _resolve
 
 
 EVENT_SAMPLER = "uniform-event-slots-v1"
-PGEN_BINNING = "rounded log2(Pgen), ties-to-even; absent zero-mass control bin uses lowest occupied control bin"
+PGEN_BINNING = "rounded log2(Pgen), ties-to-even; absent zero-mass control bin uses lowest occupied control bin with enough event slots for zero-mass reference rows"
 
 
 def _pgen_model_identity(species, locus):
@@ -314,8 +314,14 @@ def _prepare_mock_control(reference, control, *, pgen=None, species='human', loc
     pools = {key[0]: (part.select(event_keys), np.cumsum(part['event_weight'].to_numpy(), dtype=np.int64))
              for key, part in pool.partition_by('_bin', as_dict=True).items()}
     if -2147483648 not in pools and pools:
+        needed = reference.join(strata.filter(pl.col('junction_aa').is_in(
+            reference['junction_aa'].unique().implode())), on='junction_aa', how='left').group_by('_bin').len()
+        counts = dict(needed.iter_rows())
+        required = counts.get(-2147483648, 0)
+        floor = min((key for key, (_, cumulative) in pools.items()
+            if cumulative[-1] >= required + counts.get(key, 0)), default=min(pools))
         strata = strata.with_columns(pl.when(pl.col('_bin') == -2147483648)
-            .then(pl.lit(min(pools))).otherwise(pl.col('_bin')).alias('_bin'))
+            .then(pl.lit(floor)).otherwise(pl.col('_bin')).alias('_bin'))
     for _, cumulative in pools.values():
         cumulative.flags.writeable = False
     return control, pgen, _organism(species), locus, strata, event_keys, pools

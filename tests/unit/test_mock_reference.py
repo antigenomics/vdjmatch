@@ -278,9 +278,12 @@ def test_prepared_control_preserves_seeded_draws_and_rejects_wrong_inputs():
 
 
 def test_zero_reference_mass_uses_lowest_occupied_control_bin():
-    reference=pl.DataFrame({'group_id':[0,0], 'junction_aa':['CREF','CREF']})
-    control=pl.DataFrame({'junction_aa':['CAAF','CACF'],'event_weight':[3,3]})
-    pgen=pl.DataFrame({'junction_aa':['CREF','CAAF','CACF'],'pgen':[0.,2**-6,2**-4]})
+    reference=pl.DataFrame({'group_id':[0,0,0], 'junction_aa':['CREF','CREF','CACF']})
+    control=pl.DataFrame({'junction_aa':['CAAF','CACF','CADF'],'event_weight':[1,2,10]})
+    pgen=pl.DataFrame({'junction_aa':['CREF','CAAF','CACF','CADF'],
+        'pgen':[0.,2**-8,2**-6,2**-4]})
     sampled=sample_mock_references(reference,control,replicates=2,pgen=pgen)
-    assert sampled.height==4 and sampled['junction_aa'].to_list()==['CAAF']*4
-    assert pgen['pgen'].to_list()==[0.,2**-6,2**-4]
+    assert sampled.height==6
+    assert sampled.group_by('replicate','junction_aa').len().sort('replicate','junction_aa')['len'].to_list()==[1,2,1,2]
+    assert set(sampled['junction_aa'])=={'CACF','CADF'}
+    assert pgen['pgen'].to_list()==[0.,2**-8,2**-6,2**-4]
