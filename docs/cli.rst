@@ -1757,7 +1757,8 @@ the selected germline CDR1/CDR2/CDR2.5 loops, summing
 ``SW(a,a)+SW(b,b)-2*SW(a,b)`` across loops. ``--cdr-loops cdr12`` omits CDR2.5;
 ``junction`` explicitly requests junction-only SW. There is no trimming, stem4
 or bounded-kernel substitution. Germline templates reuse the existing allele
-resolver; unresolved/invalid loop templates fail explicitly. Gaps cost
+resolver; unresolved/invalid loop templates retain exact-clonotype counts and
+unavailable community memberships, with modeled/unavailable counts reported. Gaps cost
 ``gap_open+(length-1)*gap_extend`` in raw BLOSUM62 score units.
 
 Vertices are distinct full-junction/V-call/J-call keys, with supplied alleles
@@ -1784,8 +1785,44 @@ control populations, using the same event-slot law as the motif diagnostic.
 Each mock gets its own graph partition; each population's occurrence bootstrap
 then holds its complete partition fixed. One native graph batch per invocation
 serves all real/mock populations, with unique search keys shared during that
-operation. Full SW uses bounded binary target-count chunks, not a retained
-pairwise distance matrix. The default ``--pair-budget 2000000`` limits unique
-key comparisons before search; it can be raised explicitly. Memberships, graph
+operation. Full SW emits bounded sparse native hits within each fixed population, without
+a dense control matrix. The default ``--pair-budget 2000000`` limits candidate
+pairs before search: within-population unordered pairs for sparse SW, union
+unordered pairs for indexed edit search, and query-by-union pairs for the knee
+count traversal. Raise it explicitly
+for a declared larger workload. Memberships, graph
 expansion and Chao bootstrap buffers have separate allocation guards. A small
 synthetic check does not establish full-cohort time/memory acceptance.
+
+
+vdjmatch reference-diagnostics
+------------------------------
+
+Run all four motif views and both occurrence/community geometries in one fresh
+invocation. The raw control and native Pgen preparation are shared in memory
+only for that invocation; no computed intermediates are saved or reused.
+
+.. code-block:: sh
+
+   vdjmatch reference-diagnostics --vdjdb reference.zip --species human --locus TRB \
+     --epitope DEMO --control raw-events.tsv.gz --motif-mode all --geometry both \
+     --sw-radius-knee --cdr-loops cdr12plus --pair-budget 8000000000 \
+     --mock-replicates 50 --nboot 50 --seed 0 --threads 12 --output-prefix diagnostics
+
+``--sw-radius-knee`` selects one radius from the real reference only. Each
+modeled full-junction/V/J vertex contributes its nearest other vertex's full
+SW distance within its full pMHC stratum. The distances are pooled over the
+selected species/chain reference, sorted, and passed to the existing convex
+Kneedle helper (S=1, strongest confirmed interior knee, no smoothing). Singleton
+strata and unavailable V loops have no nearest distance. If no knee is confirmed,
+the command fails rather than inventing a radius. The selected radius remains
+fixed for all matched controls. It is a geometric diagnostic, not a specificity
+or adequacy threshold. Numeric radii from TCRdist cannot be transferred to raw
+SW units.
+
+The reference nearest distances and full strata are exported as ``.sw.knee.tsv``.
+Other coverage outputs receive ``.levenshtein`` or ``.sw`` prefixes; structure
+outputs retain the main prefix. All four motif views are explicitly labelled.
+The sparse-hit and compressed-bootstrap routes require native seqtree and
+vdjtools builds exposing those capabilities; version strings alone do not
+establish that support.

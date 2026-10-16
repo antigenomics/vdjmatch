@@ -88,8 +88,8 @@ def masked_motif_presence_counts(frame, *, mode='imgt_wild4'):
             tokens.append(word[:mask] + 'X' + word[mask:] if mask is not None else word)
     vocabulary = pl.DataFrame({'t0': tokens}).with_row_index('_token_id')
     groups = int(frame['v0'].max()) + 1 if frame.height else 0
-    if groups * len(tokens) * 8 > 256 * 1024**2:
-        raise ValueError('motif histogram exceeds the 256 MiB count-buffer budget')
+    if groups * len(tokens) * 8 > 1024**3:
+        raise ValueError('motif histogram exceeds the 1 GiB count-buffer budget')
     counts = np.zeros((groups, len(tokens)), dtype=np.int64)
     longest = frame['seq0'].str.len_chars().max() or 0
     # Measured expanded-token memory is below 256 B/row; budget a full 256 MiB

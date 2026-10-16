@@ -19,8 +19,8 @@ def reference_groups(raw, a):
     return [(dict(zip(PMHC, key)), part) for key, part in raw.group_by(PMHC, maintain_order=True)]
 
 
-def register(subparsers):
-    p = subparsers.add_parser('reference-structure', help=__doc__)
+def register(subparsers, name='reference-structure'):
+    p = subparsers.add_parser(name, help=__doc__)
     p.add_argument('--vdjdb', required=True)
     p.add_argument('--species', default='HomoSapiens')
     p.add_argument('--locus', choices=['TRA','TRB'], required=True)
@@ -28,7 +28,7 @@ def register(subparsers):
     p.add_argument('--targets-from-sample', help='compatible pMHC unions declared in an AIRR table')
     p.add_argument('--reference-population', choices=['curated-benchmark','all-valid'], default='curated-benchmark')
     p.add_argument('--control', help='raw rearrangement control for descriptive V/J event-frequency ratios')
-    p.add_argument('--motif-mode', choices=['exact3', 'imgt3', 'wild4', 'imgt_wild4'],
+    p.add_argument('--motif-mode', choices=['exact3', 'imgt3', 'wild4', 'imgt_wild4', 'all'],
                    default='imgt_wild4', help='control-relative motif projection (default: imgt_wild4)')
     p.add_argument('--mock-replicates', type=int, default=0,
                    help='Pgen-matched control TF-IDF envelopes; zero disables, otherwise at least two')
@@ -36,9 +36,10 @@ def register(subparsers):
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
+    return p
 
 
-def main(a):
+def main(a, *, return_inputs=False):
     import json
     import time
     import numpy as np
@@ -59,6 +60,12 @@ def main(a):
     from ..runner.annotation import _validate_output_paths
 
     start = time.monotonic()
+    stages, previous = {}, start
+    def mark(label):
+        nonlocal previous
+        now = time.monotonic()
+        stages[label], previous = now-previous, now
+        print(f'reference-structure {label}: {stages[label]:.3f}s', flush=True)
     if a.threads < 1:
         raise ValueError('positive threads required')
     if a.motif_mode != 'imgt_wild4' and not a.control:
@@ -79,7 +86,12 @@ def main(a):
         control_raw, control_info = _raw_control(a.control)
         events = control_events(control_raw, species=organism, locus=a.locus)
         control_usage = control_gene_usage(events, locus=a.locus)
-        control_motifs = motif_population(events.rename({'junction_aa': 'cdr3'}), locus=a.locus, mode=a.motif_mode)
+        mark('raw_control')
+        modes = ['exact3', 'wild4', 'imgt3', 'imgt_wild4'] if a.motif_mode == 'all' else [a.motif_mode]
+        control_motifs = {}
+        for mode in modes:
+            control_motifs[mode] = motif_population(events.rename({'junction_aa': 'cdr3'}), locus=a.locus, mode=mode)
+            mark('control_motifs_'+mode)
         prefix.parent.mkdir(parents=True, exist_ok=True)
         motif_path = Path(str(prefix)+'.motifs.tsv')
         control_info.update(path=str(Path(a.control).resolve()), sha256=sha256(Path(a.control)),
@@ -102,6 +114,7 @@ def main(a):
         from ..evalue.mock_reference import compute_pgen, _pgen_model_identity
         pgen = compute_pgen(raw.filter(mixture_available).rename({'cdr3': 'junction_aa'}),
             events, species=organism, locus=a.locus, threads=a.threads)
+    mark('reference_and_pgen')
     selected_nodes = [source.filter(mixture_available).select('cdr3') for _,source in groups]
     nodes = (pl.concat(selected_nodes).unique(maintain_order=True) if selected_nodes else raw.head(0).select('cdr3')).with_row_index('_node')
     pairs = overlap(nodes['cdr3'].to_list(),scope='1,0,0,1',threads=a.threads) if nodes.height else None
@@ -149,6 +162,7 @@ def main(a):
     degree_nodes = {key[0]: part.sort('_local') for key, part in
                     degree_membership.group_by('_group')} if degree_membership is not None else {}
     summaries, degree_rows, length_tables, gene_tables = [], [], [], []
+    mark('reference_graphs')
     for group_id, (task, source) in enumerate(groups):
         retained = source.filter(available)
         junctions = memberships[group_id]
@@ -160,15 +174,15 @@ def main(a):
         gene_context = {k: v for k, v in context.items() if k != '_mixture_group'}
         gene_tables.append(reference_gene_usage(source.filter(mixture_available), locus=a.locus).with_columns(
             *[pl.lit(value).alias(key) for key, value in gene_context.items()]))
-        if control_motifs is not None:
-            motifs = motif_selection_information(source.filter(mixture_available), control_motifs, locus=a.locus, mode=a.motif_mode).with_columns(
+        for mode, control_motif in (control_motifs or {}).items():
+            motifs = motif_selection_information(source.filter(mixture_available), control_motif, locus=a.locus, mode=mode).with_columns(
                 *[pl.lit(value).alias(key) for key, value in gene_context.items()])
             if a.mock_replicates and source.filter(mixture_available).height:
                 import hashlib
                 from ..aggregate.motif_information import motif_bootstrap
                 task_seed = int.from_bytes(hashlib.sha256(json.dumps(
                     [a.seed, species, a.locus, task], sort_keys=True).encode()).digest()[:8], 'little')
-                motifs = motif_bootstrap(source.filter(mixture_available), events, control_motifs,
+                motifs = motif_bootstrap(source.filter(mixture_available), events, control_motif,
                     motifs, pgen=pgen, locus=a.locus, species=organism,
                     replicates=a.mock_replicates, seed=task_seed, threads=a.threads)
             elif a.mock_replicates:
@@ -225,6 +239,7 @@ def main(a):
         degree_summary.update({f'hamming_{name}_degree': float(np.quantile(degrees, q)) if n else None
                                for name, q in [('q10', .1), ('median', .5), ('q90', .9)]})
         summaries.append(context | full | v_full | degree_summary | dict(structure_status='available' if full['junctions'] else 'empty_reference'))
+        mark('target_'+str(group_id))
     prefix.parent.mkdir(parents=True,exist_ok=True)
     summary_path = Path(str(prefix)+'.structures.tsv')
     degree_path = Path(str(prefix)+'.degrees.tsv')
@@ -307,8 +322,13 @@ def main(a):
         gene_control_comparison=('reference record/key fractions divided by control event fractions; no smoothing; unresolved genes, absent control genes and absent control lengths explicit; descriptive composition only'
             if control_info is not None else None),
         motif_information=(dict(rows=motif_rows, mode=a.motif_mode,
-            k=4 if 'wild' in a.motif_mode else 3, masks=[0,1,2,3] if 'wild' in a.motif_mode else [],
-            alphabet='11 IMGT classes' if 'imgt' in a.motif_mode else '20 amino acids', token_scope='full junction; once-per-key presence',
+            modes=modes,
+            k=None if a.motif_mode == 'all' else 4 if 'wild' in a.motif_mode else 3,
+            masks=None if a.motif_mode == 'all' else [0,1,2,3] if 'wild' in a.motif_mode else [],
+            alphabet=None if a.motif_mode == 'all' else '11 IMGT classes' if 'imgt' in a.motif_mode else '20 amino acids',
+            views=[dict(mode=mode, k=4 if 'wild' in mode else 3,
+                masks=[0,1,2,3] if 'wild' in mode else [],
+                alphabet='11 IMGT classes' if 'imgt' in mode else '20 amino acids') for mode in modes], token_scope='full junction; once-per-key presence',
             sampling_unit='distinct full-junction/V-gene keys on both sides',
             scopes='within V, pooled lengths and exact length',
             statistic='presence log2 likelihood ratio and binary presence/absence KL; overlapping tokens are not independent',
@@ -337,5 +357,5 @@ def main(a):
         exclusion='none: model composition and weights use the fixed full reference; benchmark exclusion applies only to hit lists',
         interpretation='reference-only morphology and fixed graph-mixture heuristic; no label fit, recognition probability or P/E-value',
         source_sha256=sha256(Path(__file__)), reducer_sha256=sha256(Path(graph_profiles.__code__.co_filename)),
-        tables={str(p.name):sha256(p) for p in tables}, seconds=time.monotonic()-start),indent=2)+'\n')
-    return 0
+        stage_seconds=stages, tables={str(p.name):sha256(p) for p in tables}, seconds=time.monotonic()-start),indent=2)+'\n')
+    return dict(raw=raw, events=events, pgen=pgen, control_info=control_info) if return_inputs else 0

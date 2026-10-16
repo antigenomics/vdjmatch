@@ -119,8 +119,8 @@ def motif_bootstrap(reference, control_events, control, observed, *, pgen, locus
 
     if replicates < 2:
         raise ValueError('motif bootstrap requires at least two replicates')
-    if 3 * (replicates + 2) * observed.height * 8 > 256 * 1024**2:
-        raise ValueError('motif bootstrap envelope exceeds 256 MiB; select fewer targets/tokens or replicates')
+    if 3 * (replicates + 2) * observed.height * 8 > 2 * 1024**3:
+        raise ValueError('motif bootstrap envelope exceeds 2 GiB; select fewer targets/tokens or replicates')
     keys = ['v_gene', 'junction_length', 'length_scope', 'motif']
     axis = observed.select(keys)
     draws = np.empty((replicates, observed.height), dtype=np.float64)

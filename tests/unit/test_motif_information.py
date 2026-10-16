@@ -63,10 +63,10 @@ def test_reference_structure_cli_labels_motif_views(tmp_path, monkeypatch, mode)
 def test_motif_modes_validate_before_count_allocation_or_reference_loading(tmp_path):
     from vdjmatch.match.motifs import masked_motif_presence_counts
     from vdjmatch.cli.__main__ import main
-    frame = pl.DataFrame({'_id': [0], 'v0': [2000], 'seq0': ['CAAAAAAAF']})
+    frame = pl.DataFrame({'_id': [0], 'v0': [10000], 'seq0': ['CAAAAAAAF']})
     with pytest.raises(ValueError, match='unknown motif mode'):
         masked_motif_presence_counts(frame, mode='bad')
-    with pytest.raises(ValueError, match='256 MiB'):
+    with pytest.raises(ValueError, match='1 GiB'):
         masked_motif_presence_counts(frame, mode='wild4')
     with pytest.raises(SystemExit) as exc:
         main(['reference-structure', '--vdjdb', str(tmp_path / 'absent.tsv'), '--locus', 'TRB',

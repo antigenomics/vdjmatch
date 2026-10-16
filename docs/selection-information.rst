@@ -267,10 +267,12 @@ vdjtools provides interpolation/extrapolation through twice the observed effort,
 with normal 95% bootstrap intervals for richness. Coverage receives a 2.5/97.5
 percentile envelope from the same owning augmented-assemblage probability law,
 evaluated with vdjtools' coverage function. Bootstrap replicates and seeds are
-explicit. The adapter bounds the augmented support before sampling, including
-the potentially large zero-doubleton unseen assemblage. It calls the owning
-``vdjtools.stats.inext._bootstrap_probs`` implementation rather than copying it.
-The native bootstrap currently requires total occurrences below :math:`2^{31}`.
+explicit. vdjtools samples a large equal-probability unseen pool through an
+aggregated unseen category and uniform virtual taxon IDs. This preserves the
+augmented-assemblage law with memory proportional to observations rather than
+estimated unseen richness. The adapter bounds actual bootstrap working memory
+and requires total occurrences below :math:`2^{31}`.
+
 
 The formulas follow the
 `iNEXT abundance implementation <https://github.com/JohnsonHsieh/iNEXT/blob/master/R/iNEXT.r>`_.

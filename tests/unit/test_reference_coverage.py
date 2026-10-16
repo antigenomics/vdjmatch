@@ -121,3 +121,56 @@ def test_reference_coverage_cli_uses_one_batch_for_real_and_control_graphs(tmp_p
     manifest = json.loads((tmp_path/'coverage.manifest.json').read_text())
     assert manifest['search_batches'] == 1 and manifest['nboot'] == 3
     assert len(manifest['tables']) == 5 and manifest['control']['replicates'] == 2
+
+
+def test_combined_diagnostics_loads_control_and_pgen_once(tmp_path, monkeypatch):
+    pytest.importorskip('leidenalg')
+    import json
+    import vdjmatch.evalue.mock_reference as mocks
+    from vdjmatch.cli.__main__ import main
+    reference, control, prefix = (tmp_path / p for p in ('ref.tsv', 'control.tsv', 'out'))
+    seqs = ['CASSLAAAF', 'CASSLAAAAF', 'CAGGGGGGF']
+    pl.DataFrame({'cdr3': seqs, 'v': ['TRBV1']*3, 'j': ['TRBJ1-1']*3,
+        'species': ['HomoSapiens']*3, 'gene': ['TRB']*3, 'epitope': ['DEMO']*3}).write_csv(reference, separator='\t')
+    pl.DataFrame({'junction_aa': seqs, 'v_call': ['TRBV1']*3, 'j_call': ['TRBJ1-1']*3,
+        'occurrences': [10]*3}).write_csv(control, separator='\t')
+    calls = []
+    def pgen(ref, pool, **options):
+        calls.append('pgen')
+        return pool.select('junction_aa').with_columns(pl.lit(.25).alias('pgen'))
+    monkeypatch.setattr(mocks, 'compute_pgen', pgen)
+    assert main(['reference-diagnostics', '--vdjdb', str(reference), '--control', str(control),
+        '--locus', 'TRB', '--geometry', 'levenshtein', '--mock-replicates', '2', '--nboot', '3',
+        '--output-prefix', str(prefix)]) == 0
+    assert calls == ['pgen']
+    motifs = pl.read_csv(str(prefix)+'.motifs.tsv', separator='\t')
+    assert set(motifs['motif_mode']) == {'exact3', 'wild4', 'imgt3', 'imgt_wild4'}
+    manifest = json.loads((tmp_path/'out.levenshtein.manifest.json').read_text())
+    assert manifest['shared_invocation_inputs'] is True
+
+
+def test_sw_knee_uses_reference_nearest_within_pmhc_and_keeps_missing_models(monkeypatch):
+    from Bio.Align import PairwiseAligner, substitution_matrices
+    from vdjmatch.aggregate.reference_coverage import sw_knee, reference_graph
+    from vdjmatch.match import geometry
+    records = pl.DataFrame({'cdr3': ['CASSLAAAF', 'CASSLAAAAF', 'CAGGGGGGF', 'CASSLAAAF', 'CASSLAAAF'],
+        'v': ['TRBV1', 'TRBV1', 'TRBV1', 'TRBV1', 'TRBV999'],
+        'j': ['TRBJ1-1']*5, 'group_id': [0, 0, 0, 1, 0]})
+    captured = []
+    def knee(values):
+        captured.extend(sorted(values))
+        return min(values)
+    monkeypatch.setattr(geometry, 'kneedle_radius', knee)
+    radius, curve = sw_knee(records, species='human', locus='TRB',
+        cdr_loops=('cdr1', 'cdr2', 'cdr25'))
+    aligner = PairwiseAligner(mode='local', substitution_matrix=substitution_matrices.load('BLOSUM62'),
+        open_gap_score=-11, extend_gap_score=-1)
+    seqs = records['cdr3'][:3].to_list()
+    expected = sorted(min(aligner.score(a, a)+aligner.score(b, b)-2*aligner.score(a, b)
+        for j, b in enumerate(seqs) if i != j) for i, a in enumerate(seqs))
+    assert captured == expected and radius == min(expected)
+    assert curve['nearest_distance'].null_count() == 2  # singleton pMHC and unresolved V
+    nodes, edges = reference_graph(records, geometry='sw', radius=radius, species='human', locus='TRB')
+    missing = nodes.filter(~pl.col('geometry_available'))
+    assert missing.height == 1 and missing['occurrences'].sum() == 1
+    assert not edges.filter(pl.col('a').is_in(missing['node'].implode()) | pl.col('b').is_in(missing['node'].implode())).height
