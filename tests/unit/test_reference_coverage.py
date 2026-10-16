@@ -251,3 +251,17 @@ def test_combined_uses_persisted_control_reductions_without_rebuilding(tmp_path,
         a=pl.read_csv(str(prefix)+suffix,separator='\t',infer_schema_length=None)
         b=pl.read_csv(str(loaded)+suffix,separator='\t',infer_schema_length=None)
         assert a.equals(b),suffix
+
+@pytest.mark.parametrize('geometry', ['levenshtein', 'sw'])
+def test_graph_edge_sink_matches_retained_edges(geometry):
+    from vdjmatch.aggregate.reference_coverage import reference_graph, leiden_taxa
+    records = pl.DataFrame({'cdr3': ['CASSLAAAF', 'CASSLAAAAF', 'CASSLAAAF', 'CASSLAAAAF'],
+        'v': ['TRBV1'] * 4, 'j': ['TRBJ1-1'] * 4, 'group_id': [0, 0, 1, 1]})
+    options = dict(geometry=geometry, radius=20, species='human', locus='TRB')
+    nodes, expected = reference_graph(records, **options)
+    chunks = []
+    streamed_nodes, empty = reference_graph(records, **options, edge_sink=chunks.append)
+    actual = pl.concat(chunks).drop('group_id').sort('a', 'b')
+    assert streamed_nodes.equals(nodes) and empty.is_empty()
+    assert actual.equals(expected)
+    assert leiden_taxa(nodes, actual, seed=7).equals(leiden_taxa(nodes, expected, seed=7))

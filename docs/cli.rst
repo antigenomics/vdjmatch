@@ -1812,13 +1812,36 @@ Each mock gets its own graph partition; each population's occurrence bootstrap
 then holds its complete partition fixed. One native graph batch per invocation
 serves all real/mock populations, with unique search keys shared during that
 operation. Full SW emits bounded sparse native hits within each fixed population, without
-a dense control matrix. The default ``--pair-budget 2000000`` limits candidate
+a dense control matrix. The CLI spools edge chunks to temporary population files,
+loads one sorted population for Leiden, and removes scratch files on exit. The
+final edge table retains every edge. The default ``--pair-budget 2000000`` limits candidate
 pairs before search: within-population unordered pairs for sparse SW, union
 unordered pairs for indexed edit search, and query-by-union pairs for the knee
 count traversal. Raise it explicitly
 for a declared larger workload. Memberships, graph
 expansion and Chao bootstrap buffers have separate allocation guards. A small
 synthetic check does not establish full-cohort time/memory acceptance.
+
+
+vdjmatch reference-pairing
+---------------------------
+
+Join genuine linked TRA/TRB observations to fixed real community memberships:
+
+.. code-block:: sh
+
+   vdjmatch reference-pairing --vdjdb reference.zip --species human \
+     --epitope DEMO --geometry sw \
+     --alpha-communities alpha-sw.communities.tsv \
+     --beta-communities beta-sw.communities.tsv --output-prefix pairing
+
+The command verifies each community table and companion manifest against the
+reference, species, chain, geometry and population policy. Joins retain exact
+pMHC and junction/V/J keys. Outputs separate complex links, distinct paired
+clonotypes, community pairs and all marginal chain clonotypes, including unlinked
+and unavailable memberships. Pairing fractions report source-record and
+clonotype denominators separately; missing linked evidence leaves marginal
+support intact. Compatible-MHC union tables are rejected.
 
 
 vdjmatch reference-diagnostics

@@ -36,6 +36,12 @@ def add_graph_options(p, *, combined=False):
 
 
 def main(a, *, inputs=None):
+    from tempfile import TemporaryDirectory
+    with TemporaryDirectory(prefix='vdjmatch-edges-') as scratch:
+        return _main(a, inputs=inputs, scratch=Path(scratch))
+
+
+def _main(a, *, inputs, scratch):
     import hashlib
     import json
     import time
@@ -126,19 +132,27 @@ def main(a, *, inputs=None):
                 populations.append(dict(group_id=group, species=species, locus=a.locus, **task,
                     population='matched_control', replicate=replicate, source_records=selected.height,
                     retained_records=mock.height, excluded_records=0))
+    def edge_sink(part):
+        for (group,), frame in part.partition_by('group_id', as_dict=True).items():
+            path = scratch/f'{group}.tsv'
+            exists = path.exists()
+            with path.open('ab') as stream:
+                frame.drop('group_id').write_csv(stream, separator='\t', include_header=not exists)
+
     nodes, edges = reference_graph(pl.concat(records), geometry=a.geometry, radius=a.sw_radius,
         species=organism, locus=a.locus, threads=a.threads, scope=a.scope,
         gap_open=a.gap_open, gap_extend=a.gap_extend, pair_budget=a.pair_budget,
-        cdr_loops=loops)
+        cdr_loops=loops, edge_sink=edge_sink)
     graph_seconds = time.monotonic()-start
     print(f'reference-coverage {a.geometry} graph prepared: {graph_seconds:.3f}s', flush=True)
     del records, reference
     metadata = pl.DataFrame(populations, infer_schema_length=None)
-    edge_groups = edges.join(nodes.select(pl.col('node').alias('a'), 'group_id'), on='a', validate='m:1').partition_by('group_id', as_dict=True)
     summaries, memberships = [], []
     prefix.parent.mkdir(parents=True, exist_ok=True)
     curve_path = Path(str(prefix)+'.rarefaction.tsv')
     written = False
+    edges_path = Path(str(prefix)+'.edges.tsv')
+    edges.write_csv(edges_path, separator='\t')
     for context in populations:
         selected = nodes.filter(pl.col('group_id') == context['group_id'])
         if not selected.height:
@@ -148,9 +162,16 @@ def main(a, *, inputs=None):
             ('group_id', 'source_records', 'retained_records', 'excluded_records')}
         modeled = selected.filter(pl.col('geometry_available'))
         unavailable = selected.filter(~pl.col('geometry_available')).with_columns(pl.lit(None, dtype=pl.Int64).alias('community'))
-        local_edges = edge_groups.get((context['group_id'],), edges.head(0))
+        edge_path = scratch/f"{context['group_id']}.tsv"
+        local_edges = (pl.read_csv(edge_path, separator='\t', schema=dict(edges.schema)).sort('a', 'b')
+            if edge_path.exists() else edges)
+        with edges_path.open('ab') as stream:
+            local_edges.write_csv(stream, separator='\t', include_header=False)
+        if edge_path.exists():
+            edge_path.unlink()
         membership = leiden_taxa(modeled, local_edges, resolution=a.leiden_resolution,
             seed=stable_seed(identity, 'leiden'))
+        del local_edges
         memberships.append(pl.concat([membership, unavailable]))
         community_counts = membership.group_by('community').agg(pl.col('occurrences').sum()).sort('community')['occurrences']
         availability = dict(geometry_available_records=int(modeled['occurrences'].sum()),
@@ -168,14 +189,13 @@ def main(a, *, inputs=None):
             with curve_path.open('ab' if written else 'wb') as stream:
                 curve.write_csv(stream, separator='\t', include_header=not written)
             written = True
-    tables = [curve_path]
+    tables = [curve_path, edges_path]
     if knee_curve is not None:
         knee_path = Path(str(prefix)+'.knee.tsv')
         knee_curve.join(metadata, on='group_id', validate='m:1').write_csv(knee_path, separator='\t')
         tables.append(knee_path)
     for suffix, table in [('.coverage.tsv', pl.DataFrame(summaries, infer_schema_length=None)),
-            ('.populations.tsv', metadata), ('.communities.tsv', pl.concat(memberships).join(metadata, on='group_id', validate='m:1')),
-            ('.edges.tsv', edges)]:
+            ('.populations.tsv', metadata), ('.communities.tsv', pl.concat(memberships).join(metadata, on='group_id', validate='m:1'))]:
         path = Path(str(prefix)+suffix)
         table.write_csv(path, separator='\t')
         tables.append(path)
@@ -205,6 +225,7 @@ def main(a, *, inputs=None):
         stats_source_sha256=sha256(Path(rarefaction_batch.__code__.co_filename)),
         stats_native_sha256=sha256(Path(stats_native.__file__)), search_native_sha256=sha256(Path(search_native.__file__)),
         software={name:version(name) for name in ('vdjmatch','seqtree','vdjtools','polars','numpy','igraph','leidenalg')},
+        edge_storage='bounded native chunks; temporary per-population files; one population loaded for Leiden; final edges sorted by node IDs',
         graph_preparation_seconds=graph_seconds, tables={path.name:sha256(path) for path in tables}, seconds=time.monotonic()-start)
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
     return 0

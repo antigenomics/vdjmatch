@@ -137,8 +137,13 @@ def sw_knee(records, *, species, locus, cdr_loops, gap_open=11, gap_extend=1, th
 
 def reference_graph(records, *, geometry, radius=None, species='human', locus='TRB',
                     threads=1, scope='1,1,1,1', gap_open=11, gap_extend=1,
-                    cdr_loops=('cdr1', 'cdr2', 'cdr25'), pair_budget=2_000_000):
-    """One native graph batch; full pMHC vertices retain source occurrences."""
+                    cdr_loops=('cdr1', 'cdr2', 'cdr25'), pair_budget=2_000_000, edge_sink=None):
+    """One native graph batch; full pMHC vertices retain source occurrences.
+
+    An optional sink consumes bounded edge frames with their population IDs,
+    allowing CLI callers to partition on disk instead of retaining every graph.
+    The returned edge table is empty when a sink owns the edges.
+    """
     from ..cluster import overlap
     from ..match.scope import parse_scope
     from seqtree import gapblock
@@ -187,13 +192,19 @@ def reference_graph(records, *, geometry, radius=None, species='human', locus='T
                 query_target_ids=mapping['group_id'].to_list(), query_reference_ids=mapping['_search'].to_list()):
             hits = np.asarray(chunk.hits)
             edge_count += len(hits)
-            if edge_count * 64 > 1024**3:
+            if edge_sink is None and edge_count * 64 > 1024**3:
                 raise ValueError('sparse population edges exceed 1 GiB budget')
             if len(hits):
                 query = hits[:, 0]
                 positions = np.searchsorted(sorted_codes, group_ids[query]*search.height+hits[:, 1])
-                edge_parts.append(pl.DataFrame({'a': node_ids[query], 'b': node_ids[order[positions]],
-                    'distance_ceiling': np.full(len(hits), radius, dtype=np.int64)}))
+                part = pl.DataFrame({'a': node_ids[query], 'b': node_ids[order[positions]],
+                    'distance_ceiling': np.full(len(hits), radius, dtype=np.int64),
+                    'group_id': group_ids[query]})
+                if edge_sink is None:
+                    edge_parts.append(part.drop('group_id'))
+                else:
+                    edge_sink(part.select(pl.min_horizontal('a', 'b').alias('a'),
+                        pl.max_horizontal('a', 'b').alias('b'), 'distance_ceiling', 'group_id'))
         edges = pl.concat(edge_parts) if edge_parts else pl.DataFrame(schema=edge_schema)
         # Query order is node order; the native upper triangle uses search order.
         return nodes, edges.select(pl.min_horizontal('a', 'b').alias('a'),
@@ -225,11 +236,14 @@ def reference_graph(records, *, geometry, radius=None, species='human', locus='T
     for chunk in global_edges.iter_slices(chunk_size):
         expanded = chunk.join(left, on='_a', validate='m:m').join(right,
             on=['_b', 'group_id'], validate='m:m').filter(pl.col('a') < pl.col('b')).select(
-                'a', 'b', pl.lit(radius, dtype=pl.Int64).alias('distance_ceiling'))
+                'a', 'b', pl.lit(radius, dtype=pl.Int64).alias('distance_ceiling'), 'group_id')
         count += expanded.height
-        if count * 64 > 1024**3:
+        if edge_sink is None and count * 64 > 1024**3:
             raise ValueError('sparse population edges exceed 1 GiB budget')
-        parts.append(expanded)
+        if edge_sink is None:
+            parts.append(expanded.drop('group_id'))
+        elif expanded.height:
+            edge_sink(expanded)
     edges = pl.concat(parts) if parts else pl.DataFrame(schema=edge_schema)
     return nodes, edges.sort('a', 'b')
 
@@ -250,7 +264,7 @@ def leiden_taxa(nodes, edges, *, resolution=1., seed=0):
         ids = selected['node'].to_numpy()
         local = edges.filter(pl.col('a').is_in(ids) & pl.col('b').is_in(ids))
         endpoints = np.searchsorted(ids, local.select('a', 'b').to_numpy())
-        graph = ig.Graph(n=len(ids), edges=endpoints.tolist(), directed=False)
+        graph = ig.Graph(n=len(ids), edges=endpoints, directed=False)
         membership = leidenalg.find_partition(graph, leidenalg.RBConfigurationVertexPartition,
             resolution_parameter=resolution, n_iterations=-1, seed=seed % 2**31).membership if local.height else list(range(len(ids)))
         result.append(selected.with_columns(pl.Series('community', membership, dtype=pl.Int64)))

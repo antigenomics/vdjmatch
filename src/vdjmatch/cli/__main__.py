@@ -842,6 +842,8 @@ def main(argv: list[str] | None = None) -> int:
     register_diagnostics(sub)
     from .control_model import register as register_control_model
     register_control_model(sub)
+    from .reference_pairing import register as register_reference_pairing
+    register_reference_pairing(sub)
     from .fixed_scope import register as register_fixed_scope
     register_fixed_scope(sub)
     register_fixed_scope(sub, trained=True)
