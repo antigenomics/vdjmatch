@@ -77,7 +77,7 @@ def test_control_union_features_one_batch(tmp_path, model_path, monkeypatch):
     control = tmp_path/'control.tsv'
     control.write_text('count\tfreq\tcdr3aa\tv\tj\n'
         '4\t0.5\tCAVRDSNYQLIW\tTRAV1-1\tTRAJ1\n'
-        '4\t0.5\tCAVSDRGSTLGRLYF\tTRAV1-1\tTRAJ1\n')
+        '4\t0.5\tCAVSDRGSTLGRLYF\tTRDV1\tTRAJ1\n')
     calls = []
     def batch(model, seqs, **kwargs):
         calls.append((seqs, kwargs))

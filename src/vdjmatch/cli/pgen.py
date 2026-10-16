@@ -107,7 +107,11 @@ def main(a):
     if a.control:
         from vdjtools.io import read_vdjtools
         control_rows = read_vdjtools(a.control)
-        if control_rows.filter(pl.col('locus').is_not_null() & (pl.col('locus') != a.locus)).height:
+        # Shared TRA/TRD V genes do not identify the rearranged chain; J does.
+        j_locus = pl.col('j_call').str.slice(0, 3)
+        control_locus = pl.when(j_locus.is_in(['TRA', 'TRB'])).then(j_locus).otherwise(
+            pl.when(pl.col('locus').is_in(['TRA', 'TRB'])).then(pl.col('locus')).otherwise(None))
+        if control_rows.filter(control_locus.is_not_null() & (control_locus != a.locus)).height:
             raise ValueError('control locus does not match --locus')
         control_rows = control_rows.select(
             pl.col('junction_aa').str.strip_chars().str.to_uppercase().alias('junction_aa_normalized'))
