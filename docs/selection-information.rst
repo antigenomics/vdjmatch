@@ -121,6 +121,29 @@ The first can be negative for a depleted motif; the second is the Kullback–Lei
 
 The shipping ``reference-structure --control`` command writes these reference-observed token projections to ``.motifs.tsv``. It reuses the existing tokenizer in bounded blocks and reduces once-per-key presence counts, with one control model per species/locus and one fixed model per target. Tables are written one target at a time without retaining every target’s motif rows. Overlapping tokens are dependent: their binary divergences are not an additive estimate of joint sequence information. These descriptive projections help identify informative families and motifs; the retained MF–IKF retrieval score, final rule selection and complete-score calibration remain distinct calculations.
 
+Germline-loop information with allele ambiguity
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``reference-structure --control`` also writes ``.germline-map.tsv``, ``.germline.tsv`` and ``.germline-information.tsv``. These project the existing V-gene counts onto individual aligned CDR1, CDR2 and CDR2.5 columns, using full amino acids and the eleven IMGT classes separately. Column numbers are one-based columns in the bundled alignment, not structural residue numbers. A gene has a confirmed residue only where every bundled allele agrees. Missing genes, missing loop templates, stop/unknown symbols and allele-dependent columns remain explicit; an omitted allele never selects ``*01``. A dot denotes aligned absence within a populated loop, while an entirely empty template is unavailable.
+
+The sampling unit remains a distinct full-junction/V-gene key. Keys from two genes retain their separate mass after those genes map to the same residue, even if their junctions agree. Let :math:`w_e(g)` and :math:`w_0(g)` count such keys for gene :math:`g`, and let :math:`N=\sum_gw_e(g)` and :math:`M=\sum_gw_0(g)`. For one loop column and alphabet, let :math:`\mathcal A_g` be the set of residues across the modeled alleles; missing models or template symbols admit the entire alphabet. For residue :math:`a`, define
+
+.. math::
+
+   n_e(a)=\sum_gw_e(g)\mathbf1\{\mathcal A_g=\{a\}\},\qquad
+   u_0(a)=\sum_gw_0(g)\mathbf1\{a\in\mathcal A_g\}.
+
+For any allele assignments within those allowed sets, the actual residue fractions obey :math:`p_e(a)\ge n_e(a)/N` and :math:`p_0(a)\le u_0(a)/M`. Thus, when the displayed counts are positive,
+
+.. math::
+
+   \log_2\frac{p_e(a)}{p_0(a)}
+   \ge \log_2\frac{n_e(a)/N}{u_0(a)/M}.
+
+``residue_bits_lower`` is this lower bound: every compatible or unresolved control gene can contribute to its denominator. It is an empirical bound over allele assignments under the declared template model, not a sampling confidence interval, population guarantee or P-value. Zero compatible control counts leave it unavailable instead of assigning infinite evidence. The exact-length scope uses the corresponding length-stratum counts.
+
+``consensus_bits`` and ``consensus_information_bits`` instead describe the deterministic gene-consensus annotation, with unresolved reference mass left unavailable. Where that expectation is defined, the projection cannot carry more information than the original V-gene distribution on the same key population. This annotation information differs from the unknown allele-resolved residue information; the lower-bound field handles compatible background ambiguity explicitly. Correlated residues, loops and reduced alphabets are separate views and must not be summed as independent evidence. None of these diagnostics selects a score automatically.
+
 Geometry as a projection of selection
 -------------------------------------
 

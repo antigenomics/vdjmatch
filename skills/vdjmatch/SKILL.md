@@ -239,3 +239,5 @@ a biological null law. Do not substitute the legacy `p_any` or a component tail.
 J-gene key with alleles pooled; missing/ambiguous query calls remain unavailable.
 The P-value still ignores V/J. `--max-edits` bounds full-junction Levenshtein
 distance (default5); native workers follow `--threads`, Polars/BLAS helpers use1.
+
+- `reference-structure --control` exports gene-consensus CDR1/CDR2/CDR2.5 residue factors and KL plus `residue_bits_lower`, allowing all compatible background alleles. Keep full-junction/V-key mass after projection, allele ambiguity and one-based model alignment columns explicit; do not sum correlated residue views or interpret the bound as a sampling interval/P-value. See `docs/selection-information.rst`.

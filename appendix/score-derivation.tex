@@ -1495,6 +1495,38 @@ Tables are written one target at a time without retaining every target's motif r
 Overlapping tokens are dependent: their binary divergences are not an additive estimate of joint sequence information.
 These descriptive projections help identify informative families and motifs; the retained MF--IKF retrieval score, final rule selection and complete-score calibration remain distinct calculations.
 
+\subsection{Germline-loop projections with allele ambiguity}
+The germline diagnostic projects existing V-gene counts onto aligned CDR1, CDR2 and CDR2.5 columns, using full residues and eleven-class IMGT reductions separately.
+Columns are one-based positions in the bundled alignment, not structural residue numbers.
+A residue is confirmed only when every bundled allele of its gene agrees at that column; an omitted allele never selects \texttt{*01}.
+Missing models, empty loop templates, stop/unknown symbols and allele-dependent columns retain their original mass and explicit status.
+A dot is aligned absence within a populated loop, not evidence that an empty template is a biological deletion.
+
+Let $w_e(g)$ and $w_0(g)$ count distinct full-junction/V-gene keys for gene $g$, with $N=\sum_gw_e(g)$ and $M=\sum_gw_0(g)$.
+After genes map to one residue, their keys retain separate mass; identical junctions assigned to different genes are not deduplicated again.
+For one loop column and alphabet, let $\mathcal A_g$ be the allowed residue set across modeled alleles; a missing model/template admits the full alphabet.
+For residue $a$, define
+\begin{equation}
+ n_e(a)=\sum_gw_e(g)\mathbf1\{\mathcal A_g=\{a\}\},\qquad
+ u_0(a)=\sum_gw_0(g)\mathbf1\{a\in\mathcal A_g\}.
+\end{equation}
+Any assignment of alleles within those sets gives $p_e(a)\ge n_e(a)/N$ and $p_0(a)\le u_0(a)/M$.
+Therefore, for positive displayed counts,
+\begin{equation}
+ \log_2\frac{p_e(a)}{p_0(a)}
+ \ge \log_2\frac{n_e(a)/N}{u_0(a)/M}.
+ \label{eq:germline-residue-bound}
+\end{equation}
+The exported \texttt{residue\_bits\_lower} allows every compatible or unresolved control gene in the denominator.
+This is an empirical bound over allele assignments under the declared template model, not a sampling interval, population guarantee or P-value.
+Zero compatible control counts leave the bound unavailable instead of supplying infinite evidence; exact-length rows use their stratum-specific counts.
+
+The \texttt{consensus\_bits} and \texttt{consensus\_information\_bits} fields instead describe the deterministic gene-consensus annotation, with unresolved reference mass left unavailable.
+Where defined, its KL divergence cannot exceed V-gene information on the same key population by Equation~\eqref{eq:selection-projection}.
+It is distinct from unknown allele-resolved residue information.
+The shipping \texttt{reference-structure --control} command exports the map, point factors and summaries in \texttt{.germline-map.tsv}, \texttt{.germline.tsv} and \texttt{.germline-information.tsv}.
+Correlated columns, loops and alphabets remain separate projections; their information is not added as independent evidence or used to fit a score-selection rule.
+
 \subsection{Geometry as a projection of selection}
 For a fixed dissimilarity $d$ and radius $r$, define $B_d(q,r)=\{x:d(q,x)\le r\}$.
 Local enrichment is another likelihood ratio, now for the binary neighbourhood event:

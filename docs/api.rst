@@ -203,3 +203,7 @@ Reference graph morphology
 .. autofunction:: vdjmatch.aggregate.motif_information.motif_population
 
 .. autofunction:: vdjmatch.aggregate.motif_information.motif_selection_information
+
+.. autofunction:: vdjmatch.aggregate.germline_information.germline_projection_map
+
+.. autofunction:: vdjmatch.aggregate.germline_information.iter_germline_information

@@ -276,10 +276,15 @@ def gene_selection_information(comparison):
     genes retain their original mass and make affected information unavailable;
     no pseudocount, renormalization, score selection or confidence is introduced.
     """
-    import polars as pl
     from .candidates import PMHC
-
     context = ['species', 'locus', *PMHC, 'segment']
+    return _selection_information(comparison, context)
+
+
+def _selection_information(comparison, context):
+    """Shared count-likelihood arithmetic for fixed categorical projections."""
+    import polars as pl
+
     keys = [*context, 'length_scope', 'junction_length', 'gene']
     required = {*keys, 'junction_gene_keys', 'total_junction_gene_keys',
                 'total_control_junction_gene_keys', 'reference_records', 'key_fraction', 'control_key_fraction'}

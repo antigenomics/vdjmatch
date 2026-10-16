@@ -1572,6 +1572,21 @@ to the final output. Overlapping motif information is not added as independent
 evidence or used to change the current scorer. See :doc:`selection-information`
 for the Bernoulli likelihood-ratio interpretation.
 
+The germline outputs ``structure.germline-map.tsv``, ``structure.germline.tsv``
+and ``structure.germline-information.tsv`` project those V-key counts onto
+individual CDR1/CDR2/CDR2.5 alignment columns, with full residues and eleven-class
+alphabets kept separate. All bundled alleles must agree before a residue is
+confirmed; missing or allele-dependent states retain their mass. Positions are
+one-based model alignment columns. ``consensus_bits`` and
+``consensus_information_bits`` describe the gene-consensus annotation.
+``residue_bits_lower`` instead allows every compatible or unresolved control gene
+in the background count; it bounds empirical residue enrichment over the
+allowed allele assignments. Zero compatible control counts remain unavailable.
+The original junction/V-key sampling unit is preserved after projection, so
+merging genes with shared residues does not deduplicate their keys. These are
+separate correlated views, without an inferred allele mixture, P-value or fitted
+score choice. See :doc:`selection-information` for the bound and its assumptions.
+
 The graph has one vertex per unique anchor-inclusive junction and an edge for
 one amino-acid substitution, with no indels. One native batch searches the entire
 selected reference population. The complete reference graph and its composition

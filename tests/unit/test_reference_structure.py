@@ -128,6 +128,19 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     assert motifs['reference_keys'].unique().to_list() == [2]
     assert motifs['control_keys'].unique().to_list() == [1]
     assert 'motif_information_bits' in motifs.columns
+    mapping = pl.read_csv(str(controlled)+'.germline-map.tsv', separator='\t')
+    allele_column = mapping.filter((pl.col('v_gene')=='TRBV19') & (pl.col('loop')=='cdr2') &
+        (pl.col('alignment_column')==2) & (pl.col('alphabet')=='full'))
+    assert allele_column['projection_status'].item()=='allele_dependent'
+    assert allele_column['residue'].item() is None
+    factors = pl.read_csv(str(controlled)+'.germline.tsv', separator='\t')
+    germline = pl.read_csv(str(controlled)+'.germline-information.tsv', separator='\t')
+    assert factors.height==m['germline_information']['factor_rows']
+    assert germline.height==m['germline_information']['information_rows']
+    assert set(germline['reference_v_keys'])=={2}
+    assert set(germline['control_v_keys'])=={2}
+    assert germline.filter((pl.col('loop')=='cdr2')&(pl.col('alignment_column')==2))['consensus_information_bits'].null_count()==8
+    assert {str(controlled.name)+s for s in ('.germline-map.tsv','.germline.tsv','.germline-information.tsv')}<=set(m['tables'])
     targets=tmp_path/'targets.tsv'
     pl.DataFrame({'query_id':[0,1],'epitope':['A','B'],'species':['human']*2,
         'mhc_a':['HLA-A*02']*2,'mhc_b':['B2M']*2,'mhc_class':['MHCI']*2}).write_csv(targets,separator='\t')
@@ -155,6 +168,13 @@ def test_empty_reference_exports_typed_weights_and_zero_node_histogram(tmp_path)
     degrees=pl.read_csv(str(prefix)+'.degrees.tsv',separator='\t')
     assert degrees['junctions'].item()==0 and degrees['junction_count'].item()==0
     assert degrees['degree'].item() is None
+    control=tmp_path/'control.tsv'
+    pl.DataFrame({'junction_aa':['CASSLAAAYEQYF'],'v_call':['TRBV19'],'j_call':['TRBJ2-7']}).write_csv(control,separator='\t')
+    controlled=tmp_path/'empty-control'
+    assert main(['reference-structure','--vdjdb',str(reference),'--locus','TRB','--control',str(control),
+                 '--output-prefix',str(controlled)])==0
+    for suffix in ('.germline.tsv','.germline-information.tsv'):
+        assert pl.read_csv(str(controlled)+suffix,separator='\t').is_empty()
 
 
 def test_full_graph_identity_survives_unordered_node_join(tmp_path, monkeypatch):

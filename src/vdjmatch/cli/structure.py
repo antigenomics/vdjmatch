@@ -26,6 +26,7 @@ def main(a):
     from .. import db
     from ..aggregate.candidates import PMHC
     from ..aggregate.motif_information import motif_population, motif_selection_information
+    from ..aggregate.germline_information import germline_projection_map, iter_germline_information
     from ..aggregate.structure import composition, graph_profiles, reference_gene_usage, control_gene_usage, compare_gene_usage, gene_selection_information
     from ..cluster import overlap
     from ..db.cache import sha256
@@ -211,6 +212,7 @@ def main(a):
     summary.drop('_mixture_group').write_csv(summary_path, separator='\t')
     tables = [summary_path, degree_path, length_path, gene_path]
     gene_usage = pl.concat(gene_tables, how='vertical_relaxed')
+    germline_info = None
     if control_usage is not None:
         gene_usage = compare_gene_usage(gene_usage, control_usage)
         gene_usage, information = gene_selection_information(gene_usage)
@@ -221,6 +223,27 @@ def main(a):
         control_usage.with_columns(pl.lit(species).alias('species'), pl.lit(a.locus).alias('locus')).write_csv(
             control_path, separator='\t')
         tables.extend([control_path, motif_path])
+        mapping = germline_projection_map(model, locus=a.locus)
+        mapping_path = Path(str(prefix)+'.germline-map.tsv')
+        factor_path = Path(str(prefix)+'.germline.tsv')
+        information_path = Path(str(prefix)+'.germline-information.tsv')
+        mapping.write_csv(mapping_path, separator='\t')
+        factor_rows, information_rows = 0, 0
+        for number, (factors, information) in enumerate(iter_germline_information(gene_usage, control_usage, mapping)):
+            for path, frame in ((factor_path, factors), (information_path, information)):
+                with path.open('ab' if number else 'wb') as stream:
+                    frame.write_csv(stream, separator='\t', include_header=number == 0)
+            factor_rows += factors.height
+            information_rows += information.height
+        tables.extend([mapping_path, factor_path, information_path])
+        germline_info = dict(factor_rows=factor_rows, information_rows=information_rows,
+            sampling_unit='original distinct full-junction/V-gene keys; no deduplication after residue projection',
+            projections='one-based aligned cdr1/cdr2/cdr25 columns; full AA and 11 IMGT classes separately',
+            allele_policy='all bundled alleles of a gene must agree per column; no default allele or inferred allele frequencies',
+            missing_policy='missing gene/model/loop or allele-dependent column keeps all mass and unavailable comparison; no smoothing',
+            gap_policy='dot is aligned absence within a populated loop; an entirely empty loop template is unavailable',
+            interpretation='consensus bits/KL describe gene-consensus categories; residue_bits_lower allows every compatible or unresolved control allele; correlated positions are not additive',
+            reducer_sha256=sha256(Path(iter_germline_information.__code__.co_filename)))
     gene_usage.write_csv(gene_path, separator='\t')
     pl.DataFrame(degree_rows, schema_overrides={'degree': pl.Int64, 'junction_count': pl.Int64},
         infer_schema_length=None).write_csv(degree_path, separator='\t')
@@ -265,6 +288,7 @@ def main(a):
             decomposition='I(length,gene)=I(length)+I(gene|length); marginal gene information also reported',
             missing_support='all original mass retained; incomplete expectations null; no smoothing or renormalization',
             reducer_sha256=sha256(Path(gene_selection_information.__code__.co_filename))) if control_info is not None else None),
+        germline_information=germline_info,
         entropy_units='natural logarithms', length_units='amino-acid residues, conserved anchors included',
         exclusion='none: model composition and weights use the fixed full reference; benchmark exclusion applies only to hit lists',
         interpretation='reference-only morphology and fixed graph-mixture heuristic; no label fit, recognition probability or P/E-value',
