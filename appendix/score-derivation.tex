@@ -1819,4 +1819,20 @@ Many distinct strong raw scores therefore share the same empirical tail.
 Preserve raw within-epitope ranking alongside cross-epitope tails; finite calibration resolution must not silently erase ranking information.
 The present formulation supplies exact identities and conditional validity statements, not a guarantee of future ranking accuracy, biological binding or state-of-the-art performance.
 
+
+\paragraph{Execution-owned profile reductions.}
+The prepared Pgen-bin map and event pools are fixed model inputs.
+Restricting a junction-key join to the requested reference keys preserves its
+matched bin assignments, missing-key errors and source-record multiplicities;
+it changes neither the bin law nor the seeded sequence of mock draws.
+For bootstrap replicate $b$, token $t$, key count $n_b(t)$ and total key count
+$N_b$, the exported TF--IDF is $n_b(t)\,\mathrm{IDF}(t)/N_b$ with the same fixed
+background IDF as the observed profile.
+Only presence counts and this fixed IDF are needed to recover its mean and
+percentile envelope; recomputing unused per-draw KL diagnostics adds no information.
+Sparse SW graph hits carry their target membership, so a temporary one-dimensional
+reference-index vector recovers the same endpoint IDs without repeated binary
+searches. Its storage is linear in the unique reference keys, with no dense
+population-by-reference matrix, changed edges or persisted intermediate state.
+
 \end{document}

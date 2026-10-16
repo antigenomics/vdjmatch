@@ -188,3 +188,38 @@ def test_binary_motif_depletion_and_unobserved_absence_are_distinct():
     empty = motif_selection_information(short, population, locus='TRB')
     assert empty.is_empty()
     assert empty.write_csv().startswith('v_gene,junction_length,length_scope,motif,')
+
+
+@pytest.mark.parametrize('mode', ['exact3', 'imgt3', 'wild4', 'imgt_wild4'])
+def test_bootstrap_direct_tfidf_equals_full_diagnostic_oracle(mode, monkeypatch):
+    import numpy as np
+    from polars.testing import assert_frame_equal
+    from vdjmatch.aggregate import motif_information as motifs
+    from vdjmatch.evalue.mock_reference import iter_mock_references
+    records = pl.DataFrame({'cdr3': ['CAAAAAAAF', 'CAAAAAAAF', 'CAGGGGGF', 'CAAAAAGF'],
+                            'v': ['TRBV1', 'TRBV1', 'TRBV2', None]})
+    events = pl.DataFrame({'junction_aa': ['CAAAAAAAF', 'CAGGGGGF', 'CAAAAAGF', 'CATTTTTF'],
+        'v': ['TRBV1', 'TRBV2', 'TRBV1', 'TRBV3'], 'j': ['TRBJ1']*4,
+        'event_weight': [5, 5, 3, 8]})
+    pgen = events.select('junction_aa').with_columns(pl.lit(.25).alias('pgen'))
+    control = motifs.motif_population(events.rename({'junction_aa': 'cdr3'}), locus='TRB', mode=mode)
+    observed = motifs.motif_selection_information(records, control, locus='TRB', mode=mode)
+    keys = ['v_gene', 'junction_length', 'length_scope', 'motif']
+    raw = records.select(pl.col('cdr3').alias('junction_aa')).with_columns(pl.lit(0).alias('group_id'))
+    options = dict(pgen=pgen, species='human', locus='TRB', replicates=7, seed=17)
+    draws = []
+    for mock in iter_mock_references(raw, events, **options):
+        complete = motifs.motif_selection_information(mock.rename({'junction_aa': 'cdr3'}),
+            control, locus='TRB', mode=mode)
+        draws.append(observed.select(keys).join(complete.select(*keys, 'tfidf'), on=keys,
+            how='left', nulls_equal=True, validate='1:1', maintain_order='left')['tfidf'].fill_null(0).to_numpy())
+    values = np.asarray(draws)
+    expected = observed.with_columns(pl.lit(7).alias('control_replicates'),
+        pl.Series('control_tfidf_mean', values.mean(axis=0)),
+        pl.Series('control_tfidf_lo', np.quantile(values, .025, axis=0)),
+        pl.Series('control_tfidf_hi', np.quantile(values, .975, axis=0)))
+    def unnecessary(*args, **kwargs):
+        pytest.fail('TF-IDF bootstrap must not compute unused full KL diagnostics')
+    monkeypatch.setattr(motifs, 'motif_selection_information', unnecessary)
+    assert_frame_equal(motifs.motif_bootstrap(records, events, control, observed, **options),
+                       expected, check_exact=True)

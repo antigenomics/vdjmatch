@@ -679,3 +679,21 @@ continuous ``policy_score``, the selected column and an explicit disposition;
 component P-values, E-values and posteriors do not transfer to this selected rule.
 Every component table must be rebuilt freshly through its producing CLI for a
 fresh manuscript-table rebuild. Its final all-label/axis calibration is separate.
+
+
+Execution-owned diagnostic reductions
+-------------------------------------
+
+Pgen matching filters the already validated fixed junction/bin map to the current
+reference keys before the small target join. The full event pools and bin mapping
+remain fixed; source counts, sampling order and seeded draws are unchanged.
+TF-IDF bootstrap draws compute motif presence and the fixed background IDF directly,
+without calculating unused per-draw binary KL tables. This preserves the same
+joint-key reduction, denominator, draws and percentile envelopes.
+
+SW graph hits already identify their target population. A single temporary
+reference-index vector maps these hits to population-specific node IDs, replacing
+repeated binary searches over the complete membership table. It is one vector,
+not a dense population-by-reference matrix, and does not change distances, edges,
+partitions or bootstrap randomness. Each geometry still uses one native batch.
+No scientific intermediates are persisted or reused by these changes.

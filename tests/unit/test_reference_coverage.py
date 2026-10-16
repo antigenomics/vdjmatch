@@ -265,3 +265,23 @@ def test_graph_edge_sink_matches_retained_edges(geometry):
     assert streamed_nodes.equals(nodes) and empty.is_empty()
     assert actual.equals(expected)
     assert leiden_taxa(nodes, actual, seed=7).equals(leiden_taxa(nodes, expected, seed=7))
+
+
+def test_sw_hit_remap_crosses_native_chunks_and_preserves_group_memberships():
+    from vdjmatch.aggregate.reference_coverage import reference_graph
+    from itertools import islice, product
+    words = [''.join(x) for x in islice(product('AGST', repeat=3), 30)]
+    records = pl.DataFrame([dict(group_id=group, cdr3='CA'+word+'QF', v=v, j='TRBJ1')
+        for group in range(8) for word in words for v in ('TRBV1', 'TRBV2')])
+    records = pl.concat([records, records.head(4)])
+    for threads in (1, 3):
+        parts = []
+        nodes, empty = reference_graph(records, geometry='sw', radius=0, cdr_loops=(),
+            threads=threads, pair_budget=1_000_000, edge_sink=parts.append)
+        assert empty.is_empty() and int(nodes['occurrences'].sum()) == records.height
+        expected = nodes.select('group_id', 'cdr3', pl.col('node').alias('a')).join(
+            nodes.select('group_id', 'cdr3', pl.col('node').alias('b')),
+            on=['group_id', 'cdr3']).filter(pl.col('a') < pl.col('b')).select(
+                pl.col('a', 'b').cast(pl.Int64), pl.lit(0, dtype=pl.Int64).alias('distance_ceiling')).sort('a', 'b')
+        actual = pl.concat(parts).drop('group_id').sort('a', 'b')
+        assert actual.equals(expected) and actual.height == 240

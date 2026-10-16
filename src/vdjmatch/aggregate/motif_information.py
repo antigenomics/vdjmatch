@@ -122,16 +122,35 @@ def motif_bootstrap(reference, control_events, control, observed, *, pgen, locus
     if 3 * (replicates + 2) * observed.height * 8 > 2 * 1024**3:
         raise ValueError('motif bootstrap envelope exceeds 2 GiB; select fewer targets/tokens or replicates')
     keys = ['v_gene', 'junction_length', 'length_scope', 'motif']
-    axis = observed.select(keys)
-    draws = np.empty((replicates, observed.height), dtype=np.float64)
+    axis = observed.select(keys).with_row_index('_output')
+    if axis.select(keys).is_duplicated().any():
+        raise ValueError('motif bootstrap axis must be unique')
+    # Fixed background IDF is model data; each draw needs only motif presence.
+    frequency = control['all_lengths'][1].sum(axis=0)
+    total = int(control['exact_length'][0]['keys'].sum())
+    vocabulary = control['vocabulary'].rename({'t0': 'motif'}).with_columns(
+        pl.Series('_df', frequency)).with_columns(
+            ((pl.lit(total+1)/(pl.col('_df')+1)).log()+1).alias('_idf'))
+    axis = axis.join(vocabulary.select('motif','_token_id','_idf'),on='motif',
+        how='left',validate='m:1',maintain_order='left')
+    draws = np.zeros((replicates, observed.height), dtype=np.float64)
     raw = reference.select(pl.col('cdr3').alias('junction_aa')).with_columns(pl.lit(0).alias('group_id'))
     for i, mock in enumerate(iter_mock_references(raw, control_events, replicates=replicates,
             seed=seed, pgen=pgen, species=species, locus=locus, threads=threads,
             prepared_control=prepared_control)):
-        diagnostic = motif_selection_information(mock.rename({'junction_aa': 'cdr3'}),
-            control, locus=locus, mode=control['mode'])
-        draws[i] = axis.join(diagnostic.select(*keys, 'tfidf'), on=keys,
-            how='left', nulls_equal=True, validate='1:1', maintain_order='left')['tfidf'].fill_null(0).to_numpy()
+        population = motif_population(mock.rename({'junction_aa': 'cdr3'}),
+            locus=locus,mode=control['mode'])
+        reference_total = int(population['exact_length'][0]['keys'].sum())
+        for scope in ('all_lengths','exact_length'):
+            strata, counts = population[scope]
+            matched = axis.filter(pl.col('length_scope')==scope).join(
+                strata.select('v_gene','junction_length','_stratum'),
+                on=['v_gene','junction_length'],how='left',nulls_equal=True,
+                validate='m:1',maintain_order='left').drop_nulls(['_stratum','_token_id'])
+            if matched.height:
+                rows = matched['_output'].to_numpy()
+                n = counts[matched['_stratum'].to_numpy(),matched['_token_id'].to_numpy()]
+                draws[i,rows] = n/reference_total*matched['_idf'].to_numpy()
     return observed.with_columns(pl.lit(replicates).alias('control_replicates'),
         pl.Series('control_tfidf_mean', draws.mean(axis=0)),
         pl.Series('control_tfidf_lo', np.quantile(draws, .025, axis=0)),

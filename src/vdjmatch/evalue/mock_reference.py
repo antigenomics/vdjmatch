@@ -365,7 +365,8 @@ def iter_mock_references(reference: pl.DataFrame, control: pl.DataFrame, *, repl
             prepared_control[2:4] != (_organism(species), locus)):
         raise ValueError('prepared control requires the same control/Pgen objects and species/locus')
     _, _, _, _, strata, event_keys, pools = prepared_control
-    targets = reference.join(strata, on='junction_aa', how='left', validate='m:1')
+    requested = strata.filter(pl.col('junction_aa').is_in(reference['junction_aa'].unique().implode()))
+    targets = reference.join(requested, on='junction_aa', how='left', validate='m:1')
     if targets['_bin'].null_count():
         raise ValueError('Pgen map must cover every reference and control junction')
     counts = targets.group_by('group_id', '_bin').len().sort('group_id', '_bin')

@@ -233,9 +233,10 @@ def reference_graph(records, *, geometry, radius=None, species='human', locus='T
         edge_parts, edge_count = [], 0
         node_ids = mapping['node'].to_numpy().astype(np.int64)
         group_ids = mapping['group_id'].to_numpy().astype(np.int64)
-        codes = group_ids * search.height + mapping['_search'].to_numpy()
-        order = np.argsort(codes)
-        sorted_codes = codes[order]
+        search_indices = mapping['_search'].to_numpy()
+        group_offsets = np.r_[0, np.cumsum(np.bincount(group_ids, minlength=groups))]
+        reference_nodes = np.empty(search.height, dtype=np.int64)
+        last_group = None
         for chunk in gapblock.grouped_count_batch(mapping['cdr3'].to_list(), search['cdr3'].to_list(), [radius],
                 reference_target_offsets=offsets, reference_target_ids=targets, target_peptide_ids=[0]*groups,
                 reference_exclusive_peptide_ids=[-1]*search.height, query_gene_ids=[0]*mapping.height,
@@ -250,8 +251,17 @@ def reference_graph(records, *, geometry, radius=None, species='human', locus='T
                 raise ValueError('sparse population edges exceed 1 GiB budget')
             if len(hits):
                 query = hits[:, 0]
-                positions = np.searchsorted(sorted_codes, group_ids[query]*search.height+hits[:, 1])
-                part = pl.DataFrame({'a': node_ids[query], 'b': node_ids[order[positions]],
+                hit_groups = group_ids[query]
+                boundaries = np.r_[0, np.flatnonzero(hit_groups[1:] != hit_groups[:-1])+1, len(hits)]
+                matched_nodes = np.empty(len(hits), dtype=np.int64)
+                for lo, hi in zip(boundaries[:-1], boundaries[1:]):
+                    group = hit_groups[lo]
+                    if group != last_group:
+                        begin, end = group_offsets[group:group+2]
+                        reference_nodes[search_indices[begin:end]] = node_ids[begin:end]
+                        last_group = group
+                    matched_nodes[lo:hi] = reference_nodes[hits[lo:hi, 1]]
+                part = pl.DataFrame({'a': node_ids[query], 'b': matched_nodes,
                     'distance_ceiling': np.full(len(hits), radius, dtype=np.int64),
                     'group_id': group_ids[query]})
                 if edge_sink is None:
