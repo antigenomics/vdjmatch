@@ -1,225 +1,186 @@
-Understand matching evidence
-============================
+Read scores and decide whether to call a match
+==============================================
 
-A query junction can match several reference observations and several peptide–MHC
-labels. The software keeps the sequence search, reference observations, candidate
-ranking and background calibration as distinct layers.
+Use ``kernel_score`` to rank evidence and a matching ``p_null`` to judge how
+unusual the selected score is under the declared null. ``call_status`` applies
+the frozen operating cutoff. These quantities answer different questions.
 
-Identity and observation counts
--------------------------------
-
-Search uses a unique junction index for each locus and expands its matches back to
-reference observations. Identical junctions with different V/J calls remain
-separate clonotypes. Independent observations retain their record, study and
-pairing metadata; duplicate metadata does not create an additional sequence key.
-
-A candidate is identified by peptide, MHC allele fields and MHC class. The same
-peptide with two restrictions produces two candidates. ``annotate`` preserves every
-input row and input order, including invalid and unmatched rows. ``candidates``
-returns a long table of candidate evidence indexed by query identity.
-
-.. list-table:: Evidence counting units
-   :header-rows: 1
-   :widths: 30 70
-
-   * - Field
-     - Quantity
-   * - ``n_records``
-     - Matched reference observations for the candidate.
-   * - ``n_clonotypes``
-     - Distinct matched reference junction/V/J keys for the candidate.
-   * - ``n_studies``
-     - Distinct nonempty reference identifiers supporting the candidate.
-   * - ``n_competing_clonotypes``
-     - Distinct matched clonotypes supporting other candidate labels, including
-       shared clonotypes when they also support another label.
-   * - ``n_reference``
-     - Distinct junctions in the candidate's reference set under the stated predicate.
-   * - ``n_control``
-     - Distinct control junction matches in the search scope.
-   * - ``n_hits``
-     - Matched reference observations across the query's single-chain candidates;
-       paired output identifies its paired-reference support separately.
-   * - Query ``count``
-     - Supplied abundance in the producer's unit; retain whether it means reads,
-       cells, molecules or another count. It is not a reference evidence count.
-
-Candidate ranking
------------------
-
-NED-v1 ranks candidates by the sum of control-adjusted neighbour weights. Each
-reference clonotype contributes an exponentially decaying weight based on its
-search score, divided by one plus the number of control neighbours at or within
-that hit's edit distance. The existing default score temperature is 400; the
-existing soft-V weighting gives same-family matches weight 1 and known cross-family
-matches 0.25 times their germline CDR1/CDR2 similarity. Missing or unknown V calls
-provide neutral evidence in the production interface.
-
-Without a background, the control count is zero and ranking is explicitly
-``uncalibrated``. ``ned_score`` is a ranking statistic. It is distinct from edit
-distance, the search penalty ``score``, the database evidence score ``vdjdb_score``,
-and background expectation ``E``.
-
-``rank`` starts at 1 within a query. ``competing_score`` is the strongest alternative
-candidate's score, and ``score_margin`` is the candidate score minus that alternative.
-The highest-scoring candidate is called only when its ranking is unique; an exact
-tie produces ``ambiguous``. All alternatives remain available in the candidate table.
-
-Fixed-ball calibration
-----------------------
-
-For one query and one candidate reference set, let ``N`` be the number of distinct
-reference junctions, ``M`` the number of distinct background junctions and ``n_control``
-the background matches under the same search predicate. The expected background
-match count is::
-
-   E = N * n_control / M
-
-The observed target count is the number of distinct reference junction matches in
-that candidate set. The Poisson-tail ``p_enrichment`` asks how often the background
-expectation would produce at least that observed count. ``p_any`` is the probability
-of at least one match under that expectation.
-
-A finite background with zero matches does not establish zero background probability.
-The existing rule-of-three path uses ``E = 3 * N / M`` and reports
-``rule_of_three=True``. NED's ``+1`` denominator is a separate ranking convention;
-it does not replace this finite-control calculation.
-
-Target counts, reference size and background size must have the same counting unit.
-The target and background search predicates must also agree. The current sequence-only
-background cannot represent V/J restrictions, so hard-V/J calibrated requests fail
-explicitly. Requested calibration failures propagate rather than silently switching
-to an uncalibrated call.
-
-Neither NED, ``E`` nor ``p_enrichment`` is a posterior probability that the winning
-peptide is the receptor's specificity. Competing labels, cross-reactivity and incomplete
-reference coverage remain visible in the candidate evidence.
-
-Paired evidence
----------------
-
-A paired candidate requires alpha and beta matches in the same reference complex
-and under the same peptide–MHC label. Alpha/beta agreement without a shared complex
-is chain evidence fusion, a different claim. Repeated observations of a paired
-receptor remain available as support metadata; ranking uses distinct paired receptor
-keys rather than treating repeated metadata as new sequence evidence.
-
-Paired ranking uses the sum of
-``exp(-(score_alpha + score_beta) / score_scale)`` over
-distinct paired junction keys. ``n_hits`` counts those keys, ``n_records`` counts
-distinct supporting reference complexes, and ``n_reference`` counts distinct
-junction pairs for the candidate peptide–MHC set. Repeated observations add complex
-support without increasing the paired similarity score. The estimator is named
-``paired-reference-v1`` separately from single-chain NED-v1. The API default
-``score_scale`` is 400 and must be finite and positive; unit-cost CLI scoring uses
-scale 1. Detailed paired hits retain the source observations separately, with
-``alpha_``/``beta_`` metadata and optional alignment fields. Request them together
-with candidates using ``return_hits=True`` without repeating reference searches.
-
-Paired calibration requires both chain backgrounds. It reports
-``n_control_alpha``, ``n_control_beta``, ``E``, ``p_enrichment`` and
-``rule_of_three`` with ``calibration='paired_independent_fixed_ball'``.
-The product of the chain background probabilities uses a stated conditional
-independence assumption. It describes the chance of the joint search event under
-those backgrounds; it is not a posterior probability of specificity and does not
-establish independence in a biological repertoire. Dependence and sample-level
-co-occurrence models are outside this calibration. Paired CLI matching rejects
-``--match-v`` and ``--match-j`` until predicates can be applied separately to each
-chain; these flags are not silently ignored.
-
-The separate historical ``evalue.paired.paired_scan`` evaluates a nearest paired
-radius, defined as the maximum alpha/beta cost. Default two-tuple hits count
-observation associations. Its optional ``include_identity=True`` emits three-tuples
-carrying the two junctions; ``pvalue`` counts distinct pairs in that mode and its
-reference size ``N`` must count distinct pairs as well. This adaptive-radius helper
-is a separate contract from the Annotator's fixed-ball calibration.
-
-Statuses and sample summaries
------------------------------
-
-``matched`` means the ranking has a unique top candidate. ``ambiguous`` means an
-exact tie. ``no_hit`` means a retained query has no reference neighbour in scope;
-``no_joint_hit`` means no same-complex paired candidate. ``no_reference`` means the
-required locus is absent from the loaded reference. ``invalid_query`` means the
-query cannot supply a valid matching sequence/locus.
-
-CLI summary tables report distinct junction/V/J/locus clonotypes (``unique``),
-matched input rows (``n_query_rows``), and their summed abundances (``reads``).
-Paired summaries count matched query pairs (``n_query_pairs``).
-They do not implement repertoire-level statistical enrichment, donor comparisons
-or a Pgen-matched naive repertoire analysis. Those require a separately defined
-sample-level estimand and background. The optional precursor APIs remain separate
-from query annotation and background-match calibration.
-
-For paired finite controls, each zero-neighbour chain uses the existing rule-of-three
-upper bound ``min(1, 3/M)``. Capping at one matters for tiny controls and prevents
-pseudo-counts larger than the control size. Both paired implementations share this bound.
-
-Global fixed-K statistics
--------------------------
-
-For a fixed external query, score rule and predeclared K, let T be the Kth-smallest
-distinct-reference score, N the original reference exposure, M the original control
-size, and C the number of controls scoring at or below T, including every tie.
-Single-chain ``finite-sample-rank-v1`` reports
-``HypergeomSF(K-1, N+M, N, K+C)``. Under pooled target/control label exchangeability,
-the N target labels occupy a uniform subset of the pooled score ranks. With no
-ties, at most C controls precede the Kth target exactly when at least K target
-labels occupy the first K+C ranks. The tail is therefore an exact finite-sample
-stopping-rank test; counting all control ties makes it conservative.
-
-Identical junctions are assigned infinite scores in both samples when exact
-exclusion is requested. N and M retain those rows; fewer than K finite targets
-yield P=1. Query-conditioned IID draws from the same background suffice for the
-null, but biological deduplication and query selection do not establish it.
-The empirical expected count ``E_raw=N*C/M`` is descriptive. This test has no
-Clopper–Pearson confidence bound or failure budget; ``E``, ``p_upper`` and
-``finite_control_delta`` are null.
-
-For paired score ``max(score_A, score_B)``, the existing confidence-bound construction
-uses marginal control bounds for the Cartesian intersection and reports
-``min(1, delta + BinomialSF(K-1, N, U))``, with delta=10⁻⁶ and U the marginal-bound
-product (or punctured joint bound). Exact/exact exclusion reuses the
-four-category bound described above; without exclusion two marginal CP bounds
-share δ equally. An additive paired score threshold cannot use this rectangle.
-Cartesian control pairs share chains and cannot be counted as independent
-observations in the single-chain rank test. Paired assumptions and calibration
-remain separate and unchanged.
-Global enrichment is separate from per-pMHC ranking; it is not the probability
-that the winning epitope assignment is correct.
-
-External clustering evaluation
-------------------------------
-
-`ClusterEval <https://github.com/qimmuno/clustereval>`_ evaluates the
-homogeneity–parsimony trade-off using information-theoretic, set-matching and
-pair-counting scores. These assess agreement between cluster assignments and
-known classes, separately from receptor annotation accuracy and null-call rates.
-Benchmark comparisons must retain the same input nodes and treatment of
-unclustered nodes; the recorded evaluation gives each unclustered node its own
-singleton cluster. Calculate these downstream metrics from fresh CLI outputs.
-
-Reference: Andreas Tiffeau-Mayer (2026), *External Clustering Validation by the
-Homogeneity-Parsimony Trade-off*,
-`arXiv:2607.20799 <https://arxiv.org/abs/2607.20799>`_,
-`doi:10.48550/arXiv.2607.20799 <https://doi.org/10.48550/arXiv.2607.20799>`_.
-
-Historical scoring evidence
+Which output should I read?
 ---------------------------
 
-The following recorded scoring studies describe their stated historical reference
-and evaluation design. They do not identify every production score as the same
-estimator or make a query-level statistic a specificity posterior.
+.. list-table:: Current annotation output
+   :header-rows: 1
 
-**What scoring actually buys.** An empirical study on VDJdb (the scoring appendix; 2026-06-11-ZENODO
-release, composition-controlled) finds that **Hamming distance 1 is the signal:noise optimum** (macro
-purity 0.49 → 0.07 over edit distance 1–5; the original VDJdb observation), that **central substitutions
-carry the specificity signal** (P(same) ≈ 0.31 in the core vs ≈ 0.75 near the anchors), and that **no
-amino-acid matrix clearly beats BLOSUM62** — a genetic-code null (VDJAMr) even ties it, so CDR3
-substitution structure is generative, not chemical. **Reweighting BLOSUM62 by the central-position
-significance** (a native ``seqtree`` ``PositionalMatrix``, end-anchored) is the one change that does beat
-it, in 7/8 held-out epitopes. The substitution alphabet is second-order, position is the first-order
-matrix lever, and the overall first-order statistic is the control-calibrated E-value. Finally, the
-**V gene is a strong near-binary prior** (same-V neighbours share an epitope up to ~7× more than
-cross-V); loose CDR1/CDR2 similarity does not recover it, and near-exact germline-loop identity recovers
-only about **half** of it (the rest is gene-identity-specific).
+   * - Column
+     - Read it as
+   * - ``selected_epitope``
+     - Highest-scoring peptide for a single-chain query; inspect ties before assigning it.
+   * - ``kernel_score``
+     - Relative reference evidence. Larger values rank higher.
+   * - ``kernel_competing_score``
+     - Strongest alternative peptide's score, on the same scale.
+   * - ``tied_peptides``
+     - Number of peptide labels sharing the best score. More than one means ambiguity.
+   * - ``selection_status``
+     - Whether ranking evidence is available; ``ranked_evidence`` is not a calibrated call.
+   * - ``kernel_support_share``
+     - Best score divided by best plus strongest competing score. Not binding probability.
+   * - ``p_null``
+     - Empirical upper-tail probability of the selected score under matching null queries.
+   * - ``call_status``
+     - ``accepted`` or ``no_supported_match`` after applying the matching calibration.
+
+The :doc:`tutorial` shows actual single-chain and paired input/output rows.
+The :doc:`algorithms` page explains how each route produces its evidence.
+
+Is this junction present or unusually close to the database?
+-------------------------------------------------------------
+
+Literal presence is a lookup. ``database-evidence`` separately reports the
+significance of similarity to *any* valid database junction, pooling specificity
+labels within the declared species and chain:
+
+.. code-block:: sh
+
+   vdjmatch database-evidence query.airr.tsv --vdjdb reference.zip \
+     --species human --locus TRB --control control.tsv.gz \
+     --scope 1,0,0,1 --threads 4 --output-prefix presence
+
+Read ``presence.database.tsv``:
+
+.. list-table:: Database-level diagnostics
+   :header-rows: 1
+
+   * - Column
+     - Question answered
+   * - ``database_exact_junction``
+     - Does this complete anchor-inclusive junction occur in the database? A boolean lookup, ignoring V/J and antigen labels.
+   * - ``database_exact_gene_clonotype``
+     - Does a complete recorded junction/V-gene/J-gene key match? Alleles are pooled; missing or ambiguous query gene calls remain unavailable.
+   * - ``database_nearest_edits``
+     - How many unit edits separate it from the closest database junction within the declared search limits?
+   * - ``p_reference``
+     - Does this query score unusually strongly against the selected reference compared with Pgen-matched mock references?
+   * - ``p_query``
+     - Does this query score unusually strongly compared with same-Pgen control clonotypes searched against the actual reference?
+   * - ``p_both``
+     - Maximum of the two directional P-values: evidence must be unusual in both directions.
+   * - ``null_query_match_rate``
+     - Estimated probability that a same-Pgen control clonotype has any match within scope. This is distinct from a score tail and a posterior false-match probability.
+   * - ``database_status``
+     - ``matched`` means a neighbour exists within the edit limit; it is not a calibrated call. Other values report no-hit, missing/invalid sequence or species/chain mismatch.
+
+The selected raw control supplies fresh native Pgen, event-weighted mock
+reference populations and same-Pgen query draws. No calibration files are
+required. Both tails include ties and all null draws, using ``(k+1)/(B+1)``;
+unsupported queries receive one and invalid rows retain unavailable values.
+The implementation matches one-bit log2-Pgen strata, separately by species and
+chain. See :doc:`control-calibration` for the null assumptions and derivation.
+
+``presence.epitopes.tsv`` retains supported fixed-pMHC candidates;
+``presence.calibration.tsv`` records per-target/bin counts, scope, seed and
+model identities. Reference evidence filters or a custom labelled table cause
+both directions to be recalculated on the selected reference. A common exact
+junction can have large directional P-values. Literal presence remains certain
+when an exact record exists, irrespective of its significance.
+
+The statistic is either scoped nearest distance or scoped distinct-junction
+count. Explicit ``--scope`` limits substitutions, insertions, deletions and total
+edits separately. These full-junction diagnostics do not calibrate the
+V-loop/combined VDJmatch score, an epitope selected after looking at scores or
+genuine paired recognition. Those adapters must repeat the complete procedure,
+including recomputing reference-derived weights in mock databases.
+
+The legacy ``--null-sample`` route still provides the older unconditional
+``database_p`` diagnostic; it tests a different null and is not the single-control
+workflow above.
+
+Legacy frozen-score decisions
+-----------------------------
+
+Supply the frozen calibration and its original null-case table for the same
+reference and complete scoring pipeline. The input selection table must have
+one unique ``query_id`` per query and the score column recorded in the recipe.
+For a recipe fitted with ``--score-column kernel_score``:
+
+.. code-block:: sh
+
+   vdjmatch apply-call-calibration annotation.selection.tsv \
+     --calibration calibration.calibration.json \
+     --input-manifest annotation.manifest.json \
+     --null-cases calibration-cases.tsv \
+     --output calls.tsv
+
+``calls.tsv`` preserves the ranking columns and adds ``p_null``, ``E_null``,
+``call_score`` and ``call_status``. The adjacent ``.null-tails.tsv`` gives the
+numerator and denominator separately for every null source. The command checks
+producer identity for bound recipes and the exact null-case file hash.
+
+A recipe fitted to a column named ``score`` requires that column; a recipe fitted
+to ``kernel_score`` requires ``kernel_score``. Do not rename columns to bypass a
+mismatch in the underlying scorer, reference or selection procedure.
+
+What does the P-value test?
+---------------------------
+
+For one null source, let :math:`N` be all null queries, including those with no
+support, and :math:`k` the number with selected scores at least as high as the
+query. Ties count against the query:
+
+.. math::
+
+   p_{\mathrm{null}} = \frac{k+1}{N+1}.
+
+This is a conservative rank P-value when query and null scores are exchangeable
+under the same complete procedure. With several null sources, the output takes
+the largest tail probability. ``E_null = k/N`` is the empirical false-call rate
+per query at that score, not an upper confidence bound. Unsupported queries
+receive ``p_null = 1`` and no accepted call.
+
+A small P-value means the selected evidence is unusual under the declared null.
+It does not establish experimental binding or resolve an exact tie between
+peptides. The configured cutoff controls the measured any-call rate in the
+supplied calibration populations; an arbitrary score cutoff has no such meaning.
+
+Single-chain and paired decisions
+---------------------------------
+
+For a single chain, the complete selection maximizes over restrictions within
+each peptide, then over peptides. Its null must include that entire search.
+Testing the chosen peptide as though it were specified beforehand changes the
+question and understates selection.
+
+For a pair, ``selected_linked_epitope``, ``selected_alpha_epitope`` and
+``selected_beta_epitope`` remain separate. Linked evidence uses the same
+reference pair. Marginal evidence includes independent same-target single-chain
+references. A missing chain does not erase the available chain's evidence.
+
+``kernel_any_axis_score`` is the maximum of those three selected scores. Its
+calibration therefore includes selection across all three axes. A single-chain
+or linked-only P-value cannot be substituted for that paired any-axis P-value.
+
+Choose the matching recipe
+--------------------------
+
+A calibration belongs to its species, chain population, reference identity,
+reference filtering, geometry, scorer, exact-match policy and label-selection
+procedure. Ordinary annotation retains exact matches. A benchmark using
+``--exclude-exact`` needs its own calibration. Restricting the candidate peptide
+or HLA changes the selection question too.
+
+If a matching calibration is unavailable, the output still supports ranking,
+but it cannot supply a validated match decision. Do not turn ``kernel_score``
+into a P-value by rescaling it, or substitute a component probability.
+
+Retained methods
+----------------
+
+``historical-density`` and ``match`` expose earlier scoring models. Their
+reference-count, density and probability fields have different definitions.
+See :doc:`legacy-explanation` for those interfaces and :doc:`scoring` for the
+current kernel and retained alternative formulas.
+
+.. toctree::
+   :hidden:
+
+   legacy-explanation

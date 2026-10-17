@@ -1,11 +1,11 @@
 """Independent expression fixtures for retained advanced geometry, no cohort data."""
 import numpy as np
 import pytest
-from vdjmatch.match import tcrdist as td
+from vdjmatch.match import geometry as td
 
 
 @pytest.mark.parametrize('species', ['human', 'mouse'])
-@pytest.mark.parametrize('matrix', ['tcrdist', 'blosum62'])
+@pytest.mark.parametrize('matrix', ['clipped', 'blosum62'])
 def test_cdr12_context_matches_independent_aligned_expression(species, matrix):
     model = td.load_v_loops(species)
     costs = td._substitution_costs(matrix=matrix)

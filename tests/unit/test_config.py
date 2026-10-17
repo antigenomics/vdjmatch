@@ -20,9 +20,10 @@ def test_evidence_cli_caps_table_and_blas_threads_before_import(command, threads
     args=([command,'unused','--vdjdb','unused','--locus','TRB','--output-prefix','unused']
           if command=='motif-evidence' else
           [command,'unused',*(['--model','unused'] if command=='fit-evidence' else ['--fixed','--output','unused'])])
-    code=f'''import json,os
+    code=f'''import json,os,sys
 from vdjmatch.cli import motifs,combination
 def probe(a):
+    assert 'polars' not in sys.modules, 'CLI parser imported Polars before thread budgets'
     import numpy,scipy.linalg,polars as pl
     from threadpoolctl import threadpool_info
     print(json.dumps({{'table':pl.thread_pool_size(),'blas':[p['num_threads'] for p in threadpool_info() if p['user_api']=='blas'],
@@ -169,7 +170,11 @@ def test_cmd_match_writes_params_json(tmp_path, monkeypatch):
 
     class _Idx:
         genes = ["TRB"]
+        reference = pl.DataFrame({"gene": ["TRB"]})
     monkeypatch.setattr(cli.match.VdjdbIndex, "build", classmethod(lambda cls, *a, **k: _Idx()))
+    from vdjmatch.db import index as prepared
+    monkeypatch.setattr(prepared, "load_or_build_index", lambda *a, **k:
+        (_Idx(), pl.DataFrame(), {"identity": {"source": {"source": "test"}}}))
     monkeypatch.setattr(cli.match, "load_vdjam", lambda: "M")
     empty = pl.DataFrame()
     monkeypatch.setattr(cli, "annotate_sample",
@@ -201,7 +206,7 @@ def test_raw_airr_control_rejects_bare_cdr3_with_only_j_call(tmp_path):
         raw_background("TRB", "human", path)
 
 
-@pytest.mark.parametrize("command,module", [("historical-density","historical"),("annotate","tcrdist")])
+@pytest.mark.parametrize("command,module", [("historical-density","historical"),("annotate","neighbours")])
 @pytest.mark.parametrize("limit,expected", [("4", 4), (None, 12), ("99", 12)])
 def test_cli_preserves_parent_table_thread_cap(limit,expected,command,module):
     import os

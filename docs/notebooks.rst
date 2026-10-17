@@ -44,10 +44,10 @@ Biological questions
        true/false-positive counts for 2,670 labelled observations.</p>
      </a>
      <a class="proj-card" href="notebooks/vaccination.html">
-       <span class="proj-card__type">Baseline repertoire · abundance</span>
-       <h3>Candidate evidence in a vaccination dataset</h3>
-       <p>Explore baseline clone abundance, read-count coverage and
-       LLW candidate evidence in a vaccination repertoire.</p>
+       <span class="proj-card__type">Vaccination repertoires · neighbourhood evidence</span>
+       <h3>LLW evidence across donors</h3>
+       <p>Retain all eligible clonotypes and technical replicates, then rank
+       LLW evidence with the declared A*02 restriction.</p>
      </a>
      <a class="proj-card" href="notebooks/precursor_estimates.html">
        <span class="proj-card__type">Recombination model · complete target sets</span>
@@ -62,7 +62,7 @@ Biological questions
 * :download:`Precursor estimates source <../examples/precursor_estimates.ipynb>`
 
 The accuracy lesson uses supplied positive/control labels. The vaccination
-lesson describes a baseline repertoire; the precursor lesson calculates model
+lesson describes the locally available repertoires; the precursor lesson calculates model
 estimates. Each notebook states its observation unit, assumptions and limits.
 See :doc:`performance` for measured runtime, RAM and CPU use.
 
@@ -95,7 +95,11 @@ together and open it with a Jupyter kernel in your isolated environment.
 
 .. code-block:: sh
 
-   python -m pip install 'vdjmatch[bench,precursor,notebook]' ipykernel
+   python -m pip install -r examples/requirements-notebooks.txt
+
+Run this installation from the repository root: it installs the checkout whose
+CLI the notebooks use. Released packages need examples from the matching release
+tag. The gallery checker creates the kernel automatically.
 
 For the biological lessons, set these variables if your local mirrors are
 elsewhere:
@@ -112,9 +116,6 @@ elsewhere:
    * - ``AIRR_YFV19``
      - ``~/hf/airr_yfv19``
      - Vaccination repertoire
-   * - ``YFV_INPUT``
-     - First table in sorted filename order
-     - Choose a specific baseline repertoire
 
 Keep :download:`profile_cli.py <../examples/profile_cli.py>` beside the notebooks.
 Biological calculations use four native threads and write fresh CLI tables;
@@ -137,6 +138,8 @@ The :download:`dependency recipe <../examples/requirements-notebooks.txt>` and
 Add ``--scientific`` to include the three biological lessons once their raw
 mirrors are available. The checker saves executed notebooks and cell timings
 in the new directory, and exits nonzero if a workflow fails.
+The full-cohort vaccination cell has an explicit 1,800-second budget; other
+notebooks use 300 seconds per cell. Documentation builds execute no cells.
 
 .. toctree::
    :hidden:

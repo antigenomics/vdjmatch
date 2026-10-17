@@ -59,12 +59,12 @@ def test_union_equals_separate_fresh_services_and_searches_three_populations(tmp
     for path in paths:
         out=annotate_repertoires(path,output_prefix=tmp_path/('separate-'+path.stem),**options)
         for kind in out['output_paths']:pieces.setdefault(kind,[]).append(out[kind])
-    from vdjmatch.match import tcrdist
-    original=tcrdist.grouped_total_distance_count_batch;calls=[]
+    from vdjmatch.match import geometry
+    original=geometry.grouped_total_distance_count_batch;calls=[]
     def count(q,r,cutoffs,**kwargs):
         calls.append((kwargs['paired'],q.height))
         return original(q,r,cutoffs,**kwargs)
-    monkeypatch.setattr(tcrdist,'grouped_total_distance_count_batch',count)
+    monkeypatch.setattr(geometry,'grouped_total_distance_count_batch',count)
     out=annotate_repertoires(paths,output_prefix=tmp_path/'union',**options)
     assert [paired for paired,_ in calls]==[False,False,True]
     assert calls[0][1]>64 and calls[1][1]>64
@@ -122,7 +122,7 @@ def test_mixed_non_kernel_detailed_dispatch_remains_separate(tmp_path,monkeypatc
     weighting='radius'
     import json
     from pathlib import Path
-    from vdjmatch.cli import tcrdist
+    from vdjmatch.cli import neighbours as geometry
     paths,reference=inputs(tmp_path);calls=[]
     def main(a, *, v_loop_distances):
         assert v_loop_distances['matrix']=='blosum62'
@@ -132,7 +132,7 @@ def test_mixed_non_kernel_detailed_dispatch_remains_separate(tmp_path,monkeypatc
         q.with_columns(pl.lit('no_neighbours').alias('status')).write_csv(a.output_prefix+'.queries.tsv',separator='\t')
         q.with_columns(pl.lit('no_support').alias('selection_status')).write_csv(a.output_prefix+'.selection.tsv',separator='\t')
         Path(a.output_prefix+'.manifest.json').write_text(json.dumps({'locus':a.locus}))
-    monkeypatch.setattr(tcrdist,'main',main)
+    monkeypatch.setattr(geometry,'main',main)
     out=annotate_repertoires(paths,reference=reference,output_prefix=tmp_path/'out',threads=2,
         selection_only=False,neighbour_weighting=weighting)
     assert calls==[('TRA',73),('TRB',73),('paired',142)]
@@ -154,12 +154,12 @@ def test_detailed_union_equals_separate_fresh_services_three_native_batches(tmp_
     for path in paths:
         result=annotate_repertoires(path,output_prefix=tmp_path/('separate-'+path.stem),**options)
         for kind in result['output_paths']:pieces.setdefault(kind,[]).append(result[kind])
-    from vdjmatch.match import tcrdist
-    original=tcrdist.grouped_total_distance_count_batch;calls=[]
+    from vdjmatch.match import geometry
+    original=geometry.grouped_total_distance_count_batch;calls=[]
     def count(q,r,cutoffs,**kwargs):
         calls.append((kwargs['paired'],kwargs['threads'],q.height))
         return original(q,r,cutoffs,**kwargs)
-    monkeypatch.setattr(tcrdist,'grouped_total_distance_count_batch',count)
+    monkeypatch.setattr(geometry,'grouped_total_distance_count_batch',count)
     result=annotate_repertoires(paths,output_prefix=tmp_path/'union',**options)
     assert [pair for pair,_,_ in calls]==[False,False,True]
     assert all(n==threads for _,n,_ in calls)

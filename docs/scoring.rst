@@ -1,5 +1,44 @@
-Neighbourhood score: formula and interpretation
-===============================================
+Score definitions
+=================
+
+See :doc:`selection-information` for selection factors, likelihood ratios,
+information in bits, masked-four-mer weighting, geometry and comparable tails.
+Benchmark exact exclusion filters hit contributions only: model populations,
+priors, motifs and graphs stay fixed. Historical population-puncturing recipes
+below do not define the current selection procedure.
+
+Current VDJmatch kernel
+-----------------------
+
+The default ``annotate`` model uses the stem4 geometry and the ``v-bounded``
+kernel reducer. All quantities below are computed after the declared exact-match
+policy. Let :math:`N` be the number of eligible target reference keys,
+:math:`t_j` the ordered distance cutoffs, :math:`n_j` and :math:`v_j` the target
+and same-V target counts in shell :math:`j`, and :math:`m_j` the cumulative
+other-peptide background count through that cutoff. The score is
+
+.. math::
+
+   S(q,X)=\frac{1}{N}\sum_j
+   \frac{[0.25n_j+0.75v_j]\exp(-t_j/\tau)}{1+m_j}.
+
+Here :math:`q` is the query, :math:`X` the target peptide–MHC and
+:math:`\tau` the kernel scale in the same distance units. Same-V references
+receive total weight one; other V genes receive weight 0.25. All target keys
+remain in :math:`N`, including distant ones. An unavailable target or background
+population produces unavailable evidence. Higher values indicate stronger
+relative target support; the score is not a P-value.
+
+The ``all-bounded`` reducer weights every reference equally; ``vonly-bounded``
+uses only same-V shell mass. The retained ``rare`` variants replace
+:math:`1+m_j` with :math:`\max(m_j,0.01)`. These are explicit alternatives,
+not a per-query selection of whichever score performs best.
+
+See :doc:`algorithms` for the computation and paired axes, and
+:doc:`explanation` for complete-score calibration. The remaining sections
+document retained historical and experimental statistics; they do not redefine
+the annotation default.
+
 
 Experimental count enrichment
 -----------------------------
@@ -76,7 +115,7 @@ reference pair and other-peptide linked pairs as its joint population. It does
 not multiply independently selected chain matches. Real/generated joint controls
 and paired confidence calibration remain undefined.
 
-An additive TCRdist-like geometry uses clipped BLOSUM costs, explicit
+An additive clipped BLOSUM62 geometry-like geometry uses clipped BLOSUM costs, explicit
 positional weights, a linear gap charge and aligned V loops:
 
 .. math::
@@ -90,9 +129,9 @@ positional weights, a linear gap charge and aligned V loops:
 Here :math:`s` is BLOSUM62, :math:`q,r` are full junctions,
 :math:`d_V` sums aligned CDR1/CDR2/CDR2.5 costs, :math:`A` is an allowed
 single-block alignment, :math:`h` is the length difference, :math:`L`
-the longer length and :math:`w` the positional weight. TCRdist3 uses unit
+the longer length and :math:`w` the positional weight. clipped BLOSUM62 geometry uses unit
 interior weights with three N-terminal and two C-terminal residues excluded.
-The CLI's opt-in ``tcrdist-neighbours --junction-ends trim3`` excludes
+The CLI's opt-in ``neighbours --junction-ends trim3`` excludes
 three residues at each end. Exact exclusion still compares full junctions.
 The existing empirical flank/core profile supplies a separate weighting
 alternative; it is not an exact gene-specific NDN boundary annotation.
@@ -111,7 +150,7 @@ Ambiguous or unmodelled calls are excluded and reported. Present species/locus
 metadata are filtered before gene resolution. With exact exclusion, all keys
 sharing the query full junction are removed from both counts and denominators.
 
-``tcrdist-neighbours --targets-from-sample --background`` writes these counts
+``neighbours --targets-from-sample --background`` writes these counts
 and :math:`E_J` to a separate enrichment table. ``--position-weighting significance``
 uses the shipped full-length empirical decay profile, quantised to 0.01 with a
 minimum weight of 0.01; no additional terminal trim is applied. The default
@@ -179,7 +218,7 @@ therefore length differences above four cannot enter this score.
 Define the historical V factor :math:`a(q,r)` as one for identical
 allele-stripped V genes and :math:`0.25\,\mathrm{vsim}(V_q,V_r)` otherwise.
 It is separate from the distance and is not a calibrated V-loop likelihood.
-This experimental mode does not add TCRdist CDR1/CDR2/CDR2.5 distances.
+This experimental mode does not add clipped BLOSUM62 geometry CDR1/CDR2/CDR2.5 distances.
 
 One kernel and one background predicate
 ---------------------------------------
@@ -318,7 +357,7 @@ comparison fixed. These choices are diagnostic, not an accuracy claim.
 Distance-local rank evidence (experimental)
 -------------------------------------------
 
-``tcrdist-neighbours --neighbour-weighting local-rank --background ...`` uses
+``neighbours --neighbour-weighting local-rank --background ...`` uses
 fixed integer distance cutoffs from zero through ``--radius``. Both populations
 use the same upward distance bins, V-loop geometry and full-junction exclusion.
 The score is separate from the existing ``enrichment`` count ratio.
@@ -363,7 +402,7 @@ unique reference keys, repertoire selection and database ascertainment do not
 automatically support exchangeability. ``rank_model_status`` and the manifest
 retain this restriction; deployment priors cannot be inferred from VDJdb or
 custom benchmark fractions. Target/route selection is not calibrated here.
-Original annotation remains the default; M3 remains deferred.
+This retained experiment does not replace the current kernel default.
 
 The general expectation-one and conservative conversion are discussed by
 `Vovk and Wang <https://arxiv.org/abs/1912.06116>`_. The particular reciprocal-rank
@@ -372,7 +411,7 @@ alternative and censoring construction above are this package's explicit model.
 Uncensored nearest-reference rank (experimental)
 ------------------------------------------------
 
-``tcrdist-neighbours --nearest-rank --unbounded-nearest --background ...``
+``neighbours --nearest-rank --unbounded-nearest --background ...``
 adds a separate ``nearest_rank_score`` using uniform junction/V geometry.
 For each query, controls are counted at its exhaustive nearest target distance,
 including all distance ties. Linked receptors use the alpha+beta distance to
@@ -389,8 +428,8 @@ nearest search. Fixed-radius outputs and the averaged rank score are preserved.
 
 This is a conditional exchangeable-label statistic, not biological confidence,
 an E-value, a selected-label calibration or a replacement deployment cutoff.
-Paired generated/real backgrounds remain undefined. Original annotation stays
-the default; promotion requires all-task and full-reference nonregression.
+Paired generated/real backgrounds remain undefined. This retained experiment does not replace the current kernel default; promotion
+requires all-task and full-reference nonregression.
 
 Nearest-conditioned censored rank (experimental)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -400,7 +439,7 @@ exactly when any target reference lies within the fixed radius. If all target
 references are outside it, the exhaustive nearest reference refines their
 null-conditional mean: the first target has reciprocal control rank ``1/(k+1)``,
 and the remaining ``N-1`` targets contribute the mean over ranks ``k+1..M+1``.
-Here ``N`` and ``M`` are the punctured target and control populations, and ``k``
+Here ``N`` and ``M`` are the fixed target and control populations, and ``k``
 is the number of controls at or nearer than the exhaustive nearest target.
 The usual harmonic normalization is retained. Control ties are conservative.
 This common rule preserves linked pairs and uses no fitted blend or task switch.
@@ -434,7 +473,7 @@ Reference-selected radii do not inherit fixed-radius probability guarantees.
 Conditional J usage diagnostic
 ------------------------------
 
-``tcrdist-neighbours --conditional-j`` requires ``--nearest-rank``,
+``neighbours --conditional-j`` requires ``--nearest-rank``,
 ``--neighbour-weighting local-rank`` and ``--background vdjdb-other``.
 It exports ``j_conditioned_rank_score``: the existing nearest-conditioned
 rank evidence multiplied by a target/control J-usage ratio conditional on
@@ -447,7 +486,8 @@ For each population, the predictive conditional J frequency is
 pseudo-observation and a common number ``K`` of observed population J categories plus one unseen category.
 This makes predictions independent of the query batch contents.
 Counts retain distinct full junction/resolved-V keys, explicitly mark conflicting
-or missing J annotations, and apply benchmark exact-query exclusion consistently.
+or missing J annotations. These model frequencies remain fixed under benchmark
+exact-hit exclusion; only the separate sequence-hit list is filtered.
 Missing query J yields a neutral ratio of one. Counts and status are exported.
 
 This is an experimental empirical ranking residual. J usage can remain dependent
@@ -458,7 +498,7 @@ probabilities describe their original statistic and do not transfer to this scor
 Reference-defined epitope rules (experimental)
 ----------------------------------------------
 
-``tcrdist-neighbours --epitope-rules --background vdjdb-other`` emits
+``neighbours --epitope-rules --background vdjdb-other`` emits
 ``rule_v_score``, ``rule_rank_score`` and four reference-enriched motif scores.
 Spatial and overlap kernels remain diagnostic output fields.
 The V rule is estimated separately for each assayed target from distinct full
@@ -469,20 +509,43 @@ multiplier or length likelihood multiplier.
 The rank score factors predictive V usage and multi-reference CDR3 rank conditional
 on that exact gene category. The native conditional search has **zero V-loop cost**:
 V evidence enters once. Length differences remain in the CDR3 distance. With
-query-punctured target/control totals N/M, same-V counts n/m and kernel masses
-r/b, define p=(n+m+0.5)/(N+M+0.5K), where K is the union of population V categories
+fixed full-model target/control totals N/M and same-V counts n/m,
+define p=(n+m+0.5)/(N+M+0.5K), where K is the union of population V categories
 plus one unseen category. V probabilities are (n+p)/(N+1) and (m+p)/(M+1).
 If either n or m is zero, the V ratio is **one**, CDR3 rank uses the full target
 and control populations, and motif bonuses are zero. This avoids prior-only
 V evidence or erasing sequence evidence for unsupported categories.
-Rank averages normalized reciprocal background ranks over **all references**,
-with conservative tied-distance intervals as in the local-rank model above.
+Rank sums normalized reciprocal eligible-control ranks over the retained reference
+hits and divides by the fixed full reference count. Tied distances use the same
+reciprocal-rank intervals as the local-rank model above. Excluded exact hits
+contribute zero; they do not return as censored references beyond the last bin.
 Exact distance bins cover every finite CDR3-only distance: clipped substitution
 and gap costs are at most twelve per full-junction residue per chain, and distances
-are multiples of three. The final counts must equal the punctured populations.
+are multiples of three. With exact-hit filtering, final hit counts omit those hits; model population sizes stay fixed.
 
-For the retained kernel diagnostics, the shared conditional pseudo-observation is c=(r+b+0.5)/(n+m+1); conditional
-kernel means are (r+c)/(n+1) and (b+c)/(m+1). The score is the ratio of their
+One cumulative distance count supplies both the triangular kernel mass and
+the rank statistic. For retained hits at distances :math:`d_j`, define
+:math:`C(t)=\sum_j\mathbf1\{d_j\le t\}`. At positive radius :math:`r`,
+
+.. math::
+
+   K(r)=\sum_j(1-d_j/r)_+
+       =\frac1r\int_0^r C(t)\,dt
+       =\frac1r\sum_i [C(d_i)-C(d_{i-1})](r-d_i)_+.
+
+Here :math:`d_i` are the exact increasing distance bins, the count before the
+first bin is zero, and :math:`z_+=\max(0,z)`. The identity follows by integrating
+each hit indicator. Thus smooth spatial mass and discrete rank can use one
+native traversal of shared reference/control keys, retaining both memberships.
+Bounded count chunks are reduced immediately to per-query masses and ranks.
+Spatial mass remains same-V-conditioned; only an unsupported V category's rank
+uses an additional unconditional traversal. This changes computation, not the
+score or its calibration requirements.
+
+For the retained kernel diagnostics, let r_model/b_model be full-model kernel
+masses and r_hit/b_hit their exact-filtered hit masses. The shared conditional
+pseudo-observation is c=(r_model+b_model+0.5)/(n+m+1); conditional kernel means
+are (r_hit+c)/(n+1) and (b_hit+c)/(m+1). Thus hit exclusion does not refit c. The score is the ratio of their
 products. These are empirical predictive ranking scores, not calibrated
 P-values, E-values, specificity posteriors or independence claims.
 
@@ -504,13 +567,28 @@ presence frequencies within the supported V category. Let e be the mean of
 max(0, target_frequency-control_frequency) over distinct query token tuples.
 The score is ``rule_rank_score*(1+e)``. The bounded factor is a correlated
 sequence bonus, not an independent likelihood or calibrated probability.
-Rules use reference populations and query puncturing only; query labels never
-select motifs. Too-short queries have e=0.
+Rules use fixed full reference/control frequencies; query labels never select
+motifs and exact-hit filtering does not change their enrichment weights. Too-short queries have e=0.
 
-All motif and population counts puncture identical full junctions only when
-``--exclude-exact`` is explicitly used for benchmarks. Ordinary annotation retains
-exact reference evidence. This option leaves existing comparator/rank fields
+``--exclude-exact`` masks identical full-junction hit contributions only. Population
+counts, V support, priors and motif frequencies stay fixed. Paired filtering
+requires both junctions to match; sharing only one chain does not remove a linked
+reference pair. ``rule_reference_excluded_hits``/``rule_control_excluded_hits``
+count the filtered raw sequence identities; the legacy ``*_removed_v`` fields
+count only filtered same-V hit contributions. Ordinary annotation retains exact
+reference evidence. This option leaves existing comparator/rank fields
 unchanged and does not supply a new end-user call threshold.
+
+For rule tables without unused nearest-distance diagnostics, add ``--rules-only``
+to ``neighbours --epitope-rules --targets-from-sample --unbounded-nearest
+--background vdjdb-other --neighbour-weighting linear``. This projection writes
+``queries.tsv`` and rule-only ``enrichment.tsv``, retaining ingestion availability
+and target-validation precedence. A valid target is matched when its fixed
+reference population exceeds its excluded exact-hit count; exact-only targets
+remain ``no_neighbours`` and empty targets remain ``no_reference``. The first
+projection requires the standard clipped/full/uniform geometry and excludes
+other diagnostics. Ordinary candidate outputs and scoring defaults stay on their
+existing route.
 
 Experimental original-based fixed refinement
 --------------------------------------------
@@ -545,7 +623,7 @@ accuracy gain. Its complete selection requires separate null calibration.
 Experimental ordered class alignment
 ------------------------------------
 
-``tcrdist-neighbours --alphabet imgt`` uses the existing alignment engine with
+``neighbours --alphabet imgt`` uses the existing alignment engine with
 the IMGT classes AILV, RHK, CM, ST, DE and NQ; G, F, P, W and Y remain separate.
 The cost between two classes is the minimum original clipped BLOSUM62 cost
 between their members, with zero within a class. Ambiguous symbols retain their
@@ -564,7 +642,7 @@ accuracy and selected-score calibration are required before adoption.
 Experimental local KF4 chemistry
 --------------------------------
 
-``tcrdist-neighbours --chemistry --background vdjdb-other`` emits a separate
+``neighbours --chemistry --background vdjdb-other`` emits a separate
 local-chemistry component, requiring the existing ``bench`` extra. It preserves
 the original distance and rank outputs. Ordered four-residue windows come from
 full anchored junctions trimmed by three residues at each end. Every reference
@@ -588,3 +666,64 @@ remain explicit. Reference keys without local windows are counted separately.
 These are experimental ranking values, with no component P/E-value or binding
 probability. Complete raw-task accuracy and selected-score calibration remain
 required before adoption.
+
+Frozen reference-class score selection (experimental)
+-----------------------------------------------------
+
+``vdjmatch score-policy components.tsv --policy reference-policy.tsv
+--output-prefix selected`` applies a separately frozen reference-only class
+model to final continuous component scores. It preserves row order and identities;
+``--original-column`` names the fallback column (default ``original_score``).
+The table requires species, locus and epitope plus the columns used by the
+declared classes. The policy's companion ``manifest.json`` must identify a
+reference-model asset without benchmark inputs and pin the policy table hash.
+
+The fast reference classes use ``v_only`` → ``rule_v_score``,
+``motif_only`` → ``rule_exact3_score / rule_v_score``, and
+``v_and_motif`` → ``rule_exact3_score``. The joint exact-three-mer score already
+contains the V ratio; division recovers its conditional motif factor and requires
+a finite positive denominator. ``no_supported_axis``, absent profiles and
+unavailable components retain the configured finite fallback with an explicit
+status. All paired fast-class routes retain that fallback. For native annotation
+tables use ``--original-column default_score``: this includes linked and available
+unlinked marginal evidence; a linked-only score is not an equivalent fallback.
+
+The older policy labels remain supported: ``V_dominant`` selects the V ratio;
+``junction_projection_dominant`` selects
+V-weighted complete conditional-distance rank. ``general_fallback`` or an absent
+profile retains the original score. An unavailable selected component remains
+missing: raw scores from different components cannot be mixed across queries.
+The original column stays available separately. These older labels retain their
+original missing-component and paired-policy behavior.
+
+This command performs no receptor search, fitting or default promotion. It writes
+continuous ``policy_score``, the selected column and an explicit disposition;
+component P-values, E-values and posteriors do not transfer to this selected rule.
+Every component table must be rebuilt freshly through its producing CLI for a
+fresh manuscript-table rebuild. Its final all-label/axis calibration is separate.
+
+
+Execution-owned diagnostic reductions
+-------------------------------------
+
+Multi-target ``--epitope-rules`` shares one grouped conditional-V distance
+traversal, with a separate global traversal for unsupported V categories.
+Fixed target and other-peptide memberships preserve shared-label keys and
+exclude every restriction of the target peptide from the background. Bounded
+native chunks retain only per-observation masses/ranks; the scalar rule still
+computes the same fixed priors, motif counts and score reductions. Final distance
+counts must equal fixed model sizes minus filtered exact hits.
+
+Pgen matching filters the already validated fixed junction/bin map to the current
+reference keys before the small target join. The full event pools and bin mapping
+remain fixed; source counts, sampling order and seeded draws are unchanged.
+TF-IDF bootstrap draws compute motif presence and the fixed background IDF directly,
+without calculating unused per-draw binary KL tables. This preserves the same
+joint-key reduction, denominator, draws and percentile envelopes.
+
+SW graph hits already identify their target population. A single temporary
+reference-index vector maps these hits to population-specific node IDs, replacing
+repeated binary searches over the complete membership table. It is one vector,
+not a dense population-by-reference matrix, and does not change distances, edges,
+partitions or bootstrap randomness. Each geometry still uses one native batch.
+No scientific intermediates are persisted or reused by these changes.

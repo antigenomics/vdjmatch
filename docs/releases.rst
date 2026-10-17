@@ -1,11 +1,32 @@
 Release notes
 =============
 
+0.5.0
+-----
+
+Requires released ``seqtree>=1.2.0`` and ``vdjtools>=5.2.0``; the optional
+NDN geometry requires ``arda-mapper>=2.36.2``. CI verifies the released native
+capabilities without substituting a Git checkout.
+
+Adds durable native reference indexes, fresh reference profiles, conditional
+motif and graph diagnostics, all-label rule/scorer retrieval, class-group
+summaries and empirical epitope bootstrap exports. Searches retain fixed
+reference models; benchmark exact exclusion filters matching hits only.
+
+Paired label assignment is available separately from any-call detection:
+linked maximum labels take priority, with marginal-union fallback when linked
+support is absent. Ties, ambiguity and unsupported queries remain explicit.
+Streaming reductions and compressed evidence exports reduce memory use.
+Annotation no longer prepares unused reference profile sidecars before scoring.
+
+The annotation default remains targeted stem4. Experimental score policies and
+component tails do not establish calibrated final selected-label confidence.
+
 0.4.0
 -----
 
 Targeted annotation and retained alternatives
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``vdjmatch annotate`` and ``annotate_repertoires`` accept single-chain AIRR,
 paired long/wide AIRR, simple V/J/junction tables, directories and path metadata.

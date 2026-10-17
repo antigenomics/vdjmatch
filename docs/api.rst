@@ -8,6 +8,16 @@ The public API is re-exported from the top-level :mod:`vdjmatch` package —
 :class:`vdjmatch.api.Annotator` and the module-level :func:`vdjmatch.annotate` shortcut. The
 submodules below expose the building blocks (VDJdb access, the search index, E-values, I/O).
 
+Saved reference assets
+----------------------
+
+``Annotator.from_path(path, threads=4)`` prepares or reopens an adjacent native
+reference bundle. ``reference_profiles`` exposes its flat pooled-epitope/full-pMHC
+class table; ``reference_index_manifest`` records the bundle path and identity.
+Source/filter changes invalidate reuse. ``Annotator.latest`` uses the same path.
+``Annotator.from_frame`` keeps anonymous references in memory.
+See :doc:`cli` for the descriptive decision rules and the ``vdjmatch index`` command.
+
 Batch repertoire annotation
 ---------------------------
 
@@ -21,6 +31,19 @@ raises an error before input loading. Generated-field collisions retain input
 metadata under ``input_`` prefixes.
 
 .. autofunction:: vdjmatch.annotate_repertoires
+
+On-demand control calibration
+-----------------------------
+
+See :doc:`control-calibration` for the two null hypotheses, event units and
+complete-score selection requirements. These helpers use transient tables;
+the user supplies one raw repertoire, with no calibration-file lifecycle.
+
+.. automodule:: vdjmatch.evalue.mock_reference
+   :members:
+
+.. automodule:: vdjmatch.evalue.directional
+   :members:
 
 vdjmatch.api
 ------------
@@ -164,7 +187,7 @@ identity when selecting corroborated records.
 Experimental V-conditioned motif evidence
 -----------------------------------------
 
-.. autofunction:: vdjmatch.match.motifs.vdjbet_motif_scores
+.. autofunction:: vdjmatch.match.motifs.masked_motif_scores
 
 Targeted kernel evidence
 ------------------------
@@ -172,10 +195,45 @@ Targeted kernel evidence
 .. automodule:: vdjmatch.evalue.kernel
    :members: ladder_cutoffs, kernel_ladder, select_kernel
 
-.. autofunction:: vdjmatch.match.tcrdist.precompute_v_loop_distances
+.. autofunction:: vdjmatch.match.geometry.precompute_v_loop_distances
 
 Legacy calculation reproduction
---------------------------------
+-------------------------------
 
 .. automodule:: vdjmatch.match.scoring_audit
    :members: matrix_audit, loo_audit
+
+Reference graph morphology
+--------------------------
+
+.. autofunction:: vdjmatch.aggregate.structure.graph_profiles
+
+.. autofunction:: vdjmatch.aggregate.structure.gene_selection_information
+
+.. autofunction:: vdjmatch.aggregate.motif_information.motif_population
+
+.. autofunction:: vdjmatch.aggregate.motif_information.motif_selection_information
+
+.. autofunction:: vdjmatch.aggregate.motif_information.motif_bootstrap
+
+.. autofunction:: vdjmatch.aggregate.motif_position.position_contrast
+
+.. autofunction:: vdjmatch.aggregate.motif_position.generative_position_contrast
+
+.. autofunction:: vdjmatch.aggregate.length_profile.length_histogram
+
+.. autofunction:: vdjmatch.aggregate.length_profile.length_control
+
+.. autofunction:: vdjmatch.aggregate.length_profile.length_summary
+
+.. autofunction:: vdjmatch.aggregate.reference_coverage.reference_graph
+
+.. autofunction:: vdjmatch.aggregate.reference_coverage.leiden_taxa
+
+.. autofunction:: vdjmatch.aggregate.reference_coverage.abundance_coverage
+
+.. autofunction:: vdjmatch.aggregate.germline_information.germline_projection_map
+
+.. autofunction:: vdjmatch.aggregate.germline_information.iter_germline_information
+
+.. autofunction:: vdjmatch.aggregate.paired_labels.paired_labels

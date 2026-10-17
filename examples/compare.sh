@@ -11,5 +11,5 @@ mkdir -p "$OUT"
   --threads 4 --exclude-exact --details --output-prefix "$OUT/stem4"
 "$CLI" annotate "$HERE/inputs/cohort/sample_a.tsv" --vdjdb "$HERE/inputs/reference.tsv" \
   --threads 4 --exclude-exact --details --v-regions cdr12 --stem-depth 0 \
-  --distance-matrix tcrdist --junction-ends trim3 --output-prefix "$OUT/vcdr12"
+  --distance-matrix clipped --junction-ends trim3 --output-prefix "$OUT/vcdr12"
 printf 'Fresh comparison tables written under %s\n' "$OUT"

@@ -24,7 +24,7 @@ def kernel_ladder(reference_counts, same_v_counts, control_counts, reference_siz
     """Recorded V-weighted bounded score plus five advanced ladder alternatives.
 
     Each curve counts all eligible references through each ordered cutoff. Exact
-    exclusions must also puncture population sizes. Scores are relative evidence,
+    exclusions mask hits without changing reference/control model sizes. Scores are relative evidence,
     not probabilities, E-values or calibrated specificity confidence.
     """
     if scorer not in KERNEL_SCORERS:
@@ -118,25 +118,42 @@ def _compact_kernel_selection(scores, exact, permutation, starts, peptides):
 
 def grouped_kernel_selection(queries, references, groups, *, query_keys, search_keys,
         paired, cutoffs, radius, kernel_scale, scorer, assayed=False, withheld_column=None,
-        position_weighting='uniform', geometry_preset=None, _detailed=False, **geometry):
+        position_weighting='uniform', geometry_preset=None, _detailed=False, progress=False,
+        _allow_empty_background=False, _scores_only=False, _consume=None, _return_hits=False, **geometry):
     """Compact all-label selection from one bounded native reference traversal.
 
     Memberships deduplicate search keys separately from pMHC annotations. Other
     peptide counts subtract only keys exclusive to that peptide; shared labels
     and unselected peptides remain in the background. No predictions persist.
+    The complete-score runner retains only pMHC keys and the selected score;
+    detailed diagnostics remain available to other callers. An internal consumer
+    can receive each detailed observation batch directly, without retaining the
+    complete table or starting another native search. Consumer batches include
+    the integer execution axes ``_target`` and ``_query_order`` for keyed writes.
+    Detailed mode can also return radius-hit IDs for query dispositions.
     """
     import polars as pl
-    from ..match.tcrdist import grouped_total_distance_count_batch, distance_cutoff
+    from ..match.geometry import grouped_total_distance_count_batch, distance_cutoff
     if scorer not in KERNEL_SCORERS:
         raise ValueError('unknown kernel scorer')
+    if _scores_only and not _detailed:
+        raise ValueError('score projection requires detailed kernel mode')
+    if _consume is not None and (not _detailed or not callable(_consume)):
+        raise ValueError('kernel consumer requires detailed mode and a callable')
     if not groups or not queries.height:
         return None,set()
+    if progress:
+        import sys,time
+        progress_started=time.monotonic()
     unique=queries.select(query_keys).unique(maintain_order=True).with_row_index('_row')
     whole=references.unique(search_keys,maintain_order=True).with_row_index('_ref')
+    if progress:
+        print(f'Kernel batch: {unique.height} unique query keys, {whole.height} reference keys; '
+              f'{unique.height*whole.height} reference-key visits',file=sys.stderr,flush=True)
     normalise=geometry_preset in ('norm','jnorm')
     same_v_totals=None
     if normalise:
-        # Recorded diagnostic: N is punctured, but same-V mass is pre-puncture.
+        # Same-V mass and all population denominators belong to the fixed model.
         gene_columns=['_allelea','_alleleb'] if paired else ['_allele']
         reference_genes=['_allele_alpha','_allele_beta'] if paired else ['_allele']
         gene_names=['_gene'+str(i) for i in range(len(gene_columns))]
@@ -153,6 +170,12 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         from ..aggregate.candidates import PMHC
         targets=targets.with_columns(*[pl.Series(c,[task[c] for task,_,_ in groups],dtype=pl.String)
             for c in PMHC if c!='epitope'])
+        detail_columns=(['query_id',*PMHC,'kernel_score'] if _scores_only else
+            ['query_id','n_control','control_weight','control_population','n_reference',
+             'reference_weight','reference_population','expected_count','enrichment_status',
+             'enrichment','zero_control_hits','zero_control_weight','exact_reference_count',
+             *['kernel_'+w+'_'+d for w in ('all','v','vonly') for d in ('bounded','rare')],
+             'kernel_score','kernel_status',*PMHC])
     peptides=targets.select('epitope').unique(maintain_order=True).with_row_index('_peptide')
     target_peptides=targets.join(peptides,on='epitope',nulls_equal=True,maintain_order='left')['_peptide'].to_numpy()
     members=pl.concat([part.select(search_keys).unique().with_columns(pl.lit(i).alias('_target'))
@@ -186,7 +209,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     def axes(frame, reference=False):
         seqs=['alpha','beta'] if reference and paired else ['cdr3a','cdr3b'] if paired else ['cdr3']
         genes=['_allele_alpha','_allele_beta'] if reference and paired else ['_allelea','_alleleb'] if paired else ['_allele']
-        from ..match.tcrdist import J_GEOMETRY_PRESETS
+        from ..match.geometry import J_GEOMETRY_PRESETS
         jcols=['j_alpha','j_beta'] if reference and paired else ['ja','jb'] if paired else ['j']
         return frame.select(*[pl.col(c).alias('seq'+str(i)) for i,c in enumerate(seqs)],
                             *[pl.col(c).alias('v'+str(i)) for i,c in enumerate(genes)],
@@ -204,11 +227,15 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         paired=paired,position_weighting=position_weighting,geometry_preset=geometry_preset,reference_target_offsets=offsets,
         reference_target_ids=members['_target'].to_numpy(),target_peptide_ids=target_peptides,
         reference_exclusive_peptide_ids=exclusive,
-        chunk_size=min(64,max(1,256*1024**2//bytes_per_query)),**folds,**geometry)
+        chunk_size=min(65536,max(1,256*1024**2//bytes_per_query)),**folds,**geometry)
     mapping=queries.select('query_id',*query_keys).join(unique,on=query_keys,how='left',validate='m:1',nulls_equal=True,
         **({'maintain_order':'left'} if _detailed else {}))
     if _detailed:
         mapping=mapping.with_row_index('_query_order')
+    # Native chunks span contiguous search-key rows. Sort once, then slice;
+    # rescanning the complete source map per chunk is quadratic in cohort size.
+    mapping=mapping.sort('_row')
+    mapped_rows=mapping['_row'].to_numpy()
     allowed=None
     if assayed:
         allowed=pl.concat([part.select('query_id').with_columns(pl.lit(i).alias('_target'))
@@ -216,8 +243,12 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     sparse=_detailed and assayed
     requested=(mapping.select('query_id','_row').join(allowed,on='query_id',how='inner')
         .select('_row','_target').unique().sort('_row','_target') if sparse else None)
+    requested_rows=requested['_row'].to_numpy() if sparse else None
     states=[];hit_ids=set();T=len(groups)
-    compact_all=not _detailed and allowed is None
+    shared_single_scope=(not _detailed and allowed is not None and T==1 and allowed.height==queries.height and
+        allowed['query_id'].n_unique()==queries.height and
+        allowed.select('query_id').join(queries.select('query_id'),on='query_id',how='anti').is_empty())
+    compact_all=not _detailed and (allowed is None or shared_single_scope)
     if compact_all:
         # The same peptide restrictions and lexical order apply to every chunk.
         names=[task['epitope'] for task,_,_ in groups]
@@ -225,14 +256,23 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         ordered=[names[i] for i in permutation]
         starts=np.asarray([i for i,e in enumerate(ordered) if i==0 or e!=ordered[i-1]])
         peptide_names=[ordered[i] for i in starts]
-        mapped_rows=mapping['_row'].to_numpy();mapped_ids=mapping['query_id'].to_numpy()
+        mapped_ids=mapping['query_id'].to_numpy()
+    reported=-1
     for chunk in iterator:
         C=chunk.stop-chunk.start
+        milestone=10*chunk.stop//unique.height
+        if progress and (reported<0 or milestone>reported):
+            print(f'Kernel counted {chunk.stop}/{unique.height} query keys '
+                  f'in {time.monotonic()-progress_started:.1f}s',file=sys.stderr,flush=True)
+            reported=milestone
+        first,last=np.searchsorted(mapped_rows,[chunk.start,chunk.stop])
+        chunk_mapping=mapping.slice(int(first),int(last-first))
         curves=np.asarray(chunk.counts);sizes=np.asarray(chunk.sizes)
         # Convert directly to contiguous numerical rows; advanced-cut indexing
         # otherwise transposes and recopies every query x target x cutoff array.
         if sparse:
-            pairs=requested.filter(pl.col('_row').is_between(chunk.start,chunk.stop-1))
+            first,last=np.searchsorted(requested_rows,[chunk.start,chunk.stop])
+            pairs=requested.slice(int(first),int(last-first))
             if not pairs.height:
                 continue
             row=pairs['_row'].to_numpy();target=pairs['_target'].to_numpy();qrow=row-chunk.start
@@ -274,16 +314,18 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         # Immutable native curves already satisfy the validated monotone/subset
         # and population contract. Reuse the exact arithmetic without scanning
         # every generated curve again; public kernel_ladder keeps all checks.
+        # The complete-score adapter can use the defined 1+m bounded density
+        # at M=0; its final control randomizations calibrate this case. Reported
+        # population sizes below remain actual zero, with no enrichment claim.
         scores=_kernel_scores(shells,same_shells,
-            control,score_N,(np.maximum(M.reshape(-1),1) if normalise else M.reshape(-1)),np.asarray(cutoffs,dtype=np.float64),
+            control,score_N,(np.maximum(M.reshape(-1),1) if normalise or _allow_empty_background else M.reshape(-1)),np.asarray(cutoffs,dtype=np.float64),
             kernel_scale,.25,.01,scorer,_detailed,_reuse_buffers=not _detailed)
         exact=np.zeros((C,T),dtype=np.uint32) if geometry.get('exclude_exact',False) else np.asarray(chunk.exact_counts)
         if compact_all:
             selected=_compact_kernel_selection(scores['kernel_score'].reshape(C,T),exact,
                 permutation,starts,peptide_names)
-            observations=(mapped_rows>=chunk.start)&(mapped_rows<chunk.stop)
-            local_rows=mapped_rows[observations]-chunk.start
-            ids=mapped_ids[observations]
+            local_rows=mapped_rows[first:last]-chunk.start
+            ids=mapped_ids[first:last]
             states.append(pl.DataFrame({'query_id':pl.Series(ids.tolist(),dtype=mapping.schema['query_id']),
                 'selected_epitope':pl.Series(selected['selected_epitope'][local_rows].tolist(),dtype=pl.String),
                 **{name:pl.Series(value[local_rows],nan_to_null=True) for name,value in selected.items()
@@ -319,15 +361,21 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
             values=values.with_columns((pl.col('reference_weight')/pl.col('expected_count')).alias('enrichment'),
                 (pl.col('n_control')==0).alias('zero_control_hits'),
                 (pl.col('control_weight')==0).alias('zero_control_weight'))
-            observations=mapping.filter(pl.col('_row').is_between(chunk.start,chunk.stop-1)).select(
+            observations=chunk_mapping.select(
                 'query_id','_query_order','_row')
             for part in observations.iter_slices(max(1,65536//T)):
                 expanded=(part.join(allowed,on='query_id',how='inner').join(values,on=['_row','_target'],how='inner')
                     if assayed else part.join(values,on='_row',how='inner'))
                 expanded=expanded.join(targets,on='_target',how='left',validate='m:1')
-                states.append(expanded.drop('_row','_radius_hit'))
+                if _return_hits:
+                    hit_ids.update(expanded.filter(pl.col('_radius_hit'))['query_id'])
+                if _consume is None:
+                    states.append(expanded.select('query_id',*PMHC,'kernel_score','_target','_query_order')
+                        if _scores_only else expanded.drop('_row','_radius_hit'))
+                else:
+                    _consume(expanded.select(*detail_columns,'_target','_query_order'))
             continue
-        chunk_mapping=mapping.filter(pl.col('_row').is_between(chunk.start,chunk.stop-1)).select('query_id','_row')
+        chunk_mapping=chunk_mapping.select('query_id','_row')
         columns=['selected_epitope','kernel_score','kernel_competing_score','tied_peptides','exact_peptides']
         # Source observations can repeat one search key arbitrarily often.
         # Restrict assay memberships before joining curves; bound even the
@@ -340,13 +388,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
             selected=select_kernel(expanded.select('query_id').unique(),expanded)
             states.append(selected.select('query_id',*columns))
     if _detailed and states:
-        from ..aggregate.candidates import PMHC
-        columns=['query_id','n_control','control_weight','control_population','n_reference',
-            'reference_weight','reference_population','expected_count','enrichment_status',
-            'enrichment','zero_control_hits','zero_control_weight','exact_reference_count',
-            *['kernel_'+w+'_'+d for w in ('all','v','vonly') for d in ('bounded','rare')],
-            'kernel_score','kernel_status',*PMHC]
-        return pl.concat(states).sort('_target','_query_order').select(columns),hit_ids
+        return pl.concat(states).sort('_target','_query_order').select(detail_columns),hit_ids
     return pl.concat(states) if states else None,hit_ids
 
 

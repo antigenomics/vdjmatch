@@ -23,6 +23,26 @@ def test_defaults_and_component_selector_rejection(tmp_path):
     with pytest.raises(ValueError,match='final kernel_score'):
         reference_calls.main(args(tmp_path,'--scorer','stem4','--calibration-score','E'))
 
+def test_reference_call_radius_uses_context_units(tmp_path,monkeypatch):
+    from vdjmatch.match import geometry
+    from vdjmatch.evalue import kernel
+    reference(tmp_path)
+    original=geometry.precompute_v_loop_distances
+    def context(**kwargs):
+        result=original(**kwargs).copy()
+        result['distance_units']=(52,2)
+        return result
+    class Captured(Exception):
+        pass
+    def capture(*a,**kwargs):
+        assert kwargs['radius']==kwargs['kernel_scale']==22.5*52
+        assert kwargs['cutoffs']==ladder_cutoffs(52)
+        raise Captured
+    monkeypatch.setattr(geometry,'precompute_v_loop_distances',context)
+    monkeypatch.setattr(kernel,'grouped_kernel_selection',capture)
+    with pytest.raises(Captured):
+        reference_calls.main(args(tmp_path,'--scorer','stem4'))
+
 
 def reference(tmp_path):
     rows=[]
@@ -47,6 +67,9 @@ def test_stem4_eligible_source_records_and_identity_restoration(tmp_path):
     m=json.loads((tmp_path/'out.manifest.json').read_text())
     assert m['eligible_benchmark_records']==62 and m['ineligible_benchmark_records']==1
     assert m['all_reference_peptides']==3 and m['searchable_reference_keys']==3
+    assert m['geometry']['matrix_scale']==26
+    assert m['geometry']['radius']==m['geometry']['kernel_scale']==585
+    assert 'fixed reference/control model populations' in m['self_exclusion']
     assert 'vdjmatch_E' not in calls.columns
 
 
@@ -141,17 +164,17 @@ def test_stem4_species_alias_normalized_before_reference_load(tmp_path,monkeypat
 
 @pytest.mark.parametrize('paired',[False,True])
 def test_new_python_with_stale_native_rejected_before_geometry(monkeypatch,paired):
-    from vdjmatch.match import tcrdist
+    from vdjmatch.match import geometry
     def new_wrapper(*args,query_withheld_peptide_ids=None,**kwargs):
         raise AssertionError('wrapper must not execute')
     def stale_native():pass
-    def geometry(**kwargs):raise AssertionError('geometry must not execute')
+    def blocked_geometry(**kwargs):raise AssertionError('geometry must not execute')
     method='grouped_paired_sum_count_batch' if paired else 'grouped_count_batch'
-    monkeypatch.setattr(tcrdist.gapblock,method,new_wrapper)
-    monkeypatch.setattr(tcrdist.gapblock,'_gapblock_grouped_count_batch',stale_native)
-    monkeypatch.setattr(tcrdist,'precompute_v_loop_distances',geometry)
+    monkeypatch.setattr(geometry.gapblock,method,new_wrapper)
+    monkeypatch.setattr(geometry.gapblock,'_gapblock_grouped_count_batch',stale_native)
+    monkeypatch.setattr(geometry,'precompute_v_loop_distances',blocked_geometry)
     with pytest.raises(RuntimeError,match='updated native seqtree'):
-        tcrdist.grouped_total_distance_count_batch(None,None,[],paired=paired,query_withheld_peptide_ids=[])
+        geometry.grouped_total_distance_count_batch(None,None,[],paired=paired,query_withheld_peptide_ids=[])
 
 
 @pytest.mark.parametrize('policy,excluded',[('exclude',True),('retain',False)])

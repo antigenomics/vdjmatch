@@ -1,0 +1,4 @@
+query_id	locus	v_call	j_call	junction_aa
+exact	TRB	TRBV19	TRBJ2-7	CASSIRSSYEQYF
+near	TRB	TRBV19	TRBJ2-7	CASSIRSSFEQYF
+unsupported	TRB	TRBV19	TRBJ2-7	CWWWWWWWWWWWF

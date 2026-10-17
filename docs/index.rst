@@ -104,6 +104,9 @@ ingestion uses `vdjtools <https://github.com/antigenomics/vdjtools>`_.
    :caption: Explanation
 
    Evidence and calibration <explanation>
+   Two control directions <control-calibration>
+   Algorithm diagrams <algorithms>
    Score derivation <scoring>
+   Selection and information <selection-information>
    pgen
    compendium

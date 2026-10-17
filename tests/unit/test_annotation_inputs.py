@@ -20,7 +20,7 @@ def table(path, *, locus="TRB", paired=False):
 
 @pytest.fixture
 def core(monkeypatch):
-    from vdjmatch.cli import tcrdist
+    from vdjmatch.cli import neighbours as geometry
     calls = []
     def run(a, *, v_loop_distances, marginal_tables=None):
         assert v_loop_distances['species']=='human'
@@ -34,7 +34,7 @@ def core(monkeypatch):
         q.with_columns(pl.lit("supported").alias("selection_status")).write_csv(a.output_prefix + ".selection.tsv", separator="\t")
         Path(a.output_prefix + ".manifest.json").write_text(json.dumps({"locus": a.locus, "ingestion": {"input_rows": raw.height}}))
         return 0
-    monkeypatch.setattr(tcrdist, "main", run)
+    monkeypatch.setattr(geometry, "main", run)
     return calls
 
 

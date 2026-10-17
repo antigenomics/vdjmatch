@@ -6,7 +6,7 @@ source order within each pMHC/junction, as in the original per-epitope producer.
 """
 from __future__ import annotations
 
-from collections import defaultdict, deque
+from collections import defaultdict, deque, namedtuple
 from array import array
 from itertools import accumulate
 import math
@@ -23,38 +23,68 @@ from .vgene import precompute_v_similarities
 
 
 _PREPARED_LIMIT_BYTES = 2 * 1024**3
+# Union-only transient construction budget; retained prepared state stays at 2 GiB.
+_UNION_PEAK_LIMIT_BYTES = 8 * 1024**3
+_PreparedDensity = namedtuple('_PreparedDensity',
+    'queries references query_indices offsets refs substitutions penalties unit_counts radii')
 
 
 class PreparedBudget:
     """One invocation's conservative retained graph allocation budget."""
     def __init__(self):
         self.retained = 0
+        self.query_axes = {}
 
-    def check(self, allocation, temporary=0):
-        if self.retained + allocation + temporary > _PREPARED_LIMIT_BYTES:
-            raise ValueError('historical prepared neighbours exceed the 2 GiB allocation budget; '
+    def check(self, allocation, temporary=0, *, peak_limit_bytes=None):
+        """Always cap owned state at 2 GiB; default transient-inclusive cap is 2 GiB."""
+        owned=self.retained+allocation
+        peak=_PREPARED_LIMIT_BYTES if peak_limit_bytes is None else peak_limit_bytes
+        if owned > _PREPARED_LIMIT_BYTES:
+            raise ValueError('historical prepared neighbours exceed the 2 GiB owned-state allocation budget '
+                             f'({peak/1024**3:g} GiB peak ceiling); '
+                             'restrict the requested targets or query population')
+        if owned+temporary > peak:
+            raise ValueError(f'historical prepared neighbours exceed the {peak/1024**3:g} GiB peak '
+                             'allocation budget (2 GiB owned-state ceiling); '
                              'restrict the requested targets or query population')
 
+    def query_axis(self, seqs):
+        axis = tuple(seqs)
+        shared = self.query_axes.get(axis)
+        if shared is None:
+            size = _query_axis_size(axis)
+            self.check(size)
+            self.query_axes[axis] = axis
+            self.retained += size
+            return axis
+        return shared
 
-def _prepared_size(seqs, rs, edges):
-    # Include axes, the consumption-time sequence lookup, six array headers and
-    # fixed-width CSR offsets, counts and radii, including queries with no edges.
-    return (1024 + sys.getsizeof(seqs) + sys.getsizeof(rs)
-            + sum(sys.getsizeof(s) for s in seqs) + sum(sys.getsizeof(s) for s in rs)
-            + len(seqs) * (128 + 8 + 8 + 1) + 8 + edges * 13)
+
+def _query_axis_size(seqs):
+    return 128 + sys.getsizeof(seqs) + sum(sys.getsizeof(s) for s in seqs)
+
+
+def _prepared_size(seqs, rs, edges, *, active_queries=None, include_query_axis=True):
+    # One shared raw axis; sparse lookup/CSR/count/radius storage per target.
+    active = len(seqs) if active_queries is None else active_queries
+    return (1024 + (_query_axis_size(seqs) if include_query_axis else 0) + sys.getsizeof(rs)
+            + sum(sys.getsizeof(s) for s in rs)
+            + active * (128 + 4 + 8 + 8 + 1) + 8 + edges * 13)
 
 
 def _pack_prepared(seqs, rs, hits, unit, radii):
+    active = [(i,s) for i,s in enumerate(seqs) if hits[s] or unit[i][1]]
     n_edges=sum(len(row) for row in hits.values())
-    offsets=array('Q',[0])*(len(seqs)+1)
+    indices=array('I',(i for i,_ in active))
+    offsets=array('Q',[0])*(len(active)+1)
     refs=array('I',[0])*n_edges;subs=array('B',[0])*n_edges;scores=array('q',[0])*n_edges
-    counts=array('Q',[0])*len(seqs);needed=array('B',[0])*len(seqs)
+    counts=array('Q',[0])*len(active);needed=array('B',[0])*len(active)
     k=0
-    for i,s in enumerate(seqs):
+    for j,(i,s) in enumerate(active):
         for h in hits[s]:
             refs[k]=h.ref_id;subs[k]=h.n_subs;scores[k]=h.score;k+=1
-        offsets[i+1]=k;counts[i]=unit[i][1];needed[i]=radii[s]
-    return seqs,rs,offsets,refs,subs,scores,counts,needed
+        offsets[j+1]=k;counts[j]=unit[i][1];needed[j]=radii[s]
+    return _PreparedDensity(seqs,rs,indices,offsets,refs,subs,scores,counts,needed)
 
 
 def control_histograms(control, sequences, *, threads=1, radii=None):
@@ -79,7 +109,7 @@ def control_histograms(control, sequences, *, threads=1, radii=None):
     return out
 
 
-def _density_neighbours(seqs, rs, threads):
+def _density_neighbours(seqs, rs, threads, *, unit_reference_ids=None):
     idx = Index.build(rs, 'aa')
     by_length = defaultdict(list)
     for s in seqs:
@@ -89,45 +119,244 @@ def _density_neighbours(seqs, rs, threads):
         p = SearchParams(max_subs=5, max_ins=0, max_dels=0, max_total_edits=5, engine='seqtm')
         p.pos_matrix = significance_pssm(length)
         hits.update(zip(batch, idx.search_batch(batch, p, threads)))
-    unit = idx.edit_histogram_batch(seqs, first_hit.scope(1,1,1), threads, True)
+    if unit_reference_ids is None:
+        unit = idx.edit_histogram_batch(seqs, first_hit.scope(1,1,1), threads, True)
+    else:
+        # Histogram bins cannot be partitioned among targets. Keep radius-one
+        # reference identities from the same Index, including indel-only hits.
+        for row in idx.search_batch(seqs, first_hit.scope(1,1,1), threads):
+            unit_reference_ids.append([h.ref_id for h in row if h.n_subs+h.n_ins+h.n_dels == 1])
+        unit = [(0,len(row)) for row in unit_reference_ids]
     radii = {s:max([1 if hs[1] else 0]+[h.n_subs for h in hits[s] if rs[h.ref_id]!=s])
              for s,hs in zip(seqs,unit)}
     return hits, unit, radii
 
 
+def _union_control_histograms(control, batches, *, threads, prepared_batches, budget):
+    """One fixed union search; 2 GiB owned state and 8 GiB transient-inclusive estimate.
+
+    These allocation estimates are not whole-process RSS. The caller must still
+    measure total process-tree memory before accepting a representative workload.
+    """
+    seqs=None
+    first_queries=None
+    static_batches=type(batches) in (list,tuple)
+    references=[]
+    for queries, reference in batches:
+        if not queries.height or not reference.height:
+            continue
+        if seqs is None:
+            first_queries=queries
+            seqs=queries['cdr3'].unique(maintain_order=True).to_list()
+        elif not static_batches or queries is not first_queries:
+            current=queries['cdr3'].unique(maintain_order=True).to_list()
+            if current != seqs:
+                raise ValueError('identical_queries requires identical ordered unique junction axes')
+        references.append(reference.unique('cdr3',keep='first',maintain_order=True)['cdr3'].to_list())
+    if seqs is None:
+        return {}
+    axis=budget.query_axis(seqs)
+    base=sum(_prepared_size(axis,rs,0,active_queries=0,include_query_axis=False) for rs in references)
+    budget.check(base,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+    members=pl.concat([pl.DataFrame({'cdr3':rs}).with_row_index('_local_ref').with_columns(
+        pl.lit(target,dtype=pl.UInt32).alias('_target')) for target,rs in enumerate(references)])
+    union=members.select('cdr3').unique(maintain_order=True).with_row_index('_union_ref')
+    members=members.join(union,on='cdr3',validate='m:1').drop('cdr3')
+    rs=union['cdr3'].to_list()
+    unit_ids=[]
+    hits,unit,radii=_density_neighbours(seqs,rs,threads,unit_reference_ids=unit_ids)
+    temporary=(sys.getsizeof(hits)+sys.getsizeof(radii)+_query_axis_size(seqs)+_query_axis_size(rs)
+        +sum(sys.getsizeof(row)+sum(max(128,sys.getsizeof(h)) for h in row) for row in hits.values())
+        +sys.getsizeof(unit_ids)+sum(sys.getsizeof(row)+len(row)*32 for row in unit_ids)
+        +sys.getsizeof(unit)+len(unit)*128+members.estimated_size()*4+union.estimated_size()*2)
+    budget.check(base,temporary,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+    if prepared_batches is None:
+        return control_histograms(control,radii,threads=threads,radii=radii)
+    import numpy as np
+    edge_count=sum(len(row) for row in hits.values())
+    total_edges=edge_count+sum(map(len,unit_ids))
+    # Contiguous numeric columns share storage with Polars; boolean columns add
+    # two packed bitmaps. No Python tuple table or concatenated edge copy exists.
+    conversion=total_edges*23+2*((total_edges+7)//8)+4096
+    budget.check(base,temporary+conversion,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+    schema={'_query':pl.UInt32,'_union_ref':pl.UInt32,'_order':pl.UInt32,
+            '_subs':pl.UInt8,'_penalty':pl.Int64,'_unit':pl.Boolean,'_exact':pl.Boolean}
+    columns={name:np.empty(total_edges,dtype=dtype) for name,dtype in
+        [('_query',np.uint32),('_union_ref',np.uint32),('_order',np.uint32),
+         ('_subs',np.uint8),('_penalty',np.int64),('_unit',np.bool_),('_exact',np.bool_)]}
+    columns['_order'][edge_count:]=0
+    columns['_subs'][edge_count:]=1
+    columns['_penalty'][edge_count:]=0
+    columns['_unit'][:edge_count]=False
+    columns['_unit'][edge_count:]=True
+    columns['_exact'][edge_count:]=False
+    at=0
+    for i,s in enumerate(seqs):
+        row=hits.pop(s)
+        end=at+len(row)
+        columns['_query'][at:end]=i
+        for k,h in enumerate(row,start=at):
+            columns['_order'][k]=k-at
+            columns['_union_ref'][k]=h.ref_id
+            columns['_subs'][k]=h.n_subs
+            columns['_penalty'][k]=h.score
+            columns['_exact'][k]=rs[h.ref_id]==s
+        at=end
+        del row
+    del hits,unit
+    for i,row in enumerate(unit_ids):
+        end=at+len(row)
+        columns['_query'][at:end]=i
+        columns['_union_ref'][at:end]=row
+        at=end
+    del unit_ids,row
+    edges=pl.DataFrame(columns,schema=schema)
+    del columns
+    # Small target totals determine windows before any wide membership join.
+    target_edges=(edges.lazy().group_by('_union_ref').len(name='_edge_rows')
+        .join(members.lazy(),on='_union_ref').group_by('_target').agg(
+            pl.col('_edge_rows').cast(pl.UInt64).sum()).collect(engine='streaming'))
+    expanded=int(target_edges['_edge_rows'].sum())
+    source_temporary=(_query_axis_size(seqs)+_query_axis_size(rs)+sys.getsizeof(radii)+len(radii)*64
+        +members.estimated_size()*4+edges.estimated_size()+union.estimated_size()*2)
+    # Two-UInt32 projected keys have a separate bounded join/hash allowance.
+    budget.check(base+expanded*13,source_temporary+expanded*64,
+        peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+    target_active=(edges.lazy().select('_query','_union_ref').unique()
+        .join(members.lazy().select('_union_ref','_target'),on='_union_ref')
+        .select('_query','_target').unique().group_by('_target').len(name='_active')
+        .collect(engine='streaming'))
+    active_queries=int(target_active['_active'].sum())
+    allocation=base+expanded*13+active_queries*149
+    budget.check(allocation,source_temporary,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+    reserved_owned=budget.retained+allocation
+    edge_sizes=dict(target_edges.iter_rows())
+    active_sizes=dict(target_active.iter_rows())
+    windows=[]
+    begin=0
+    rows=largest=active=0
+    def scratch(rows,largest,active):
+        # Wide rows are 29.25 bytes, rounded to 32: four joined/sort buffers,
+        # four copies of the largest target, and four aligned 24-byte stats rows.
+        return 128*(rows+largest)+96*active
+    for target in range(len(references)):
+        size=edge_sizes.get(target,0)
+        count=active_sizes.get(target,0)
+        needed=source_temporary+scratch(rows+size,max(largest,size),max(active,count))
+        if reserved_owned+needed>_UNION_PEAK_LIMIT_BYTES:
+            if target==begin:
+                budget.check(allocation,needed,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+            windows.append((begin,target))
+            begin=target
+            rows=largest=active=0
+            budget.check(allocation,source_temporary+scratch(size,size,count),
+                peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+        rows+=size
+        largest=max(largest,size)
+        active=max(active,count)
+    windows.append((begin,len(references)))
+    for begin,end in windows:
+        # Filtering the codec-DFS order reproduces each subset trie exactly.
+        # Search the full fixed population once; only the columnar join is windowed.
+        window_members=members.filter(pl.col('_target').is_between(begin,end-1))
+        rows=sum(edge_sizes.get(target,0) for target in range(begin,end))
+        largest=max((edge_sizes.get(target,0) for target in range(begin,end)),default=0)
+        active=max((active_sizes.get(target,0) for target in range(begin,end)),default=0)
+        budget.check(max(0,reserved_owned-budget.retained),
+            source_temporary+scratch(rows,largest,active),peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+        joined=edges.join(window_members,on='_union_ref',validate='m:m').sort('_target','_query','_unit','_order')
+        temporary=source_temporary+joined.estimated_size()*4
+        groups=iter(joined.group_by('_target',maintain_order=True))
+        current=next(groups,None)
+        part=stats=pssm=None
+        def packed(code,values):
+            out=array(code)
+            out.frombytes(values.to_numpy().tobytes())
+            return out
+        for target in range(begin,end):
+            rs=references[target]
+            if current is None or current[0][0] != target:
+                size=_prepared_size(axis,rs,0,active_queries=0,include_query_axis=False)
+                budget.check(size,temporary+max(0,reserved_owned-budget.retained-size),
+                    peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+                result=_PreparedDensity(axis,rs,array('I'),array('Q',[0]),array('I'),array('B'),
+                    array('q'),array('Q'),array('B'))
+            else:
+                part=current[1]
+                stats=part.group_by('_query').agg(
+                    pl.col('_unit').sum().cast(pl.UInt64).alias('_counts'),
+                    (~pl.col('_unit')).sum().cast(pl.UInt64).alias('_edges'),
+                    pl.when(pl.col('_unit')).then(pl.lit(1,dtype=pl.UInt8))
+                        .when(~pl.col('_exact')).then(pl.col('_subs')).otherwise(pl.lit(0,dtype=pl.UInt8))
+                        .max().alias('_radius')).sort('_query')
+                pssm=part.filter(~pl.col('_unit'))
+                size=_prepared_size(axis,rs,pssm.height,active_queries=stats.height,include_query_axis=False)
+                budget.check(size,temporary+part.estimated_size()*4+stats.estimated_size()*4
+                    +max(0,reserved_owned-budget.retained-size),
+                    peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+                offsets=array('Q',[0]);offsets.extend(packed('Q',stats['_edges'].cum_sum()))
+                result=_PreparedDensity(axis,rs,packed('I',stats['_query']),offsets,
+                    packed('I',pssm['_local_ref']),packed('B',pssm['_subs']),packed('q',pssm['_penalty']),
+                    packed('Q',stats['_counts']),packed('B',stats['_radius']))
+                current=next(groups,None)
+            prepared_batches.append(result)
+            budget.retained+=size
+        del groups,current,part,stats,pssm,joined,window_members
+    del edges,members,union
+    return control_histograms(control,radii,threads=threads,radii=radii)
+
+
 def shared_control_histograms(control, batches, *, threads=1, prepared_batches=None,
-                              prepared_budget=None):
+                              prepared_budget=None, identical_queries=False):
     """One transient control CDF per junction at its largest needed target radius.
 
     Optional prepared batches retain flat CSR integer edges for consumption once
     in this invocation. A shared budget bounds all retained batches to 2 GiB,
-    including fixed-width zero-edge metadata and estimated temporary Python hits.
+    including shared raw axes, sparse query metadata and temporary Python hits.
+    The explicit identical-query union path keeps the same 2 GiB owned-state
+    ceiling and allows an 8 GiB transient-inclusive allocation estimate.
     Counts below the largest radius are exactly unchanged.
+    ``identical_queries`` explicitly validates one ordered unique junction axis
+    and searches its union reference once; source query multiplicities remain in
+    the downstream reducer. Ordinary per-target preparation remains the default.
     """
     if threads < 1 or not len(control):
         raise ValueError('positive threads and a nonempty control are required')
     radii = {}
     budget = prepared_budget if prepared_budget is not None else PreparedBudget()
     if prepared_budget is None and prepared_batches:
-        budget.retained = sum(_prepared_size(p[0],p[1],len(p[3])) for p in prepared_batches)
+        for p in prepared_batches:
+            if budget.query_axis(p.queries) is not p.queries:
+                # Independently supplied batches may still own equal raw axes.
+                budget.retained += _query_axis_size(p.queries)
+            budget.retained += _prepared_size(p.queries,p.references,len(p.refs),
+                active_queries=len(p.query_indices),include_query_axis=False)
+    if identical_queries:
+        return _union_control_histograms(control,batches,threads=threads,
+            prepared_batches=prepared_batches,budget=budget)
     for queries, reference in batches:
         if not queries.height or not reference.height:
             continue
         seqs = queries['cdr3'].unique(maintain_order=True).to_list()
         rs = reference.unique('cdr3', keep='first', maintain_order=True)['cdr3'].to_list()
         if prepared_batches is not None:
-            budget.check(_prepared_size(seqs,rs,0))
+            axis = budget.query_axis(seqs)
+            budget.check(_prepared_size(seqs,rs,0,active_queries=0,include_query_axis=False),
+                _query_axis_size(seqs))
         hits, unit, needed = _density_neighbours(seqs, rs, threads)
         if prepared_batches is not None:
             # Preserve the native edge order and scalar reduction, without retaining
             # Python Neighbor objects or a computed prediction table.
-            size = _prepared_size(seqs,rs,sum(len(row) for row in hits.values()))
+            active = sum(bool(hits[s]) or bool(unit[i][1]) for i,s in enumerate(seqs))
+            size = _prepared_size(seqs,rs,sum(len(row) for row in hits.values()),
+                active_queries=active,include_query_axis=False)
             temporary = (sys.getsizeof(hits) + sys.getsizeof(needed)
                          + sum(sys.getsizeof(row)+sum(max(128,sys.getsizeof(h)) for h in row)
                                for row in hits.values())
-                         + sys.getsizeof(unit)+sum(sys.getsizeof(row)+8*len(row) for row in unit))
+                         + sys.getsizeof(unit)+sum(sys.getsizeof(row)+8*len(row) for row in unit)
+                         + _query_axis_size(seqs) + active*128)
             budget.check(size, temporary)
-            prepared_batches.append(_pack_prepared(seqs,rs,hits,unit,needed))
+            prepared_batches.append(_pack_prepared(axis,rs,hits,unit,needed))
             budget.retained += size
         del hits
         for s, radius in needed.items():
@@ -137,7 +366,8 @@ def shared_control_histograms(control, batches, *, threads=1, prepared_batches=N
 
 
 def density(queries, reference, control, *, threads=1, pool_reference=False, control_counts=None,
-            puncture_populations=False, v_similarities=None, prepared_neighbours=None):
+            puncture_populations=False, v_similarities=None, prepared_neighbours=None,
+            export_punctured=False):
     """Return keyed PSSM density and original radius<=1 significance component.
 
     The original exp(-P/400) kernel is a tempered, self-normalised BLOSUM
@@ -150,18 +380,25 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
     selects compatible MHC records first. Heterogeneous MHC output fields are null.
     Candidate ``puncture_populations`` also removes exact matches from population
     sizes. An empty remaining population yields missing score/significance.
+    ``export_punctured`` retains the fixed-population outputs and accumulates a
+    second punctured density from the same edges and control CDF.
     """
     if threads < 1 or not len(control):
         raise ValueError("positive threads and a nonempty control are required")
+    if export_punctured and puncture_populations:
+        raise ValueError('export_punctured requires the fixed-population primary reduction')
     if v_similarities is None:
         v_similarities=precompute_v_similarities(queries['v'],reference['v'])
     seqs = queries['cdr3'].unique(maintain_order=True).to_list()
     control_sizes = dict.fromkeys(seqs, len(control))
-    if puncture_populations:
+    punctured_control_sizes = None
+    if puncture_populations or export_punctured:
         # Bin zero retains exact draw multiplicity. Native histograms require
         # radius >=1; only bin zero is used for population puncturing.
         exact = control.edit_histogram_batch(seqs, first_hit.scope(1,0,0), threads, False)
-        control_sizes = {s:len(control)-int(row[0]) for s,row in zip(seqs,exact)}
+        punctured_control_sizes = {s:len(control)-int(row[0]) for s,row in zip(seqs,exact)}
+        if puncture_populations:
+            control_sizes = punctured_control_sizes
     rows = []
     prepared_batches = deque()
     preparation_requested = False
@@ -191,27 +428,49 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
         if prepared is None:
             hits, unit, radii = _density_neighbours(seqs, rs, threads)
         else:
-            prepared_seqs, prepared_rs, offsets, refs, subs, penalties, unit_counts, prepared_radii = prepared
-            if prepared_seqs != seqs or prepared_rs != rs:
+            prepared_seqs, prepared_rs, query_indices, offsets, refs, subs, penalties, unit_counts, prepared_radii = prepared
+            if prepared_seqs != tuple(seqs) or prepared_rs != rs:
                 raise ValueError('prepared density neighbour axes differ from query/reference population')
-            seq_index = {s:i for i,s in enumerate(prepared_seqs)}
-            radii = dict(zip(seqs,prepared_radii))
-            unit = ((0,n) for n in unit_counts)
+            seq_index = {prepared_seqs[q]:i for i,q in enumerate(query_indices)}
+            radii = dict.fromkeys(seqs,0)
+            radii.update((prepared_seqs[q],r) for q,r in zip(query_indices,prepared_radii))
+            sparse_counts = dict(zip(query_indices,unit_counts))
+            unit = ((0,sparse_counts.get(i,0)) for i in range(len(seqs)))
+        columnar = (pool_reference and prepared is not None and
+                    not puncture_populations and not export_punctured)
         # Original significance used the nearest nonexact target radius, capped at one.
         # Only target-supported radii enter the original formula. Narrower control
         # balls have the identical CDF at those radii; unsupported queries need none.
         counts = control_histograms(control,seqs,threads=threads,radii=radii) if control_counts is None else control_counts
-        reference_keys = set(rs)
-        reference_sizes = {s:len(rs)-int(puncture_populations and s in reference_keys) for s in seqs}
-        significance = {s:(evalue_result(hs[1],counts[s][1],reference_sizes[s],control_sizes[s])['p_enrichment']
-                        if hs[1] else 1.0) if reference_sizes[s] and control_sizes[s] else None
-                        for s,hs in zip(seqs,unit)}
-        for query in queries.iter_rows(named=True):
+        if columnar:
+            import numpy as np
+            scores=np.zeros(queries.height,dtype=np.float64)
+            probabilities=np.ones(queries.height,dtype=np.float64)
+            significance={prepared_seqs[q]: (evalue_result(n,counts[prepared_seqs[q]][1],len(rs),len(control))
+                ['p_enrichment'] if n else 1.0) for q,n in zip(query_indices,unit_counts)}
+            # Source appearances, including repeated IDs, are indexed by position.
+            # Only sparse supported junctions enter the unchanged scalar edge loop.
+            selected=queries.select('query_id','cdr3','v').with_row_index('_density_row')
+            selected=(selected.join(pl.DataFrame({'cdr3':[prepared_seqs[q] for q in query_indices]}),
+                on='cdr3',how='semi',maintain_order='left') if query_indices else selected.head(0))
+        else:
+            reference_keys = set(rs)
+            reference_sizes = {s:len(rs)-int(puncture_populations and s in reference_keys) for s in seqs}
+            significance = {s:(evalue_result(hs[1],counts[s][1],reference_sizes[s],control_sizes[s])['p_enrichment']
+                            if hs[1] else 1.0) if reference_sizes[s] and control_sizes[s] else None
+                            for s,hs in zip(seqs,unit)}
+            selected=queries
+        for query in (() if columnar and not selected.height else selected.iter_rows(named=True)):
             s, v = query['cdr3'], gene_family(query['v'])
-            nr, nc_population = reference_sizes[s], control_sizes[s]
+            nr, nc_population = (len(rs),len(control)) if columnar else (reference_sizes[s],control_sizes[s])
             total = 0.0 if nr and nc_population else None
-            i = seq_index[s] if prepared is not None else None
-            edges = (((refs[k],subs[k],penalties[k]) for k in range(offsets[i],offsets[i+1])) if prepared is not None else
+            if export_punctured:
+                punctured_nr = len(rs)-int(s in reference_keys)
+                punctured_nc = punctured_control_sizes[s]
+                punctured_total = 0.0 if punctured_nr and punctured_nc else None
+            i = seq_index.get(s) if prepared is not None else None
+            edges = (((refs[k],subs[k],penalties[k]) for k in
+                      (range(offsets[i],offsets[i+1]) if i is not None else ())) if prepared is not None else
                      ((hit.ref_id, hit.n_subs, hit.score) for hit in hits[s]))
             for ref_id, n_subs, penalty in edges if total is not None else []:
                 if rs[ref_id] == s:
@@ -221,14 +480,32 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
                     raise ValueError('precomputed V similarities do not cover the query/reference families')
                 weight = 1.0 if v == ref_v else .25*v_similarities[(v,ref_v)]
                 nc = counts[s][n_subs]
-                total += weight*math.exp(-penalty/400.0)/max(nr/nc_population*nc,.01)
+                weighted = weight*math.exp(-penalty/400.0)
+                total += weighted/max(nr/nc_population*nc,.01)
+                if export_punctured and punctured_total is not None:
+                    punctured_total += weighted/max(punctured_nr/punctured_nc*nc,.01)
+            if columnar:
+                scores[query['_density_row']]=total
+                probabilities[query['_density_row']]=significance[s]
+                continue
             rows.append({'query_id':query['query_id'], **dict(zip(PMHC,key)),
                          'score':total, 'p_enrichment':significance[s],
                          'n_reference':nr,'control_size':nc_population,
-                         'estimator':'punctured-pssm-density-v1' if puncture_populations else 'historical-pssm-density-v1'})
+                         'estimator':'punctured-pssm-density-v1' if puncture_populations else 'historical-pssm-density-v1',
+                         **({'punctured_score':punctured_total,'punctured_n_reference':punctured_nr,
+                             'punctured_control_size':punctured_nc} if export_punctured else {})})
+        if columnar:
+            return queries.select('query_id').with_columns(*[
+                pl.lit(value,dtype=pl.String).alias(name) for name,value in zip(PMHC,key)],
+                pl.Series('score',scores),pl.Series('p_enrichment',probabilities),
+                pl.lit(len(rs),dtype=pl.UInt64).alias('n_reference'),
+                pl.lit(len(control),dtype=pl.UInt64).alias('control_size'),
+                pl.lit('historical-pssm-density-v1').alias('estimator'))
     schema={'query_id':queries.schema['query_id'], **{c:pl.String for c in PMHC},
             'score':pl.Float64,'p_enrichment':pl.Float64,'n_reference':pl.UInt64,
             'control_size':pl.UInt64,'estimator':pl.String}
+    if export_punctured:
+        schema.update(punctured_score=pl.Float64,punctured_n_reference=pl.UInt64,punctured_control_size=pl.UInt64)
     return pl.DataFrame(rows,schema=schema)
 
 
@@ -323,7 +600,34 @@ def legacy_components(queries, reference, control, background, *, threads=1,
     return pl.concat(pieces).with_columns(pl.lit('legacy-heldout-components-v1').alias('estimator'))
 
 
-def germline_prior(queries, reference, background, *, include_length=True, exclude_exact=False):
+def _prior_background(background):
+    weighted = 'event_weight' in background.columns
+    if weighted:
+        from ..io.columns import _integer_count
+        background = background.with_columns(_integer_count('event_weight').alias('event_weight'))
+        if background['event_weight'].null_count() or (background['event_weight'] <= 0).any():
+            raise ValueError('prior event weights must be positive integers')
+    return background, weighted, int(background['event_weight'].sum()) if weighted else background.height
+
+
+def _prior_features(frame):
+    return frame.with_columns(pl.col('v', 'j').str.replace(r'\*.*$', ''),
+        pl.col('cdr3').str.len_chars().alias('length'))
+
+
+def _prepare_prior_background(background):
+    """Operation-local sufficient counts for the fixed V/J/length control prior."""
+    background, weighted, nb = _prior_background(background)
+    if not nb:
+        raise ValueError('germline prior requires nonempty reference and background')
+    background = _prior_features(background)
+    return nb, {column: (background.group_by(column).agg(pl.col('event_weight').sum().alias('_bg_count'))
+        if weighted else background.group_by(column).len().rename({'len': '_bg_count'}))
+        for column in ('v', 'j', 'length')}
+
+
+def germline_prior(queries, reference, background, *, include_length=True, exclude_exact=False,
+                   _background_counts=None):
     """Original smoothed V/J[/junction-length] log likelihood ratio, keyed by query.
 
     Frames use ``cdr3,v,j``. Reference junctions use their first source-order V/J;
@@ -333,26 +637,39 @@ def germline_prior(queries, reference, background, *, include_length=True, exclu
     ``exclude_exact`` removes every full-junction match from both populations and
     feature counts per query. This candidate option preserves historical defaults;
     an emptied population yields missing evidence, not a prior-only assignment.
+    A canonical background ``event_weight`` column represents positive integer
+    rearrangement multiplicities without materializing repeated rows; ordinary
+    read/count columns remain ignored. Reference observations retain their usual
+    first-junction unit irrespective of background weights.
     """
     ref = reference.unique('cdr3', keep='first', maintain_order=True)
-    nr, nb = ref.height, background.height
+    if _background_counts is not None and exclude_exact:
+        raise ValueError('prepared prior background requires a fixed population')
+    if _background_counts is None:
+        background, weighted, nb = _prior_background(background)
+    else:
+        nb, background_counts = _background_counts
+    nr = ref.height
     if not nr or not nb:
         raise ValueError('germline prior requires nonempty reference and background')
     columns = ['v', 'j'] + (['length'] if include_length else [])
 
-    def features(frame):
-        return frame.with_columns(
-            pl.col('v', 'j').str.replace(r'\*.*$', ''),
-            pl.col('cdr3').str.len_chars().alias('length'))
+    def counts(population, keys, name, *, background=False):
+        if weighted and background:
+            return population.group_by(keys).agg(pl.col('event_weight').sum().alias(name))
+        return population.group_by(keys).len().rename({'len': name})
 
     if not exclude_exact:
         # Preserve the accepted scalar division and inline null-fill operation order.
-        out = features(queries).select('query_id', *columns)
-        ref, bg = features(ref), features(background)
+        out = _prior_features(queries).select('query_id', *columns)
+        ref = _prior_features(ref)
+        if _background_counts is None:
+            bg = _prior_features(background)
         out = out.with_columns(pl.lit(0.0).alias('germline_lr'))
         for column in columns:
             rc = ref.group_by(column).len().rename({'len': '_ref_count'})
-            bc = bg.group_by(column).len().rename({'len': '_bg_count'})
+            bc = (counts(bg, column, '_bg_count', background=True) if _background_counts is None
+                  else background_counts[column])
             out = (out.join(rc, on=column, how='left', maintain_order='left')
                    .join(bc, on=column, how='left', maintain_order='left')
                    .with_columns((pl.col('germline_lr') +
@@ -364,27 +681,27 @@ def germline_prior(queries, reference, background, *, include_length=True, exclu
             pl.lit(nr, dtype=pl.UInt64).alias('n_reference'),
             pl.lit(nb, dtype=pl.UInt64).alias('background_size'))
 
-    out = features(queries).select('query_id', *(['cdr3'] if exclude_exact else []), *columns)
-    ref, bg = features(ref), features(background)
+    out = _prior_features(queries).select('query_id', *(['cdr3'] if exclude_exact else []), *columns)
+    ref, bg = _prior_features(ref), _prior_features(background)
     out = out.with_columns(pl.lit(0.0).alias('germline_lr'),
         pl.lit(nr, dtype=pl.UInt64).alias('n_reference'),
         pl.lit(nb, dtype=pl.UInt64).alias('background_size'))
     if exclude_exact:
         for population, size in [(ref, 'n_reference'), (bg, 'background_size')]:
-            removed = population.group_by('cdr3').len().rename({'len': '_removed'})
+            removed = counts(population, 'cdr3', '_removed', background=size == 'background_size')
             out = (out.join(removed, on='cdr3', how='left', validate='m:1', maintain_order='left')
                 .with_columns((pl.col(size) - pl.col('_removed').fill_null(0)).alias(size))
                 .drop('_removed'))
     for column in columns:
         rc = ref.group_by(column).len().rename({'len': '_ref_count'})
-        bc = bg.group_by(column).len().rename({'len': '_bg_count'})
+        bc = counts(bg, column, '_bg_count', background=True)
         out = (out.join(rc, on=column, how='left', maintain_order='left')
                .join(bc, on=column, how='left', maintain_order='left')
                .with_columns(pl.col('_ref_count', '_bg_count').fill_null(0)))
         if exclude_exact:
             keys = ['cdr3', column]
             for population, count in [(ref, '_ref_count'), (bg, '_bg_count')]:
-                removed = population.group_by(keys).len().rename({'len': '_removed'})
+                removed = counts(population, keys, '_removed', background=count == '_bg_count')
                 out = (out.join(removed, on=keys, how='left', validate='m:1', maintain_order='left')
                     .with_columns((pl.col(count) - pl.col('_removed').fill_null(0)).alias(count))
                     .drop('_removed'))

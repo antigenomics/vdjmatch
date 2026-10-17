@@ -1,0 +1,448 @@
+Two directions of control calibration
+=====================================
+
+Select one raw control repertoire. Calibration is computed on demand after
+reference filtering; no fitted calibration file is needed. The
+``database-evidence --control`` command implements the two directions below
+for full-junction scoped nearest distance or distinct-neighbour count.
+For complete-score single, mixed and genuine paired inputs, use the opt-in
+``annotate --control`` route below. The scoped ``database-evidence`` statistics
+remain available separately.
+
+Complete-score annotation
+-------------------------
+
+.. code-block:: bash
+
+   vdjmatch annotate sample.tsv --vdjdb reference.zip --control control.tsv --threads 4 -o calibrated
+
+With default ``--background vdjdb-other``, the control opts into the combined
+reference-weighted score and both on-demand tails. ``--mock-replicates`` defaults
+to 199; ``--seed`` defaults to zero. No fitted calibration file is required.
+``--fpr 0.01`` sets the any-call reporting threshold (default 1%); supply a
+different value explicitly when needed. The library equivalent is
+``calibrate_combined(..., report_p=0.01)``. Compact output retains every supported
+label with ``p_any <= fpr``, including ties, and every declared-target row
+regardless of its P-value. Both directional null maxima still span all labels
+and available axes. The threshold is recorded as ``report_p`` in calibration
+metadata. It is a nominal conditional randomization FPR target, not a binding
+probability or an empirically established biological error rate.
+Reference epitope/MHC, ``--evidence-type`` and ``--min-score`` filters apply first.
+Ordinary annotation includes every valid selected reference observation; explicit
+``--reference-population curated-benchmark`` retains benchmark curation.
+
+``--vdjdb`` also accepts your own epitope-labelled table. Long tables use
+``junction_aa,locus,epitope`` and ``pair_id`` for paired chains; wide tables use
+``junction_aa_alpha/beta,v_alpha/beta,j_alpha/beta,epitope``. Supplied MHC and
+evidence metadata remain attached. Calibration is rebuilt against this table.
+
+The control must supply full junctions and unambiguous V/J annotations. Counts
+are validated before filtering; false/missing productive tags and invalid or
+missing amino-acid junctions are excluded with separate counts. Without a
+productive column, valid amino-acid junctions remain eligible. Query rows are
+retained even when invalid or from another species. For paired queries, the same
+control table supplies TRA and TRB, randomized independently. Incomplete genuine pairs retain the missing
+partner row and calibrate each eligible chain as a marginal query.
+
+Outputs are four flat TSVs: ``.queries.tsv`` preserves every raw chain row and
+calibration identity/status; ``.database.tsv`` tests the maximum across labels
+and available axes; ``.epitopes.tsv`` reports fixed full-pMHC tails and score
+components; ``.calibration.tsv`` records filters, populations, model/native hashes
+and seeds. In epitope output, ``score`` is the continuous maximum across axes;
+``call_score`` is the separately maximized support-gated statistic calibrated
+by the reported tails. ``axis``/``tied_axes`` describe the continuous maximum,
+while ``tied_call_axes`` describes the call maximum. These can differ. Database
+``score`` remains the maximum call statistic across labels. Unsupported cases
+retain their continuous evidence but have unavailable call scores and P=1.
+Original query identifiers remain intact; generated calibration
+identifiers are unique across input files and populations. No JSON input or
+output is required by this route.
+
+The combined statistic uses an independent unconditional normalization bank
+and recomputes reference-derived weights on every mock model. Final query-null
+draws remain matched to the observed Pgen strata in both chains.
+Paired score axes include linked evidence and available unlinked marginals; the
+axis maximum is recomputed within every draw. The original component prior uses
+the matching-chain control for singles and the TRB control for paired scoring.
+This candidate one-control context differs from accepted historical benchmark
+model assets. It remains opt-in pending whole-task nonregression checks; the
+no-control stem4 default and older real/generative control routes are unchanged.
+Nondefault geometry and target-from-sample selection are rejected before mocks.
+
+The fixed control's V, J and junction-length marginal counts are constructed
+once per calibration operation and reused across targets, chain axes and mock
+references. Event multiplicity, allele pooling and the original scalar
+likelihood-ratio arithmetic are unchanged. These are transient sufficient
+statistics of the supplied control, with no persisted intermediate cache;
+reference counts are still derived from each fixed real or mock model.
+
+Benchmark ``--exclude-exact`` filters exact hits only. Reference/control population
+counts, priors, motifs, graph structure and weights remain fixed for every query.
+Each mock reference has its own model, built once rather than refitted per query.
+
+Compact output is the default with ``annotate --control``. It retains declared
+targets and reported specificities; ``--details`` requests the full case table.
+Complete declarations expand to compatible reference MHC groups at their source
+resolution, without pooling models. Unavailable declarations remain explicit
+``no_reference_target`` rows. Raw declarations and conflicting labels remain
+in ``.queries.tsv``. Restricting output never restricts the selection population.
+
+Full-detail output retains the five-million-case guard, including internal
+normalization and query-null banks. Compact output instead bounds retained
+provisional detail and the full normalization bank separately at five million
+cases. Its finite query-null score records, complete-grid coverage bitsets and
+associated sorting scratch have a separate 2 GiB allocation guard. These are allocation limits; whole-cohort
+calibration scaling and resource acceptance remain pending.
+Calibration builds raw components in operation-local numeric banks.
+Full junction/V/J configurations (both chains for genuine pairs)
+share float64 score storage, while a source-row map restores every observation
+and repeated null draw. Models, priors and graph weights retain the complete
+reference. Original scoring consumes one target at a time; grouped kernels
+write directly into numeric arrays from one native traversal per geometry and
+population. Source IDs and full pMHC are expanded only in bounded output batches.
+No scoring arrays persist between operations. A separate 12 GiB array-allocation
+guard includes paired temporary factors and arithmetic scratch; the native
+counter retains its own 256 MiB buffer guard. These allocation guards do not
+certify total process RSS or remove the current detailed-output limit.
+Query-direction tails are reduced to counts before reference randomizations;
+wide real-score and query-null tables are then released. Mock combination and
+axis selection consume at most65536 scored cases per batch, with one fixed graph
+weight model and the same full normalizer bank. Per-epitope exceedances update
+immediately; one running maximum per query carries database selection across
+batches. If :math:`\mathcal C_1,\ldots,\mathcal C_J` partition a query's cases,
+
+.. math::
+
+   \max_{(e,a)\in\cup_j\mathcal C_j}T_{e,a}
+   =\max_j\max_{(e,a)\in\mathcal C_j}T_{e,a}.
+
+Here :math:`e` is a full-pMHC target, :math:`a` an available chain axis and
+:math:`T_{e,a}` its support-gated combined score. No-hit maxima remain missing.
+The reference tail is updated only after all batches, with ties included and
+observed no-hits counted as exceedances on every draw. Missing, duplicate and
+unknown observed cases fail explicitly. Mock raw-component tables are released
+after their counters are updated. Compact output verifies complete label coverage
+with one bit per source-query/target case, while retaining only declared or
+potentially reportable detailed rows. It never materializes the complete observed
+string case table. This does not establish whole-cohort resource compliance.
+
+Raw gap-block and stem4 collection now consumes bounded observation batches
+directly from the existing native traversal. Each batch carries integer query-row
+and target identities. One sorted numeric map writes its scores into the
+requested case order; repeated or unknown writes fail. Repeated source
+observations retain distinct query rows, and unavailable cases retain missing
+scores. The adapter neither retains the full kernel-detail table nor rebuilds
+a whole-grid hash join for every batch. Numeric component arrays still scale
+with the number of distinct receptor configurations times the target count.
+
+Historical density preparation shares one lossless ordered query-junction axis
+across targets. Each target retains CSR edges, unit-edit counts and radii only
+for queries with an edge or a nonzero unit-edit count. Other queries implicitly
+have no edges, count zero and radius zero; their output density remains zero,
+with the same original prior and support disposition. Unit-only support is
+retained even when the PSSM hit list is empty. Native edge order, complete
+reference representatives and exact-hit filtering are unchanged. The shared
+2 GiB preparation budget counts the raw axes once, sparse per-target storage
+and temporary native-hit objects; it still fails before packing an oversized
+state. These transient in-memory structures are rebuilt for each operation.
+
+Component normalization also keeps each full-pMHC/stratum population separate
+without a Python loop over targets. Null metadata keys receive shared integer
+identities, including missing pMHC fields. Within each represented null source,
+finite scores are sorted lexicographically by group and score. The group's end
+offset minus the lower bound of the observed score counts its upper tail:
+ties remain exceedances and null no-hits remain in the denominator. Source
+maxima use only sources represented in that group. Integer-width alignment is
+lossless, and these transient arrays are released within the operation; no
+calculated distribution is cached between runs. The ungrouped tail API retains
+its ordinary scalar-score sort. This changes computation only, not the statistic
+or its final selected-label/axis calibration requirement.
+
+The event being tested
+----------------------
+
+Let :math:`q` be a query clonotype and :math:`R_i` the reference for one complete
+peptide--MHC target. Let :math:`R_0` be the whole selected reference. Species
+and loci define separate populations. Write :math:`T_A(q,R_i)` for the final
+higher-is-better statistic under procedure :math:`A`. This procedure includes
+scope, distance geometry, V/J restrictions, exact-hit policy, score formula,
+weights, reference filtering and any target or paired-axis selection.
+For nearest distance, :math:`T_A=-d_{\min}`; for count, it is the number of
+distinct matching junctions within the declared scope. A no-hit is weaker than
+every finite supported score. Exact gene-clonotype presence remains a separate
+deterministic lookup.
+
+Null reference populations preserve each group's source-record count and
+rounded log2-Pgen histogram. The current fixed bin width is one bit, with zero
+model mass in a separate bin. These are approximate same-Pgen strata, rather
+than an assertion of equal exact Pgen. Source records and distinct search keys
+remain separate quantities: repeated observations contribute to the mock
+population's requested size, whereas the scoped count statistic deduplicates
+matching junctions.
+
+The control is collapsed at amino-acid junction level using rearrangement-event
+weights. Read counts do not define these weights. Pooled ``occurrences`` counts
+are used when supplied; otherwise distinct nucleotide/V/J events within samples
+are counted. Pooled nucleotide keys can carry their supplied sample incidence.
+When only amino-acid convergence is supplied, that available event unit is used;
+sample incidence times convergence is never assumed to recover an unknown
+number of events. The control's supplied population metadata selects the
+declared species/locus. No anchors are fabricated.
+
+Random reference, fixed query
+-----------------------------
+
+Draw :math:`R_i^{*(b)}`, :math:`b=1,\ldots,B_R`, from the control, matching
+the Pgen strata and source-record count of :math:`R_i`. Within a group,
+sampling draws integer rearrangement-event slots without replacement, then
+collapses to amino-acid search keys. Distinct nucleotide events producing the
+same amino-acid junction can therefore occur together in a mock reference.
+The implementation samples uniform integer event slots and maps them through
+cumulative event counts, without materialising repeated sequence rows. This has the
+same multivariate hypergeometric law as the previous count sampler; its seeded
+realisations differ. Calibration tables identify it as
+``reference_event_sampler=uniform-event-slots-v1``. Reproduction therefore needs
+the software/sampler identity as well as the seed. Complete-reference source
+roles are uniformly shuffled after sampling, and TRA/TRB use independent streams.
+Each replicate is generated and reduced in memory. An insufficient stratum
+raises an error instead of silently changing the requested null.
+
+For observed score :math:`t=T_A(q,R_i)`, define
+
+.. math::
+
+   p_R(q,i)=\frac{1+\sum_{b=1}^{B_R}
+       \mathbf1\{T_A(q,R_i^{*(b)})\ge t\}}{B_R+1}.
+
+This asks whether the observed reference supports the query more strongly than
+a composition-matched random reference. Chance exact overlaps remain eligible
+in the mocks. Removing every real reference junction from the control would
+make a chance exact mock match impossible for an exact database query.
+
+Random query, fixed reference
+-----------------------------
+
+Draw :math:`q^{*(b)}`, :math:`b=1,\ldots,B_Q`, from the query's Pgen stratum
+in the same control, with replacement and event weights. Keep :math:`R_i`
+fixed and evaluate the same complete procedure:
+
+.. math::
+
+   p_Q(q,i)=\frac{1+\sum_{b=1}^{B_Q}
+       \mathbf1\{T_A(q^{*(b)},R_i)\ge t\}}{B_Q+1}.
+
+This asks whether the query's support is unusual among clonotypes with similar
+generation probability. It uses the actual reference motif structure and its
+overlapping neighbourhoods.
+
+A related quantity answers the literal match-probability question:
+
+.. math::
+
+   \widehat\pi_Q(q,i)=\frac1{B_Q}\sum_b
+      \mathbf1\{q^{*(b)}\text{ has any match to }R_i\text{ under }A\}.
+
+``null_query_match_rate`` reports this Monte Carlo estimate, which can be zero.
+It differs from ``p_query``: a score-tail test compares against the observed
+score, whereas the match rate counts every supported match within scope.
+``null_reference_match_rate`` analogously estimates any-match frequency for
+the fixed query against mock references. These rates do not estimate the
+probability that an observed specificity assignment is false.
+
+Combining the directions
+------------------------
+
+Report both directional P-values and
+
+.. math::
+
+   p_{\mathrm{both}}=\max(p_R,p_Q).
+
+Let :math:`H_R` and :math:`H_Q` denote the respective conditional randomization
+nulls. The combined null is :math:`H_R\cup H_Q`: at least one direction is
+explainable by its control law. If either null, say :math:`H_R`, holds and its
+P-value is valid, then, for any :math:`a\in[0,1]`,
+
+.. math::
+
+   \Pr\{p_{\mathrm{both}}\le a\}
+   \le \Pr\{p_R\le a\}\le a.
+
+Thus the maximum tests evidence in both directions without independence.
+This is the intersection--union construction. It cannot rescue an invalid
+directional null. Multiplication or an independent Fisher reference
+distribution would count overlapping information without a dependence model.
+For example, :math:`p_R=0.002,p_Q=0.3` gives :math:`p_{\mathrm{both}}=0.3`;
+the reference looks unusual, but many control clonotypes have comparable
+support. Two small directional tails support unusual resemblance in both
+directions; neither tail is a posterior binding probability.
+
+The plus-one construction includes the observed statistic in its rank and
+retains ties and no-hit draws. Its finite-sample validity requires exchangeable
+observed/null statistics under the specified conditional model; a fitted
+Pgen approximation alone does not establish that assumption. See
+`Phipson and Smyth <https://doi.org/10.2202/1544-6115.1585>`_ for Monte Carlo
+rank tails and the
+`intersection--union discussion <https://pmc.ncbi.nlm.nih.gov/articles/PMC4783210/>`_
+for conjunction inference. The maximum proof above applies directly here.
+
+Reported labels and the any-call threshold
+------------------------------------------
+
+For full-pMHC label :math:`e`, let :math:`U_e(q,R)` be the maximum supported
+score across its available chain axes, and let :math:`M(q,R)=\max_e U_e(q,R)`.
+At the observed label score :math:`u_e=U_e(q,R)`, compact output reports
+
+.. math::
+
+   \widetilde p_{R,e}=\frac{1+\sum_b\mathbf1\{M(q,R^{*(b)})\ge u_e\}}{B_R+1},
+   \qquad
+   \widetilde p_{Q,e}=\frac{1+\sum_b\mathbf1\{M(q^{*(b)},R)\ge u_e\}}{B_Q+1},
+   \qquad
+   p_{{\rm any},e}=\max(\widetilde p_{R,e},\widetilde p_{Q,e}).
+
+These are ``p_reference_any``, ``p_query_any`` and ``p_any``. Each null
+score is the complete-label maximum, including labels omitted from output.
+Fixed-label ``p_reference``, ``p_query`` and ``p_both`` remain separate
+diagnostics. A strong undeclared rival can therefore prevent reporting even
+when a fixed-label P-value is small.
+
+The parameter :math:`\alpha` is ``--fpr`` (library ``report_p``), default
+:math:`0.01`. A supported label passes when :math:`p_{{\rm any},e}\le\alpha`;
+all passing labels and ties are retained. Declared targets always remain and
+have a separate ``declared_target`` flag. ``reported_specificity`` identifies
+which rows pass the threshold. Observed no-hits receive one.
+
+Both tail functions are nonincreasing in the observed score. Thus any supported
+label passes exactly when a supported winning label passes both directional
+complete-label tails. Under the respective conditional validity assumptions,
+this bounds the per-query any-call event by :math:`\alpha`. It does not provide
+a simultaneous error bound across a repertoire's queries.
+
+Compact execution scores the full test-query bank first. It retains observed
+rows with :math:`\widetilde p_{Q,e}\le\alpha`, plus all declarations, then computes
+their reference-direction tails. This is a lossless screen because
+:math:`p_{{\rm any},e}\ge\widetilde p_{Q,e}`. A bitset verifies that every
+source-query/target case appears exactly once in the real model and each mock.
+With :math:`G` labels and :math:`J=B_QH` test queries across :math:`H` represented
+Pgen strata, let :math:`F_{h,e}` be the multiset of finite supported test scores
+for stratum :math:`h` and target :math:`e`. A finite observed threshold :math:`t`
+has the unchanged fixed-label tail
+
+.. math::
+
+   p_{Q,e}(t\mid h)=\frac{1+\sum_{x\in F_{h,e}}\mathbf1\{x\ge t\}}{B_Q+1}.
+
+Null no-hits do not enter the numerator but remain in :math:`B_Q`; their omission
+from score storage changes no tail or hit rate. Finite zero scores remain in the
+multiset, and observed no-hits still receive one. Records use an integer
+stratum/target key and float64 score, sorted by key only after collection.
+One running maximum per test query supplies the full-label query tail.
+For :math:`S=\sum_{h,e}|F_{h,e}|` finite records, raw score storage is
+:math:`16S` bytes, plus :math:`JG+QG` coverage bits, query maxima/bin indexes,
+sorting scratch and retained detail. The conservative auxiliary guard reserves
+:math:`48S+32(Q+J)+\lceil JG/8\rceil+\lceil QG/8\rceil+16\,\mathrm{MiB}` bytes.
+It is checked before scoring and before appending each finite batch; dense
+support can still exceed it and fails explicitly. Query-null scores are
+released before reference mocks. Full model populations,
+normalization draws, Pgen strata, axis selection and inclusive tails are unchanged.
+
+Analytic checks for scoped matches
+----------------------------------
+
+For a fixed query, suppose stratum :math:`h` contains :math:`W_h` control
+events, of which :math:`c_h(q)` match, and a mock reference draws
+:math:`n_{ih}` event slots without replacement. Independent stratum sampling gives
+
+.. math::
+
+   \Pr\{\text{any match}\}
+   =1-\prod_h\frac{\binom{W_h-c_h(q)}{n_{ih}}}
+                         {\binom{W_h}{n_{ih}}},\qquad
+   \mathbb E[K_i^{\mathrm{events}}(q)]
+   =\sum_h n_{ih}\frac{c_h(q)}{W_h}.
+
+The empty-match factor is zero when too few nonmatching keys remain.
+The expectation counts matched events, not distinct amino-acid keys or a P-value.
+If matching junction :math:`r` has :math:`w_r` events in stratum :math:`h(r)`,
+the expected number of distinct matching junctions is instead
+
+.. math::
+
+   \mathbb E[K_i^{\mathrm{keys}}(q)]
+   =\sum_{r:\,r\text{ matches }q}
+     \left[1-\frac{\binom{W_{h(r)}-w_r}{n_{i,h(r)}}}
+                        {\binom{W_{h(r)}}{n_{i,h(r)}}}\right].
+
+Under independent
+with-replacement event draws with match probability :math:`u_h(q)`, the
+any-match probability instead is
+:math:`1-\prod_h(1-u_h(q))^{n_{ih}}`. The Poisson approximation
+:math:`1-\exp[-\sum_hn_{ih}u_h(q)]` requires sufficiently rare individual
+matches. Integer event-slot sampling has this hypergeometric law even when
+different amino-acid keys represent different event counts. Sampling weighted
+unique amino-acid keys without replacement would have a different law and
+would suppress convergent rearrangements.
+
+For random queries, the exact model probability is the mass of the union of
+all matching reference balls within the query's Pgen stratum. A native batch
+against a generated repertoire estimates this union directly and counts a
+query once, even when several balls overlap. Summing per-reference ball masses
+double counts intersections. Formula and sampling checks agree only when
+they share the event unit, conditional generative/selected law, scope and
+reference. A raw generative model need not reproduce a selected empirical
+repertoire exactly.
+
+Complete-score and selection requirements
+-----------------------------------------
+
+For reference-derived weights :math:`w(R)`, the null statistic is
+:math:`T_A(q,R^*)` with :math:`w(R^*)` recomputed. Freezing weights chosen from
+the observed reference omits part of the procedure. Component normalization
+must also treat observed and null scores symmetrically, or use a separate
+internal fitting split from the same selected control. One user control does
+not require reuse of the same draws for fitting and testing.
+
+For a fixed pMHC, these are fixed-target tests. A winning label, maximum over
+targets, paired-axis choice, radius selection or combined-score selection
+must be repeated inside each null replicate. A whole-reference scoped
+nearest/count statistic already includes all reference junctions, but is not
+the null distribution of a maximum VDJmatch score. Independently sampled
+per-target mocks also do not define a coherent mock for selected labels;
+that event must preserve overlapping memberships and genuine reference pairing.
+
+The paired null draws TRA and TRB independently, separately matching the two
+query Pgen strata: :math:`Q_{\alpha\beta}=Q_\alpha Q_\beta`.
+``iter_mock_paired_references`` implements this law with separate random streams
+and independent within-target pairing permutations, preserving source-pair
+counts and both marginal Pgen histograms. It accepts one raw control table
+containing both locus populations. Independently sorted lanes must not simply
+be zipped: sorting would introduce an artificial association.
+
+Even under this product null, the statistic must match both chains to the same
+linked reference pair and retain all unlinked same-target marginal support.
+The random-query any-call probability is
+
+.. math::
+
+   \pi_{Q,\alpha\beta}(q,i)=
+   \sum_{x,y}Q_\alpha(x\mid h(q_\alpha))
+              Q_\beta(y\mid h(q_\beta))
+              \mathbf1\{A(x,y,R_i)\text{ has any linked or marginal call}\},
+
+where :math:`h` denotes the chain-specific Pgen stratum. Multiplying two
+chainwise *any-database-match* rates would permit the two matches to come from
+different linked reference pairs and would omit the declared marginal/axis
+selection. A sum-distance ball against one fixed reference pair instead uses
+the convolution :math:`\int F_\beta(r-u)\,dF_\alpha(u)`, where :math:`r` is
+the total radius and :math:`F_\alpha,F_\beta` are independent chain-distance
+distributions to that pair. The union across reference pairs still needs its
+overlap handled by the complete native batch. The ``annotate --control``
+adapter repeats these full-score and selection operations. Whole-cohort runtime
+and scientific nonregression remain separate acceptance gates.
+
+Changing evidence filters or supplying a custom labelled table changes
+:math:`R`, its size and its target compositions. Recalibrate both directions
+on that selected table with the same procedure. ``p_both`` then describes
+unusual matching under the declared controls. It does not prove binding,
+specificity exclusivity or a biological false-discovery rate.

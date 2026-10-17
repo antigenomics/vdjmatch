@@ -110,7 +110,7 @@ def main(args):
         'target_support_rule': 'valid source records per species/locus/peptide, before self-exclusion; pool MHC restrictions',
         'search_reference': 'entire valid species/locus reference, including sparse peptides',
         'queries': raw.height, 'candidate_rows': candidates.height, 'wall_seconds': time.monotonic()-started,
-        'self_exclusion': ('benchmark-only full-junction puncture of hits and population sizes'
+        'self_exclusion': ('benchmark-only full-junction hit filtering; fixed model populations'
             if getattr(args, 'exact_policy', 'exclude') == 'exclude' else 'exact evidence retained for ordinary-call calibration'),
         'observation_unit': 'distinct full-junction/V/J'+('/truth peptide' if args.leave_epitope_out else ''),
         'peptide_withholding': 'all restrictions removed before reduction' if args.leave_epitope_out else None,
@@ -131,12 +131,14 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
     from ..api import _prepare
     from ..aggregate.candidates import PMHC
     from ..evalue.kernel import grouped_kernel_selection, finish_kernel_selection, ladder_cutoffs
-    from ..match.tcrdist import precompute_v_loop_distances, resolve_v_alleles
+    from ..match.geometry import precompute_v_loop_distances, resolve_v_alleles
 
     species = {'HomoSapiens': 'human', 'MusMusculus': 'mouse'}.get(args.species)
     if species is None:
         raise ValueError('stem4 requires HomoSapiens or MusMusculus germline models')
     context = precompute_v_loop_distances(species=species, matrix='blosum62')
+    matrix_scale = context['distance_units'][0]
+    radius = 22.5 * matrix_scale
     model = context['model']
     allowed = [v for v, m in model.items() if m['locus'] == args.locus]
     def prepare(frame):
@@ -157,8 +159,8 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
         exclude_exact=getattr(args, 'exact_policy', 'exclude') == 'exclude',
         v_regions='cdr12plus', position_weighting='uniform')
     state, hit_ids = grouped_kernel_selection(q, r, groups, query_keys=query_keys,
-        search_keys=['cdr3', '_allele'], paired=False, cutoffs=ladder_cutoffs(26),
-        radius=585, kernel_scale=585, scorer='v-bounded', withheld_column=withheld,
+        search_keys=['cdr3', '_allele'], paired=False, cutoffs=ladder_cutoffs(matrix_scale),
+        radius=radius, kernel_scale=radius, scorer='v-bounded', withheld_column=withheld,
         v_loop_distances=context, **geometry)
     selection = finish_kernel_selection(q.select('query_id'), state)
     calls = raw.join(selection, on='query_id', how='left', validate='1:1', maintain_order='left').with_columns(
@@ -192,11 +194,11 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
         table.write_csv(str(prefix)+'.'+suffix+'.tsv', separator='\t')
     provenance = db.provenance(args.vdjdb)
     from ..evalue import kernel
-    from ..match import tcrdist
+    from ..match import geometry as geometry_module
     import seqtree.gapblock as native_wrapper
     import seqtree._core as native_core
     source_hashes = {name: hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
-        for name, module in [('kernel', kernel), ('tcrdist', tcrdist), ('seqtree_python', native_wrapper), ('seqtree_native', native_core)]}
+        for name, module in [('kernel', kernel), ('geometry', geometry_module), ('seqtree_python', native_wrapper), ('seqtree_native', native_core)]}
     source_hashes['reference_calls'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     manifest = dict(reference=provenance, reference_sha256=provenance.get('input_sha256'),
         software={x: importlib.metadata.version(x) for x in ['vdjmatch', 'seqtree', 'vdjtools']},
@@ -206,13 +208,13 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
         searchable_reference_records=r.height, searchable_reference_keys=r.unique(['cdr3','_allele']).height,
         eligible_benchmark_records=benchmark.height, ineligible_benchmark_records=valid.height-benchmark.height,
         eligible_benchmark_peptides=eligible.height, all_reference_peptides=support.height, queries=raw.height,
-        available_queries=q.height, geometry=geometry | {'radius':585, 'kernel_scale':585, 'cutoffs':ladder_cutoffs(26),
-            'cross_v':.25, 'floor':.01, 'scorer':'v-bounded', 'matrix_scale':26},
+        available_queries=q.height, geometry=geometry | {'radius':radius, 'kernel_scale':radius, 'cutoffs':ladder_cutoffs(matrix_scale),
+            'cross_v':.25, 'floor':.01, 'scorer':'v-bounded', 'matrix_scale':matrix_scale},
         selection='maximum restriction per peptide, then maximum peptide; exact score ties remain ambiguous',
         reference_population=args.reference_population,
         target_support_rule='valid source records per species/locus/peptide before exclusion; MHC pooled only for eligibility',
         search_reference='all selected-policy valid species/locus observations, including sparse peptides; resolved V and junction length >=8',
-        self_exclusion=('full junction removed from all labels, counts and population sizes'
+        self_exclusion=('full-junction hit filtering across labels; fixed reference/control model populations'
             if geometry['exclude_exact'] else 'exact evidence retained for ordinary-call calibration'),
         peptide_withholding='per-query full peptide memberships removed before counts, sizes and exclusivity' if withheld else None,
         observation_unit='distinct full-junction/V/J'+('/truth peptide' if withheld else ''),
@@ -235,7 +237,7 @@ def _stem4_paired(args,reference,valid,started):
     from ..aggregate.candidates import PMHC
     from ..evalue.paired import build_paired_ref
     from ..evalue.kernel import grouped_kernel_selection,finish_kernel_selection,ladder_cutoffs
-    from ..match.tcrdist import precompute_v_loop_distances,resolve_v_alleles
+    from ..match.geometry import precompute_v_loop_distances,resolve_v_alleles
     from .calibration import PAIRED_STATISTIC,paired_call_event,paired_pipeline_sources
 
     valid=valid.filter(pl.col('gene').is_in(['TRA','TRB']))
@@ -248,6 +250,8 @@ def _stem4_paired(args,reference,valid,started):
     truth=raw.join(benchmark,on=keys,nulls_equal=True,validate='1:m').select('query_id','complex_id',*PMHC).unique()
     species={'HomoSapiens':'human','MusMusculus':'mouse'}[args.species]
     context=precompute_v_loop_distances(species=species,matrix='blosum62');model=context['model']
+    matrix_scale=context['distance_units'][0]
+    radius=22.5*matrix_scale
     geometry=dict(species=species,threads=args.threads,ctrim=3,v_loop_weight=1,alphabet='full',
         stem_depth=4,stem_weight=1.,matrix='blosum62',exclude_exact=args.exact_policy=='exclude',
         v_regions='cdr12plus',position_weighting='uniform')
@@ -257,7 +261,7 @@ def _stem4_paired(args,reference,valid,started):
     def score(q,r,query_keys,search_keys,paired):
         groups=[(dict(zip(PMHC,task)),q,part) for task,part in r.group_by(PMHC,maintain_order=True)]
         state,hits=grouped_kernel_selection(q,r,groups,query_keys=query_keys+['_withheld_epitope'],
-            search_keys=search_keys,paired=paired,cutoffs=ladder_cutoffs(26),radius=585,kernel_scale=585,
+            search_keys=search_keys,paired=paired,cutoffs=ladder_cutoffs(matrix_scale),radius=radius,kernel_scale=radius,
             scorer='v-bounded',withheld_column='_withheld_epitope',v_loop_distances=context,**geometry)
         selected=finish_kernel_selection(q.select('query_id'),state)
         result=raw.select('query_id').join(selected,on='query_id',how='left',validate='1:1',maintain_order='left')
@@ -304,11 +308,11 @@ def _stem4_paired(args,reference,valid,started):
             ('target-support',support.with_columns((pl.col('reference_records')>=args.min_target_records).alias('benchmark_eligible')))]:
         table.write_csv(str(prefix)+'.'+suffix+'.tsv',separator='\t')
     from ..evalue import kernel
-    from ..match import tcrdist
+    from ..match import geometry as geometry_module
     import seqtree.gapblock as wrapper
     import seqtree._core as native
     sources={name:hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
-        for name,module in [('kernel',kernel),('tcrdist',tcrdist),('seqtree_python',wrapper),('seqtree_native',native)]}
+        for name,module in [('kernel',kernel),('geometry',geometry_module),('seqtree_python',wrapper),('seqtree_native',native)]}
     provenance=db.provenance(args.vdjdb)
     manifest=dict(reference=provenance,reference_sha256=provenance.get('input_sha256'),
         software={name:importlib.metadata.version(name) for name in ['vdjmatch','seqtree','vdjtools']},
@@ -318,8 +322,8 @@ def _stem4_paired(args,reference,valid,started):
         excluded_reference_records=reference.height-valid.height,query_pairs=raw.height,axis_populations=axis_counts,
         eligible_benchmark_peptides=eligible.height,genuine_reference_pairs=pairs.height,
         native_population_batches=sum(x['reference_keys']>0 and x['available_queries']>0 for x in axis_counts.values()),
-        geometry=geometry|dict(radius=585,kernel_scale=585,cutoffs=ladder_cutoffs(26),cross_v=.25,floor=.01,
-            scorer='v-bounded',matrix_scale=26),reference_population=args.reference_population,
+        geometry=geometry|dict(radius=radius,kernel_scale=radius,cutoffs=ladder_cutoffs(matrix_scale),cross_v=.25,floor=.01,
+            scorer='v-bounded',matrix_scale=matrix_scale),reference_population=args.reference_population,
         selection='maximum restriction per peptide, then maximum peptide; exact score ties remain ambiguous',
         calibration_statistic=PAIRED_STATISTIC,
         target_support_rule='source records per species/chain/peptide before exclusion; either chain >= minimum; MHC pooled only for eligibility',

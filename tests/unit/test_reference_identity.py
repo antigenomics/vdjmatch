@@ -217,3 +217,131 @@ def test_zero_namespace_cannot_merge_another_inferred_observation(identity):
                    pairs(**{identity:[f'__{identity}:0']*2})])
     with pytest.raises(ValueError,match='collide between observations'):
         schema.normalize(raw)
+
+
+@pytest.mark.parametrize('link_column', ['pair_id', 'clone_id'])
+def test_custom_long_junction_reference_preserves_declared_pair(link_column):
+    raw = pl.DataFrame({'junction_aa': ['CAVVF', 'CASSF'], 'locus': ['TRA', 'TRB'],
+        'epitope': ['PEP'] * 2, link_column: ['custom-pair'] * 2})
+    out = schema.normalize(raw)
+    assert out['complex_id'].to_list() == ['custom-pair'] * 2
+    assert out[link_column].to_list() == ['custom-pair'] * 2
+    assert schema.normalize(out).equals(out)
+
+
+def test_custom_wide_junction_reference_loader_retains_sources_and_marginal(tmp_path):
+    from vdjmatch import db
+    raw = pl.DataFrame({'junction_aa_alpha': ['CAVVF', None], 'junction_aa_beta': ['CASSF', 'CASRF'],
+        'v_alpha': ['TRAV1-2', None], 'j_alpha': ['TRAJ33', None],
+        'v_beta': ['TRBV5-1'] * 2, 'j_beta': ['TRBJ1-1'] * 2,
+        'pair_id': ['custom-pair', '0'], 'epitope': ['PEP'] * 2, 'source_note': ['paired', 'marginal']})
+    path = tmp_path / 'custom.tsv'; raw.write_csv(path, separator='\t')
+    out = db.load(path)
+    assert out.select('gene', 'cdr3', 'v', 'j', 'complex_id', 'source_note').rows() == [
+        ('TRA', 'CAVVF', 'TRAV1-2', 'TRAJ33', 'custom-pair', 'paired'),
+        ('TRB', 'CASSF', 'TRBV5-1', 'TRBJ1-1', 'custom-pair', 'paired'),
+        ('TRB', 'CASRF', 'TRBV5-1', 'TRBJ1-1', '0', 'marginal')]
+    assert set(raw.columns) <= set(out.columns)
+    assert schema.normalize(out).equals(out)
+
+
+@pytest.mark.parametrize('dropped,expected', [([], 'canonical'), (['complex_id'], 'dot'),
+    (['complex_id', 'complex.id'], 'pair'), (['complex_id', 'complex.id', 'pair_id'], 'clone')])
+def test_custom_pair_link_field_precedence(dropped, expected):
+    raw = pairs(complex_id=['canonical'] * 2, **{'complex.id': ['dot'] * 2},
+        pair_id=['pair'] * 2, clone_id=['clone'] * 2).drop(dropped)
+    assert schema.normalize(raw)['complex_id'].to_list() == [expected] * 2
+
+
+def test_custom_beta_only_wide_is_unlinked_and_bare_cdr3_is_rejected():
+    out = schema.normalize(pl.DataFrame({'junction_aa_beta': ['CASSF'], 'epitope': ['PEP']}))
+    assert out.select('gene', 'cdr3', 'complex_id').rows() == [('TRB', 'CASSF', 0)]
+    with pytest.raises(ValueError, match='anchors'):
+        schema.normalize(pl.DataFrame({'cdr3_aa_alpha': ['AVV'], 'cdr3_aa_beta': ['ASS'], 'epitope': ['PEP']}))
+
+
+@pytest.mark.parametrize('layout', ['wide', 'long'])
+def test_custom_paired_reference_one_control_cli_preserves_mock_roles(tmp_path, monkeypatch, layout):
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.evalue import combined
+    from vdjmatch.evalue.paired import build_paired_ref
+    reference = tmp_path / 'custom-reference.tsv'
+    pl.DataFrame({'junction_aa_alpha': ['CAVRDSNYQLIW', None],
+        'junction_aa_beta': ['CASSLGQETQYF', 'CASSIGQETQYF'],
+        'v_alpha': ['TRAV1-2', None], 'j_alpha': ['TRAJ33', None],
+        'v_beta': ['TRBV1'] * 2, 'j_beta': ['TRBJ1-1'] * 2,
+        'pair_id': ['reference-pair', '0'], 'epitope': ['E'] * 2}).write_csv(reference, separator='\t')
+    if layout == 'long':
+        pl.DataFrame({'junction_aa': ['CAVRDSNYQLIW', 'CASSLGQETQYF', 'CASSIGQETQYF'],
+            'v_call': ['TRAV1-2', 'TRBV1', 'TRBV1'], 'j_call': ['TRAJ33', 'TRBJ1-1', 'TRBJ1-1'],
+            'locus': ['TRA', 'TRB', 'TRB'], 'pair_id': ['reference-pair', 'reference-pair', '0'],
+            'epitope': ['E'] * 3}).write_csv(reference, separator='\t')
+    sample = tmp_path / 'sample.tsv'
+    pl.DataFrame({'query_id': ['complete', 'partial'],
+        'junction_aa_alpha': ['CAVRDMNYQLIW', None],
+        'junction_aa_beta': ['CASSMGQETQYF', 'CASSVGQETQYF'],
+        'v_alpha': ['TRAV1-2', None], 'j_alpha': ['TRAJ33', None],
+        'v_beta': ['TRBV1'] * 2, 'j_beta': ['TRBJ1-1'] * 2}).write_csv(sample, separator='\t')
+    control = tmp_path / 'control.tsv'
+    pl.DataFrame({'junction_aa': ['CAVRDTNYQLIW', 'CAVRDMNYQLIW', 'CASSAGQETQYF', 'CASSVGQETQYF'],
+        'locus': ['TRA', 'TRA', 'TRB', 'TRB'],
+        'v_call': ['TRAV1-2'] * 2 + ['TRBV1'] * 2,
+        'j_call': ['TRAJ33'] * 2 + ['TRBJ1-1'] * 2,
+        'occurrences': [4] * 4}).write_csv(control, separator='\t')
+    monkeypatch.setattr(combined, 'compute_pgen', lambda ref, events, **kw:
+        pl.concat([ref.select('junction_aa'), events.select('junction_aa')]).unique().with_columns(pl.lit(.01).alias('pgen')))
+    observed = []
+    mock_models = combined.iter_mock_models
+    def verify_models(model, *args, **kwargs):
+        expected = model.select('gene', 'complex_id')
+        paired_population = 'TRA' in args[0]
+        roles = [('TRB', 'reference-pair'), ('TRB', '0')]
+        assert expected.rows() == ([('TRA', 'reference-pair')] + roles if paired_population else roles)
+        assert build_paired_ref(model).height == int(paired_population)
+        for randomized in mock_models(model, *args, **kwargs):
+            assert randomized.select('gene', 'complex_id').equals(expected)
+            assert build_paired_ref(randomized).height == int(paired_population)
+            observed.append(randomized.height)
+            yield randomized
+    monkeypatch.setattr(combined, 'iter_mock_models', verify_models)
+    prefix = tmp_path / 'result'
+    assert main(['annotate', str(sample), '--vdjdb', str(reference), '--control', str(control),
+        '--mock-replicates', '2', '--seed', '7', '-o', str(prefix)]) == 0
+    queries = pl.read_csv(str(prefix) + '.queries.tsv', separator='\t')
+    assert queries.height == 4 and queries['calibration_status'].to_list().count('missing_sequence') == 1
+    assert queries['calibration_pair_status'].to_list().count('complete_pair') == 2
+    assert observed == [2, 2, 3, 3]  # Beta marginal models, then complete paired models.
+    assert not list(tmp_path.glob('result*.json'))
+
+
+@pytest.mark.parametrize('identity', ['record_id', 'cell_id'])
+def test_clone_metadata_does_not_merge_declared_observation_pairs(identity):
+    raw = pl.concat([pairs(**{identity: [name] * 2, 'clone_id': ['shared-clone'] * 2})
+                     for name in ('observation-one', 'observation-two')])
+    out = schema.normalize(raw)
+    assert out['complex_id'].to_list() == ['observation-one'] * 2 + ['observation-two'] * 2
+    assert out['clone_id'].to_list() == ['shared-clone'] * 4
+    assert schema.normalize(out).equals(out)
+    explicit = raw.with_columns(pl.Series('pair_id', ['explicit-one'] * 2 + ['explicit-two'] * 2))
+    assert schema.normalize(explicit)['complex_id'].to_list() == ['explicit-one'] * 2 + ['explicit-two'] * 2
+
+
+@pytest.mark.parametrize('column', ['locus', 'epitope'])
+def test_whitespace_only_reference_annotation_is_missing(column):
+    raw = pairs().rename({'gene': 'locus'}).with_columns(pl.lit(' \t\n ').alias(column))
+    with pytest.raises(ValueError, match='missing junction, locus or peptide annotation'):
+        schema.normalize(raw)
+
+
+def test_nonblank_reference_annotation_source_values_are_retained():
+    raw = pairs().with_columns(pl.lit(' PEP ').alias('epitope'))
+    assert schema.normalize(raw)['epitope'].to_list() == [' PEP '] * 2
+
+
+@pytest.mark.parametrize('side,locus,v,j', [('alpha','TRA','TRAV12-2','TRAJ33'),
+    ('beta','TRB','TRBV19','TRBJ2-7')])
+def test_one_chain_wide_reference_retains_gene_calls(side, locus, v, j):
+    out = schema.normalize(pl.DataFrame({f'junction_aa_{side}':['CASSF'],
+        f'v_{side}':[v], f'j_{side}':[j], 'epitope':['DEMO']}))
+    assert out.height == 1
+    assert out.select('gene','v','j','complex_id').row(0) == (locus,v,j,0)

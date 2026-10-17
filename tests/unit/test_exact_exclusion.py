@@ -37,7 +37,7 @@ def test_target_and_control_exact_hits_are_removed_before_reduction():
         row["nearest_edits"],
         row["n_records"],
     ) == (1, 1, 1, 1)
-    assert row["n_reference"] == 1 and row["E"] == 1.0
+    assert row["n_reference"] == 2 and row["E"] == 1.0
     hits = ann.hits(["CASSF"], scope="1", exclude_exact=True, align=True)
     assert hits["db_cdr3"].to_list() == ["CATSF"]
     assert hits["cigar"].null_count() == 0

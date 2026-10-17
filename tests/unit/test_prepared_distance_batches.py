@@ -1,7 +1,7 @@
 """Prepared model inputs preserve batch distances and strict gene validation."""
 import numpy as np
 import pytest
-from vdjmatch.match import tcrdist as td
+from vdjmatch.match import geometry as td
 
 
 @pytest.mark.parametrize('species',['human','mouse'])
@@ -15,7 +15,7 @@ def test_prepared_alias_lookup_equals_original_model_resolution(species):
 
 
 @pytest.mark.parametrize('species',['human','mouse'])
-@pytest.mark.parametrize('matrix',['tcrdist','blosum62'])
+@pytest.mark.parametrize('matrix',['clipped','blosum62'])
 def test_prepared_single_and_paired_batches_match_without_rebuilding(monkeypatch,species,matrix):
     prepared=td.precompute_v_loop_distances(species=species,matrix=matrix)
     model=prepared['model']

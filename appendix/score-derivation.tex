@@ -13,7 +13,7 @@
 
 \title{\vspace{-12mm}Distance-local receptor evidence in \texttt{vdjmatch}}
 \author{Algorithm appendix --- shipped default, opt-in routes, bounds and observations}
-\date{Revised 2026-10-11}
+\date{Revised 2026-10-16}
 
 \begin{document}
 \maketitle
@@ -31,6 +31,12 @@ accuracy bounds and compare them with recorded observations. Part~VIII lists wha
 Exact guarantees, conditional results and heuristics are kept apart throughout. The default annotation scorer is unchanged; no experimental route below is a promoted replacement, and no quantity
 here is a calibrated biological probability of a true specificity.
 \end{abstract}
+
+\paragraph{Current selection-evidence contract (16 October 2026).}
+Section~\ref{sec:selection-information} gives the information-theoretic objective, likelihood interpretation, geometry diagnostics and selection-aware calibration.
+Benchmark exact exclusion is a hit-list filter only: every reference population, prior, motif, graph and fitted weight remains fixed.
+Older population-puncturing descriptions below document historical routes and are superseded by this contract; they are not instructions for the current selector.
+
 
 \part*{I. Intuition and flow}
 \addcontentsline{toc}{part}{I. Intuition and flow}
@@ -332,6 +338,96 @@ The original score and frozen cutoff decision are preserved. The command require
 the original calibration-input hash and exports source-specific counts and tails.
 The same full scoring/label-selection pipeline is required; no new scoring model
 or biological binding-probability claim is introduced.
+
+\subsection{On-demand calibration in two directions}\label{sec:directional}
+One raw control repertoire supplies both randomisation directions; the user need not construct calibration files.
+Let $q$ be the observed clonotype, $R_i$ the selected full-pMHC reference, and $R_0$ the whole selected reference, separately for each species and chain.
+Write $T_A(q,R_i)$ for a higher-is-better statistic under the complete search procedure $A$, including scope, geometry, gene restrictions, exact-match policy, weights and label selection.
+Let $t=T_A(q,R_i)$.
+For $B_R$ mock references $R_i^{*(b)}$ with the same reference source-record count and Pgen composition, and $B_Q$ control queries $q^{*(b)}$ of the observed query's Pgen stratum, define
+\[
+ p_R=\frac{1+\sum_{b=1}^{B_R}\mathbf1\{T_A(q,R_i^{*(b)})\ge t\}}{B_R+1},
+ \qquad
+ p_Q=\frac{1+\sum_{b=1}^{B_Q}\mathbf1\{T_A(q^{*(b)},R_i)\ge t\}}{B_Q+1}.
+\]
+The first asks whether a composition-matched random reference supports this query as strongly; the second asks whether a similar-Pgen random clonotype obtains as much support from the actual reference.
+Ties count towards each tail, all no-hit draws remain in the denominators, and an observed no-hit has both tails one.
+The finite-sample rank interpretation requires exchangeability under the respective conditional nulls; approximate Pgen matching is not itself proof of exchangeability.
+The plus-one construction follows the Monte Carlo rank principle of \href{https://doi.org/10.2202/1544-6115.1585}{Phipson and Smyth}.
+
+\begin{proposition}[Evidence in both randomisation directions]
+If $p_R$ and $p_Q$ are valid for their respective nulls $H_R,H_Q$, then
+$p_{\rm both}=\max(p_R,p_Q)$ is valid for $H_R\cup H_Q$, without independence.
+\end{proposition}
+\begin{proof}
+If $H_R$ holds, for every $a\in[0,1]$,
+$\Pr\{p_{\rm both}\le a\}\le\Pr\{p_R\le a\}\le a$.
+The same argument applies if $H_Q$ holds.
+\end{proof}
+The maximum requires unusual support in both directions; multiplication or an independent Fisher reference distribution does not follow from these nulls.
+Neither directional tail nor their maximum is the posterior probability of binding or the false-discovery rate of an assignment.
+Separately, $\widehat\pi_Q=B_Q^{-1}\sum_b\mathbf1\{q^{*(b)}\text{ matches }R_i\}$ estimates the probability of \emph{any} match under the fixed scope, rather than a tail at the observed score.
+It may be zero as a Monte Carlo estimate; the plus-one rank tails cannot be zero.
+
+\paragraph{Event units and analytic checks.}
+The implemented scoped diagnostic uses fixed one-bit rounded log2-Pgen strata, with a separate zero-mass stratum, and preserves source-record counts within strata.
+Within each mock group it samples integer rearrangement-event slots without replacement and separately collapses amino-acid search keys.
+Several independent nucleotide events producing the same amino-acid junction can therefore occur together in a mock.
+Reads do not count as independent rearrangements: pooled occurrences are used when supplied; otherwise distinct nucleotide/V/J events within samples, or pooled nucleotide incidence, supply the available event counts.
+Incidental exact overlap between a random control and the real reference is retained.
+If $n_{ih}$ event slots are sampled without replacement from stratum $h$ with $W_h$ control events, of which $c_h(q)$ match $q$, then
+\[
+ \Pr\{\text{any match}\}=1-\prod_h\frac{\binom{W_h-c_h(q)}{n_{ih}}}{\binom{W_h}{n_{ih}}},
+ \qquad \E[K_i^{\rm events}(q)]=\sum_h n_{ih}\frac{c_h(q)}{W_h}.
+\]
+The expectation counts matched events, not distinct junctions.
+If matching junction $r$ has $w_r$ events in stratum $h(r)$, then
+$\E[K_i^{\rm keys}(q)]=\sum_{r:\,r\text{ matches }q}[1-\binom{W_{h(r)}-w_r}{n_{i,h(r)}}/\binom{W_{h(r)}}{n_{i,h(r)}}]$.
+For independent with-replacement event draws with within-stratum match probabilities $u_h(q)$, the corresponding any-match probability is
+$1-\prod_h(1-u_h(q))^{n_{ih}}$; $1-e^{-\sum_hn_{ih}u_h(q)}$ is its rare-match approximation.
+Integer event-slot sampling has the hypergeometric law above even with unequal amino-acid multiplicities; weighted sampling of unique amino-acid keys would be a different null and suppress convergence.
+For the random-query direction, a native batch estimates the mass of the \emph{union} of the reference balls; summing individual ball masses counts overlaps repeatedly.
+Agreement with generated-query/Pgen formulas requires the same event unit, conditional model, scope and reference; empirical selected controls and a raw recombination model need not have the same law.
+
+\paragraph{The complete procedure must be repeated.}
+If $T_A$ derives weights $w(R)$ from reference morphology, mock-reference calibration recomputes $w(R^*)$.
+Component normalisation must be symmetric between observed and null instances or fitted on an independent internal split of the same selected control.
+The combined-score implementation draws an independent unconditional normalisation bank internally from the selected control.
+The separate final test-query draws remain matched to the observed chainwise Pgen strata.
+For each reference model, including every mock, each component is mapped to minus the log of its empirical upper tail against that bank.
+The observed receptor and the separate test-query bank never train this normalisation.
+Conditioning on the normalisation bank therefore leaves the same model-dependent statistic in both randomisation directions.
+A selected epitope or paired-axis statistic repeats the same selection inside every null replicate; fixed-target tails cannot be transferred to it.
+Independently sampled target mocks do not define a coherent selected-label null with overlapping reference memberships.
+For the paired null we draw chains independently, $Q_{\alpha\beta}=Q_\alpha Q_\beta$, matching the two Pgen strata separately.
+The paired mock sampler uses separate streams and random within-group pairing permutations, preserving the number of source pairs and both chainwise Pgen histograms.
+Its score must still search both chains against the same linked reference and retain unlinked same-target marginal support.
+Multiplying two chainwise any-database-match rates allows different reference partners and omits the full linked/marginal selection.
+For one fixed reference pair and independent chain-distance distributions $F_\alpha,F_\beta$, a sum-distance ball of radius $r$ has probability $\int F_\beta(r-u)\,dF_\alpha(u)$; the union across reference pairs still requires overlap handling.
+
+\paragraph{Reference graph weights.}
+The candidate mixture uses two independent uniform draws from distinct full-junction/V-gene keys, pooling alleles.
+Let $L$ denote junction length, $V$ the V gene and $C$ the Hamming-one connected component; each component has one length.
+Writing $p_L,p_{LV},p_{LVC}$ for the corresponding reference key fractions, define
+\[
+ w_{\rm gap}=1-\sum_Lp_L^2,\qquad
+ w_{\rm stem}=\sum_{L,V}p_{LV}^2-\sum_{L,V,C}p_{LVC}^2,\qquad
+ w_{\rm original}=1-w_{\rm gap}-w_{\rm stem}.
+\]
+These nonnegative weights partition length-different, same-length/same-V/disconnected, and remaining key pairs.
+This structural heuristic has no fitted recognition coefficients; preservation of benchmark accuracy remains an empirical gate.
+The score on an axis is the weighted sum of the three independently normalised component evidences.
+Missing components contribute zero without redistributing weights, and an unsupported axis remains unavailable.
+Marginal axes use their same-target chain reference graphs; the linked axis uses the equal mean of those two weight vectors.
+Complete axis scores are maximised only after summation, then the maximum over searched full-pMHC labels is recalibrated as the database statistic.
+Exact benchmark exclusion filters matching hit contributions only; component populations, priors and marginal composition graphs remain fixed, including their connected components.
+Linked native scores exclude the complete paired identity; sharing one chain does not delete another reference pair.
+Mock long references retain source labels and linkage while independently replacing TRA/TRB sequence/gene events within Pgen strata.
+Identical duplicate evidence rows for one linked chain role share a draw and retain their source multiplicity; source-record counts and distinct draw-role counts remain separate.
+The one-control candidate derives its density and prior populations from that control; its model context is explicitly distinct from separately pinned historical benchmark assets.
+Changing evidence filters or supplying a custom labelled reference changes $R_i$ and requires both directions to be recalculated.
+The shipping \code{database-evidence --control} adapter currently implements full-junction scoped nearest-distance and distinct-neighbour-count statistics; full V-loop/combined-score, selected-label and paired adapters remain open gates.
+It computes fresh Pgen from bundled models, searches observed and sampled queries in one native batch, streams mock references, and writes flat TSVs without a calibration-file input.
 
 \textbf{Benchmark baseline scope.} In the AP comparisons below, \code{original\_score} means
 the \code{historical-density} CLI output, not NED-v1 from \code{aggregate.candidates} or the
@@ -1189,9 +1285,9 @@ V categories plus one unseen category. The diagnostic emits
  S_{\rm chem}=L_{\rm chem\mid V}+L_V.
 \]
 V enters once. This score is not multiplied into another V-containing score.
-All exact full-junction matches are removed across V categories in benchmark
-mode before conditional and global denominators; both full junctions define a
-paired exact match. Their mixture contribution is subtracted analytically.
+Benchmark exact exclusion subtracts only exact full-junction kernel contributions;
+conditional/global population sizes and V priors remain fixed. Both full junctions
+define a paired exact match. The self-mixture contribution is subtracted analytically.
 Reference keys lacking a four-residue core window are explicitly counted as
 unavailable to this component. Query rows, including missing-window/category
 and numerical-tail cases, remain present with their dispositions. Floating
@@ -1234,5 +1330,509 @@ sequences. Paired distances sum against the same linked receptor.
 The default full-alphabet geometry is unchanged. This projection does not
 establish a biological likelihood or a calibrated final-score P/E-value;
 complete raw-task accuracy and selected-score calibration remain required.
+
+\section{Selection evidence as information}
+\label{sec:selection-information}
+\paragraph{Scope and status.}
+The objective is to identify which receptor features distinguish a pMHC-specific repertoire from the declared control, and use those features to choose the scoring rule.
+The equations below define this objective and its calibration contract; they do not promote a new default or establish superiority over other predictors.
+The V-conditioned masked-four-mer score and reference/control gene counts are implemented diagnostics.
+A complete information-directed selector and its whole-cohort calibration remain to be established.
+The original/general score is retained when the available features do not support a more specific rule.
+
+\subsection{Implemented motif and sampling diagnostics}
+The motif table retains the full-AA three-mer and single-wildcard four-mer views alongside their eleven-class IMGT projections.
+For a fixed species/locus, a control document is a distinct full-junction/V-gene key; repeated windows count once.
+Let $M$ be the number of these control keys and $d_t$ the number containing token $t$.
+If $n_{e,z,t}$ target keys in V/length stratum $z$ contain $t$ and $N_e$ is the target's total key count, the separate retrieval diagnostic is
+\[
+ \operatorname{IDF}(t)=1+\ln\frac{M+1}{d_t+1},\qquad
+ \operatorname{TFIDF}_{e,z,t}=\frac{n_{e,z,t}}{N_e}\operatorname{IDF}(t).
+\]
+There is no vector normalisation, and these weights are not selection bits or specificity probabilities.
+The existing control sampler matches source-record counts in one-bit marginal-Pgen strata, drawing joint junction/V/J event slots without replacement before applying the same junction/V-key reduction.
+It does not constrain V/J or length.
+IDF remains fixed; absent mock features contribute zero.
+The exported mean and 2.5/97.5 percentiles describe the matched-control TF--IDF distribution, not uncertainty on a fitted recognition probability.
+
+The \texttt{reference-coverage} CLI retains VDJdb occurrence abundance at exact full-junction/V/J-call resolution and after seeded Leiden partitioning of each full-pMHC graph.
+Supplied alleles remain part of the exact key; graph vertices are distinct keys, while their abundance counts retain repeated source records.
+The edit graph uses explicit symmetric insertion/deletion budgets.
+The full Smith--Waterman graph uses raw BLOSUM62, gap cost $g_o+(r-1)g_e$ for a run of length $r$, and summed distances $s(a,a)+s(b,b)-2s(a,b)$ over the full anchor-inclusive junction and declared germline loops.
+The defaults include CDR1, CDR2 and CDR2.5; the CLI also permits explicit smaller loop sets.
+It applies no junction trimming or stem/kernel surrogate.
+The SW radius is supplied explicitly.
+One native graph batch serves the union of real/mock search keys; binary target-count chunks expose SW edges without retaining a query/reference distance matrix.
+Each real/mock population receives its own unweighted RBConfiguration-modularity Leiden partition, at the supplied resolution and seed, including isolated vertices.
+
+For either taxon resolution, let $n_i$ be taxon $i$'s occurrence count, $n=\sum_i n_i$, $S$ the observed richness, and $f_1,f_2$ the numbers of taxa observed once and twice.
+The adapter reuses vdjtools' finite-sample Chao1 and coverage implementation:
+\[
+ \widehat S=S+f_0,\qquad
+ f_0=\frac{n-1}{n}
+ \begin{cases}f_1^2/(2f_2),&f_2>0,\\ f_1(f_1-1)/2,&f_2=0.\end{cases}
+\]
+For $f_1>0$, set $A=nf_0/(nf_0+f_1)$; then $\widehat C=1-(f_1/n)A$.
+With no singletons, this estimator gives one.
+Unseen mass $1-\widehat C$ is distinct from estimated unseen-type fraction $(\widehat S-S)/\widehat S$.
+The zero-doubleton branch is labelled; boundary values, including a single taxon observed once, do not establish sufficient sampling.
+vdjtools supplies richness curves through twice the observed occurrence effort and normal bootstrap intervals.
+The coverage envelope uses the same owning augmented-assemblage probability law and coverage function, with percentile endpoints.
+Each population's partition remains fixed within occurrence rarefaction; this conditional calculation does not establish exhaustion of unseen communities.
+Database-occurrence coverage is not population-wide TCR coverage, and this community-as-taxon adaptation is not a distance-weighted functional-diversity estimator.
+Donor/study incidence Chao2 remains a separate sampling model.
+Pair-count, membership-expansion and augmented-bootstrap guards bound execution before the associated allocations; important full-cohort time/memory gates remain open.
+
+\subsection{Likelihood ratios, selection factors and bits}
+Fix species, locus and full peptide--MHC restriction, denoted by context $c$; write $e$ for the target within that context and suppress $c$ in the equations.
+Let $x=(L,V,J,Z)$ describe an anchor-inclusive junction, its length $L$, gene calls $V,J$, and remaining sequence features $Z$.
+Define $P_e$ as the distribution in the observed target repertoire and $P_0$ as the declared background distribution, using the same sampling unit on both sides.
+For example, distinct junction/gene keys on both sides measure repertoire composition; reference keys divided by control event frequencies instead compare two explicitly different sampling schemes.
+The empirical selection factor and pointwise information are
+\begin{equation}
+ Q_e(x)=\frac{P_e(x)}{P_0(x)},\qquad
+ i_e(x)=\log_2 Q_e(x).
+ \label{eq:selection-factor}
+\end{equation}
+A positive $i_e(x)$ denotes enrichment, a negative value depletion, and one bit doubles the likelihood ratio.
+For known distributions, $Q_e$ is the likelihood ratio for the simple hypotheses $P_e$ versus $P_0$.
+If the target prior in an explicitly defined two-population mixture is $\pi_e$, Bayes' rule gives
+\[
+ \frac{\Pr(e\mid x)}{\Pr(0\mid x)}
+ =\frac{\pi_e}{1-\pi_e}\,Q_e(x).
+\]
+Without that sampling model and prior, neither an empirical ratio nor a calibrated tail is a binding posterior.
+Observed repertoire enrichment includes biological selection, sampling and ascertainment; it does not by itself isolate an antigen-specific causal selection factor.
+In particular, a selected AIRR control is not the recombination distribution $P_{\rm gen}$.
+
+The mean information per sampled receptor is the Kullback--Leibler divergence,
+\begin{equation}
+ I_e=\sum_x P_e(x)\log_2\frac{P_e(x)}{P_0(x)}
+ =D_{\rm KL}(P_e\Vert P_0)=H(P_e,P_0)-H(P_e),
+ \label{eq:selection-kl}
+\end{equation}
+where $H(P_e)=-\sum_xP_e(x)\log_2P_e(x)$ and $H(P_e,P_0)=-\sum_xP_e(x)\log_2P_0(x)$.
+All these quantities are in bits per receptor under the declared sampling unit.
+A low target entropy alone does not show antigen-specific selection: a concentrated feature can be equally concentrated in the control.
+These identities assume $P_e$ has no positive mass where $P_0$ is zero.
+A zero empirical control count is unresolved support, not evidence that the population probability is exactly zero.
+Report the affected counts and leave the comparison unresolved; silently dropping those categories, renormalising them away or treating them as infinite evidence changes the question.
+
+\paragraph{Sampling likelihood and mutual information.}
+For $n$ independent observations categorised by a fixed feature map, let $n_y$ be the category counts and $\widehat p_y=n_y/n$.
+With a known background probability $p_{0y}$, the multinomial log-likelihood ratio of the fitted categorical distribution to that background is
+\[
+ \log_2\frac{\mathcal L(\widehat p;n_y)}{\mathcal L(p_0;n_y)}
+ =\sum_y n_y\log_2\frac{\widehat p_y}{p_{0y}}
+ =nD_{\rm KL}(\widehat p\Vert p_0).
+\]
+The multinomial coefficient cancels; zero-count terms contribute zero.
+This connects descriptive information to statistical likelihood, but is not a P-value: the alternative was fitted to those counts, the background is usually estimated, and donor/expansion dependence can violate independent sampling.
+For a binary population label $U$ with target probability $\pi$, set $M=\pi P_e+(1-\pi)P_0$.
+Then mutual information is
+\[
+ I(U;Y)=\pi D_{\rm KL}(P_e(Y)\Vert M(Y))
+       +(1-\pi)D_{\rm KL}(P_0(Y)\Vert M(Y)).
+\]
+It measures label information under that explicit mixture and differs from $D_{\rm KL}(P_e\Vert P_0)$.
+Neither quantity supplies an automatic performance-optimal weighting of overlapping features.
+
+\paragraph{Executable information decomposition.}
+The shipping \texttt{reference-structure --control} command computes these gene/length quantities from raw reference and control inputs.
+Its \texttt{.genes.tsv} table retains pointwise \texttt{gene\_bits}, \texttt{length\_bits} and \texttt{joint\_bits}; \texttt{.information.tsv} reports their target-weighted expectations.
+The all-length scope measures marginal gene information; the exact-length scope separates length information and conditional gene information, whose sum is the joint information.
+Both populations use distinct full-junction/segment-gene keys, separately for V and J.
+Reference counts, missing comparison mass and null MHC fields are preserved; unsupported expectations remain unavailable without smoothing or renormalisation.
+This implements the information diagnostic, while choosing the final scoring rule remains a subsequent step.
+
+\subsection{Which feature carries the information?}
+The probability chain rule gives an exact decomposition, without feature independence:
+\begin{align}
+ i_e(L,V,J,Z)={}&\log_2\frac{P_e(L)}{P_0(L)}
+ +\log_2\frac{P_e(V\mid L)}{P_0(V\mid L)}\nonumber\\
+ &+\log_2\frac{P_e(J\mid V,L)}{P_0(J\mid V,L)}
+ +\log_2\frac{P_e(Z\mid J,V,L)}{P_0(Z\mid J,V,L)}.
+ \label{eq:selection-chain}
+\end{align}
+Taking the target expectation decomposes $I_e$ into length information and target-weighted conditional divergences for V, J and the sequence remainder.
+Each expected term is nonnegative, although individual query contributions can be negative.
+The allocation depends on the conditioning order; it must be reported, not interpreted as a unique causal partition.
+A V-gene contribution is constant across queries with the same V and conditioning variables: it cannot resolve their junction-specific recognition.
+
+More generally, for a deterministic feature map $Y=\phi(x)$,
+\begin{equation}
+ D_{\rm KL}(P_e(X)\Vert P_0(X))
+ =D_{\rm KL}(P_e(Y)\Vert P_0(Y))
+ +\mathbb E_{Y\sim P_e}D_{\rm KL}(P_e(X\mid Y)\Vert P_0(X\mid Y)).
+ \label{eq:selection-projection}
+\end{equation}
+This follows by factoring each probability into its feature marginal and conditional remainder.
+Thus a projection retains some of the discriminating information and loses the nonnegative conditional remainder.
+It motivates comparing V/J, length, motif and neighbourhood projections against the same control.
+It does not justify using their marginal divergences as additive score weights: correlated features can encode the same information.
+Finite-sample plug-in divergences are descriptive estimates, not unbiased information estimates or proofs that a rule will generalise.
+
+For a genuine pair $(a,b)$, define $C_j(a,b)=P_j(a,b)/[P_j(a)P_j(b)]$ for $j\in\{e,0\}$.
+Then
+\[
+ Q_e(a,b)=Q_e(a)Q_e(b)\frac{C_e(a,b)}{C_0(a,b)}.
+\]
+This separates marginal chain evidence from excess pairing dependence.
+Independent random TRA/TRB pairing sets $C_0=1$ in the specified null; it does not assert independence in natural paired repertoires.
+When one chain is absent, use its observed partner's marginal evidence; an unobserved alpha-chain germline signal cannot be assigned to a beta-only query.
+
+\subsection{Masked four-mers as an information-retrieval score}
+The implemented motif diagnostic follows the archived VDJbet MF--IKF recipe.
+Map amino acids to the eleven classes AILV, RHK, CM, ST, DE, NQ, G, F, P, W and Y.
+Slide a four-residue window along the full junction and replace each of its four positions in turn by a wildcard.
+Let $\mathcal T(x)$ be the resulting set of distinct tokens; repeated occurrences of one token in a junction count once.
+V alleles are pooled to gene identity; the reduction acts on amino acids, not on V-gene names.
+
+For token $t$, let $x_{lve}(t)$ count distinct reference junctions with length $l$, V gene $v$ and full-pMHC label $e$ containing $t$.
+Write $x_{ve}=\sum_lx_{lve}$, $x_e=\sum_{l,v}x_{lve}$ and $x(t)=\sum_e x_e(t)$ over the declared labelled reference universe of $X$ keys.
+A key includes its target label, so a receptor with several labels contributes to several labelled keys.
+The fixed support set is
+\[
+ \mathcal S_{ve}(t)=\{l:x_{lve}(t)\ge2,\ x_{ve}(t)\ge3,\ x_e(t)\ge5\}.
+\]
+For ordinary annotation the score is
+\begin{equation}
+ S_e^{\rm motif}(q)=\frac{1}{L_q}
+ \sum_{t\in\mathcal T(q):\,\mathcal S_{V_qe}(t)\ne\varnothing}
+ \underbrace{\frac{x_{V_qe}(t)}{x(t)}}_{\mathrm{MF}}
+ \underbrace{\ln\frac{X}{x(t)}}_{\mathrm{IKF}}.
+ \label{eq:selection-motif}
+\end{equation}
+The implementation takes the maximum supported length-stratum contribution per token before summing; the displayed unfiltered weight is identical across those strata.
+MF is the target/V share of token-bearing labelled keys, not the usual within-target term frequency $x_{ve}/N_{ve}$.
+IKF is the surprisal of token presence under the labelled reference-key distribution, in nats; dividing by $\ln2$ expresses it in bits.
+This is a TF--IDF analogue, not a fitted likelihood ratio against AIRR control.
+Rare tokens receive more weight only when supported and concentrated in the target/V combination.
+Overlapping windows are dependent; their sum is a retrieval score, not a product of independent probabilities.
+Its support cutoffs are inherited implementation choices, not biophysical constants or a newly fitted parameter grid.
+
+In benchmark mode only exact-hit contributions are filtered from the numerator: replace $x_{V_qe}(t)$ there by the remaining hit count.
+The support set, $x(t)$, $X$, priors, graph and all fitted weights remain fixed.
+No-hit token contributions vanish; no reference model is refitted for an individual query.
+The motif score can expose a useful sequence axis, but selecting it for an epitope still requires evidence that this axis differs from the declared control.
+
+\subsection{Control-relative information in a motif projection}
+For a fixed masked token $t$, define the binary feature $Z_t(x)=\mathbf1\{t\in\mathcal T(x)\}$.
+Within a V-gene/length stratum $(v,l)$, let $n,N$ be reference keys with the motif and all reference keys, and $m,M$ the corresponding control counts.
+Each population uses distinct full-junction/V-gene keys; repeated windows, V alleles and alternative J annotations do not multiply a key.
+With $p=n/N$ and $q=m/M$, the presence contribution and binary information are
+\begin{align}
+ i_t^+(v,l)&=\log_2\frac{p}{q},\nonumber\\
+ D_t(v,l)&=p\log_2\frac{p}{q}+(1-p)\log_2\frac{1-p}{1-q}.
+ \label{eq:binary-motif-information}
+\end{align}
+The first can be negative for a depleted motif; the second is the Kullback--Leibler divergence of one Bernoulli projection, in bits per conditional junction/V key.
+Zero target-probability terms contribute zero by continuity.
+An empty control stratum, unobserved control motif with positive target mass, or unobserved control absence with positive target absence leaves the corresponding empirical comparison unavailable; the counts remain explicit.
+The all-length scope conditions on V only, while the exact-length scope also controls the opportunity to contain more windows in a longer junction.
+J usage and motif position are not additional conditioning variables in this diagnostic.
+
+The shipping \texttt{reference-structure --control} command writes these reference-observed token projections to \texttt{.motifs.tsv}.
+It reuses the existing tokenizer in bounded blocks and reduces once-per-key presence counts, with one control model per species/locus and one fixed model per target.
+Tables are written one target at a time without retaining every target's motif rows.
+Overlapping tokens are dependent: their binary divergences are not an additive estimate of joint sequence information.
+These descriptive projections help identify informative families and motifs; the retained MF--IKF retrieval score, final rule selection and complete-score calibration remain distinct calculations.
+
+\paragraph{Conditional evidence can overcome stratum depletion.}
+Let $N_{\rm all},M_{\rm all}$ count all reference/control junction/V-gene keys in the same declared populations.
+For positive matched counts, the joint presence evidence is
+\[
+ \log_2\frac{n/N_{\rm all}}{m/M_{\rm all}}
+ =\underbrace{\log_2\frac{N/N_{\rm all}}{M/M_{\rm all}}}_{\text{V/length stratum}}
+ +\underbrace{\log_2\frac{n/N}{m/M}}_{\text{conditional motif}}.
+\]
+Thus a depleted germline category can contain a strongly enriched conditional junction solution.
+The V/length and motif terms must use identical strata and population units; a pooled marginal V factor cannot replace the V/length term in an exact-length comparison.
+Neither factor is a receptor veto, and adding overlapping token terms would not preserve this single-projection likelihood identity.
+Unobserved control support remains unavailable rather than receiving an invented probability floor.
+The same \texttt{.motifs.tsv} diagnostic appends whole-population \texttt{total\_reference\_keys} and \texttt{total\_control\_keys}, together with \texttt{stratum\_bits} and direct-count \texttt{joint\_presence\_bits}; the conditional motif fields and availability statuses remain separate.
+
+\subsection{Germline-loop projections with allele ambiguity}
+The germline diagnostic projects existing V-gene counts onto aligned CDR1, CDR2 and CDR2.5 columns, using full residues and eleven-class IMGT reductions separately.
+Columns are one-based positions in the bundled alignment, not structural residue numbers.
+A residue is confirmed only when every bundled allele of its gene agrees at that column; an omitted allele never selects \texttt{*01}.
+Missing models, empty loop templates, stop/unknown symbols and allele-dependent columns retain their original mass and explicit status.
+A dot is aligned absence within a populated loop, not evidence that an empty template is a biological deletion.
+
+Let $w_e(g)$ and $w_0(g)$ count distinct full-junction/V-gene keys for gene $g$, with $N=\sum_gw_e(g)$ and $M=\sum_gw_0(g)$.
+After genes map to one residue, their keys retain separate mass; identical junctions assigned to different genes are not deduplicated again.
+For one loop column and alphabet, let $\mathcal A_g$ be the allowed residue set across modeled alleles; a missing model/template admits the full alphabet.
+For residue $a$, define
+\begin{equation}
+ n_e(a)=\sum_gw_e(g)\mathbf1\{\mathcal A_g=\{a\}\},\qquad
+ u_0(a)=\sum_gw_0(g)\mathbf1\{a\in\mathcal A_g\}.
+\end{equation}
+Any assignment of alleles within those sets gives $p_e(a)\ge n_e(a)/N$ and $p_0(a)\le u_0(a)/M$.
+Therefore, for positive displayed counts,
+\begin{equation}
+ \log_2\frac{p_e(a)}{p_0(a)}
+ \ge \log_2\frac{n_e(a)/N}{u_0(a)/M}.
+ \label{eq:germline-residue-bound}
+\end{equation}
+The exported \texttt{residue\_bits\_lower} allows every compatible or unresolved control gene in the denominator.
+This is an empirical bound over allele assignments under the declared template model, not a sampling interval, population guarantee or P-value.
+Zero compatible control counts leave the bound unavailable instead of supplying infinite evidence; exact-length rows use their stratum-specific counts.
+
+The \texttt{consensus\_bits} and \texttt{consensus\_information\_bits} fields instead describe the deterministic gene-consensus annotation, with unresolved reference mass left unavailable.
+Where defined, its KL divergence cannot exceed V-gene information on the same key population by Equation~\eqref{eq:selection-projection}.
+It is distinct from unknown allele-resolved residue information.
+The shipping \texttt{reference-structure --control} command exports the map, point factors and summaries in \texttt{.germline-map.tsv}, \texttt{.germline.tsv} and \texttt{.germline-information.tsv}.
+Correlated columns, loops and alphabets remain separate projections; their information is not added as independent evidence or used to fit a score-selection rule.
+
+\subsection{Geometry as a projection of selection}
+For a fixed dissimilarity $d$ and radius $r$, define $B_d(q,r)=\{x:d(q,x)\le r\}$.
+Local enrichment is another likelihood ratio, now for the binary neighbourhood event:
+\[
+ Q_{e,d,r}(q)=\frac{P_e(B_d(q,r))}{P_0(B_d(q,r))}.
+\]
+For a nonnegative kernel $K$, the corresponding ratio is
+\[
+ Q_{e,d,K}(q)=
+ \frac{\mathbb E_{X\sim P_e}K(d(q,X))}
+      {\mathbb E_{X\sim P_0}K(d(q,X))},
+\]
+when the denominator is positive.
+These are population definitions of candidate geometry evidence, not identities with every shipped reducer.
+Distances, radii, kernels and sampling units must match on both sides.
+A smooth substitution score can retain within-neighbourhood variation; a discrete motif or edit graph can expose separated recognition families.
+Reduced alphabets can collapse distinct junctions to zero distance, and an alignment dissimilarity need not define a Euclidean manifold.
+
+For $n$ reference keys, the empirical pair-mass curve and its scale-dependent slope are
+\[
+ C_e(r)=\frac{2}{n(n-1)}\sum_{i<j}\mathbf1\{d(x_i,x_j)\le r\},
+ \qquad D_e(r)=\frac{d\log C_e(r)}{d\log r}.
+\]
+The slope describes local growth only where the curve has an estimable nonzero range; discrete plateaux, small samples and disconnected families do not yield a single intrinsic dimension.
+Compare target and control curves under the same geometry and units before attributing density to antigen selection.
+Nearest-neighbour distances $u_i=\min_{j\ne i}d(x_i,x_j)$ give a complementary sorted curve.
+A Kneedle diagnostic locates a change in its rescaled shape; its knee is a geometric scale proposal, not a significance threshold or a confidence probability.
+A constant curve has no identified knee.
+The existing nearest-distance diagnostic and the pair-mass slope are distinct summaries; the latter definition does not claim that it has already been computed.
+
+At a declared radius, graph components with masses $p_k=n_k/n$ have entropy $H_C=-\sum_kp_k\log_2p_k$.
+This describes fragmentation, not antigen information without a matched control comparison.
+The cross-length nearest-neighbour fraction at query length $l$ is
+\[
+ g_l=\frac{\#\{i:L_i=l,\ \min_{j:L_j\ne l}d(x_i,x_j)
+                      <\min_{j\ne i:L_j=l}d(x_i,x_j)\}}
+             {\#\{i:L_i=l,\ \text{both comparisons available}\}}.
+\]
+Strict ties are not cross-length wins; an empty denominator is unavailable.
+Unlike $1-\sum_lP_e(L=l)^2$, this statistic measures an actual geometric relation, not length diversity alone.
+Neither statistic is, by itself, a validated gap-score weight.
+
+\subsection{Fixed reference rules and exact-hit filtering}
+The experimental V-conditioned rule uses fixed full-model target/control sizes $N,M$ and same-gene counts $n,m$; a linked pair has a joint V-gene tuple.
+With $K$ population gene categories including one unseen category, put
+\[
+ p_g=\frac{n+m+1/2}{N+M+K/2},\qquad
+ \rho_g=\frac{(n+p_g)/(N+1)}{(m+p_g)/(M+1)}.
+\]
+If either population lacks the gene category, use neutral $\rho_g=1$ and global sequence rank.
+Exact exclusion changes neither these counts nor that support decision.
+For a sequence kernel, distinguish full-model masses $r_{\rm model},b_{\rm model}$ from filtered-hit masses $r_{\rm hit},b_{\rm hit}$.
+Its pooled pseudo-observation and score are
+\[
+ c_K=\frac{r_{\rm model}+b_{\rm model}+1/2}{n+m+1},\qquad
+ S_K=\rho_g\frac{(r_{\rm hit}+c_K)/(n+1)}{(b_{\rm hit}+c_K)/(m+1)}.
+\]
+The same fixed model supplies $c_K$ before and after exact-hit filtering.
+
+For retained reference hits at distances $d_j$, define the cumulative distance count $C(t)=\sum_j\mathbf1\{d_j\le t\}$.
+For a positive radius $r$, the triangular kernel mass has the exact representation
+\[
+ K(r)=\sum_j(1-d_j/r)_+
+ =\frac1r\int_0^r C(t)\,dt
+ =\frac1r\sum_i\{C(d_i)-C(d_{i-1})\}(r-d_i)_+.
+\]
+Here $d_i$ are the increasing exact distance bins, the count before the first bin is zero, and $(z)_+=\max(0,z)$.
+Integrating each hit indicator proves the identity, including zero-distance hits and zero-weight boundary ties.
+The same cumulative counts therefore supply smooth spatial mass and discrete sequence rank without changing either statistic.
+The implementation traverses the union of reference/control search keys with both memberships retained and reduces bounded count chunks immediately.
+Spatial mass remains same-gene-conditioned; only an unsupported category's rank requires an additional unconditional traversal.
+This computational identity supplies no new probability guarantee.
+
+For the complete sequence-rank calculation, let $(N',M')=(n,m)$ when the gene category is supported and $(N',M')=(N,M)$ otherwise.
+Let $a_i,b_i$ be cumulative retained target/control hit counts at increasing exact distance bins, with $a_0=b_0=0$; the final bin covers every finite eligible distance.
+Define $H_s=\sum_{j=1}^s1/j$ and $h(u,v)=\sum_{j=u}^{v}(1/j)/(v-u+1)$.
+The exported rank is
+\[
+ \mathcal R(q)=\frac{M'+1}{N'H_{M'+1}}
+ \sum_i(a_i-a_{i-1})h(b_{i-1}+1,b_i+1).
+\]
+Full-model denominators remain fixed; an excluded reference contributes zero, rather than returning as a censored observation beyond the last bin.
+No retained reference hits gives zero rank when the model populations are nonempty; empty models remain unavailable.
+This descriptive rank does not transfer a local-rank P-value or posterior guarantee.
+
+For query token set $\mathcal T(q)$, let $u_t,v_t$ be fixed same-gene target/control presence counts for token $t$.
+The correlated enrichment bonus and final experimental rule are
+\[
+ e(q)=\frac{\sum_{t\in\mathcal T(q)}(m u_t-n v_t)_+}{nm|\mathcal T(q)|},\qquad
+ S_{\rm rule}(q)=\rho_g\mathcal R(q)[1+e(q)].
+\]
+Here $(x)_+=\max(0,x)$, and unsupported categories or empty token sets use $e=0$.
+The implementation sums integer cross-count differences before one division, keeping the result independent of query-batch reduction shape.
+Motif frequencies and their enrichment weights are model statistics, so exact exclusion never refits them.
+Likewise the separate conditional-J frequency model remains unchanged by a sequence-hit filter.
+These are empirical ranking diagnostics; their complete rule, gene fallback, paired-axis and label decisions require their own final calibration.
+
+\subsection{Human-readable rules and comparable tails}
+A germline-anchored class has informative V/loop usage relative to control, a motif-constrained class has informative conditional junction motifs, and a distributed-neighbourhood class has informative smooth local enrichment.
+Multiple recognition families can coexist within a target; these labels describe measured axes rather than force each peptide into one exclusive class.
+MHC class, allele, peptide chemistry and available structural contacts motivate an interpretation of those axes; peptide composition alone does not determine receptor recognition or its score.
+Species, chain coverage, length and family support remain explicit conditions.
+No informative supported projection means use the retained general score and report the available evidence, rather than invent specificity.
+
+Let $A$ denote the complete procedure, including data-dependent rule choice, and $T_e(q,R)=T_{A,e}(q,R)$ its higher-is-better score.
+The two directional tails are
+\begin{align}
+ p_{R,e}&=\frac{1+\sum_{b=1}^{B_R}\mathbf1\{T_e(q,R^{*(b)})\ge T_e(q,R)\}}{B_R+1},\nonumber\\
+ p_{Q,e}&=\frac{1+\sum_{b=1}^{B_Q}\mathbf1\{T_e(q^{*(b)},R)\ge T_e(q,R)\}}{B_Q+1}.
+ \label{eq:selection-tails}
+\end{align}
+The reference direction uses composition-matched mock references; the query direction uses control junctions matched to query Pgen strata.
+A stratum conditions on generation probability, not on exact sequence identity or all biological selection effects.
+Each mock reference gets its own fixed model and the same rule-selection algorithm.
+The real reference model remains fixed across queries; the query direction applies the same procedure to every random query.
+Ties enter the upper tail, all null no-hits remain in the denominator, and observed no-hits receive one.
+Under the respective conditional exchangeability assumptions, these are conservative Monte Carlo rank P-values.
+Matching Pgen alone does not prove those assumptions.
+
+\paragraph{Fixed-control sufficient statistics.}
+For control events $i$ with positive integer multiplicities $w_i$, let
+$M=\sum_i w_i$ and $C_f(z)=\sum_i w_i\mathbf1\{f(i)=z\}$ for
+$f\in\{V,J,L\}$, where $L$ is full-junction length and V/J alleles are pooled to genes.
+These three marginal tables are sufficient for the retained original control-prior term:
+\[
+ \sum_{f\in\mathcal F}\log\frac{(R_{e,f}(f(q))+1/2)/(N_e+30)}
+                                  {(C_f(f(q))+1/2)/(M+30)}.
+\]
+Here $R_{e,f}$ counts feature values among the $N_e$ first-source-order unique-junction reference representatives;
+$\mathcal F=\{V,J,L\}$ for beta and $\{V,J\}$ for alpha.
+This is the retained additive marginal-prior approximation, not a claim that those rearrangement features are independent.
+Control counts are constructed once within the operation and shared across all real/mock models, with reference counts recomputed for each model.
+The historical paired recipe retains its beta-control population for both chains.
+Scalar denominators and sequential V/J/length additions retain the original floating-point operation order.
+No reference population is decremented for an exact-hit mask and no computed statistics persist between runs.
+
+\paragraph{Exact streamed reference-tail reduction.}
+Raw components now share numeric storage by complete receptor configuration: full junction, V and J, with both chains retained for a genuine pair.
+Let $\pi(i)$ map source observation $i$ to its configuration among $U$ distinct configurations, and let $Z_k[u,g]$ be component $k$ for target group $g$.
+Every source score is recovered as $Z_k[\pi(i),g]$; repeated reference observations remain in their original models and repeated normalization/test draws remain separate draws.
+Thus storage sharing neither deduplicates statistical observations nor changes the exact-hit filter or source model.
+Single-chain banks retain three float64 scores and one Boolean support flag per configuration--target case; paired banks retain nine scores and three flags, with temporary density/prior factors released before kernel collection.
+An $O(Q+G)$ row/target map restores the $Q$ source identities and $G$ full-pMHC labels only in bounded output batches.
+The raw string case grid is absent from this calibration stage; detailed observed output still has its own case limit, and whole-cohort resource acceptance remains open.
+
+For historical target $e$, let $H_e(q)$ be the ordered PSSM hit list and $b_e(q)$ its unit-edit neighbour count.
+Prepared metadata are retained only on $A_e=\{q:H_e(q)\ne\varnothing\ \text{or}\ b_e(q)>0\}$.
+Outside $A_e$, both counts and edges are zero, so the original density and significance follow their existing no-hit formulas without storing a per-target zero record.
+Unit-edit evidence is retained even if $H_e(q)$ is empty; it cannot be inferred from the PSSM hit list alone.
+The ordered full query-junction axis is shared losslessly across targets, while reference axes and active CSR edges remain target-specific.
+Prepared storage therefore scales with one query axis, $\sum_e|A_e|$ and the retained edges, rather than a full query-axis copy per target.
+Every output query and its unchanged prior, population counts and support status still remain in the score calculation.
+
+Raw gap-block and stem4 score batches carry an observation-row index $u$ and target index $t$.
+For $G$ target groups, the execution key $c=uG+t$ is injective for $0\le t<G$; a sorted key-to-output-row map places every batch into the requested case order.
+Repeated source observations have different $u$ even when they share a native search key.
+Unknown or repeated writes fail, unavailable cases retain missing scores, and one native batch traversal per geometry/population supplies all observations.
+This removes the retained detailed kernel table and repeated full-grid joins, but not the outer raw-component grid or its resource gate.
+
+Component normalization first assigns shared integer identities to its full-pMHC/stratum groups, retaining missing metadata categories.
+For null source $s$, sort all finite pairs $(g,t)$ lexicographically, where $g$ is a group identity and $t$ a score.
+Let $h_s(g)$ be the offset just after the last finite score of $g$, and $\ell_s(g,x)$ the lower-bound offset of $(g,x)$ in that array.
+Then the number of scores in group $g$ at least as large as $x$ is exactly $h_s(g)-\ell_s(g,x)$.
+The denominator includes all source/group draws, including no-hits, and the conservative source maximum uses only sources represented in that group.
+For $n_s$ null rows and $q$ observed rows, this source reduction uses $O(n_s\log n_s+q\log n_s)$ comparisons and linear working space, without one Python tail call per target.
+It is the same empirical tail, not an approximate binning or a transferred final P-value; the arrays are transient within the operation.
+
+For a fixed mock reference, the current combined-score implementation keeps its graph weights and complete normalization bank fixed while reducing at most $65\,536$ already-scored cases per batch.
+Let $\mathcal C_j(q)$ be disjoint batches of target--axis cases for query $q$, and let $U_{e,a}^{*(b)}(q)$ be their support-gated combined scores for mock $b$.
+The database statistic is unchanged because
+\[
+ \max_{(e,a)\in\bigcup_j\mathcal C_j(q)}U_{e,a}^{*(b)}(q)
+ =\max_j\max_{(e,a)\in\mathcal C_j(q)}U_{e,a}^{*(b)}(q).
+\]
+Missing support acts as $-\infty$ in this maximum and is exported as a missing score when every case is unsupported.
+Per-epitope exceedances update immediately; a running maximum per query supplies the complete database event after every batch has been consumed.
+Every observed case must occur exactly once per mock, with missing, repeated or unknown cases rejected.
+This changes storage order only: the same ties, no-hit denominators and fixed-model exact-hit masks enter Equation~\eqref{eq:selection-tails}.
+Numeric component arrays still scale with distinct receptor configurations times target count; full-cohort memory and runtime acceptance remain open.
+
+If both directional P-values are valid for nulls $H_R,H_Q$, then
+$p_{{\rm both},e}=\max(p_{R,e},p_{Q,e})$ is valid for $H_R\cup H_Q$.
+Indeed, under $H_R$, $\Pr(p_{{\rm both},e}\le\alpha)\le\Pr(p_{R,e}\le\alpha)\le\alpha$, and the same holds under $H_Q$.
+No independence assumption is needed.
+This gives a common tail scale for different epitope scoring rules, conditional on their own correctly reproduced nulls; it does not make the scores themselves universal likelihoods.
+Selecting the smallest tail across labels or the strongest paired/marginal axis requires calibration of that complete selection event, not reuse of a component tail.
+The same principle applies when reporting any confident specificity in a repertoire: the reported query/label search scope must match the calibrated event.
+
+\paragraph{Compact reporting with complete-label tails.}
+Let $U_e(q,R)=\max_a T_{e,a}(q,R)$ be the supported axis maximum for full-pMHC label $e$ and let $M(q,R)=\max_e U_e(q,R)$.
+For reference draw $b$ and Pgen-matched query draw $b$, respectively, define
+$M_R^{(b)}(q)=M(q,R^{*(b)})$ and $M_Q^{(b)}=M(q^{*(b)},R)$.
+The reporting tails at an observed label score $u_e=U_e(q,R)$ are
+\[
+\begin{aligned}
+ \widetilde p_{R,e}&=\frac{1+\sum_{b=1}^{B_R}\mathbf1\{M_R^{(b)}(q)\ge u_e\}}{B_R+1},\\
+ \widetilde p_{Q,e}&=\frac{1+\sum_{b=1}^{B_Q}\mathbf1\{M_Q^{(b)}\ge u_e\}}{B_Q+1},\\
+ p_{{\rm any},e}&=\max(\widetilde p_{R,e},\widetilde p_{Q,e}).
+\end{aligned}
+\]
+These differ from the fixed-label tails in Equation~\eqref{eq:selection-tails}: each null score is the complete-label maximum, even when the observed threshold belongs to a nonwinning label.
+All null no-hits remain in the denominator; ties count as exceedances and observed no-hits receive one.
+The parameter $\alpha\in(0,1)$, exposed as \texttt{--fpr} and \texttt{report\_p}, defaults to $0.01$.
+A supported label is reported exactly when $p_{{\rm any},e}\le\alpha$; all ties and every declared target remain in detailed output, with declared targets retained regardless of support or tail.
+The threshold is recorded in calibration metadata.
+
+For fixed null draws both tail functions are nonincreasing in $u_e$.
+Consequently, the event that any supported label passes is the same event as the supported winner $M(q,R)$ passing both complete-label tails.
+Under either valid conditional complete-event null, the corresponding winner tail therefore bounds this per-query any-call event by $\alpha$.
+This is a conditional nominal false-positive rate, not a measured biological error rate, binding posterior or simultaneous guarantee across queries in a repertoire.
+The complete rule/axis/label event must be reproduced inside every draw.
+
+Compact execution first scores the full Pgen-matched query bank against every label, then screens observed detail using $\widetilde p_{Q,e}\le\alpha$.
+This screen is lossless for reporting because $p_{{\rm any},e}\ge\widetilde p_{Q,e}$; declared targets bypass it.
+The retained labels receive the reference-direction tails after every complete mock has been consumed.
+For $Q$ observed queries, $G$ labels and $J=B_QH$ test queries across $H$ Pgen strata, let $F_{h,e}$ contain the finite supported test scores for stratum $h$ and target $e$.
+For finite observed threshold $t$, the unchanged fixed-label tail is
+\[
+ p_{Q,e}(t\mid h)=\frac{1+\sum_{x\in F_{h,e}}\mathbf1\{x\ge t\}}{B_Q+1}.
+\]
+Null no-hits remain in $B_Q$, finite zero scores remain in $F_{h,e}$, and observed no-hits receive one.
+Sorting the $S=\sum_{h,e}|F_{h,e}|$ UInt64-key/float64-score records by stratum/target key gives contiguous fixed-label distributions using $16S$ raw bytes.
+Each test-query maximum retains the all-label statistic; coverage bitsets retain $QG+JG$ bits.
+The conservative allocation guard reserves $48S+32(Q+J)+\lceil QG/8\rceil+\lceil JG/8\rceil+16\,\mathrm{MiB}$ bytes for records, copies, sort scratch, maxima and bin indexes.
+The 2 GiB limit is checked before scoring and every finite append; raw-component, normalization and retained-detail budgets are separate.
+Dense support fails explicitly, without dropping draws, labels, strata or scores.
+Records are released before reference mocks, each of which needs one running maximum per observed query.
+Injective codes $iG+g$ and duplicate checks verify that every source-query/label case appears exactly once per model.
+This reduces output storage only: every real and randomized query still searches all labels and available axes, with each model fixed across its queries.
+
+With $B=199$, a plus-one tail cannot be smaller than $1/200=0.005$.
+Many distinct strong raw scores therefore share the same empirical tail.
+Preserve raw within-epitope ranking alongside cross-epitope tails; finite calibration resolution must not silently erase ranking information.
+The present formulation supplies exact identities and conditional validity statements, not a guarantee of future ranking accuracy, biological binding or state-of-the-art performance.
+
+
+\paragraph{Execution-owned profile reductions.}
+The prepared Pgen-bin map and event pools are fixed model inputs.
+Restricting a junction-key join to the requested reference keys preserves its
+matched bin assignments, missing-key errors and source-record multiplicities;
+it changes neither the bin law nor the seeded sequence of mock draws.
+For bootstrap replicate $b$, token $t$, key count $n_b(t)$ and total key count
+$N_b$, the exported TF--IDF is $n_b(t)\,\mathrm{IDF}(t)/N_b$ with the same fixed
+background IDF as the observed profile.
+Only presence counts and this fixed IDF are needed to recover its mean and
+percentile envelope; recomputing unused per-draw KL diagnostics adds no information.
+Sparse SW graph hits carry their target membership, so a temporary one-dimensional
+reference-index vector recovers the same endpoint IDs without repeated binary
+searches. Its storage is linear in the unique reference keys, with no dense
+population-by-reference matrix, changed edges or persisted intermediate state.
 
 \end{document}

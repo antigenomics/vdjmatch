@@ -1,0 +1,157 @@
+"""Control-relative binary motif projections, conditional on V and length."""
+import numpy as np
+import polars as pl
+
+from .structure import _gene_expression
+from ..match.motifs import masked_motif_presence_counts
+
+
+def motif_population(records, *, locus, mode='imgt_wild4'):
+    """Transient fixed key/count populations for both declared length scopes.
+
+    Input cdr3/v uses anchor-inclusive junctions. Alleles and J annotations do
+    not multiply a full-junction/V-gene key; unknown reference genes stay null.
+    Caller selects species/locus before this reduction. No event/read weighting.
+    ``mode`` selects exact3/imgt3/wild4/imgt_wild4 in the existing tokenizer.
+    """
+    if locus not in {'TRA', 'TRB'}:
+        raise ValueError('motif population requires TRA or TRB')
+    keys = records.select('cdr3', _gene_expression(locus, 'V').alias('v_gene'),
+        pl.col('cdr3').str.len_chars().alias('junction_length')).unique(['cdr3', 'v_gene'], maintain_order=True)
+    strata = keys.group_by('v_gene', 'junction_length', maintain_order=True).len(name='keys').with_row_index('_stratum')
+    frame = keys.join(strata.select('v_gene', 'junction_length', '_stratum'),
+        on=['v_gene', 'junction_length'], nulls_equal=True, validate='m:1', maintain_order='left').select(
+            pl.col('cdr3').alias('seq0'), pl.col('_stratum').alias('v0')).with_row_index('_id')
+    counts, vocabulary = masked_motif_presence_counts(frame, mode=mode)
+    pooled = strata.group_by('v_gene', maintain_order=True).agg(pl.col('keys').sum()).with_row_index('_pooled')
+    indices = strata.select('v_gene').join(pooled, on='v_gene', nulls_equal=True, validate='m:1', maintain_order='left')['_pooled'].to_numpy()
+    pooled_counts = np.zeros((pooled.height, vocabulary.height), dtype=np.int64)
+    np.add.at(pooled_counts, indices, counts)
+    pooled = pooled.rename({'_pooled': '_stratum'}).with_columns(pl.lit(None, dtype=pl.UInt32).alias('junction_length'))
+    return {'exact_length': (strata, counts), 'all_lengths': (pooled, pooled_counts),
+            'vocabulary': vocabulary, 'mode': mode}
+
+
+def motif_selection_information(reference, control, *, locus, mode='imgt_wild4'):
+    """Per-token presence likelihood ratios and Bernoulli KL within V/length.
+
+    Each token is one binary projection. Overlapping tokens are dependent;
+    their KL values are not an additive joint sequence information estimate.
+    Emit reference-observed tokens, retaining missing control strata/support.
+    ``control`` is this invocation's :func:`motif_population` from control keys.
+    Whole-population counts also expose the matched stratum factor and joint
+    stratum/token presence evidence. These are single-feature projections;
+    overlapping tokens must not be added as independent evidence.
+    Reference and control must use the same ``mode`` (default imgt_wild4).
+    """
+    if control['mode'] != mode:
+        raise ValueError('reference and control motif mode must match')
+    observed = motif_population(reference, locus=locus, mode=mode)
+    document_frequency = control['all_lengths'][1].sum(axis=0)
+    parts = []
+    for scope in ('all_lengths', 'exact_length'):
+        strata, counts = observed[scope]
+        background, background_counts = control[scope]
+        matched = strata.join(background.select('v_gene', 'junction_length',
+            pl.col('_stratum').alias('_control'), pl.col('keys').alias('control_keys')),
+            on=['v_gene', 'junction_length'], how='left', nulls_equal=True, validate='1:1', maintain_order='left')
+        row, token = np.nonzero(counts)
+        n = counts[row, token]
+        N = strata['keys'].to_numpy()[row]
+        M = matched['control_keys'].fill_null(0).to_numpy()[row]
+        ids = matched['_control'].fill_null(0).to_numpy()[row]
+        m = np.zeros(len(row), dtype=np.int64)
+        present = M > 0
+        m[present] = background_counts[ids[present], token[present]]
+        p = n / N
+        q = np.divide(m, M, out=np.full(len(row), np.nan), where=present)
+        bits = np.full(len(row), np.nan)
+        valid_presence = present & (m > 0)
+        bits[valid_presence] = np.log2(p[valid_presence] / q[valid_presence])
+        valid = valid_presence & ((n == N) | (m < M))
+        information = np.full(len(row), np.nan)
+        information[valid] = p[valid] * bits[valid]
+        absent = valid & (n < N)
+        information[absent] += (1-p[absent]) * np.log2((1-p[absent]) / (1-q[absent]))
+        status = np.full(len(row), 'available', dtype=object)
+        status[~present] = 'no_control_stratum'
+        status[present & (m == 0)] = 'motif_not_observed_in_control'
+        status[valid_presence & (m == M) & (n < N)] = 'absence_not_observed_in_control'
+        genes = strata['v_gene'].gather(row)
+        status[genes.is_null().to_numpy()] = 'unresolved_reference_gene'
+        parts.append(pl.DataFrame({'v_gene': genes,
+            'junction_length': strata['junction_length'].gather(row), 'length_scope': pl.Series([scope] * len(row), dtype=pl.String),
+            'motif': observed['vocabulary']['t0'].gather(token),
+            'reference_keys': N, 'control_keys': M, 'reference_with_motif': n, 'control_with_motif': m,
+            'control_document_frequency': document_frequency[token],
+            'reference_fraction': p, 'control_fraction': pl.Series(q, nan_to_null=True),
+            'presence_bits': pl.Series(bits, nan_to_null=True),
+            'motif_information_bits': pl.Series(information, nan_to_null=True), 'information_status': pl.Series(status, dtype=pl.String)}))
+    reference_total = int(observed['exact_length'][0]['keys'].sum())
+    control_total = int(control['exact_length'][0]['keys'].sum())
+    return pl.concat(parts).with_columns(
+        pl.lit(reference_total, dtype=pl.UInt64).alias('total_reference_keys'),
+        pl.lit(control_total, dtype=pl.UInt64).alias('total_control_keys')).with_columns(
+        pl.when((pl.col('control_keys') > 0) & (control_total > 0)).then(
+            ((pl.col('reference_keys') / reference_total) /
+             (pl.col('control_keys') / control_total)).log(2)).alias('stratum_bits'),
+        pl.when((pl.col('control_with_motif') > 0) & (control_total > 0)).then(
+            ((pl.col('reference_with_motif') / reference_total) /
+             (pl.col('control_with_motif') / control_total)).log(2)).alias('joint_presence_bits')
+    ).with_columns(
+        ((pl.lit(control_total + 1) / (pl.col('control_document_frequency') + 1)).log() + 1).alias('idf'),
+        pl.lit(mode).alias('motif_mode'),
+        pl.lit('imgt11' if 'imgt' in mode else 'full20').alias('motif_alphabet')
+    ).with_columns((pl.col('reference_with_motif') / reference_total * pl.col('idf')).alias('tfidf')
+    ).sort('length_scope', 'v_gene', 'junction_length', 'motif', nulls_last=True)
+
+
+def motif_bootstrap(reference, control_events, control, observed, *, pgen, locus,
+                    species, replicates, seed, threads=1, prepared_control=None):
+    """Pgen-matched control-resampling envelope for the observed TF-IDF rows.
+
+    Reuse the existing event-slot sampler and vdjtools native Pgen map. Draws
+    match source-record counts, then deduplicate the same junction/V keys as
+    the observed diagnostic. These are control envelopes, not sampling CIs
+    for selection bits or calibrated specificity probabilities.
+    """
+    from ..evalue.mock_reference import iter_mock_references
+
+    if replicates < 2:
+        raise ValueError('motif bootstrap requires at least two replicates')
+    if 3 * (replicates + 2) * observed.height * 8 > 2 * 1024**3:
+        raise ValueError('motif bootstrap envelope exceeds 2 GiB; select fewer targets/tokens or replicates')
+    keys = ['v_gene', 'junction_length', 'length_scope', 'motif']
+    axis = observed.select(keys).with_row_index('_output')
+    if axis.select(keys).is_duplicated().any():
+        raise ValueError('motif bootstrap axis must be unique')
+    # Fixed background IDF is model data; each draw needs only motif presence.
+    frequency = control['all_lengths'][1].sum(axis=0)
+    total = int(control['exact_length'][0]['keys'].sum())
+    vocabulary = control['vocabulary'].rename({'t0': 'motif'}).with_columns(
+        pl.Series('_df', frequency)).with_columns(
+            ((pl.lit(total+1)/(pl.col('_df')+1)).log()+1).alias('_idf'))
+    axis = axis.join(vocabulary.select('motif','_token_id','_idf'),on='motif',
+        how='left',validate='m:1',maintain_order='left')
+    draws = np.zeros((replicates, observed.height), dtype=np.float64)
+    raw = reference.select(pl.col('cdr3').alias('junction_aa')).with_columns(pl.lit(0).alias('group_id'))
+    for i, mock in enumerate(iter_mock_references(raw, control_events, replicates=replicates,
+            seed=seed, pgen=pgen, species=species, locus=locus, threads=threads,
+            prepared_control=prepared_control)):
+        population = motif_population(mock.rename({'junction_aa': 'cdr3'}),
+            locus=locus,mode=control['mode'])
+        reference_total = int(population['exact_length'][0]['keys'].sum())
+        for scope in ('all_lengths','exact_length'):
+            strata, counts = population[scope]
+            matched = axis.filter(pl.col('length_scope')==scope).join(
+                strata.select('v_gene','junction_length','_stratum'),
+                on=['v_gene','junction_length'],how='left',nulls_equal=True,
+                validate='m:1',maintain_order='left').drop_nulls(['_stratum','_token_id'])
+            if matched.height:
+                rows = matched['_output'].to_numpy()
+                n = counts[matched['_stratum'].to_numpy(),matched['_token_id'].to_numpy()]
+                draws[i,rows] = n/reference_total*matched['_idf'].to_numpy()
+    return observed.with_columns(pl.lit(replicates).alias('control_replicates'),
+        pl.Series('control_tfidf_mean', draws.mean(axis=0)),
+        pl.Series('control_tfidf_lo', np.quantile(draws, .025, axis=0)),
+        pl.Series('control_tfidf_hi', np.quantile(draws, .975, axis=0)))

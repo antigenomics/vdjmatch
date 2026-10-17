@@ -434,28 +434,33 @@ def test_explicit_control_mappings_require_active_loci(monkeypatch):
             paired.paired_candidates(q, control={"TRB": ctrl}, calibrate=calibrate)
 
 
-def test_single_chain_punctures_counts_and_population_like_physical_removal():
+def test_single_chain_exact_hit_mask_preserves_model_populations():
+    from seqtree.evalue import evalue_result
     r = reference()
     controls = ['CASSF', 'CASSF', 'CASSL', 'CWWWF']
-    query = ['CASSF']
     actual = Annotator.from_frame(r).candidates(
-        query, scope='1', control=Index.build(controls, 'aa'), exclude_exact=True)
-    expected = Annotator.from_frame(r.filter(pl.col('cdr3') != 'CASSF')).candidates(
-        query, scope='1', control=Index.build([c for c in controls if c != 'CASSF'], 'aa'))
-    assert actual['n_reference'].to_list() == expected['n_reference'].to_list() == [1]
-    assert actual.select('ned_score', 'E', 'p_enrichment', 'p_any', 'n_control').equals(
-        expected.select('ned_score', 'E', 'p_enrichment', 'p_any', 'n_control'))
-    assert actual['calibration'].to_list() == ['fixed_ball_punctured']
+        ['CASSF'], scope='1', control=Index.build(controls, 'aa'), exclude_exact=True)
+    row = actual.row(0, named=True)
+    assert row['n_target'] == 1 and row['n_control'] == 1
+    assert row['n_reference'] == 2  # ONE retains CASSF and CASSL in its model.
+    expected = evalue_result(1, 1, 2, len(controls))
+    for field in ('E', 'p_enrichment', 'p_any'):
+        assert row[field] == expected[field]
+    # Keep the established output label; puncture describes hits, not populations.
+    assert row['calibration'] == 'fixed_ball_punctured'
 
 
-def test_exact_exclusion_retains_evidence_when_control_population_becomes_empty():
-    actual=Annotator.from_frame(reference()).candidates(['CASSF'],scope='1',
-        control=Index.build(['CASSF','CASSF'],'aa'),exclude_exact=True)
-    assert actual.height==1 and actual['n_target'].to_list()==[1]
-    assert actual['n_control'].to_list()==[0]
-    assert actual['calibration'].to_list()==['unavailable_empty_control']
-    for field in ('E','p_enrichment','p_any'):assert actual[field].null_count()==1
-    assert actual['rule_of_three'].to_list()==[False]
+def test_exact_exclusion_retains_nonempty_control_model_with_no_control_hits():
+    from seqtree.evalue import evalue_result
+    actual = Annotator.from_frame(reference()).candidates(['CASSF'], scope='1',
+        control=Index.build(['CASSF', 'CASSF'], 'aa'), exclude_exact=True)
+    row = actual.row(0, named=True)
+    assert actual.height == 1 and row['n_target'] == 1 and row['n_control'] == 0
+    assert row['n_reference'] == 2 and row['calibration'] == 'fixed_ball_punctured'
+    expected = evalue_result(1, 0, 2, 2)
+    for field in ('E', 'p_enrichment', 'p_any'):
+        assert row[field] == expected[field]
+    assert row['rule_of_three'] == expected['rule_of_three']
 
 
 def test_batched_epitope_removal_equals_physical_removal():

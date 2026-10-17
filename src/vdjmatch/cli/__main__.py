@@ -60,15 +60,41 @@ def _cmd_update(a: argparse.Namespace) -> int:
     db = __getattr__("db")
     path = db.fetch_latest(asset=a.asset, pin=a.pin, force=a.force, cache=a.cache)
     print(f"VDJdb {a.asset} cached at {path}")
+    _prepare_reference(path, asset=a.asset, threads=a.threads)
+    return 0
+
+
+def _prepare_reference(path, *, asset="default", species=None, threads=4):
+    from ..db.index import load_or_build_index
+
+    index, profiles, manifest = load_or_build_index(
+        path, asset=asset, species=species, threads=threads)
+    print(f"Reference index: {manifest['artifact_path']}")
+    print(f"Epitope/pMHC profiles: {Path(manifest['artifact_path']) / 'profiles.tsv'} "
+          f"({profiles.height:,} rows)")
+    print(f"Marginal alpha/beta classes: {Path(manifest['artifact_path']) / 'joint-profiles.tsv'}")
+    return index, profiles, manifest
+
+
+def _cmd_index(a: argparse.Namespace) -> int:
+    path = a.vdjdb
+    if path is None:
+        path = __getattr__("db").fetch_latest(asset=a.asset, pin=a.pin, cache=a.cache)
+    _prepare_reference(path, asset=a.asset, species=a.species, threads=a.threads)
     return 0
 
 
 def _cmd_annotate(a: argparse.Namespace) -> int:
+    if a.control and a.background == 'vdjdb-other':
+        from .combined import main
+        return main(a)
+    if a.mock_replicates != 200 or a.seed != 0 or a.fpr != .01 or a.evidence_type or a.min_score:
+        raise ValueError('mock-replicates, seed, fpr and evidence filters require annotate --control with the default background')
     from ..runner.annotation import annotate_repertoires
 
     options = vars(a).copy()
     for name in ("cmd", "func", "sample", "metadata", "vdjdb", "output_prefix",
-                 "locus", "species", "threads"):
+                 "locus", "species", "threads", "mock_replicates", "seed", "fpr", "evidence_type", "min_score"):
         options.pop(name, None)
     annotate_repertoires(a.sample, metadata=a.metadata, reference=a.vdjdb,
         output_prefix=a.output_prefix, locus=a.locus, species=a.species,
@@ -176,19 +202,21 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "evidence_type",
         )
     }
-    vdj = db.load(
+    from ..db.index import load_or_build_index
+    index, _, index_manifest = load_or_build_index(
         reference,
         asset=a.asset,
         species=reference_species,
+        threads=p.threads,
         min_score=p.min_score,
         **reference_filters,
     )
-    index = match.VdjdbIndex.build(vdj)
+    vdj = index.reference
     print(
         f"VDJdb: {vdj.height:,} observations; indexed loci {index.genes}",
         file=sys.stderr,
     )
-    reference_provenance = db.provenance(reference)
+    reference_provenance = index_manifest["identity"]["source"]
     controls, control_provenance = None, {}
     if supplied_controls or getattr(a, "fresh_control", False):
         from ..evalue.control import raw_background
@@ -467,6 +495,7 @@ def main(argv: list[str] | None = None) -> int:
         help="bundle/table role (default: primary, historical long fallback)",
     )
     up.add_argument("--cache", default=None, help="reference download directory")
+    up.add_argument("--threads", type=int, default=4, help="native indexing threads (default: 4)")
     up.add_argument(
         "--pin", default=None, help="pin a specific release tag (default: latest)"
     )
@@ -474,6 +503,15 @@ def main(argv: list[str] | None = None) -> int:
         "--force", action="store_true", help="re-download even if already cached"
     )
     up.set_defaults(func=_cmd_update)
+
+    ix = sub.add_parser("index", help="prepare a saved native reference index and epitope/pMHC classes")
+    ix.add_argument("--vdjdb", help="custom reference table, archive or directory; otherwise fetch VDJdb")
+    ix.add_argument("--asset", default="default", choices=["slim", "full", "default", "primary", "legacy", "airr"])
+    ix.add_argument("--species", default=None, help="optional reference species filter")
+    ix.add_argument("--threads", type=int, default=4)
+    ix.add_argument("--cache", default=None, help="reference download directory")
+    ix.add_argument("--pin", default=None, help="pin a release when fetching VDJdb")
+    ix.set_defaults(func=_cmd_index)
 
     m = sub.add_parser(
         "match",
@@ -760,6 +798,8 @@ def main(argv: list[str] | None = None) -> int:
     from .first_hit import register
 
     register(sub)
+    from .database import register as register_database
+    register_database(sub)
     from .search import register as register_search
 
     register_search(sub)
@@ -769,9 +809,18 @@ def main(argv: list[str] | None = None) -> int:
     register_motifs(sub)
     from .combination import register as register_combination
     register_combination(sub)
-    from .tcrdist import register as register_tcrdist
-    register_tcrdist(sub)
-    annotation = register_tcrdist(sub,name="annotate")
+    from .neighbours import register as register_neighbours
+    register_neighbours(sub)
+    evidence = register_neighbours(sub, name="evidence")
+    annotation = register_neighbours(sub,name="annotate")
+    # Reuse annotation's model without changing the calibrated scorer source.
+    evidence.set_defaults(**annotation._defaults)
+    evidence.description = "VDJmatch neighbourhood evidence for single or paired receptors."
+    for choice in sub._choices_actions:
+        if choice.dest == "evidence":
+            choice.help = "VDJmatch neighbourhood evidence"
+        elif choice.dest == "neighbours":
+            choice.help = "legacy command; use evidence for the current model"
     for action in annotation._actions:
         if action.dest == "sample":
             action.nargs = "?"
@@ -787,6 +836,22 @@ def main(argv: list[str] | None = None) -> int:
     annotation.add_argument("--metadata", help="TSV with path and optional sample_id; paths relative to this TSV")
     annotation.add_argument("--details", dest="selection_only", action="store_false",
                             help="also export per-target evidence and candidates; memory grows with queries × targets")
+    annotation.add_argument('--mock-replicates', type=int, default=200,
+                            help='with --control: fresh draws per direction (default: 200)')
+    annotation.add_argument('--seed', type=int, default=0, help='with --control: reproducible randomization seed')
+    annotation.add_argument('--fpr', type=float, default=.01,
+                            help='with --control: any-call P-value threshold for reported specificities (default: 0.01)')
+    annotation.add_argument('--evidence-type', action='append', help='with --control: filter reference evidence before recalibration')
+    annotation.add_argument('--min-score', type=int, default=0, help='with --control: minimum reference evidence score')
+    annotation._option_string_actions['--control'].help = 'one raw control repertoire; calibrate the complete combined score on demand'
+    basic = {'help', 'vdjdb', 'locus', 'species', 'reference_population', 'epitope', 'mhc_a', 'mhc_b',
+             'mhc_match', 'threads', 'verbose', 'control', 'exclude_exact', 'output_prefix', 'metadata',
+             'mock_replicates', 'seed', 'fpr', 'evidence_type', 'min_score'}
+    advanced = annotation.add_argument_group('Advanced scorer diagnostics')
+    for action in list(annotation._optionals._group_actions):
+        if action.dest not in basic:
+            annotation._optionals._group_actions.remove(action)
+            advanced._group_actions.append(action)
     annotation.set_defaults(func=_cmd_annotate, selection_only=True)
     from .scoring_audit import register as register_scoring_audit
     register_scoring_audit(sub)
@@ -796,21 +861,51 @@ def main(argv: list[str] | None = None) -> int:
     register_calibration(sub)
     from .reference_calls import register as register_reference_calls
     register_reference_calls(sub)
+    from .reference_confusion import register as register_reference_confusion
+    register_reference_confusion(sub)
+    from .reference_profiles import register as register_reference_profiles
+    register_reference_profiles(sub)
+    from .reference_rule_scores import register as register_reference_rule_scores
+    register_reference_rule_scores(sub)
+    from .paired_labels import register as register_paired_labels
+    register_paired_labels(sub)
     from .paired_order import register as register_paired_order
     register_paired_order(sub)
     from .radius import register as register_radius
     register_radius(sub)
     from .support import register as register_support
     register_support(sub)
+    from .structure import register as register_structure
+    register_structure(sub)
+    from .coverage import register as register_coverage
+    register_coverage(sub)
+    from .diagnostics import register as register_diagnostics
+    register_diagnostics(sub)
+    from .control_model import register as register_control_model
+    register_control_model(sub)
+    from .motif_position import register as register_motif_position
+    register_motif_position(sub)
+    from .reference_pairing import register as register_reference_pairing
+    register_reference_pairing(sub)
+    from .score_policy import register as register_score_policy
+    register_score_policy(sub)
+    from .reference_density import register as register_reference_density
+    register_reference_density(sub)
+    from .fixed_scope import register as register_fixed_scope
+    register_fixed_scope(sub)
+    register_fixed_scope(sub, trained=True)
 
     a = p.parse_args(argv)
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
-    evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence"}
+    evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
+    evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update'})
+    if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
+        evidence_commands.add('annotate')
     kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
     previous_kernels = {key: os.environ.get(key) for key in kernel_env} if a.cmd in evidence_commands else {}
-    if a.cmd in {"match", "update", "first-hit", "search", "historical-density", "tcrdist-neighbours", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support"} | evidence_commands:
+    if a.cmd in {"match", "update", "first-hit", "database-evidence", "search", "historical-density", "neighbours", "evidence", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support", "reference-structure", "reference-coverage", "fixed-scope", "trained-score"} | evidence_commands:
         import os
         import json
 
@@ -828,6 +923,8 @@ def main(argv: list[str] | None = None) -> int:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
             if table_threads < 1:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
+            if a.cmd == 'database-evidence' or (a.cmd == 'annotate' and a.cmd in evidence_commands):
+                table_threads = 1
             os.environ["POLARS_MAX_THREADS"] = str(min(threads, table_threads))
     os.environ.update(dict.fromkeys(previous_kernels, "1"))
     try:

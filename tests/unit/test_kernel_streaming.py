@@ -25,7 +25,7 @@ def test_streamed_selection_preserves_restrictions_ties_and_missing(order):
 
 def _annotation_main(args):
     import argparse
-    from vdjmatch.cli.tcrdist import register
+    from vdjmatch.cli.neighbours import register
     parser=argparse.ArgumentParser()
     register(parser.add_subparsers(),name='annotate')
     a=parser.parse_args(args)
@@ -66,7 +66,7 @@ def test_cli_streamed_selection_matches_detailed(tmp_path,selectors,radius):
 
 
 def test_native_stem_rounding_at_dense_membership_boundaries():
-    from vdjmatch.match.tcrdist import distance_matrix,total_distance_count_batch
+    from vdjmatch.match.geometry import distance_matrix,total_distance_count_batch
     q=['CASSLGQAYEQYF'];r=['WASSLGQAYEQYF','CASALGQAYEQWF','CASSLGQAPAYEQYF']
     for weight in [1,.25,1.5]:
         options=dict(ctrim=3,matrix='blosum62',stem_depth=4,stem_weight=weight)
@@ -94,3 +94,14 @@ def test_paired_streaming_preserves_unlinked_marginal_selections(tmp_path):
         assert_frame_equal(pl.read_csv(str(tmp_path/'False')+suffix+'.selection.tsv',separator='\t'),
                            pl.read_csv(str(tmp_path/'True')+suffix+'.selection.tsv',separator='\t'),check_dtypes=False,check_exact=True)
     assert not (tmp_path/'True.paired-evidence.tsv').exists()
+
+
+def test_annotation_does_not_prepare_unused_reference_profiles(tmp_path, monkeypatch):
+    from vdjmatch.db import index
+    def forbidden(*args, **kwargs):
+        raise AssertionError('annotation must not prepare unused reference profiles')
+    monkeypatch.setattr(index, 'load_or_build_index', forbidden)
+    sample, reference = _single_inputs(tmp_path)
+    assert _annotation_main(['annotate', str(sample), '--vdjdb', str(reference),
+        '--locus', 'TRB', '--selection-only', '--output-prefix', str(tmp_path/'result')]) == 0
+    assert not reference.with_name(reference.name+'.vdjmatch').exists()

@@ -6,14 +6,14 @@ import pytest
 
 
 def test_mixed_cdr12_precomputes_once(tmp_path, monkeypatch):
-    from vdjmatch.match import tcrdist
+    from vdjmatch.match import geometry
     paths, reference = inputs(tmp_path)
-    prepare = tcrdist.precompute_v_loop_distances
+    prepare = geometry.precompute_v_loop_distances
     calls = []
     def recorded(**kwargs):
         calls.append(kwargs)
         return prepare(**kwargs)
-    monkeypatch.setattr(tcrdist, 'precompute_v_loop_distances', recorded)
+    monkeypatch.setattr(geometry, 'precompute_v_loop_distances', recorded)
     result = annotate_repertoires(paths, reference=reference, v_regions='cdr12',
         output_prefix=tmp_path/'cdr12', threads=2)
     assert calls == [dict(species='human', alphabet='full', matrix='blosum62', v_regions='cdr12')]
@@ -23,7 +23,7 @@ def test_mixed_cdr12_precomputes_once(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('matrix,profile', [('pam250','uniform'),('mj','uniform'),
-    ('vdjam','uniform'),('tcrdist','significance-trimmed'),('blosum62','significance-trimmed')])
+    ('vdjam','uniform'),('clipped','significance-trimmed'),('blosum62','significance-trimmed')])
 def test_retained_geometry_cli_routes(tmp_path, matrix, profile):
     from vdjmatch.cli.__main__ import main
     paths, reference = inputs(tmp_path)

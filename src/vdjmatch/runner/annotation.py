@@ -75,11 +75,11 @@ def _validate_output_paths(prefix, protected):
     protected = {Path(path).resolve() for path in protected}
     for path in protected:
         if (path.is_dir() and prefix.parent.is_relative_to(path)) or (
-                path.parent == prefix.parent and path.name.startswith(prefix.name + ".") and path.name.endswith((".tsv", ".json"))):
+                path.parent == prefix.parent and path.name.startswith(prefix.name + ".") and path.name.endswith((".tsv", ".json", ".parquet", ".pq"))):
             raise ValueError("annotation output path conflicts with an input/reference/metadata file")
     if prefix.parent.exists():
         for output in prefix.parent.iterdir():
-            if (output.name.startswith(prefix.name + ".") and output.name.endswith((".tsv", ".json"))
+            if (output.name.startswith(prefix.name + ".") and output.name.endswith((".tsv", ".json", ".parquet", ".pq"))
                     and any(output.resolve() == path or (path.is_dir() and output.resolve().is_relative_to(path)) or
                             (output.exists() and path.is_file() and output.samefile(path)) for path in protected)):
                 raise ValueError("annotation output path conflicts with an input/reference/metadata file")
@@ -94,9 +94,9 @@ def _sample_name(path):
 
 
 def _core_defaults(reference, prefix):
-    from ..cli import tcrdist
+    from ..cli import neighbours
     parser = argparse.ArgumentParser()
-    tcrdist.register(parser.add_subparsers(dest="command"), name="annotate")
+    neighbours.register(parser.add_subparsers(dest="command"), name="annotate")
     return parser.parse_args(["annotate", "unused", "--vdjdb", str(reference),
                               "--locus", "TRB", "--output-prefix", str(prefix)])
 
@@ -173,7 +173,7 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     from vdjtools.cores import kernel_threads
     kernel_threads(threads)
     from .. import db, io
-    from ..cli import tcrdist
+    from ..cli import neighbours
     from ..db.cache import sha256
 
     started = time.perf_counter()
@@ -187,7 +187,7 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         vars(defaults).update(options)
         defaults.selection_only=selection_only
         defaults.locus=locus
-        tcrdist._apply_geometry_extra(defaults)
+        neighbours._apply_geometry_extra(defaults)
         options.update({key:getattr(defaults,key) for key in
             ('distance_matrix','junction_ends','stem_depth','stem_weight')})
     rows = _input_rows(inputs, metadata)
@@ -244,7 +244,7 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         paired_rows.height>0 and cohort.filter(pl.col('_population')=='single').height>0)
     marginal_tables={};service_batches=[];detail_columns={}
     from ..evalue.control import _organism
-    from ..match.tcrdist import precompute_v_loop_distances
+    from ..match.geometry import precompute_v_loop_distances
     v_loop_distances=precompute_v_loop_distances(species=_organism(species),
         alphabet=options.get('alphabet',defaults.alphabet),
         matrix=options.get('distance_matrix',defaults.distance_matrix),
@@ -272,9 +272,9 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
             args.sample, args.locus, args.species = str(sample), population, species
             args.threads, args.selection_only = threads, selection_only
             if mixed_union and population=='paired':
-                tcrdist.main(args,marginal_tables=marginal_tables,v_loop_distances=v_loop_distances)
+                neighbours.main(args,marginal_tables=marginal_tables,v_loop_distances=v_loop_distances)
             else:
-                tcrdist.main(args,v_loop_distances=v_loop_distances)
+                neighbours.main(args,v_loop_distances=v_loop_distances)
             service_batches.append({'locus':population,'service_chain_rows':service_part.height,
                 'standalone_chain_rows':part.height if population!='paired' else 0,
                 'paired_chain_rows':paired_rows.height if mixed_union else part.height if population=='paired' else 0})

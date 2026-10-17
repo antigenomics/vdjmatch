@@ -23,13 +23,14 @@ from __future__ import annotations
 import subprocess
 import sys
 import urllib.request
+import argparse
 from pathlib import Path
 
 import polars as pl
 
 REPO = Path(__file__).resolve().parent.parent
 WORK = REPO / "tmp" / "nlv_struct"
-MS = Path("/Users/mikesh/vcs/manuscripts/2026-vdjmatch")
+MS = Path.home() / "vcs/manuscripts/2026-vdjmatch-ms"
 FIG = MS / "figures"
 FIGDATA = FIG / "data"
 TEX = MS / "appendix" / "_tab_nlv_contacts.tex"
@@ -129,8 +130,34 @@ THREE_TO_ONE = {
 }
 
 
+def map_contact_residues(pdb: Path, beta_chain: str, pep_chain: str, contacts: pl.DataFrame):
+    """Map saved zero-based indices through the producer's parser; retain author insertion codes."""
+    from tcren.structure import parse_structure
+    structure = parse_structure(pdb)
+    if structure.chain(pep_chain).sequence() != PEPTIDE:
+        raise ValueError('saved structure does not contain the declared NLV peptide')
+    columns = []
+    for side, chain_id in [('from', beta_chain), ('to', pep_chain)]:
+        chain = structure.chain(chain_id)
+        labels = []
+        for row in contacts.iter_rows(named=True):
+            residue = chain.by_seq_index(row[f'residue.index.{side}'])
+            if residue is None or residue.aa != row[f'residue.aa.{side}']:
+                raise ValueError(f'saved contact residue identity mismatch: {chain_id}/{row}')
+            if f'atom.{side}' in row and row[f'atom.{side}'] not in {a.name for a in residue.atoms}:
+                raise ValueError('saved contact atom is absent from its mapped residue')
+            labels.append(f'{residue.pdb_index}{residue.insertion_code}')
+        columns.append(pl.Series(f'author_residue.{side}', labels))
+    beta = structure.chain(beta_chain)
+    lo, hi = contacts['residue.index.from'].min(), contacts['residue.index.from'].max()
+    context = '+'.join(f'{r.pdb_index}{r.insertion_code}' for r in beta.residues
+                       if lo-2 <= r.seq_index <= hi+2)
+    return contacts.with_columns(*columns,
+        (pl.col('residue.index.to')+1).alias('peptide_position')), context
+
+
 def write_pymol_script(pdb: Path, beta_chain: str, pep_chain: str,
-                       contacts: pl.DataFrame, png: Path) -> Path:
+                       contacts: pl.DataFrame, png: Path, *, beta_context: str) -> Path:
     """Generate a batch .pml that colours TCR CDR loops + NLV peptide by KD hydropathy and draws
     the CDR3beta-peptide contacts; ray-traced PNG at >=300 dpi."""
     # set b-factor = KD hydropathy for every residue so spectrum colouring is by hydropathy
@@ -140,16 +167,14 @@ def write_pymol_script(pdb: Path, beta_chain: str, pep_chain: str,
     # contact distance objects between specific CDR3b residue and peptide residue
     dist_cmds = []
     for i, row in enumerate(contacts.iter_rows(named=True)):
-        ti = row["residue.index.from"]
-        pi = row["residue.index.to"]
+        ti = row['author_residue.from']
+        pi = row['author_residue.to']
         dist_cmds.append(
-            f'distance ct{i}, (chain {beta_chain} and resi {ti} and not name N+C+O), '
-            f'(chain {pep_chain} and resi {pi})'
+            f'distance ct{i}, (chain {beta_chain} and resi {ti} and name {row["atom.from"]}), '
+            f'(chain {pep_chain} and resi {pi} and name {row["atom.to"]})'
         )
     dist_block = "\n".join(dist_cmds)
-    # alpha chain id: pick the partner TRA chain near this beta (annot has chain types)
-    lo = contacts["residue.index.from"].min()
-    hi = contacts["residue.index.from"].max()
+    contact_ids = '+'.join(contacts['author_residue.from'].unique(maintain_order=True))
     script = f"""# auto-generated: {pdb.stem} CDR3b-NLV hydropathy panel
 load {pdb}, cplx
 hide everything, cplx
@@ -158,6 +183,7 @@ set ray_opaque_background, 0
 set orthoscopic, 1
 set cartoon_side_chain_helper, 1
 set surface_quality, 1
+set max_threads, 1
 
 # one complex -- TCR beta {beta_chain} plus peptide {pep_chain}, the CDR3b-peptide interface
 create scene_obj, cplx and (chain {beta_chain} or chain {pep_chain})
@@ -174,13 +200,13 @@ show sticks, scene_obj and chain {pep_chain}
 set stick_radius, 0.22, scene_obj and chain {pep_chain}
 
 # CDR3 beta: thin cartoon of the loop + sticks for the contacting apex residues
-show cartoon, scene_obj and chain {beta_chain} and resi {lo - 2}-{hi + 2}
+show cartoon, scene_obj and chain {beta_chain} and resi {beta_context}
 set cartoon_transparency, 0.45, scene_obj and chain {beta_chain}
-show sticks, scene_obj and chain {beta_chain} and resi {lo}-{hi}
+show sticks, scene_obj and chain {beta_chain} and resi {contact_ids}
 set stick_radius, 0.18, scene_obj and chain {beta_chain}
 
 spectrum b, blue_white_red, scene_obj and (chain {pep_chain} or chain {beta_chain}), minimum=-4.5, maximum=4.5
-color grey70, scene_obj and chain {beta_chain} and not (resi {lo}-{hi})
+color grey70, scene_obj and chain {beta_chain} and not (resi {contact_ids})
 
 # CDR3b-peptide contacts as thin dashes
 {dist_block}
@@ -194,7 +220,7 @@ set ray_shadows, 0
 set antialias, 2
 orient scene_obj and chain {pep_chain}
 turn x, -15
-zoom scene_obj and (chain {pep_chain} or (chain {beta_chain} and resi {lo}-{hi})), 4
+zoom scene_obj and (chain {pep_chain} or (chain {beta_chain} and resi {contact_ids})), 4
 ray 1800, 1400
 png {png}, dpi=300
 """
@@ -214,16 +240,17 @@ def write_tex(all_rows: list[tuple[str, str, pl.DataFrame]]) -> None:
         (r"\caption{TCRen CDR3$\beta$--peptide contacts for three native NLV (\texttt{NLVPMVATV}) "
          r"/ HLA-A*02:01 complexes (contact cutoff 5\,\AA). Each row is a CDR3$\beta$ residue in "
          r"contact with an NLV peptide residue, with the TCRen statistical-potential energy "
-         r"(more negative = more favourable). Three CDR3$\beta$ loops of distinct length and contact "
-         r"footprint engage the same hydrophobic peptide ridge.}"),
+         r"(more negative = more favourable under this statistical potential, not a binding free energy). "
+         r"TCR residues use PDB author numbers including insertion codes; NLV positions P1--P9 "
+         r"use the complete peptide sequence. Saved contact distances and potential values are unchanged.}"),
         r"\begin{tabular}{@{}llllr@{}}\toprule",
         r"Complex & CDR3$\beta$ & CDR3$\beta$ res. & NLV res. & TCRen \\\midrule",
     ]
     for pid, seq, df in all_rows:
         first = True
         for row in df.iter_rows(named=True):
-            tcr = f"{THREE_TO_ONE.get(row['residue.aa.from'], row['residue.aa.from'])}{row['residue.index.from']}"
-            pep = f"{THREE_TO_ONE.get(row['residue.aa.to'], row['residue.aa.to'])}{row['residue.index.to']}"
+            tcr = f"{THREE_TO_ONE.get(row['residue.aa.from'], row['residue.aa.from'])}{row['author_residue.from']}"
+            pep = f"{THREE_TO_ONE.get(row['residue.aa.to'], row['residue.aa.to'])} (P{row['peptide_position']})"
             e = row["tcren"]
             estr = f"{e:+.3f}" if e is not None else "--"
             label = f"{pid} & \\texttt{{{seq}}}" if first else " & "
@@ -235,29 +262,57 @@ def write_tex(all_rows: list[tuple[str, str, pl.DataFrame]]) -> None:
     TEX.write_text("\n".join(lines))
 
 
-def main():
+def main(argv=None):
+    global WORK, MS, FIG, FIGDATA, TEX
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--saved-contacts', action='store_true',
+                        help='render saved final contacts/annotations only; never fetch, annotate or search')
+    parser.add_argument('--manuscript-root', type=Path, default=MS)
+    parser.add_argument('--coordinates-dir', type=Path, default=WORK)
+    args = parser.parse_args(argv)
+    WORK, MS = args.coordinates_dir.resolve(), args.manuscript_root.resolve()
+    FIG, FIGDATA, TEX = MS/'figures', MS/'figures/data', MS/'appendix/_tab_nlv_contacts.tex'
+    if args.saved_contacts:
+        for pid, _, _ in COMPLEXES:
+            for path in [WORK/f'{pid}.pdb', WORK/f'{pid}_annot.csv', WORK/f'{pid}_contacts.csv',
+                         FIGDATA/f'struct_nlv_{pid.lower()}_contacts.csv']:
+                if not path.is_file():
+                    raise FileNotFoundError(f'saved-only rendering requires {path}')
     FIG.mkdir(parents=True, exist_ok=True)
     FIGDATA.mkdir(parents=True, exist_ok=True)
     all_rows = []
     for pid, bchain, pchain in COMPLEXES:
-        pdb = fetch_pdb(pid)
-        csv = run_contacts(pdb)
-        contacts = cdr3b_peptide_energies(csv, bchain, pchain)
+        pdb = WORK/f'{pid}.pdb' if args.saved_contacts else fetch_pdb(pid)
+        csv = WORK/f'{pid}_contacts.csv' if args.saved_contacts else run_contacts(pdb)
+        contacts = (pl.read_csv(FIGDATA/f'struct_nlv_{pid.lower()}_contacts.csv') if args.saved_contacts
+                    else cdr3b_peptide_energies(csv, bchain, pchain))
         seq = cdr3b_sequence(pdb, bchain)
         # persist the per-complex contact/energy table to figures/data
-        contacts.write_csv(FIGDATA / f"struct_nlv_{pid.lower()}_contacts.csv")
+        if not args.saved_contacts:
+            contacts.write_csv(FIGDATA / f"struct_nlv_{pid.lower()}_contacts.csv")
+        keys = ['residue.index.from', 'residue.index.to']
+        atoms = pl.read_csv(csv).filter((pl.col('chain.id.from') == bchain) &
+            (pl.col('chain.id.to') == pchain)).sort('dist', 'atom.from', 'atom.to').unique(keys,
+                keep='first', maintain_order=True).select(*keys, 'atom.from', 'atom.to',
+                    pl.col('dist').alias('_saved_atom_distance'))
+        mapped = contacts.join(atoms, on=keys, how='left', validate='1:1', maintain_order='left')
+        if mapped['_saved_atom_distance'].null_count() or mapped.filter(
+                (pl.col('dist')-pl.col('_saved_atom_distance')).abs() > 1e-12).height:
+            raise ValueError('saved atom contacts disagree with the final residue-contact distances')
+        mapped, context = map_contact_residues(pdb, bchain, pchain, mapped)
+        mapped.write_csv(FIGDATA/f'struct_nlv_{pid.lower()}_residue-mapping.tsv', separator='\t')
         n = contacts.height
         emean = contacts["tcren"].drop_nulls().mean()
         print(f"{pid}: CDR3b={seq} len={len(seq)} chain {bchain}/{pchain} "
               f"contacts={n} mean_tcren={emean:+.3f}")
         png = FIG / f"struct_nlv_{pid.lower()}.png"
-        pml = write_pymol_script(pdb, bchain, pchain, contacts, png)
+        pml = write_pymol_script(pdb, bchain, pchain, mapped, png, beta_context=context)
         render(pml)
         # PNG -> PDF (ray-traced, 300 dpi) via pymol's png is raster; convert with sips/pillow
         pdf = FIG / f"struct_nlv_{pid.lower()}.pdf"
         png_to_pdf(png, pdf)
         print(f"  wrote {png.name}, {pdf.name}")
-        all_rows.append((pid, seq, contacts))
+        all_rows.append((pid, seq, mapped))
     write_tex(all_rows)
     print(f"wrote {TEX}")
 

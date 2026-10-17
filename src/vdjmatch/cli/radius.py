@@ -9,7 +9,9 @@ def register(subparsers):
     p.add_argument('--locus', choices=['TRA', 'TRB', 'paired'], required=True)
     p.add_argument('--epitope', action='append')
     p.add_argument('--targets-from-sample', help='profile compatible pMHC unions declared by this AIRR sample')
-    p.add_argument('--junction-ends', choices=['tcrdist', 'trim3'], default='trim3')
+    p.add_argument('--junction-ends', choices=['trim32', 'trim3'], default='trim3')
+    p.add_argument('--matrix', choices=['clipped', 'blosum62', 'pam250', 'mj', 'vdjam'],
+                   default='clipped', help='shared substitution costs for junctions, V loops and distance units')
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--knee-floor-factor', type=float, default=.5)
     p.add_argument('--coverage-radius-factor', type=float, default=22.5,
@@ -27,9 +29,9 @@ def main(a):
     from ..aggregate.candidates import PMHC
     from ..evalue.control import _organism
     from ..evalue.paired import build_paired_ref
-    from ..match.tcrdist import (load_v_loops, resolve_v_alleles, reference_nearest_distances,
+    from ..match.geometry import (load_v_loops, resolve_v_alleles, reference_nearest_distances,
                                 kneedle_radius, regularize_reference_radii, reference_structure,
-                                distance_units)
+                                distance_units, _substitution_costs)
 
     if a.threads < 1:
         raise ValueError('positive threads required')
@@ -42,6 +44,8 @@ def main(a):
     raw = db.load(a.vdjdb, species=reference_species, gene=None if paired else a.locus, epitope=a.epitope)
     source = build_paired_ref(raw.filter(pl.col('reference_valid'))) if paired else raw
     model = load_v_loops(organism)
+    costs = _substitution_costs(matrix=a.matrix)
+    matrix_scale = distance_units(costs)[0]
     radii, nearest = [], []
     if a.targets_from_sample:
         from ..io.airr import _read_table
@@ -72,10 +76,10 @@ def main(a):
         retained = frame.filter(available).drop('_valid', strict=False)
         frame = retained.unique(maintain_order=True)
         distances = reference_nearest_distances(frame, paired=paired, species=organism,
-            threads=a.threads, ctrim=2 if a.junction_ends == 'tcrdist' else 3)
+            threads=a.threads, ctrim=2 if a.junction_ends == 'trim32' else 3, matrix=a.matrix)
         finite = np.isfinite(distances)
         radius = kneedle_radius(distances[finite])
-        coverage, shape = reference_structure(distances, radius_factor=a.coverage_radius_factor)
+        coverage, shape = reference_structure(distances, radius_factor=a.coverage_radius_factor, costs=costs)
         context = {'species': reference_species, 'locus': a.locus, **dict(zip(PMHC, key))}
         radii.append({**context, 'source_observations': observations.height,
             'source_unit': 'linked_pair_observation' if paired else 'chain_record',
@@ -93,7 +97,7 @@ def main(a):
         factor=a.knee_floor_factor)
     for row, radius in zip(radii, adjusted):
         row['radius'] = float(radius) if np.isfinite(radius) else None
-        row['knee_radius_ratio'] = (radius/(radius+a.coverage_radius_factor*distance_units()[0])
+        row['knee_radius_ratio'] = (radius/(radius+a.coverage_radius_factor*matrix_scale)
                                    if np.isfinite(radius) else 0.)
         row['radius_floor'] = floor
         row['floor_source'] = floor_source
@@ -116,7 +120,7 @@ def main(a):
         'source_chain_records': raw.height, 'valid_source_chain_records': int(raw['reference_valid'].sum()),
         'radius_selection': 'reference-only nonexact nearest distances; strongest confirmed offline Kneedle S=1 bend, convex sorted curve, no smoothing',
         'structure_features': {'coverage_radius_factor': a.coverage_radius_factor,
-            'matrix_scale': distance_units()[0],
+            'matrix_scale': matrix_scale,
             'coverage_denominator': 'all distinct full-junction/resolved-V reference keys',
             'knee_shape': 'maximum normalized convex bend; zero for flat/short curves',
             'knee_radius_ratio': 'regularized epsilon/(epsilon+matrix-relative coverage radius); zero when no knee, with radius_status retained'},
@@ -124,7 +128,7 @@ def main(a):
             'source': floor_source, 'scope': 'same species, locus and junction geometry',
             'raised_knees': sum(r['radius_status'] == 'knee_floored' for r in radii)},
         'reference_unit': 'distinct full junctions and resolved V alleles; same linked pair for paired mode',
-        'geometry': 'uniform clipped BLOSUM62 CDR3 plus V loops; paired alpha+beta sum',
+        'geometry': f'uniform {a.matrix} CDR3 plus V loops; paired alpha+beta sum',
         'no_knee': 'no radius is selected; reference keys remain available',
         'probability_interpretation': 'none; selected radii carry no transferred calibration',
         'seconds': time.perf_counter()-start}

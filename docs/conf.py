@@ -9,6 +9,7 @@ copyright = "2026, ISALGO laboratory"
 
 extensions = [
     "sphinx.ext.mathjax",
+    "sphinx.ext.graphviz",
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.intersphinx",
@@ -44,6 +45,7 @@ html_theme_options = {
 }
 html_sidebars = {"**": ["site-nav"], "index": []}
 nbsphinx_execute = "never"
+graphviz_output_format = "svg"
 
 # Every notebook is a full docs page, with its source available in the same view.
 nbsphinx_prolog = r"""
