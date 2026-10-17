@@ -2148,6 +2148,31 @@ The sparse-hit and compressed-bootstrap routes require native seqtree and
 vdjtools builds exposing those capabilities; version strings alone do not
 establish that support.
 
+vdjmatch reference-rule-scores
+------------------------------
+
+Rebuild all 15 retained fixed-rule scores from raw VDJdb for one species and
+chain, pooling MHC by epitope. Eligibility uses valid source records before
+exact-hit filtering; sparse labels remain search candidates. Models remain
+fixed, and missing model support retains explicit query dispositions.
+
+.. code-block:: sh
+
+   vdjmatch reference-rule-scores --vdjdb reference.zip --species human \
+     --locus TRB --threads 4 --output-prefix fresh-rules
+
+``fresh-rules.scores.tsv`` contains every winning label, tie and no-hit for
+``score-confusion``. ``fresh-rules.continuous/`` contains flat Parquet parts
+for every query, eligible epitope and scorer, including unavailable cases.
+Queries, complete known truth memberships, target eligibility and a source/raw/
+native/output hash manifest accompany these tables. Existing output paths are
+rejected. Add ``--components --germline-background PRIOR`` for the six retained
+single-chain components (21 scorers total). Supply the accepted matching density
+``--control`` except for the bundled human TRB control; the prior is always
+explicit. These raw model inputs are hashed before and after scoring.
+This command covers single chains; it does not establish paired
+fusion, final-call calibration or the complete manuscript resource gate.
+
 vdjmatch score-confusion
 ------------------------
 

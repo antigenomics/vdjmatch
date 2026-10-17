@@ -1,0 +1,227 @@
+"""Fresh fixed-model reference-rule retrieval, with complete continuous exports."""
+from pathlib import Path
+
+
+def register(subparsers):
+    parser = subparsers.add_parser('reference-rule-scores', help=__doc__)
+    parser.add_argument('--vdjdb', required=True)
+    parser.add_argument('--species', choices=['human', 'mouse'], default='human')
+    parser.add_argument('--locus', choices=['TRA', 'TRB'], required=True)
+    parser.add_argument('--threads', type=int, default=1)
+    parser.add_argument('--min-records', type=int, default=30)
+    parser.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
+    parser.add_argument('--components', action='store_true', help='also score the six retained single-chain components')
+    parser.add_argument('--control', help='matching raw density control; default is bundled human TRB')
+    parser.add_argument('--germline-background', help='explicit raw germline prior background; required with --components')
+    parser.add_argument('--output-prefix', required=True)
+    parser.set_defaults(func=main)
+
+
+def main(a):
+    import json
+    import time
+    from importlib.metadata import version
+    import numpy as np
+    import polars as pl
+    import seqtree._core as native
+    from .. import db
+    from ..db.cache import sha256
+    from ..evalue.epitope_rules import MOTIFS
+    from ..evalue.reference_rule_bank import stream_reference_rules
+    from ..match.geometry import precompute_v_loop_distances, resolve_v_alleles
+    from ..runner.annotation import _validate_output_paths
+    from ..runner.retrieval_winners import WinnerAccumulator
+    from .epitope import pool_epitopes
+
+    started = time.monotonic()
+    if a.threads < 1 or a.min_records < 1:
+        raise ValueError('positive threads and min-records required')
+    if a.components and not a.germline_background:
+        raise ValueError('--components requires --germline-background')
+    if not a.components and (a.control or a.germline_background):
+        raise ValueError('--control and --germline-background require --components')
+    prefix = _validate_output_paths(a.output_prefix, [a.vdjdb, *[
+        path for path in (a.control, a.germline_background) if path]])
+    suffixes = ['queries.tsv', 'truth.tsv', 'scores.tsv', 'target-support.tsv', 'manifest.json', 'continuous']
+    destinations = [Path(str(prefix)+'.'+suffix) for suffix in suffixes]
+    if any(path.exists() or path.is_symlink() for path in destinations):
+        raise FileExistsError('fresh reference-rule output paths must not already exist')
+    organism, species = a.species, {'human': 'HomoSapiens', 'mouse': 'MusMusculus'}[a.species]
+    def freeze():
+        source_paths = sorted(Path(__file__).resolve().parents[1].rglob('*.py')) + [
+            Path(native.__file__), Path(__file__).parents[1]/'resources/vloops'/f'{organism}_v_loops.tsv']
+        return {str(path): sha256(path) for path in source_paths}
+    component_paths = {}
+    if a.components:
+        from importlib.resources import files
+        if not a.control and (organism != 'human' or a.locus != 'TRB'):
+            raise ValueError('this control is not bundled; supply --control for the matching species/locus')
+        component_paths = {'control': (Path(a.control).expanduser().resolve() if a.control else
+            Path(str(files('seqtree').joinpath('data/control_human_trb_aa.txt.gz')))),
+            'germline_background': Path(a.germline_background).expanduser().resolve()}
+    def component_freeze():
+        return {name: dict(path=str(path), sha256=sha256(path)) for name, path in component_paths.items()}
+    component_before = component_freeze()
+    before, raw_before = freeze(), db.provenance(a.vdjdb)
+    raw = db.load(a.vdjdb, species=species)
+    pooled, info = pool_epitopes(raw, reference_population=a.reference_population, min_records=1)
+    info.pop('min_records')
+    for row in info['epitope_inventory']:
+        row['classification_eligible'] = row['valid_source_records'] >= a.min_records
+    valid = pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
+    if a.reference_population == 'curated-benchmark':
+        valid &= pl.col('reference_valid').fill_null(False)
+    selected = pooled.filter((pl.col('gene') == a.locus) & valid)
+    if selected.is_empty():
+        raise ValueError('no valid reference records for the requested species/locus')
+    support = selected.group_by('epitope').len(name='valid_source_records').sort('epitope').with_columns(
+        (pl.col('valid_source_records') >= a.min_records).alias('classification_eligible'))
+    eligible = support.filter(pl.col('classification_eligible')).select('epitope')
+    if eligible.is_empty():
+        raise ValueError('no reference epitopes meet min-records')
+    keys = ['cdr3', 'v', 'j']
+    queries = selected.join(eligible, on='epitope', how='semi').select(keys).unique().sort(
+        keys, nulls_last=True).with_row_index('query_id')
+    context = precompute_v_loop_distances(species=organism)
+    def resolve(frame):
+        return frame.with_columns(resolve_v_alleles(frame['v'], context['model'], locus=a.locus).alias('resolved_v')).with_columns(
+            (pl.col('resolved_v').is_not_null() & (pl.col('cdr3').str.len_chars() >= 8)).alias('model_available'))
+    reference = resolve(selected)
+    queries = resolve(queries)
+    modeled_reference = reference.filter(pl.col('model_available')).select(
+        pl.col('cdr3').alias('seq0'), pl.col('resolved_v').alias('v0'), 'epitope')
+    modeled_queries = queries.filter(pl.col('model_available')).select(
+        'query_id', pl.col('cdr3').alias('seq0'), pl.col('resolved_v').alias('v0'))
+    modeled_counts = reference.filter(pl.col('model_available')).group_by('epitope').agg(
+        pl.len().alias('modeled_source_records'), pl.struct('cdr3', 'resolved_v').n_unique().alias('modeled_search_keys'))
+    support = support.join(modeled_counts, on='epitope', how='left', validate='1:1').with_columns(
+        pl.col('modeled_source_records', 'modeled_search_keys').fill_null(0)).with_columns(
+        (pl.col('modeled_search_keys') > 0).alias('model_available'))
+    truth = selected.join(queries.select('query_id', *keys), on=keys, how='inner', nulls_equal=True, validate='m:1').select(
+        'query_id', 'epitope', 'mhc_a', 'mhc_b', 'mhc_class').unique().sort('query_id', 'epitope')
+    def metadata(frame):
+        return frame.with_columns(pl.lit(species).alias('species'), pl.lit(a.locus).alias('locus'))
+    scorers = ['rule_v', 'rule_spatial', 'rule_rank', *[
+        'rule_'+prefix+mode for mode in MOTIFS for prefix in ('', 'mixed_', 'enriched_')]]
+    rule_scorers = scorers.copy()
+    component_scorers = (['accepted_original', 'current_original', 'current_original_log',
+        'gapblock', 'stem4', 'motif'] if a.components else [])
+    scorers += component_scorers
+    targets = support['epitope'].to_list()
+    winners = WinnerAccumulator(queries.height, targets, scorers)
+    target_index = dict(zip(targets, range(len(targets))))
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+    continuous = destinations[-1]
+    continuous.mkdir()
+    outputs, pending, pending_rows, continuous_rows = {}, [], 0, 0
+    def write_part(frame):
+        path = continuous/f'part{len(outputs):06d}.parquet'
+        frame.write_parquet(path)
+        outputs[str(path.relative_to(prefix.parent))] = sha256(path)
+    def export(frame):
+        nonlocal pending, pending_rows, continuous_rows
+        frame = metadata(frame).select('species', 'locus', 'query_id', 'epitope', 'scorer', 'score', 'supported')
+        pending.append(frame)
+        pending_rows += frame.height
+        continuous_rows += frame.height
+        if pending_rows >= 65536:
+            combined = pl.concat(pending)
+            while combined.height >= 65536:
+                write_part(combined.head(65536))
+                combined = combined.slice(65536)
+            pending, pending_rows = ([combined] if combined.height else []), combined.height
+    def consume(scorer, frame):
+        winners.consume(scorer, frame['query_id'].to_numpy(),
+            frame['epitope'].replace_strict(target_index, return_dtype=pl.UInt32).to_numpy(),
+            frame['score'].to_numpy(), frame['supported'].to_numpy())
+        retained = frame.join(eligible, on='epitope', how='semi')
+        if retained.height:
+            export(retained.with_columns(pl.lit(scorer).alias('scorer')))
+    backend = (stream_reference_rules(modeled_queries, modeled_reference, species=organism,
+        threads=a.threads, consume=consume) if modeled_reference.height and modeled_queries.height else {})
+    # Fill only coordinates the backend cannot emit. Existing continuous parts
+    # are final deliverables and are never reopened to calculate predictions.
+    available_targets = support.filter(pl.col('model_available')).select('epitope')
+    absent_targets = eligible.join(available_targets, on='epitope', how='anti')
+    for query_subset, label_subset in [
+            (queries.filter(~pl.col('model_available')).select('query_id'), eligible),
+            (queries.filter(pl.col('model_available')).select('query_id'), absent_targets)]:
+        if query_subset.is_empty() or label_subset.is_empty():
+            continue
+        for start in range(0, query_subset.height, max(1, 65536//label_subset.height)):
+            missing = query_subset.slice(start, max(1, 65536//label_subset.height)).join(label_subset, how='cross').with_columns(
+                pl.lit(None, dtype=pl.Float64).alias('score'), pl.lit(False).alias('supported'))
+            for scorer in rule_scorers:
+                export(missing.with_columns(pl.lit(scorer).alias('scorer')))
+    control_info = None
+    if a.components:
+        from ..evalue.control import raw_background
+        from ..io import read_rearrangement
+        from ..runner.retrieval_components import stream_components
+        density_index, control_info = raw_background(a.locus, organism, path=a.control)
+        if control_info['sha256'] != component_before['control']['sha256']:
+            raise ValueError('raw control changed while loading')
+        prior = read_rearrangement(component_paths['germline_background'], source='legacy')
+        eligible_indices = np.array([target_index[label] for label in eligible['epitope']])
+        emitted = np.zeros((len(component_scorers), queries.height, (len(targets)+7)//8), dtype=np.uint8)
+        def component_consume(scorer, frame):
+            component = component_scorers.index(scorer)
+            frame = frame.select('query_id', 'epitope', 'score', 'supported')
+            q = frame['query_id'].to_numpy()
+            t = frame['epitope'].replace_strict(target_index, return_dtype=pl.UInt32).to_numpy()
+            flags = np.left_shift(np.uint8(1), (t % 8).astype(np.uint8))
+            if (np.any(emitted[component, q, t//8] & flags) or
+                    np.unique(q.astype(np.uint64)*len(targets)+t).size != len(q)):
+                raise ValueError('duplicate component query/target score coordinate')
+            np.bitwise_or.at(emitted[component], (q, t//8), flags)
+            consume(scorer, frame)
+        component_reference = (selected.with_columns(pl.lit(True).alias('reference_valid'))
+            if a.reference_population == 'all-valid' else selected)
+        stream_components(queries.select('query_id', *keys).with_columns(pl.lit(a.locus).alias('locus')),
+            component_reference, {'density_index': density_index, 'prior_background': prior},
+            species=organism, locus=a.locus, threads=a.threads, consume=component_consume)
+        chunk = max(1, 65536//len(targets))
+        for component, scorer in enumerate(component_scorers):
+            for start in range(0, queries.height, chunk):
+                present = np.unpackbits(emitted[component, start:start+chunk], axis=1,
+                    count=len(targets), bitorder='little')[:, eligible_indices]
+                rows, labels = np.nonzero(present == 0)
+                if len(rows):
+                    export(pl.DataFrame({'query_id': queries['query_id'].gather(rows+start),
+                        'epitope': eligible['epitope'].gather(labels), 'scorer': [scorer]*len(rows),
+                        'score': pl.Series([None]*len(rows), dtype=pl.Float64), 'supported': False}))
+    if pending:
+        write_part(pl.concat(pending))
+    expected_rows = queries.height*eligible.height*len(scorers)
+    if continuous_rows != expected_rows:
+        raise ValueError(f'incomplete continuous output: {continuous_rows} != {expected_rows}')
+    winner_rows = 0
+    score_path = destinations[2]
+    with score_path.open('x') as handle:
+        for frame in winners.frames(queries['query_id'], max_rows=max(65536, len(targets))):
+            metadata(frame).write_csv(handle, separator='\t', include_header=winner_rows == 0)
+            winner_rows += frame.height
+    outputs[score_path.name] = sha256(score_path)
+    for path, frame in [(destinations[0], queries), (destinations[1], truth), (destinations[3], support)]:
+        metadata(frame).write_csv(path, separator='\t')
+        outputs[path.name] = sha256(path)
+    after, raw_after = freeze(), db.provenance(a.vdjdb)
+    component_after = component_freeze()
+    if before != after or raw_before != raw_after or component_before != component_after:
+        raise ValueError('reference or producing source/native changed during fresh scoring')
+    destinations[4].write_text(json.dumps(dict(reference=raw_before, reference_after=raw_after,
+        source_before=before, source_after=after, source_frozen=True, reference_frozen=True,
+        species=species, locus=a.locus, reference_population=a.reference_population,
+        min_records=a.min_records, threads=a.threads, scorers=scorers,
+        raw_records=raw.height, valid_source_records=selected.height, queries=queries.height,
+        modeled_queries=modeled_queries.height, candidate_targets=len(targets), eligible_targets=eligible.height,
+        winner_rows=winner_rows, continuous_rows=continuous_rows, expected_continuous_rows=expected_rows,
+        backend=backend, components=a.components, component_inputs_before=component_before,
+        model_availability='query/target model_available fields describe resolved-V, length>=8 rule geometry; component availability is scorer-specific in continuous supported/score fields',
+        component_inputs_after=component_after, component_inputs_frozen=True, control_info=control_info,
+        **info, exact_exclusion='hit-list only; full fixed reference models retained',
+        score_meaning='uncalibrated fixed-reference rule evidence; larger is stronger',
+        calculation='fresh raw reference and scores; no intermediate reuse or resume',
+        software={name: version(name) for name in ('vdjmatch', 'seqtree', 'vdjtools', 'polars', 'numpy', 'scipy')},
+        tables=outputs, seconds=time.monotonic()-started), indent=2)+'\n')
+    return 0

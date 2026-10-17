@@ -331,3 +331,18 @@ model. Input columns: species/locus/epitope, original_score (or --original-colum
 rule_v_score/rule_rank_score. Requires the policy companion manifest and table hash.
 It preserves cases, falls back explicitly, does not fit or change defaults, and
 provides no transferred component P/E/posterior. See docs/scoring.rst.
+
+### Fresh all-label rule retrieval
+
+`reference-rule-scores --vdjdb RAW --species human|mouse --locus TRA|TRB --threads 4 --output-prefix NEW`
+rebuilds all15 retained fixed-rule scores from raw reference records. Eligible
+queries/targets use >=30 valid source observations by default; sparse targets
+still compete. Exact exclusion filters hits only. Complete continuous eligible
+cases are final Parquet parts; `.scores.tsv` retains all winning labels/ties and
+explicit no-hits for `score-confusion`. Truth, query identity/availability,
+target support and source/raw/native/output hashes accompany the tables.
+Existing outputs are rejected. No paired fusion or calibrated calls are implied.
+Add `--components --germline-background PRIOR` for21total retained single-chain
+scorers; use the accepted matching `--control` (bundled default humanTRB only).
+Both raw model inputs are frozen before/after; component missing scores remain
+explicit, and model_available metadata describes the rule geometry only.

@@ -4,8 +4,11 @@ import polars as pl
 from ..aggregate.candidates import PMHC
 from ..evalue.epitope_rules import _tokens
 
+_STREAM_TOKEN_ROWS = 1_048_576
+_STREAM_OUTPUT_ROWS = 65536
 
-def masked_motif_scores(queries, reference, *, exclude_exact=False, target_reference=None):
+
+def masked_motif_scores(queries, reference, *, exclude_exact=False, target_reference=None, _consume=None):
     """Return supported V+masked-4-mer scores per query/full pMHC.
 
     Inputs use full junction ``cdr3`` and ``v``; queries have unique query_id,
@@ -18,12 +21,25 @@ def masked_motif_scores(queries, reference, *, exclude_exact=False, target_refer
     Missing/unsupported motifs emit no row, never a prior-only specificity.
     Optional target_reference defines compatible-restriction unions labelled with
     each query's declared PMHC; global motif frequencies still use reference.
+    Reference records lacking a nonblank V are ineligible for this V-conditioned
+    model; exclude them once before building global and target counts. An empty
+    eligible population emits no scores. Queries require complete V, and invalid
+    junctions are rejected even on V-ineligible reference records.
+    Optional internal ``_consume`` receives bounded supported-score frames and
+    returns None. It prepares the same fixed model once, then bounds query token
+    and expanded-hit blocks independently; no query-by-target grid is allocated.
     """
     if queries['query_id'].null_count() or queries['query_id'].n_unique()!=queries.height:
         raise ValueError('unique non-null query IDs required')
-    for frame in (queries,reference):
-        if any(frame[c].null_count() for c in ('cdr3','v')):
-            raise ValueError('complete junction and V required')
+    for frame in (queries,reference,*([target_reference] if target_reference is not None else [])):
+        if frame.filter(~pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)).height:
+            raise ValueError('valid complete junction required')
+    present_v=pl.col('v').cast(pl.String).str.strip_chars().ne('').fill_null(False)
+    if queries.filter(~present_v).height:
+        raise ValueError('complete junction and V required')
+    reference=reference.with_columns(pl.col('v').cast(pl.String)).filter(present_v)
+    if target_reference is not None:
+        target_reference=target_reference.with_columns(pl.col('v').cast(pl.String)).filter(present_v)
     ref=reference.select(*PMHC,'cdr3','v').with_columns(pl.col('v').str.replace(r'\*.*$',''))
     ref=ref.unique(maintain_order=True).rename({'cdr3':'seq0','v':'v0'}).with_row_index('_id')
     ref=ref.with_columns(pl.col('seq0').str.len_chars().alias('_length'))
@@ -45,18 +61,42 @@ def masked_motif_scores(queries, reference, *, exclude_exact=False, target_refer
         pl.lit(ref.height).alias('X')).join(rt.group_by('t0').len().rename({'len':'x'}),on='t0',validate='m:1')
     # Model support gates are fixed before matching any query.
     model=model.filter((pl.col('x_lva')>=2)&(pl.col('x_va')>=3)&(pl.col('x_a')>=5))
-    hits=tokens(q).join(q.drop('v0'),on='_id',validate='m:1').join(model,
-        on=['v0','t0',*(PMHC if target_reference is not None else [])],how='inner')
-    hits=hits.with_columns(pl.col('x_va').alias('hit_x_va'))
+    keys=['v0','t0',*(PMHC if target_reference is not None else [])]
+    removed=None
     if exclude_exact:
         removed=target_rt.group_by('seq0',*PMHC,'v0','t0').len().rename({'len':'_removed'})
-        hits=hits.join(removed,on=['seq0',*PMHC,'v0','t0'],how='left',validate='m:1',nulls_equal=True).with_columns(
-            (pl.col('hit_x_va').cast(pl.Int64)-pl.col('_removed').fill_null(0)).alias('hit_x_va')).drop('_removed')
-    hits=hits.filter(pl.col('hit_x_va')>0).with_columns(
-        (pl.col('hit_x_va')/pl.col('x')*(pl.col('X')/pl.col('x')).log()).alias('_mfikf'))
-    return (hits.group_by('query_id',*PMHC,'t0').agg(pl.col('_mfikf').max(),pl.col('seq0').first())
-        .group_by('query_id',*PMHC).agg((pl.col('_mfikf').sum()/pl.col('seq0').first().str.len_chars()).alias('motif_score'),
-            pl.len().alias('supported_motifs')))
+
+    def reduce(query_tokens):
+        hits=query_tokens.join(model,on=keys,how='inner').with_columns(pl.col('x_va').alias('hit_x_va'))
+        if removed is not None:
+            hits=hits.join(removed,on=['seq0',*PMHC,'v0','t0'],how='left',validate='m:1',nulls_equal=True).with_columns(
+                (pl.col('hit_x_va').cast(pl.Int64)-pl.col('_removed').fill_null(0)).alias('hit_x_va')).drop('_removed')
+        hits=hits.filter(pl.col('hit_x_va')>0).with_columns(
+            (pl.col('hit_x_va')/pl.col('x')*(pl.col('X')/pl.col('x')).log()).alias('_mfikf'))
+        return (hits.group_by('query_id',*PMHC,'t0').agg(pl.col('_mfikf').max(),pl.col('seq0').first())
+            .group_by('query_id',*PMHC).agg((pl.col('_mfikf').sum()/pl.col('seq0').first().str.len_chars()).alias('motif_score'),
+                pl.len().alias('supported_motifs')))
+
+    if _consume is None:
+        return reduce(tokens(q).join(q.drop('v0'),on='_id',validate='m:1'))
+    if not callable(_consume):
+        raise ValueError('motif batch consumer must be callable')
+    fanout=model.group_by(keys).len().rename({'len':'_fanout'})
+    longest=q['seq0'].str.len_chars().max() or 0
+    token_bound=4*max(1,longest-3)
+    if token_bound>_STREAM_TOKEN_ROWS:
+        raise ValueError('one motif query exceeds the streamed token budget')
+    for part in q.iter_slices(max(1,_STREAM_TOKEN_ROWS//token_bound)):
+        qt=tokens(part).join(part.drop('v0'),on='_id',validate='m:1')
+        expanded=qt.join(fanout,on=keys,how='left').group_by('_id').agg(pl.col('_fanout').sum())
+        maximum=expanded['_fanout'].max() or 1
+        if maximum>_STREAM_TOKEN_ROWS:
+            raise ValueError('one motif query exceeds the streamed expanded-hit budget')
+        for block in part.iter_slices(max(1,_STREAM_TOKEN_ROWS//maximum)):
+            result=reduce(qt.filter(pl.col('_id').is_between(block['_id'].min(),block['_id'].max())))
+            for output in result.iter_slices(_STREAM_OUTPUT_ROWS):
+                _consume(output)
+    return None
 
 
 def masked_motif_presence_counts(frame, *, mode='imgt_wild4'):
