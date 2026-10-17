@@ -663,16 +663,27 @@ Frozen reference-class score selection (experimental)
 --output-prefix selected`` applies a separately frozen reference-only class
 model to final continuous component scores. It preserves row order and identities;
 ``--original-column`` names the fallback column (default ``original_score``).
-The table requires species, locus and epitope plus ``rule_v_score`` and
-``rule_rank_score``. The policy's companion ``manifest.json`` must identify a
+The table requires species, locus and epitope plus the columns used by the
+declared classes. The policy's companion ``manifest.json`` must identify a
 reference-model asset without benchmark inputs and pin the policy table hash.
 
-``V_dominant`` selects the V ratio; ``junction_projection_dominant`` selects
+The fast reference classes use ``v_only`` → ``rule_v_score``,
+``motif_only`` → ``rule_exact3_score / rule_v_score``, and
+``v_and_motif`` → ``rule_exact3_score``. The joint exact-three-mer score already
+contains the V ratio; division recovers its conditional motif factor and requires
+a finite positive denominator. ``no_supported_axis``, absent profiles and
+unavailable components retain the configured finite fallback with an explicit
+status. All paired fast-class routes retain that fallback. For native annotation
+tables use ``--original-column default_score``: this includes linked and available
+unlinked marginal evidence; a linked-only score is not an equivalent fallback.
+
+The older policy labels remain supported: ``V_dominant`` selects the V ratio;
+``junction_projection_dominant`` selects
 V-weighted complete conditional-distance rank. ``general_fallback`` or an absent
 profile retains the original score. An unavailable selected component remains
 missing: raw scores from different components cannot be mixed across queries.
-The original column stays available separately. The policy
-model, rather than query labels, owns paired chain agreement and linked support.
+The original column stays available separately. These older labels retain their
+original missing-component and paired-policy behavior.
 
 This command performs no receptor search, fitting or default promotion. It writes
 continuous ``policy_score``, the selected column and an explicit disposition;
