@@ -53,6 +53,21 @@ The reference's parent directory must be writable. ``Annotator.from_path`` and
 public annotation commands also prepare these assets automatically. ``index``
 and ``update`` accept a positive ``--threads`` budget (default 4).
 
+Use ``reference-profiles`` for a fresh scientific classification rebuild:
+
+.. code-block:: bash
+
+   vdjmatch reference-profiles --vdjdb reference.zip --threads 4 --output-prefix fresh
+
+It reloads raw observations and rebuilds graphs and label-shuffle diagnostics
+on every invocation, without reopening saved profile/index bundles. Outputs are
+``fresh.profiles.tsv``, ``fresh.joint-profiles.tsv`` and a manifest with raw,
+package-source and actual native hashes checked before and after calculation.
+``--species human`` or ``mouse`` selects one population; omission retains all
+represented species. ``--reference-population`` defaults to curated benchmark
+validity; ``all-valid`` retains all valid junction records. A new output prefix
+keeps completed tables recoverable. This command does not score receptors.
+
 Profiles retain separate species and TRA/TRB chains, at pooled-peptide and
 observed full-pMHC levels. Eligibility requires at least 30 valid source records;
 distinct-junction count is shown alongside. Classification tests two information

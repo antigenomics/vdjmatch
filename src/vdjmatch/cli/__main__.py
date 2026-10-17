@@ -863,6 +863,8 @@ def main(argv: list[str] | None = None) -> int:
     register_reference_calls(sub)
     from .reference_confusion import register as register_reference_confusion
     register_reference_confusion(sub)
+    from .reference_profiles import register as register_reference_profiles
+    register_reference_profiles(sub)
     from .paired_order import register as register_paired_order
     register_paired_order(sub)
     from .radius import register as register_radius
@@ -894,7 +896,7 @@ def main(argv: list[str] | None = None) -> int:
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
     evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
-    evidence_commands.update({'reference-diagnostics', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'motif-position', 'index', 'update'})
+    evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'motif-position', 'index', 'update'})
     if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
         evidence_commands.add('annotate')
     kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")

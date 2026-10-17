@@ -34,6 +34,10 @@ New degree/Hill/Chao/acquisition indices use allele-pooled junction/V-gene/J-gen
 clonotypes and keep unresolved categories; `.clonotype-degrees.tsv` reports
 their self-inclusive degree histogram. Legacy `hamming_*`/`.degrees.tsv`
 statistics remain junction-only.
+For a fresh classification rebuild use `reference-profiles --vdjdb RAW
+--output-prefix NEW --threads 4`. It rebuilds raw graphs/shuffles on every call;
+`index` remains the reusable annotation-model preparation route. The fresh
+manifest checks package source, actual native bytes and raw identities.
 
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)
