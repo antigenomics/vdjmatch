@@ -235,3 +235,5 @@ Reference graph morphology
 .. autofunction:: vdjmatch.aggregate.germline_information.germline_projection_map
 
 .. autofunction:: vdjmatch.aggregate.germline_information.iter_germline_information
+
+.. autofunction:: vdjmatch.aggregate.paired_labels.paired_labels

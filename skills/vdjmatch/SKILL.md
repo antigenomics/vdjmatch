@@ -346,3 +346,11 @@ Add `--components --germline-background PRIOR` for21total retained single-chain
 scorers; use the accepted matching `--control` (bundled default humanTRB only).
 Both raw model inputs are frozen before/after; component missing scores remain
 explicit, and model_available metadata describes the rule geometry only.
+
+For explicit linked-first paired label decisions, use `paired-labels` with
+native all-target stem4 VDJdb-other paired evidence, selection and manifest.
+Keep all linked maximum peptides when linked support exists; otherwise retain
+all alpha/beta maximum peptides, including disagreements. No supported axis
+emits a no-support row. This separate reducer preserves native evidence and the
+any-call scalar. Its `.scores.tsv` contains selected-label indicators only for
+`score-confusion`, never continuous AP/ROC evidence or calibrated confidence.

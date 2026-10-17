@@ -2247,3 +2247,23 @@ from label-permutation nulls, control draws without replacement and the Chao
 augmented-assemblage law used for unseen-taxon coverage.
 Method: `Efron (1979), Bootstrap Methods: Another Look at the Jackknife
 <https://doi.org/10.1214/aos/1176344552>`_.
+
+Linked-first paired labels
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``paired-labels paired-evidence.tsv.gz --selection selection.tsv
+--input-manifest native.manifest.json --output-prefix labels --threads 4``
+reduces existing all-target stem4 VDJdb-other kernel outputs without rerunning
+search, controls or models. Positive finite linked evidence retains every
+linked maximum peptide. Only absent linked support permits the union of
+alpha/beta maximum peptides; disagreement remains ambiguous. This label policy
+does not compare raw magnitudes across axes or change the any-call scalar.
+Native maxima, tie counts and lexical winners must match the evidence exactly.
+The reader projects maximum rows before streaming collection.
+
+``.calls.tsv`` repeats unchanged native query metadata for every selected
+peptide, or emits one null-label row for no support. ``.scores.tsv`` is accepted
+by ``score-confusion``: its score is a selected-label indicator (1, otherwise
+null), **not continuous evidence for AP/ROC, a probability or calibrated
+confidence**. The manifest pins inputs and sources; existing any-call
+calibration does not establish confidence for this label policy.
