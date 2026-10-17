@@ -682,6 +682,9 @@ and empirical background correction stay intact. The radius-one enrichment P-val
 remains a count test; optional final-call filtering uses ``calibrate-calls`` and
 ``apply-call-calibration`` with nulls from the matching complete scorer.
 
+``historical-density --gzip-scores`` writes ``scores.tsv.gz`` using native gzip
+level1; decompressed contents match the default plain ``scores.tsv``.
+
 ``--likelihood-score`` also exports ``likelihood_score`` while preserving every
 historical score/status field. Single-chain output is log(density + 1e-6), plus
 the same original germline term for sparse references. Paired output adds alpha

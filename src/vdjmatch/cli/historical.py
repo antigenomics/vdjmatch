@@ -45,6 +45,7 @@ def register(subparsers):
     p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep other target models and controls fixed')
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--output-prefix',required=True)
+    p.add_argument('--gzip-scores',action='store_true',help='write scores.tsv.gz with native gzip level1; default scores.tsv is unchanged')
     p.set_defaults(func=main)
 
 
@@ -350,6 +351,9 @@ def main(a):
     from ..match.vgene import precompute_v_similarities
     start=time.perf_counter()
     legacy=getattr(a,'legacy_components',False)
+    gzip_scores=getattr(a,'gzip_scores',False)
+    score_suffix='.scores.tsv.gz' if gzip_scores else '.scores.tsv'
+    score_write_options={'compression':'gzip','compression_level':1} if gzip_scores else {}
     if getattr(a, 'puncture_populations', False) or getattr(a, 'export_punctured', False):
         raise ValueError('benchmark exact exclusion is a hit-list filter only; model puncturing is unsupported')
     a.reference_population=getattr(a,'reference_population','curated-benchmark')
@@ -473,7 +477,7 @@ def main(a):
                 .when(~pl.col('feature_model_available')).then(pl.lit('no_feature_model'))
                 .otherwise(pl.lit('scored')).alias('status'))
         prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
-        out.write_csv(str(prefix)+'.scores.tsv',separator='\t')
+        out.write_csv(str(prefix)+score_suffix,separator='\t',**score_write_options)
         Path(str(prefix)+'.manifest.json').write_text(json.dumps({
             'sample_sha256':sha256(Path(a.sample)),
             'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),
@@ -485,6 +489,7 @@ def main(a):
             'germline_background':{'sha256':sha256(Path(a.germline_background)),
                 'raw_rows':prior_background.height},
             'parameters':{k:v for k,v in vars(a).items() if k!='func'},
+            **({'scores_compression':{'codec':'gzip','level':1}} if gzip_scores else {}),
             'estimator':'legacy-heldout-components-v1',
             'representative':'first source-order peptide/V/J per union junction; input query projection and first J supplied by caller',
             'density':'sum(w*exp(-P/400)/(1+controlCDF)); w=1 same allele-stripped V, .25*directed V similarity otherwise; exact hits excluded; fixed populations',
@@ -694,7 +699,7 @@ def main(a):
                     log_scale=True).alias('punctured_likelihood_score'))
                 out=out.join(candidate,on='query_id',how='left',validate='1:1',maintain_order='left')
     prefix=Path(a.output_prefix);prefix.parent.mkdir(parents=True,exist_ok=True)
-    out.write_csv(str(prefix)+'.scores.tsv',separator='\t')
+    out.write_csv(str(prefix)+score_suffix,separator='\t',**score_write_options)
     extension_manifest=None
     if a.gapped_extension:
         from ..match.unified import gapped_extension,historical_pssm_extension
@@ -755,6 +760,7 @@ def main(a):
             'paired_score_column':'punctured_likelihood_score',
             'calibration':'no component or selected-score P/E transfer'}} if a.export_punctured else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},
+        **({'scores_compression':{'codec':'gzip','level':1}} if gzip_scores else {}),
         'withheld_reference_chain_records':withheld_records,
         'withholding':'candidate hits only; other target priors and raw controls retained',
         'target_selection':'every full pMHC; query labels ignored' if a.all_targets else 'assayed or explicit targets',

@@ -829,3 +829,30 @@ def test_weighted_event_prior_matches_explicit_event_rows(exclude_exact, include
     expected = germline_prior(query, reference, expanded, exclude_exact=exclude_exact, include_length=include_length)
     actual = germline_prior(query, reference, background, exclude_exact=exclude_exact, include_length=include_length)
     assert actual.equals(expected)
+
+
+def test_gzip_scores_preserves_complete_paired_likelihood_export(tmp_path):
+    import gzip
+    import json
+    import polars as pl
+    from vdjmatch.cli.__main__ import main
+    _, _, prefix, args = _paired_cli_inputs(tmp_path)
+    reference = Path(args[args.index('--vdjdb')+1])
+    refs = pl.read_csv(reference, separator='\t')
+    pl.concat([refs, refs.with_columns(pl.lit('F').alias('epitope'))]).write_csv(reference, separator='\t')
+    args = [value for value in args if value != '--targets-from-sample']+['--all-targets', '--likelihood-score']
+    assert main(args) == 0
+    expected = Path(str(prefix)+'.scores.tsv').read_bytes()
+    compressed = tmp_path/'compressed'
+    args[args.index('--output-prefix')+1] = str(compressed)
+    assert main(args+['--gzip-scores']) == 0
+    actual = Path(str(compressed)+'.scores.tsv.gz')
+    assert gzip.decompress(actual.read_bytes()) == expected
+    assert not actual.with_suffix('').exists()
+    table = pl.read_csv(actual, separator='\t')
+    assert table.height == 8 and table.filter(pl.col('status') != 'scored').height > 0
+    assert table.filter(pl.col('epitope') == 'E')['likelihood_score'].equals(
+        table.filter(pl.col('epitope') == 'F')['likelihood_score'])
+    manifest = json.loads(Path(str(compressed)+'.manifest.json').read_text())
+    assert manifest['parameters']['gzip_scores'] is True
+    assert manifest['scores_compression'] == dict(codec='gzip', level=1)
