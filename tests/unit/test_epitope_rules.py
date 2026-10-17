@@ -174,6 +174,79 @@ def test_motif_classes_wildcards_and_short_sequences():
     assert IMGT_CLASSES['L']==IMGT_CLASSES['I'] and IMGT_CLASSES['F']!=IMGT_CLASSES['Y']
 
 
+@pytest.mark.parametrize('paired',[False,True])
+@pytest.mark.parametrize('exclude_exact',[False,True])
+def test_grouped_rules_equal_scalar_across_models(monkeypatch,paired,exclude_exact):
+    from polars.testing import assert_frame_equal
+    from vdjmatch.evalue.epitope_rules import grouped_reference_epitope_rules
+    from vdjmatch.match import geometry
+    ref=pl.DataFrame(dict(seq0=['CASSLGQAYEQYF','CASSLGRAYEQYF','CASSLGQAYEQYF',
+        'CASSWGRAYEQYF','CASAAAAAAAAAAAAQYF'],v0=['TRBV19*01','TRBV19*02','TRBV19*01',
+        'TRBV20-1*01','TRBV19*01'],epitope=['A','A','B','B','C'],mhc=['x','y','x','x','x']))
+    if paired:
+        ref=ref.rename({'seq0':'seq1','v0':'v1'}).with_columns(
+            pl.lit('CAVRDSNYQLIW').alias('seq0'),pl.lit('TRAV1-1*01').alias('v0'))
+    fields=[f'{kind}{i}' for i in range(2 if paired else 1) for kind in ('seq','v')]
+    q=ref.select(fields).head(2).with_row_index('query_id')
+    unsupported=q.head(1).with_columns(pl.lit(9,dtype=pl.UInt32).alias('query_id'),
+        pl.lit('TRBV7-9*01').alias('v1' if paired else 'v0'))
+    q=pl.concat([q,unsupported])
+    groups=[(dict(epitope='A'),q,ref.filter((pl.col('epitope')=='A')&(pl.col('mhc')=='x')).select(fields)),
+            (dict(epitope='A'),q.reverse(),ref.filter(pl.col('epitope')=='A').select(fields)),
+            (dict(epitope='C'),q.head(1),ref.filter(pl.col('epitope')=='C').select(fields))]
+    expected=[reference_epitope_rules(queries,selected,
+        ref.filter(pl.col('epitope')!=task['epitope']).select(fields),paired=paired,
+        exclude_exact=exclude_exact) for task,queries,selected in groups]
+    native=geometry.grouped_total_distance_count_batch;calls=[]
+    def instrument(*args,**kwargs):
+        calls.append(kwargs)
+        targets=len(kwargs['target_peptide_ids'])
+        channels=1+2*targets+1
+        # Native buffers alone fit; production accounting additionally includes
+        # per-observation gather, shell and reciprocal-rank work arrays.
+        assert kwargs['chunk_size']*4*(channels*(len(args[2])+1)+targets)<=256*1024**2
+        return native(*args,**(kwargs|dict(chunk_size=1)))
+    monkeypatch.setattr(geometry,'grouped_total_distance_count_batch',instrument)
+    actual=grouped_reference_epitope_rules(ref,groups,paired=paired,exclude_exact=exclude_exact)
+    assert len(calls)==2 and calls[0]['same_v_gene'] and not calls[1]['same_v_gene']
+    for got,want in zip(actual,expected):
+        assert_frame_equal(got,want,check_exact=True)
+
+
+def test_grouped_rules_empty_background_and_invalid_query():
+    from vdjmatch.evalue.epitope_rules import grouped_reference_epitope_rules
+    ref=pl.DataFrame(dict(seq0=['CASSLGQAYEQYF'],v0=['TRBV19*01'],epitope=['A']))
+    q=ref.drop('epitope').with_row_index('query_id')
+    groups=[(dict(epitope='A'),q,ref.drop('epitope'))]
+    actual=grouped_reference_epitope_rules(ref,groups,exclude_exact=True)[0]
+    expected=reference_epitope_rules(q,ref.drop('epitope'),ref.drop('epitope').head(0),exclude_exact=True)
+    assert actual.equals(expected)
+    with pytest.raises(ValueError,match='complete'):
+        grouped_reference_epitope_rules(ref,[(groups[0][0],q.with_columns(pl.lit(None).alias('v0')),groups[0][2])])
+
+
+def test_cli_grouped_rules_match_scalar_tasks(tmp_path,monkeypatch):
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.evalue import epitope_rules
+    meta=dict(species='human',mhc_a='HLA-A*02',mhc_b='B2M',mhc_class='MHCI')
+    sample=tmp_path/'q.tsv';ref=tmp_path/'r.tsv'
+    pl.DataFrame([dict(junction_aa=s,v_call='TRBV19*01',locus='TRB',epitope=e,**meta)
+        for s,e in [('CASSLGQAYEQYF','E'),('CASSWGRAYEQYF','F')]]).write_csv(sample,separator='\t')
+    pl.DataFrame([dict(cdr3=s,v='TRBV19*01',gene='TRB',epitope=e,**(meta|dict(species='HomoSapiens')))
+        for s,e in [('CASSLGQAYEQYF','E'),('CASSLGRAYEQYF','F'),('CASSWGRAYEQYF','OTHER')]]).write_csv(ref,separator='\t')
+    args=['neighbours',str(sample),'--vdjdb',str(ref),'--locus','TRB','--targets-from-sample',
+        '--unbounded-nearest','--background','vdjdb-other','--neighbour-weighting','linear',
+        '--epitope-rules','--exclude-exact']
+    assert main(args+['--output-prefix',str(tmp_path/'grouped')])==0
+    def scalar(reference,groups,**options):
+        return [epitope_rules.reference_epitope_rules(q,r,reference.filter(pl.col('epitope')!=task['epitope']),
+            **options) for task,q,r in groups]
+    monkeypatch.setattr(epitope_rules,'grouped_reference_epitope_rules',scalar)
+    assert main(args+['--output-prefix',str(tmp_path/'scalar')])==0
+    for suffix in ('queries','candidates','enrichment'):
+        assert (tmp_path/f'grouped.{suffix}.tsv').read_bytes()==(tmp_path/f'scalar.{suffix}.tsv').read_bytes()
+
+
 @pytest.mark.parametrize('diagnostic',['epitope-rules','chemistry'])
 def test_cli_rules_preserve_existing_fields_and_empty_schema(tmp_path,diagnostic):
     from vdjmatch.cli.__main__ import main

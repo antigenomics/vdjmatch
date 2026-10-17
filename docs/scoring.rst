@@ -695,6 +695,14 @@ fresh manuscript-table rebuild. Its final all-label/axis calibration is separate
 Execution-owned diagnostic reductions
 -------------------------------------
 
+Multi-target ``--epitope-rules`` shares one grouped conditional-V distance
+traversal, with a separate global traversal for unsupported V categories.
+Fixed target and other-peptide memberships preserve shared-label keys and
+exclude every restriction of the target peptide from the background. Bounded
+native chunks retain only per-observation masses/ranks; the scalar rule still
+computes the same fixed priors, motif counts and score reductions. Final distance
+counts must equal fixed model sizes minus filtered exact hits.
+
 Pgen matching filters the already validated fixed junction/bin map to the current
 reference keys before the small target join. The full event pools and bin mapping
 remain fixed; source counts, sampling order and seeded draws are unchanged.

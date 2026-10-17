@@ -409,6 +409,24 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     if a.background:
         background_start=time.perf_counter()
         groups=list(groups)  # assayed_targets is streamed; the new arm uses it twice
+        def features(frame,query=False):
+            fields=[pl.col('query_id')] if query else []
+            for i in range(2 if paired else 1):
+                suffix=('a','b')[i] if query else ('alpha','beta')[i]
+                fields.extend([pl.col(('cdr3'+suffix if query else suffix) if paired else 'cdr3').alias(f'seq{i}'),
+                    pl.col(('_allele'+suffix if query else '_allele_'+suffix) if paired else '_allele').alias(f'v{i}'),
+                    pl.col(('j'+suffix if query else 'j_'+suffix) if paired else 'j').alias(f'j{i}')])
+            return frame.select(fields)
+        rule_batches=None
+        if a.epitope_rules and len(groups)>1:
+            from ..evalue.epitope_rules import reference_epitope_rules,grouped_reference_epitope_rules
+            rule_start=time.perf_counter()
+            residuals=grouped_reference_epitope_rules(features(r).with_columns(r['epitope']),
+                [(task,features(part,True),features(selected)) for task,part,selected in groups],
+                paired=paired,exclude_exact=a.exclude_exact,species=organism,threads=a.threads,radius=a.radius,
+                v_loop_distances=(v_loop_distances if a.distance_matrix=='clipped' and a.alphabet=='full' else None))
+            rule_batches={tuple(task[c] for c in PMHC):residual for (task,_,_),residual in zip(groups,residuals)}
+            background_costs['epitope_rules']=time.perf_counter()-rule_start
         from ..match.geometry import total_distance_count_batch,paired_total_distance_mass_batch
         from ..evalue.control import raw_gene_background
         linear=a.neighbour_weighting=='linear'
@@ -652,14 +670,6 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             expanded=part.select('query_id',*query_keys).join(evidence,
                 on=query_keys,how='left',validate='m:1',maintain_order='left').drop(query_keys)
             if a.conditional_j or a.epitope_rules or getattr(a,'chemistry',False):
-                def features(frame,query=False):
-                    fields=[pl.col('query_id')] if query else []
-                    for i in range(2 if paired else 1):
-                        suffix=('a','b')[i] if query else ('alpha','beta')[i]
-                        fields.extend([pl.col(('cdr3'+suffix if query else suffix) if paired else 'cdr3').alias(f'seq{i}'),
-                            pl.col(('_allele'+suffix if query else '_allele_'+suffix) if paired else '_allele').alias(f'v{i}'),
-                            pl.col(('j'+suffix if query else 'j_'+suffix) if paired else 'j').alias(f'j{i}')])
-                    return frame.select(fields)
                 j_start=time.perf_counter()
                 if a.conditional_j:
                     from ..evalue.germline import conditional_j_usage
@@ -667,10 +677,11 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                         features(r.filter(pl.col('epitope')!=task['epitope'])),paired=paired,exclude_exact=a.exclude_exact)
                 elif a.epitope_rules:
                     from ..evalue.epitope_rules import reference_epitope_rules
-                    residual=reference_epitope_rules(features(part,True),features(reference_part),
+                    residual=(rule_batches[tuple(task[c] for c in PMHC)] if rule_batches is not None else
+                        reference_epitope_rules(features(part,True),features(reference_part),
                         features(r.filter(pl.col('epitope')!=task['epitope'])),paired=paired,exclude_exact=a.exclude_exact,
                         species=organism,threads=a.threads,radius=a.radius,
-                        v_loop_distances=(v_loop_distances if a.distance_matrix=='clipped' and a.alphabet=='full' else None))
+                        v_loop_distances=(v_loop_distances if a.distance_matrix=='clipped' and a.alphabet=='full' else None)))
                 else:
                     from ..match.chemistry import local_chemistry_evidence
                     residual=local_chemistry_evidence(features(part,True),features(reference_part),
@@ -1033,6 +1044,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
         'junction_end_trim':{'n_terminal':3,'c_terminal':ctrim},
         **({'epitope_rules':{'germline':'joint V-gene predictive probabilities; one shared pooled pseudo-observation; no J/length marginal or added V-loop distance',
             'source_sha256':sha256(Path(reference_epitope_rules.__code__.co_filename)),
+            'execution':('one conditional-V grouped traversal plus unsupported-category global fallback; scalar prior/motif reductions unchanged'
+                if rule_batches is not None else 'single-task scalar traversal'),
             'sequence':'3/3-trimmed CDR3-only exhaustive multi-reference reciprocal rank, exact V-gene conditioning when both populations support the category; otherwise global CDR3-only rank and neutral V; fixed local kernels retained as diagnostics',
             'motifs':'exact3, IMGT11-class3, internal-wildcard4, IMGT11-class internal-wildcard4; unique per-receptor tokens; paired overlap fractions multiplied within the same reference pair',
             'combination':'V ratio counted once times CDR3 rank times (1+mean positive conditional motif frequency difference); bounded correlated sequence bonus, not independent likelihood evidence; unsupported V has no motif bonus',
