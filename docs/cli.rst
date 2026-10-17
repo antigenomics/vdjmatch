@@ -1622,15 +1622,20 @@ neither field alone establishes above-noise class support.
 
 ``structure.degrees.tsv`` also exports ``inclusive_degree=degree+1``: self
 counts once, so orphans have inclusive degree one. The accompanying
+``structure.clonotype-degrees.tsv`` retains distinct junction/V-gene/J-gene
+keys with unambiguous alleles pooled. Unresolved V/J categories stay in the
+denominator and their counts are reported. Different genes sharing an exact
+junction remain separate vertices. The legacy ``.degrees.tsv`` and
+``hamming_*`` summaries retain unique-junction vertices.
 ``structure.graph-acquisition.tsv`` gives exact expected edge counts and
-connected/orphan sampled vertices under uniform sampling without replacement
+connected/orphan sampled clonotypes under uniform sampling without replacement
 from this observed Hamming<=1 graph. It uses up to 25 geometric depths through
-the full distinct-junction count. This is interpolation of observed graph
+the full distinct-clonotype count. This is interpolation of observed graph
 structure, without extrapolation to unseen families. It does not treat
 overlapping neighbourhoods as disjoint taxa for Chao coverage.
 
 The structure summary additionally reports similarity-aware ``graph_hill0``,
-``graph_hill1`` and ``graph_hill2``. With uniform mass over N junctions and
+``graph_hill1`` and ``graph_hill2``. With uniform mass over N gene-level clonotypes and
 binary self-inclusive Hamming similarity, ordinariness is ``z=(degree+1)/N``.
 The three summaries are ``mean(1/z)``, ``exp(-mean(log(z)))`` and
 ``1/mean(z)``. Shannon-equivalent entropy uses natural logs; ``N/Hill`` is
@@ -2139,3 +2144,18 @@ no-hit and tied-query counts are explicit; ``retrieval.calls.tsv`` retains
 winning labels and no-hit dispositions. When full index profiles are supplied,
 the metric table includes alpha, beta and joint marginal classes for plotting.
 An other-class retrieval label is not proof of experimental nonbinding.
+
+Paired target eligibility requires at least one chain with 30 valid source
+records, before exact-hit exclusion; two smaller chain counts cannot be added
+to qualify a target. ``valid_source_records`` then reports both chains' total
+source observations and ``eligibility_chain_max_records`` names the qualifying
+quantity. Missing marginal chains remain explicit in joint class metadata.
+
+``retrieval.class-groups.tsv`` supplies the heatmap summaries: alpha classes
+for TRA scores, beta classes for TRB scores, and joint classes for paired scores.
+Organism species and core3/full20 definitions remain separate. Mean and median
+accuracy, balanced accuracy and MCC give every epitope equal weight; minimum,
+maximum and the number of defined epitopes accompany each. Exact summed
+confusion counts and query-target appearance counts remain available. A null
+or nonfinite metric contributes no defined value and is not replaced by zero.
+The individual-epitope confusion table is always retained.

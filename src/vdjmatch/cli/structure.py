@@ -57,8 +57,8 @@ def main(a, *, return_inputs=False):
     from ..aggregate.motif_information import motif_population, motif_selection_information
     from ..aggregate.germline_information import germline_projection_map, iter_germline_information
     from ..aggregate.length_profile import length_histogram, length_control, length_summary
-    from ..aggregate.graph_acquisition import graph_acquisition, degree_diversity
-    from ..aggregate.structure import composition, graph_profiles, reference_gene_usage, control_gene_usage, compare_gene_usage, gene_selection_information
+    from ..aggregate.graph_acquisition import graph_acquisition, degree_diversity, clonotype_graph_degrees
+    from ..aggregate.structure import composition, graph_profiles, reference_gene_usage, control_gene_usage, compare_gene_usage, gene_selection_information, _gene_expression
     from ..cluster import overlap
     from ..db.cache import sha256
     from ..evalue.control import _organism
@@ -220,7 +220,7 @@ def main(a, *, return_inputs=False):
         degree_edges = {key[0]: part.select('a', 'b') for key, part in joined.group_by('_group')}
     degree_nodes = {key[0]: part.sort('_local') for key, part in
                     degree_membership.group_by('_group')} if degree_membership is not None else {}
-    summaries, degree_rows, length_tables, gene_tables, acquisition_tables = [], [], [], [], []
+    summaries, degree_rows, length_tables, gene_tables, acquisition_tables, clonotype_rows = [], [], [], [], [], []
     mark('reference_graphs')
     for group_id, (task, source) in enumerate(groups):
         retained = source.filter(available)
@@ -285,9 +285,26 @@ def main(a, *, return_inputs=False):
                            for d, c in zip(values, counts))
         if not n:
             degree_rows.append(degree_context | dict(degree=None, inclusive_degree=None, junction_count=0))
-        depths = np.unique(np.rint(np.geomspace(1, n, min(n, 25))).astype(np.int64)) if n else np.array([], dtype=np.int64)
-        acquisition_tables.append(graph_acquisition(degrees, depths).with_columns(
-            *[pl.lit(value).alias(key) for key, value in degree_context.items()]))
+        clone_keys = source.filter(mixture_available).select('cdr3',
+            _gene_expression(a.locus, 'V').alias('v_gene'), _gene_expression(a.locus, 'J').alias('j_gene')).unique()
+        unresolved_clones = int((clone_keys['v_gene'].is_null() | clone_keys['j_gene'].is_null()).sum())
+        multiplicities = clone_keys.group_by('cdr3').len()
+        multiplicities = degree_nodes[group_id].sort('_local').select('cdr3').join(
+            multiplicities, on='cdr3', validate='1:1', maintain_order='left')['len'].to_numpy().astype(np.int64) if n else np.array([], dtype=np.int64)
+        clone_degrees = clonotype_graph_degrees(multiplicities, np.sort(endpoints.reshape(-1, 2), axis=1))
+        clone_n, clone_edges = len(clone_degrees), int(clone_degrees.sum())//2
+        clone_context = degree_context | dict(graph_population='all_valid_junction_Vgene_Jgene_clonotypes',
+            clonotypes=clone_n, graph_edges=clone_edges, unresolved_gene_clonotypes=unresolved_clones)
+        clone_values, clone_counts = np.unique(clone_degrees, return_counts=True)
+        clonotype_rows.extend(clone_context | dict(degree=int(d), inclusive_degree=int(d)+1, clonotype_count=int(c))
+            for d, c in zip(clone_values, clone_counts))
+        if not clone_n:
+            clonotype_rows.append(clone_context | dict(degree=None, inclusive_degree=None, clonotype_count=0))
+        depths = np.unique(np.rint(np.geomspace(1, clone_n, min(clone_n, 25))).astype(np.int64)) if clone_n else np.array([], dtype=np.int64)
+        acquisition = graph_acquisition(clone_degrees, depths)
+        acquisition_tables.append(acquisition.rename({c: c.replace('junctions', 'clonotypes')
+            for c in acquisition.columns if 'junctions' in c}).with_columns(
+                *[pl.lit(value).alias(key) for key, value in clone_context.items()]))
         # Local node indices, not join order, align junction lengths with degrees.
         length_graph = degree_nodes[group_id].select(
             pl.col('cdr3').str.len_chars().alias('junction_length')).with_columns(
@@ -315,7 +332,8 @@ def main(a, *, return_inputs=False):
             hamming_degree_variance=float(degrees.var()) if n else None,
             hamming_max_degree=int(degrees.max()) if n else None,
             hamming_isolated_fraction=float(np.count_nonzero(degrees == 0) / n) if n else None)
-        degree_summary.update(degree_diversity(degrees))
+        degree_summary.update(degree_diversity(clone_degrees), degree_clonotypes=clone_n,
+            degree_clonotype_edges=clone_edges, degree_unresolved_gene_clonotypes=unresolved_clones)
         degree_summary.update({f'hamming_{name}_degree': float(np.quantile(degrees, q)) if n else None
                                for name, q in [('q10', .1), ('median', .5), ('q90', .9)]})
         if publicity is not None:
@@ -335,6 +353,7 @@ def main(a, *, return_inputs=False):
     prefix.parent.mkdir(parents=True,exist_ok=True)
     summary_path = Path(str(prefix)+'.structures.tsv')
     degree_path = Path(str(prefix)+'.degrees.tsv')
+    clonotype_degree_path = Path(str(prefix)+'.clonotype-degrees.tsv')
     acquisition_path = Path(str(prefix)+'.graph-acquisition.tsv')
     length_path = Path(str(prefix)+'.lengths.tsv')
     gene_path = Path(str(prefix)+'.genes.tsv')
@@ -353,7 +372,9 @@ def main(a, *, return_inputs=False):
             pl.lit('empty_reference').alias('mixture_weight_status'))
     summary.drop('_mixture_group').write_csv(summary_path, separator='\t')
     pl.concat(acquisition_tables, how='diagonal_relaxed').write_csv(acquisition_path, separator='\t')
-    tables = [summary_path, degree_path, length_path, gene_path, acquisition_path]
+    pl.DataFrame(clonotype_rows, schema_overrides={'degree': pl.Int64, 'inclusive_degree': pl.Int64,
+        'clonotype_count': pl.Int64}, infer_schema_length=None).write_csv(clonotype_degree_path, separator='\t')
+    tables = [summary_path, degree_path, length_path, gene_path, acquisition_path, clonotype_degree_path]
     if spectratype_control is not None:
         spectratype_path = Path(str(prefix)+'.spectratype.tsv')
         spectratype_lengths_path = Path(str(prefix)+'.spectratype-lengths.tsv')
@@ -419,8 +440,9 @@ def main(a, *, return_inputs=False):
         graph_node_unit='unique full junction', v_usage_unit='unique full junction/resolved V allele keys; gene-level categories',
         degree_population='all valid full junctions, including unresolved V; fixed full reference',
         degree_quantiles='linear interpolation of the unique-junction degree distribution',
+        clonotype_degree_population='distinct full-junction/V-gene/J-gene keys; unambiguous alleles pooled by shared gene parser; unresolved gene categories retained and counted; source fields unchanged',
         inclusive_degree='degree+1; self counted once; inclusive degree 1 is an orphan',
-        graph_acquisition=dict(sampling='uniform distinct junction vertices without replacement; fixed observed Hamming<=1 induced graph',
+        graph_acquisition=dict(sampling='uniform distinct full-junction/V-gene/J-gene clonotype vertices without replacement; fixed observed Hamming<=1 induced graph; exact junction matches retain different V/J genes; unresolved categories retained',
             depths='up to 25 rounded geometric depths from 1 through N; no extrapolation',
             orphan_probability='choose(N-1-d,m-1)/choose(N-1,m-1); d excludes self',
             expected_edges='E*m*(m-1)/(N*(N-1)); E observed undirected edges',

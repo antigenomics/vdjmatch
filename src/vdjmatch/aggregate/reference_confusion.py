@@ -6,6 +6,44 @@ QUERY = [*CONTEXT, 'query_id']
 TARGET = [*CONTEXT, 'epitope']
 
 
+def class_group_confusion(metrics):
+    """Equal-epitope macro summaries for alpha, beta and joint class heatmaps.
+
+    Align class axis to scored locus, keep species/scorers separate, and report
+    defined denominators for each metric. Original core3 and full20 definitions
+    are separate rows. Individual epitope metrics remain the primary input.
+    """
+    schema = {c: pl.String for c in [*CONTEXT, 'scorer', 'class_axis', 'class_definition', 'epitope_class']}
+    schema.update({c: pl.Int64 for c in ['epitopes', 'query_target_appearances', 'positives', 'negatives', 'tp', 'tn', 'fp', 'fn']})
+    for metric in ('accuracy', 'balanced_accuracy', 'mcc'):
+        schema[metric+'_defined_epitopes'] = pl.Int64
+        schema.update({stat+'_'+metric: pl.Float64 for stat in ('mean', 'median', 'min', 'max')})
+    if metrics.select(*TARGET, 'scorer').is_duplicated().any():
+        raise ValueError('class-group input must contain one row per pooled epitope/scorer/locus')
+    parts = []
+    for definition, prefix in [('core3', ''), ('full20', 'full20_')]:
+        for axis, loci, field in [('alpha', ['TRA'], 'alpha_'+prefix+'profile_class'),
+                ('beta', ['TRB'], 'beta_'+prefix+'profile_class'),
+                ('joint', ['PAIRED', 'TRA+TRB'], prefix+'joint_class')]:
+            if field not in metrics.columns:
+                continue
+            part = metrics.filter(pl.col('locus').str.to_uppercase().is_in(loci))
+            if not part.height:
+                continue
+            part = part.with_columns(pl.lit(axis).alias('class_axis'),
+                pl.lit(definition).alias('class_definition'), pl.col(field).fill_null('missing_class').alias('epitope_class'),
+                *[pl.when(pl.col(c).is_finite()).then(pl.col(c)).alias(c) for c in ('accuracy', 'balanced_accuracy', 'mcc')])
+            aggregates = [pl.col('epitope').n_unique().alias('epitopes'),
+                pl.col('queries').sum().alias('query_target_appearances'),
+                *[pl.col(c).sum() for c in ('positives', 'negatives', 'tp', 'tn', 'fp', 'fn')]]
+            for metric in ('accuracy', 'balanced_accuracy', 'mcc'):
+                aggregates += [pl.col(metric).count().alias(metric+'_defined_epitopes'),
+                    *[getattr(pl.col(metric), stat)().alias(stat+'_'+metric) for stat in ('mean', 'median', 'min', 'max')]]
+            parts.append(part.group_by(*CONTEXT, 'scorer', 'class_axis', 'class_definition', 'epitope_class').agg(aggregates))
+    return (pl.concat(parts).select(*[pl.col(c).cast(dtype) for c, dtype in schema.items()])
+        .sort(*CONTEXT, 'class_definition', 'class_axis', 'epitope_class', 'scorer') if parts else pl.DataFrame(schema=schema))
+
+
 def reference_confusion(scores, truth, profiles):
     """Return flat confusion counts and tie-preserving winning-label calls.
 
@@ -37,10 +75,17 @@ def reference_confusion(scores, truth, profiles):
             expected.join(actual, on=[*QUERY, 'scorer'], how='anti').height or
             queries.join(methods.select(CONTEXT).unique(), on=CONTEXT, how='anti').height):
         raise ValueError('every scorer must explicitly contain every truth query, including no-hits')
-    eligible = profiles.filter((pl.col('level') == 'epitope') & (pl.col('valid_source_records') >= 30)).select(
-        *TARGET, 'valid_source_records', *[c for c in ('profile_class', 'full20_profile_class') if c in profiles.columns])
-    if eligible.select(TARGET).is_duplicated().any():
+    pooled = profiles.filter((pl.col('level') == 'epitope') & pl.col('locus').is_in(['TRA', 'TRB']))
+    if pooled.select(TARGET).is_duplicated().any():
         raise ValueError('eligible pooled profiles must be unique by species/locus/epitope')
+    eligible = pooled.filter(pl.col('valid_source_records') >= 30).select(
+        *TARGET, 'valid_source_records', *[c for c in ('profile_class', 'full20_profile_class') if c in profiles.columns])
+    paired_loci = scores.filter(pl.col('locus').str.to_uppercase().is_in(['PAIRED', 'TRA+TRB'])).select('locus').unique()
+    if paired_loci.height:
+        paired = pooled.group_by('species', 'epitope').agg(
+            pl.col('valid_source_records').sum(), pl.col('valid_source_records').max().alias('eligibility_chain_max_records'))
+        paired = paired.filter(pl.col('eligibility_chain_max_records') >= 30).join(paired_loci, how='cross')
+        eligible = pl.concat([eligible, paired], how='diagonal_relaxed')
     candidates = scores.filter(pl.col('supported') & pl.col('score').is_finite().fill_null(False) & pl.col('epitope').is_not_null())
     winners = candidates.filter(pl.col('score') == pl.col('score').max().over(*QUERY, 'scorer')).select(
         *QUERY, 'scorer', 'epitope').unique()

@@ -84,7 +84,7 @@ def test_reference_structure_exports_spectratype_without_changing_native_batches
     degrees = pl.read_csv(str(prefix)+'.degrees.tsv', separator='\t')
     assert degrees['inclusive_degree'].to_list() == (degrees['degree']+1).to_list()
     acquisition = pl.read_csv(str(prefix)+'.graph-acquisition.tsv', separator='\t')
-    assert acquisition['sample_junctions'].to_list() == [1, 2]
+    assert acquisition['sample_clonotypes'].to_list() == [1, 2]
     assert acquisition['expected_connected_fraction'].to_list() == [0., 0.]
     structure = pl.read_csv(str(prefix)+'.structures.tsv', separator='\t').row(0, named=True)
     assert structure['publicity_valid_source_records'] == 3

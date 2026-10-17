@@ -16,7 +16,7 @@ def main(a):
     import json
     import time
     import polars as pl
-    from ..aggregate.reference_confusion import reference_confusion
+    from ..aggregate.reference_confusion import reference_confusion, class_group_confusion
     from ..db.cache import sha256
     from ..runner.annotation import _validate_output_paths
 
@@ -30,7 +30,7 @@ def main(a):
     metrics, calls = reference_confusion(*frames)
     prefix.parent.mkdir(parents=True, exist_ok=True)
     outputs = {}
-    for suffix, table in [('confusion', metrics), ('calls', calls)]:
+    for suffix, table in [('confusion', metrics), ('calls', calls), ('class-groups', class_group_confusion(metrics))]:
         path = Path(str(prefix)+'.'+suffix+'.tsv')
         table.write_csv(path, separator='\t')
         outputs[path.name] = sha256(path)
@@ -41,6 +41,7 @@ def main(a):
         population='complete explicit scorer query dispositions; eligible targets have >=30 valid source records',
         decision='all supported finite maximum-score labels win; exact ties retained; explicit no-hit rows retained',
         interpretation='one-vs-other annotation retrieval; other-class labels do not demonstrate experimental nonbinding',
+        class_groups='separate alpha/TRA, beta/TRB and joint/paired classes; species separate; equal-epitope macro mean/median/range with defined-epitope denominators; core3 and full20 definitions separate',
         exact_policy='inherited from producing scores; benchmark producer must filter exact hits only and keep models fixed',
         seconds=time.monotonic()-started), indent=2)+'\n')
     return 0

@@ -94,7 +94,7 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     genes=pl.read_csv(str(prefix)+'.genes.tsv',separator='\t')
     assert set(genes['segment'])=={'V','J'}
     assert genes.filter((pl.col('segment')=='J') & (pl.col('length_scope')=='all_lengths'))['reference_records'].sum()==4
-    assert set(manifest['tables'])=={'profile.structures.tsv','profile.degrees.tsv','profile.lengths.tsv','profile.genes.tsv','profile.graph-acquisition.tsv'}
+    assert set(manifest['tables'])=={'profile.structures.tsv','profile.degrees.tsv','profile.lengths.tsv','profile.genes.tsv','profile.graph-acquisition.tsv','profile.clonotype-degrees.tsv'}
     assert all(len(manifest[key])==64 for key in ('native_sha256','v_model_sha256','loader_sha256','search_source_sha256'))
     control = tmp_path/'control.tsv'
     pl.DataFrame({'junction_aa':['CASSLAAAYEQYF','CASSLACAYEQYF','CASSLADAYEQYF'],

@@ -4,6 +4,25 @@ import polars as pl
 from scipy.special import gammaln
 
 
+def clonotype_graph_degrees(multiplicities, edges):
+    """Expand a junction graph's degrees to its distinct junction/V/J clones.
+
+    ``multiplicities[i]`` counts clonotypes sharing junction i. Each distinct
+    junction edge denotes a complete bipartite block; exact junction matches
+    form a clique. Edges are unique undirected pairs from the native graph.
+    Only degrees expand, never the potentially quadratic clone edge list.
+    """
+    m, edges = np.asarray(multiplicities), np.asarray(edges)
+    if (m.ndim != 1 or m.dtype.kind not in 'iu' or (m <= 0).any()
+            or edges.ndim != 2 or edges.shape[1] != 2 or edges.dtype.kind not in 'iu'
+            or (edges < 0).any() or (edges >= len(m)).any() or (edges[:, 0] >= edges[:, 1]).any()):
+        raise ValueError('positive clonotype multiplicities and ordered junction edge pairs required')
+    mass = m.copy()
+    np.add.at(mass, edges[:, 0], m[edges[:, 1]])
+    np.add.at(mass, edges[:, 1], m[edges[:, 0]])
+    return np.repeat(mass-1, m)
+
+
 def degree_diversity(degrees):
     """Degree-based Hill summaries and an explicitly labelled Chao count proxy.
 
@@ -37,7 +56,7 @@ def degree_diversity(degrees):
 def graph_acquisition(degrees, sizes):
     """Expected edges and connected sampled vertices of the observed fixed graph.
 
-    ``degrees`` excludes self and represents distinct junction vertices. For
+    ``degrees`` excludes self and represents the caller's distinct vertices. For
     sample size m from N vertices, a sampled degree-d vertex is orphaned with
     probability choose(N-1-d,m-1)/choose(N-1,m-1). This is interpolation of the
     observed graph, not unseen-family coverage or Chao's taxon-abundance model.

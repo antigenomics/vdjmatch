@@ -18,12 +18,15 @@ def test_joint_marginal_support_keeps_missing_chains_unknown():
                 continue
             rows.append(dict(species='HomoSapiens', epitope=epitope, level='epitope', locus=locus,
                 valid_source_records=30, classification_eligible=True,
-                motif_supported=supported, profile_class='example'))
+                motif_supported=supported, profile_class='example',
+                full20_motif_supported=supported, full20_profile_class='full20_example'))
     result = joint_reference_profiles(pl.DataFrame(rows))
     assert result['any_chain_motif_supported'].to_list() == [True, False, None, True]
     assert result['both_chains_observed'].to_list() == [True, True, True, False]
     assert result['both_chains_eligible'].to_list() == [True, True, True, False]
     assert result['joint_class'][-1] == 'alpha: example; beta: missing_chain'
+    assert result['any_chain_full20_motif_supported'].to_list() == [True, False, None, True]
+    assert result['full20_joint_class'][-1] == 'alpha: full20_example; beta: missing_chain'
 
 
 def test_identical_label_sets_have_enrichment_one_and_duplicate_records_do_not_add_edges():

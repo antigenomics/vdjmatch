@@ -27,6 +27,13 @@ separate full20 union's selection-aware class and marginal any-chain support.
 exports source-eligible per-epitope TP/FN/FP/TN, MCC and balanced accuracy from
 complete explicit scorer dispositions. Ties, multiple truth labels and no-hits
 are retained. Exact-hit filtering belongs to the producing scorer.
+Its `.class-groups.tsv` uses equal-epitope means/medians/ranges and explicit
+defined denominators for alpha/TRA, beta/TRB and joint/paired panels. Paired
+eligibility requires one chain>=30 source records, never a sum of small chains.
+New degree/Hill/Chao/acquisition indices use allele-pooled junction/V-gene/J-gene
+clonotypes and keep unresolved categories; `.clonotype-degrees.tsv` reports
+their self-inclusive degree histogram. Legacy `hamming_*`/`.degrees.tsv`
+statistics remain junction-only.
 
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)

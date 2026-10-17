@@ -207,6 +207,9 @@ def joint_reference_profiles(profiles: pl.DataFrame) -> pl.DataFrame:
     if 'full20_motif_supported' in pooled.columns:
         result = result.with_columns((pl.col('alpha_full20_motif_supported') |
             pl.col('beta_full20_motif_supported')).alias('any_chain_full20_motif_supported'))
+        result = result.with_columns(pl.concat_str(pl.lit('alpha: '),
+            pl.col('alpha_full20_profile_class').fill_null('missing_chain'), pl.lit('; beta: '),
+            pl.col('beta_full20_profile_class').fill_null('missing_chain')).alias('full20_joint_class'))
     return result.with_columns(
         (pl.col('alpha_valid_source_records').is_not_null() & pl.col('beta_valid_source_records').is_not_null()).alias('both_chains_observed'),
         (pl.col('alpha_classification_eligible').fill_null(False) &

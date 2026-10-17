@@ -45,3 +45,34 @@ def test_retrieval_confusion_counts_and_complete_query_validation(tmp_path):
     assert main(['score-confusion', str(paths[0]), '--truth', str(paths[1]), '--profiles', str(paths[2]),
         '--output-prefix', str(tmp_path/'summary')]) == 0
     assert pl.read_csv(tmp_path/'summary.confusion.tsv', separator='\t')['tp'].to_list() == [2, 1]
+    paired, _ = reference_confusion(scores.with_columns(pl.lit('paired').alias('locus')),
+        truth.with_columns(pl.lit('paired').alias('locus')), profiles)
+    assert paired['epitope'].to_list() == ['A', 'B']
+    assert paired['valid_source_records'].to_list() == [30, 31]
+    small = pl.concat([profiles, profiles.with_columns(pl.lit('TRA').alias('locus'))]).with_columns(
+        pl.when(pl.col('epitope') == 'A').then(15).otherwise(pl.col('valid_source_records')).alias('valid_source_records'))
+    paired, _ = reference_confusion(scores.with_columns(pl.lit('paired').alias('locus')),
+        truth.with_columns(pl.lit('paired').alias('locus')), small)
+    assert paired['epitope'].to_list() == ['B']  # 15+15 source records cannot manufacture eligibility
+    assert paired['queries'].to_list() == [4]
+
+
+def test_class_groups_keep_equal_epitope_weight_and_undefined_counts():
+    from vdjmatch.aggregate.reference_confusion import class_group_confusion
+    metrics = pl.DataFrame({'species': ['HomoSapiens']*2, 'locus': ['TRA']*2,
+        'epitope': ['A', 'B'], 'scorer': ['test']*2, 'alpha_profile_class': ['v_only']*2,
+        'alpha_full20_profile_class': ['v_and_motif']*2, 'beta_profile_class': ['motif_only']*2,
+        'queries': [10, 100], 'positives': [5, 50], 'negatives': [5, 50],
+        'tp': [4, 20], 'tn': [4, 20], 'fp': [1, 30], 'fn': [1, 30],
+        'accuracy': [.8, .4], 'balanced_accuracy': [.8, .4], 'mcc': [.6, None]})
+    groups = class_group_confusion(metrics)
+    assert groups.height == 2  # beta metadata must not create a beta-scoring cohort
+    assert groups['class_definition'].to_list() == ['core3', 'full20']
+    assert groups['class_axis'].to_list() == ['alpha']*2
+    assert groups['mean_accuracy'].to_list() == pytest.approx([.6]*2)
+    assert groups['mean_mcc'].to_list() == [.6]*2
+    assert groups['mcc_defined_epitopes'].to_list() == [1, 1]
+    assert groups['epitopes'].to_list() == [2, 2]
+    assert groups['query_target_appearances'].to_list() == [110, 110]
+    with pytest.raises(ValueError, match='one row'):
+        class_group_confusion(pl.concat([metrics, metrics]))
