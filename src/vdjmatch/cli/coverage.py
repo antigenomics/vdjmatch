@@ -35,6 +35,8 @@ def add_graph_options(p, *, combined=False):
     p.add_argument('--leiden-resolution', type=float, default=1.)
     p.add_argument('--nboot', type=int, default=200, help='vdjtools augmented-assemblage bootstrap replicates')
     p.add_argument('--pair-budget', type=int, default=2_000_000)
+    p.add_argument('--membership-budget-bytes', type=int, default=2*1024**3,
+        help='estimated raw reference/mock membership byte ceiling (default: 2 GiB; maximum: 8 GiB)')
 
 
 def main(a, *, inputs=None):
@@ -49,6 +51,7 @@ def _main(a, *, inputs, scratch):
     import time
     from importlib.metadata import version
     import polars as pl
+    import numpy as np
     from .. import db
     from ..aggregate.reference_coverage import reference_graph, leiden_taxa, abundance_coverage, sw_knee
     from ..db.cache import sha256
@@ -59,6 +62,7 @@ def _main(a, *, inputs, scratch):
 
     start = time.monotonic()
     validate_options(a)
+    membership_budget = getattr(a, 'membership_budget_bytes', 2*1024**3)
     protected = [a.vdjdb] + ([a.control] if a.control else []) + ([a.targets_from_sample] if a.targets_from_sample else [])
     if a.pgen_features:
         protected += [a.pgen_features, a.pgen_features.removesuffix('.features.parquet')+'.manifest.json']
@@ -87,8 +91,10 @@ def _main(a, *, inputs, scratch):
     if not records or not sum(part.height for part in records):
         raise ValueError('no valid reference occurrences in the requested population')
     reference = pl.concat(records)
-    if reference.height * (1+a.mock_replicates) * 1024 > 2*1024**3:
-        raise ValueError('raw reference/mock memberships exceed 2 GiB budget; select fewer targets or replicates')
+    estimated_membership_rows = reference.height * (1+a.mock_replicates)
+    estimated_membership_bytes = estimated_membership_rows * 1024
+    if estimated_membership_bytes > membership_budget:
+        raise ValueError(f'raw reference/mock membership estimate {estimated_membership_bytes} bytes exceeds explicit budget {membership_budget} bytes')
     loops = () if a.cdr_loops == 'junction' else ('cdr1', 'cdr2') if a.cdr_loops == 'cdr12' else ('cdr1', 'cdr2', 'cdr25')
     knee_curve = None
     if a.geometry == 'sw' and a.sw_radius_knee:
@@ -145,6 +151,7 @@ def _main(a, *, inputs, scratch):
             with path.open('ab') as stream:
                 frame.drop('group_id').write_csv(stream, separator='\t', include_header=not exists)
 
+    actual_membership_rows = sum(part.height for part in records)
     nodes, edges = reference_graph(pl.concat(records), geometry=a.geometry, radius=a.sw_radius,
         species=organism, locus=a.locus, threads=a.threads, scope=a.scope,
         gap_open=a.gap_open, gap_extend=a.gap_extend, pair_budget=a.pair_budget,
@@ -159,8 +166,13 @@ def _main(a, *, inputs, scratch):
     written = False
     edges_path = Path(str(prefix)+'.edges.tsv')
     edges.write_csv(edges_path, separator='\t')
+    if not nodes['group_id'].is_sorted():
+        raise ValueError('coverage graph nodes must be sorted by group_id')
+    group_ids = nodes['group_id'].to_numpy()
+    group_offsets = np.searchsorted(group_ids, np.arange(len(populations)+1, dtype=group_ids.dtype))
     for context in populations:
-        selected = nodes.filter(pl.col('group_id') == context['group_id'])
+        begin, end = group_offsets[context['group_id']:context['group_id']+2]
+        selected = nodes.slice(int(begin), int(end-begin))
         if not selected.height:
             summaries.append(context | dict(taxon_resolution='unavailable', coverage_status='no_valid_occurrences'))
             continue
@@ -228,6 +240,9 @@ def _main(a, *, inputs, scratch):
         uncertainty='vdjtools augmented-assemblage bootstrap; richness normal 95% CI, coverage percentile 95% envelope; partitions fixed at full observed graph; no assertion of unseen-family exhaustion',
         bootstrap_probability_api='vdjtools.stats.bootstrap_abundances; exact compressed unseen-taxon law owned by vdjtools',
         control=control_info, nboot=a.nboot, seed=a.seed, seed_policy='SHA256(base seed,species,locus,task/population,resolution); first 4 bytes little-endian modulo 2**31',
+        membership_budget_bytes=membership_budget, estimated_membership_rows=estimated_membership_rows,
+        estimated_membership_bytes=estimated_membership_bytes, actual_membership_rows=actual_membership_rows,
+        membership_unit='raw reference/mock source-record rows before graph-key deduplication',
         threads=a.threads, pair_budget=a.pair_budget, search_batches=1+int(knee_curve is not None),
         source_sha256=sha256(Path(__file__)), reducer_sha256=sha256(Path(reference_graph.__code__.co_filename)),
         stats_source_sha256=sha256(Path(rarefaction_batch.__code__.co_filename)),
@@ -241,6 +256,9 @@ def _main(a, *, inputs, scratch):
 
 def validate_options(a):
     """Reject invalid/unsupported graph requests before any raw computation."""
+    membership_budget = getattr(a, 'membership_budget_bytes', 2*1024**3)
+    if not 1 <= membership_budget <= 8*1024**3:
+        raise ValueError('membership budget must be positive and at most 8 GiB')
     if a.threads < 1 or a.nboot < 2 or a.seed < 0 or a.mock_replicates < 0 or a.mock_replicates == 1:
         raise ValueError('positive threads, nboot>=2, seed>=0 and mock-replicates zero or >=2 required')
     if getattr(a, 'control_model', None) and not a.control:
