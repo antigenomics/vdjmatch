@@ -10,21 +10,38 @@ KEY = ['species', 'locus', 'epitope']
 ROUTES = {'V_dominant': 'rule_v_score',
           'junction_projection_dominant': 'rule_rank_score',
           'general_fallback': 'original'}
+FAST_ROUTES = {'v_only': 'rule_v_score',
+               'motif_only': 'rule_exact3_score / rule_v_score',
+               'v_and_motif': 'rule_exact3_score',
+               'no_supported_axis': 'original'}
 OUTPUT = ['reference_class', 'selected_score_column', 'policy_score', 'policy_status']
 
 
 def apply_reference_policy(scores, policy, *, original_column='original_score'):
     """Select existing components without using labels or dropping query rows."""
     import polars as pl
-    required = {*KEY, original_column, 'rule_v_score', 'rule_rank_score'}
+    required = {*KEY, original_column}
     if not required <= set(scores.columns) or not {*KEY, 'reference_class'} <= set(policy.columns):
         raise ValueError('component scores and policy require species/locus/epitope and declared score/class columns')
     if set(OUTPUT) & set(scores.columns) or any(c.startswith('_policy_') for c in scores.columns):
         raise ValueError('score input contains reserved policy output columns')
     if policy.select(KEY).is_duplicated().any() or policy.select(pl.any_horizontal(pl.col(KEY).is_null()).any()).item():
         raise ValueError('policy identities must be unique and non-null')
-    if policy['reference_class'].null_count() or not set(policy['reference_class']) <= set(ROUTES):
+    classes = set(policy['reference_class'])
+    if policy['reference_class'].null_count() or not classes <= set(ROUTES) | set(FAST_ROUTES):
         raise ValueError('unknown or missing reference policy class')
+    fast = bool(classes & set(FAST_ROUTES))
+    if not fast:
+        required.update(('rule_v_score', 'rule_rank_score'))
+    else:
+        if classes & {'v_only', 'motif_only', 'V_dominant'}:
+            required.add('rule_v_score')
+        if classes & {'motif_only', 'v_and_motif'}:
+            required.add('rule_exact3_score')
+        if 'junction_projection_dominant' in classes:
+            required.add('rule_rank_score')
+    if not required <= set(scores.columns):
+        raise ValueError('component scores require declared policy score columns')
     join_keys = ['_policy_'+k for k in KEY]
     aliases = {'human': 'HomoSapiens', 'mouse': 'MusMusculus'}
     def keys(frame):
@@ -35,6 +52,35 @@ def apply_reference_policy(scores, policy, *, original_column='original_score'):
     if selected.select(join_keys).is_duplicated().any():
         raise ValueError('policy species aliases collide')
     out = keys(scores).join(selected,on=join_keys,how='left',validate='m:1',maintain_order='left')
+    if fast:
+        desired = pl.col('reference_class').replace_strict(ROUTES | FAST_ROUTES,default='original')
+        original = pl.col(original_column).cast(pl.Float64)
+        def component(name):
+            return pl.col(name).cast(pl.Float64) if name in scores.columns else pl.lit(None,dtype=pl.Float64)
+        v, motif, rank = (component(c) for c in ('rule_v_score','rule_exact3_score','rule_rank_score'))
+        conditional = pl.when(v.is_finite() & (v>0)).then(motif/v)
+        new = pl.col('reference_class').is_in(list(FAST_ROUTES)).fill_null(False)
+        paired = new & pl.col('locus').str.to_uppercase().is_in(['PAIRED','TRA+TRB'])
+        desired = pl.when(paired).then(pl.lit('original')).otherwise(desired)
+        chosen = (pl.when(desired=='rule_v_score').then(v)
+            .when(desired=='rule_rank_score').then(rank)
+            .when(desired=='rule_exact3_score').then(motif)
+            .when(desired=='rule_exact3_score / rule_v_score').then(conditional).otherwise(original))
+        usable = chosen.is_finite().fill_null(False)
+        fallback = new & ~usable & original.is_finite().fill_null(False)
+        out = out.with_columns(
+            pl.when(fallback).then(original).when(usable).then(chosen).alias('policy_score'),
+            pl.when(fallback | (desired=='original')).then(pl.lit(original_column))
+                .otherwise(desired).alias('selected_score_column'),
+            pl.when(~usable & ~original.is_finite().fill_null(False)).then(pl.lit('no_finite_score'))
+                .when(pl.col('reference_class').is_null()).then(pl.lit('no_reference_profile'))
+                .when(paired).then(pl.lit('paired_default'))
+                .when(desired=='original').then(pl.lit('reference_fallback'))
+                .when(fallback).then(pl.lit('component_unavailable_default_fallback'))
+                .when(~usable).then(pl.lit('component_unavailable_no_score'))
+                .otherwise(pl.lit('selected_component')).alias('policy_status'),
+            pl.col('reference_class').fill_null('general_fallback'))
+        return out.drop(join_keys)
     desired = pl.col('reference_class').replace_strict(ROUTES,default='original')
     v = pl.col('rule_v_score').cast(pl.Float64)
     r = pl.col('rule_rank_score').cast(pl.Float64)
@@ -74,7 +120,8 @@ def main(a):
     prefix = _validate_output_paths(a.output_prefix,[a.scores,model,companion])
     before = {str(Path(p).resolve()):sha256(Path(p)) for p in (a.scores,model,companion)}
     scores = _read_table(a.scores)
-    result = apply_reference_policy(scores,_read_table(model),original_column=a.original_column)
+    policy = _read_table(model)
+    result = apply_reference_policy(scores,policy,original_column=a.original_column)
     if any(sha256(Path(p))!=h for p,h in before.items()):
         raise ValueError('policy or score input changed during selection')
     prefix.parent.mkdir(parents=True,exist_ok=True)
@@ -84,5 +131,8 @@ def main(a):
         input_sha256=before,output_sha256={output.name:sha256(output)},rows=result.height,
         original_column=a.original_column,experimental=True,default_changed=False,
         labels_used=False,calibration_status='raw continuous selection only; component P/E/posteriors do not transfer',
-        policy='frozen reference classes select V or complete conditional rank; otherwise original'),indent=2)+'\n')
+        policy=('frozen V/core-exact3 classes: V, joint/V conditional motif, or joint; '
+            'unsupported, unavailable and paired routes retain configured default; legacy classes retain their recipe'
+            if set(policy['reference_class']) & set(FAST_ROUTES) else
+            'frozen reference classes select V or complete conditional rank; otherwise original')),indent=2)+'\n')
     return 0
