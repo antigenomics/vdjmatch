@@ -72,6 +72,7 @@ def _prepare_reference(path, *, asset="default", species=None, threads=4):
     print(f"Reference index: {manifest['artifact_path']}")
     print(f"Epitope/pMHC profiles: {Path(manifest['artifact_path']) / 'profiles.tsv'} "
           f"({profiles.height:,} rows)")
+    print(f"Marginal alpha/beta classes: {Path(manifest['artifact_path']) / 'joint-profiles.tsv'}")
     return index, profiles, manifest
 
 
@@ -860,6 +861,8 @@ def main(argv: list[str] | None = None) -> int:
     register_calibration(sub)
     from .reference_calls import register as register_reference_calls
     register_reference_calls(sub)
+    from .reference_confusion import register as register_reference_confusion
+    register_reference_confusion(sub)
     from .paired_order import register as register_paired_order
     register_paired_order(sub)
     from .radius import register as register_radius
@@ -891,7 +894,7 @@ def main(argv: list[str] | None = None) -> int:
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
     evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
-    evidence_commands.update({'reference-diagnostics', 'prepare-control', 'reference-density', 'score-policy', 'motif-position', 'index', 'update'})
+    evidence_commands.update({'reference-diagnostics', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'motif-position', 'index', 'update'})
     if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
         evidence_commands.add('annotate')
     kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")

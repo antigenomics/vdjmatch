@@ -15,7 +15,7 @@ NOISE_RECIPE = 'v1:199-shuffles;seed0-independent-streams;global-V-KL;within-V-m
 _UNKNOWN = '__UNRESOLVED_V__'
 
 
-def profile_noise(rows, *, locus, eligible_targets):
+def profile_noise(rows, *, locus, eligible_targets, motif_modes=('exact3',)):
     """Return selection-aware gene/motif statistics per eligible ``_target``.
 
     All supplied rows define the global distinct junction/V-key population.
@@ -24,9 +24,14 @@ def profile_noise(rows, *, locus, eligible_targets):
     Each motif statistic is one best enriched presence projection, not a sum of
     dependent tokens. Unknown V keys remain in all denominators and flag the
     affected targets as unresolved.
+    ``motif_modes=('exact3','wild4')`` tests the union of full20 core 3-mers
+    and all four single-X 4-mer masks. Maximum selection repeats over the
+    complete union inside every shuffle, using the same V-conditional null.
     """
     if locus not in {'TRA', 'TRB'} or not {'_target', 'cdr3', 'v'}.issubset(rows.columns):
         raise ValueError('profile noise requires TRA/TRB and target/junction/V rows')
+    if tuple(motif_modes) not in {('exact3',), ('exact3', 'wild4')}:
+        raise ValueError('profile motifs require exact3 or the exact3/wild4 union')
     targets = sorted(set(eligible_targets))
     if not targets:
         return {}
@@ -62,12 +67,21 @@ def profile_noise(rows, *, locus, eligible_targets):
     global_v = np.bincount(gene_ids, minlength=len(genes))
     q_v = global_v/keys.height
     observed_v = (B.T@Z).toarray()
+    lengths = keys['cdr3'].str.len_chars().to_numpy()
+    _, length_ids = np.unique(lengths, return_inverse=True)
+    L = sparse.coo_matrix((np.ones(keys.height, dtype=np.int64),
+        (np.arange(keys.height), length_ids)), shape=(keys.height, int(length_ids.max())+1)).tocsr()
+    q_length = np.asarray(L.sum(axis=0)).ravel()/keys.height
+    p_length = (B.T@L).toarray()/safe_n[:, None]
+    length_kl = rel_entr(p_length, q_length).sum(axis=1)/np.log(2.)
+    mixture = (p_length+q_length)/2
+    length_js = (rel_entr(p_length, mixture).sum(axis=1)+rel_entr(q_length, mixture).sum(axis=1))/(2*np.log(2.))
 
     def gene_stat(counts):
         return rel_entr(counts/safe_n[:, None], q_v[None, :]).sum(axis=1)/np.log(2.)
 
-    tokens = _tokens(keys.select(pl.col('_key').alias('_id'), pl.col('cdr3').alias('seq0'),
-        pl.col('_gene').alias('v0')), [0], 'exact3')
+    token_keys = keys.select(pl.col('_key').alias('_id'), pl.col('cdr3').alias('seq0'), pl.col('_gene').alias('v0'))
+    tokens = pl.concat([_tokens(token_keys, [0], mode, wildcard_positions=(0, 1, 2, 3)) for mode in motif_modes])
     vocabulary = tokens.select('v0', 't0').unique().sort('v0', 't0').with_row_index('_feature')
     present = tokens.join(vocabulary, on=['v0', 't0'], validate='m:1')
     X = sparse.coo_matrix((np.ones(present.height, dtype=np.int64),
@@ -129,6 +143,8 @@ def profile_noise(rows, *, locus, eligible_targets):
         has_motif = selected < vocabulary.height
         v = int(feature_v[selected]) if has_motif else None
         output[target] = dict(gene_kl_bits=float(gene_observed[i]), gene_null_mean_bits=float(gene_mean[i]),
+            length_database_kl_bits=float(length_kl[i]) if n[i] else None,
+            length_database_js_bits=float(length_js[i]) if n[i] else None,
             gene_excess_bits=float(gene_observed[i]-gene_mean[i]), gene_null_max_bits=float(gene_max[i]),
             gene_p=float(gene_p[i]), gene_supported=None if unresolved_axis else bool(gene_p[i] <= .005 and gene_observed[i] > gene_mean[i]),
             motif_kl_bits=float(motif_observed[i]), motif_null_mean_bits=float(motif_mean[i]),
@@ -145,6 +161,7 @@ def profile_noise(rows, *, locus, eligible_targets):
 
 def _empty():
     return dict(gene_kl_bits=0., gene_null_mean_bits=0., gene_excess_bits=0., gene_null_max_bits=0.,
+        length_database_kl_bits=None, length_database_js_bits=None,
         gene_p=1., gene_supported=None, motif_kl_bits=0., motif_null_mean_bits=0., motif_excess_bits=0.,
         motif_null_max_bits=0., motif_p=1., motif_supported=None, motif_v_gene=None, motif=None,
         motif_reference_with_motif=None, motif_reference_v_keys=None, motif_background_with_motif=None,

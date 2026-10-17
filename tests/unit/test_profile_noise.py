@@ -83,3 +83,29 @@ def test_short_junctions_have_no_core_motif_and_absent_targets_are_retained():
     assert result[0]['motif_kl_bits'] == result[0]['motif_null_max_bits'] == 0.
     assert result[2]['noise_status'] == 'empty_target'
     assert result[2]['gene_supported'] is result[2]['motif_supported'] is None
+
+
+def test_length_divergence_is_descriptive_and_preserves_gene_motif_nulls():
+    import pytest
+    from vdjmatch.aggregate.profile_noise import profile_noise
+    source = rows([(0, sequences('WGG'), 'TRBV19'), (1, sequences('LLLL', 90), 'TRBV19')])
+    row = profile_noise(source, locus='TRB', eligible_targets=[0, 2])
+    assert row[0]['length_database_kl_bits'] == 2.
+    assert row[0]['length_database_js_bits'] == pytest.approx(.5487949406953986)
+    assert row[2]['length_database_kl_bits'] is row[2]['length_database_js_bits'] is None
+
+
+def test_full20_union_selects_gapped_fourmer_inside_every_null():
+    from vdjmatch.aggregate.profile_noise import profile_noise
+    target = ['CASW'+AA[i%20]+'GG'+AA[i//20]+AA[i%20]+'QYF' for i in range(30)]
+    source = rows([(0, target, 'TRBV19'), (1, sequences('LVCC', 90), 'TRBV19')])
+    exact = profile_noise(source, locus='TRB', eligible_targets=[0])[0]
+    union = profile_noise(source, locus='TRB', eligible_targets=[0], motif_modes=('exact3', 'wild4'))[0]
+    assert union['motif'] == 'WXGG'
+    assert union['motif_p'] == .005 and union['motif_supported']
+    assert union['motif_kl_bits'] > exact['motif_kl_bits']
+    assert union['motif_reference_with_motif'] == union['motif_reference_v_keys'] == 30
+    assert union['noise_shuffles'] == 199
+    shared = source.with_columns(pl.lit(0).alias('_target'))
+    assert not profile_noise(shared, locus='TRB', eligible_targets=[0],
+        motif_modes=('exact3', 'wild4'))[0]['motif_supported']

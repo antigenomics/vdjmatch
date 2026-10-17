@@ -6,7 +6,7 @@ import polars as pl
 
 from .structure import _gene_expression
 
-PROFILE_RECIPE = 'v3:source>=30;core-exact3;V-KL-and-V-conditional-motif-max;199-label-shuffles;seed0;axis-p<=.005;nonidentical-Levenshtein1;pooled-and-pMHC'
+PROFILE_RECIPE = 'v4:source>=30;core-exact3;V-KL-and-V-conditional-motif-max;199-label-shuffles;seed0;axis-p<=.005;nonidentical-Levenshtein1;pooled-and-pMHC;descriptive-length-KL-JS'
 _MHC = ['mhc_a', 'mhc_b', 'mhc_class']
 _CONTEXT = ['level', 'species', 'gene', 'epitope', *_MHC]
 _SCHEMA = {name: pl.String for name in ['level', 'species', 'locus', 'epitope', *_MHC,
@@ -21,10 +21,15 @@ _SCHEMA.update({name: pl.Int64 for name in ['source_records', 'valid_source_reco
 _SCHEMA.update({name: pl.Float64 for name in ['within_pair_density', 'between_pair_density',
     'neighbor_enrichment', 'neighbor_coverage', 'max_v_gene_share', 'unresolved_v_fraction',
     'gene_kl_bits', 'gene_null_mean_bits', 'gene_null_max_bits', 'gene_excess_bits', 'gene_p',
-    'motif_kl_bits', 'motif_null_mean_bits', 'motif_null_max_bits', 'motif_excess_bits', 'motif_p']})
+    'motif_kl_bits', 'motif_null_mean_bits', 'motif_null_max_bits', 'motif_excess_bits', 'motif_p',
+    'length_database_kl_bits', 'length_database_js_bits']})
 _SCHEMA.update({name: pl.Boolean for name in ['classification_eligible',
     'gene_supported', 'motif_supported']})
-_NOISE_COLUMNS = [name for name in _SCHEMA if name.startswith(('gene_', 'motif_')) or name in {'motif', 'noise_status', 'noise_shuffles'}]
+_NOISE_COLUMNS = [name for name in _SCHEMA if name.startswith(('gene_', 'motif_', 'length_database_')) or name in {'motif', 'noise_status', 'noise_shuffles'}]
+_FULL20_COLUMNS = [name for name in _NOISE_COLUMNS if name.startswith('motif')]
+_SCHEMA.update({'full20_'+name: _SCHEMA[name] for name in _FULL20_COLUMNS})
+_SCHEMA['full20_profile_class'] = pl.String
+PROFILE_RECIPE += ';alternate-core-full20-exact3+all-single-X-wild4-max-in-null'
 
 
 def _near_lengths(histogram, keys):
@@ -93,7 +98,9 @@ def _population(rows, *, locus, threads):
     from .profile_noise import profile_noise
     eligible = selected.group_by('_target').len().filter(pl.col('len') >= 30)['_target'].to_list()
     noise = profile_noise(selected, locus=locus, eligible_targets=eligible)
+    full20 = profile_noise(selected, locus=locus, eligible_targets=eligible, motif_modes=('exact3', 'wild4'))
     return {target: by_target.get(target, {}) | noise.get(target, {}) |
+        {'full20_'+key: full20.get(target, {}).get(key) for key in _FULL20_COLUMNS} |
         {'background_junctions': nodes.height-excluded_counts.get(epitope, 0)}
         for target, epitope in rows.select('_target', 'epitope').unique().iter_rows()}
 
@@ -153,6 +160,12 @@ def reference_profiles(reference: pl.DataFrame, *, threads=4) -> pl.DataFrame:
             label = 'v_and_motif' if gene and motif else 'v_only' if gene else 'motif_only' if motif else 'no_supported_axis'
         else:
             label = classification_status
+        if classification_status == 'observed':
+            full20_motif = data.get('full20_motif_supported')
+            full20_label = ('v_and_motif' if gene and full20_motif else 'v_only' if gene else
+                'motif_only' if full20_motif else 'no_supported_axis')
+        else:
+            full20_label = classification_status
         output.append({key: target[key] for key in ['level', 'species', 'epitope', *_MHC]} |
             dict(locus=target['gene'], source_records=target['source_records'],
                 valid_source_records=target['valid_source_records'],
@@ -168,6 +181,37 @@ def reference_profiles(reference: pl.DataFrame, *, threads=4) -> pl.DataFrame:
                 neighbor_enrichment=ratio, neighbor_coverage=data.get('neighbor_junctions', 0)/n if n else None,
                 neighbor_status=status, reference_v_keys=keys, unresolved_v_keys=missing,
                 unresolved_v_fraction=missing/keys if keys else None, max_v_gene=data.get('max_v_gene'),
-                max_v_gene_share=maximum/keys if keys else None, profile_class=label) |
-                {key: data.get(key) for key in _NOISE_COLUMNS})
+                max_v_gene_share=maximum/keys if keys else None, profile_class=label,
+                full20_profile_class=full20_label) |
+                {key: data.get(key) for key in _NOISE_COLUMNS} |
+                {'full20_'+key: data.get('full20_'+key) for key in _FULL20_COLUMNS})
     return pl.DataFrame(output, schema=_SCHEMA).sort('species', 'locus', 'level', 'epitope', *_MHC, nulls_last=True)
+
+
+def joint_reference_profiles(profiles: pl.DataFrame) -> pl.DataFrame:
+    """Summarize observed marginal chain classes, without inferring linkage.
+
+    Missing or unresolved support stays null. A supported marginal suffices
+    for any-chain motif support even when the other marginal is unresolved.
+    """
+    keys = ['species', 'epitope']
+    pooled = profiles.filter((pl.col('level') == 'epitope') & (pl.col('valid_source_records') > 0))
+    if pooled.select(*keys, 'locus').is_duplicated().any():
+        raise ValueError('joint profiles require unique pooled species/epitope/locus rows')
+    result = pooled.select(keys).unique()
+    for locus, side in [('TRA', 'alpha'), ('TRB', 'beta')]:
+        columns = ['profile_class', 'valid_source_records', 'classification_eligible', 'motif_supported']
+        columns += [c for c in ('full20_profile_class', 'full20_motif_supported') if c in pooled.columns]
+        result = result.join(pooled.filter(pl.col('locus') == locus).select(*keys,
+            *[pl.col(c).alias(side+'_'+c) for c in columns]), on=keys, how='left', validate='1:1', nulls_equal=True)
+    if 'full20_motif_supported' in pooled.columns:
+        result = result.with_columns((pl.col('alpha_full20_motif_supported') |
+            pl.col('beta_full20_motif_supported')).alias('any_chain_full20_motif_supported'))
+    return result.with_columns(
+        (pl.col('alpha_valid_source_records').is_not_null() & pl.col('beta_valid_source_records').is_not_null()).alias('both_chains_observed'),
+        (pl.col('alpha_classification_eligible').fill_null(False) &
+         pl.col('beta_classification_eligible').fill_null(False)).alias('both_chains_eligible'),
+        (pl.col('alpha_motif_supported') | pl.col('beta_motif_supported')).alias('any_chain_motif_supported'),
+        pl.concat_str(pl.lit('alpha: '), pl.col('alpha_profile_class').fill_null('missing_chain'),
+            pl.lit('; beta: '), pl.col('beta_profile_class').fill_null('missing_chain')).alias('joint_class')
+    ).sort(keys)

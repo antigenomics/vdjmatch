@@ -29,8 +29,10 @@ def register(subparsers, name='reference-structure'):
     p.add_argument('--reference-population', choices=['curated-benchmark','all-valid'], default='curated-benchmark')
     p.add_argument('--control', help='raw rearrangement control for descriptive V/J event-frequency ratios')
     p.add_argument('--control-model', help='prepared immutable control directory from prepare-control')
-    p.add_argument('--motif-mode', choices=['exact3', 'imgt3', 'wild4', 'imgt_wild4', 'all'],
+    p.add_argument('--publicity', action='store_true', help='one batched Hamming<=1 control search for record publicity; requires --control')
+    p.add_argument('--motif-mode', choices=['exact3', 'imgt3', 'wild4', 'imgt_wild4', 'full20', 'all'],
                    default='imgt_wild4', help='control-relative motif projection (default: imgt_wild4)')
+    p.add_argument('--epitope-idf', action='store_true', help='add eligible-epitope document IDF separately from control rarity; requires --control')
     p.add_argument('--mock-replicates', type=int, default=0,
                    help='Pgen-matched control TF-IDF envelopes; zero disables, otherwise at least two')
     p.add_argument('--pgen-features', help='validated PREFIX.features.parquet Hamming-1 bank for control matching')
@@ -55,6 +57,7 @@ def main(a, *, return_inputs=False):
     from ..aggregate.motif_information import motif_population, motif_selection_information
     from ..aggregate.germline_information import germline_projection_map, iter_germline_information
     from ..aggregate.length_profile import length_histogram, length_control, length_summary
+    from ..aggregate.graph_acquisition import graph_acquisition, degree_diversity
     from ..aggregate.structure import composition, graph_profiles, reference_gene_usage, control_gene_usage, compare_gene_usage, gene_selection_information
     from ..cluster import overlap
     from ..db.cache import sha256
@@ -75,6 +78,10 @@ def main(a, *, return_inputs=False):
         raise ValueError('positive threads required')
     if getattr(a, 'control_model', None) and not a.control:
         raise ValueError('--control-model requires its original --control input for validation')
+    if getattr(a, 'publicity', False) and not a.control:
+        raise ValueError('--publicity requires --control')
+    if getattr(a, 'epitope_idf', False) and not a.control:
+        raise ValueError('--epitope-idf requires --control')
     if a.motif_mode != 'imgt_wild4' and not a.control:
         raise ValueError('--motif-mode requires --control')
     if a.mock_replicates < 0 or a.mock_replicates == 1 or a.seed < 0:
@@ -96,7 +103,8 @@ def main(a, *, return_inputs=False):
     if a.control:
         from .combined import _raw_control
         from ..evalue.mock_reference import control_events
-        modes = ['exact3', 'wild4', 'imgt3', 'imgt_wild4'] if a.motif_mode == 'all' else [a.motif_mode]
+        modes = (['exact3', 'wild4', 'imgt3', 'imgt_wild4'] if a.motif_mode == 'all' else
+            ['exact3', 'wild4'] if a.motif_mode == 'full20' else [a.motif_mode])
         if getattr(a, 'control_model', None):
             from .control_model import load_control_model
             events, control_usage, control_motifs, control_info = load_control_model(
@@ -129,6 +137,19 @@ def main(a, *, return_inputs=False):
     raw, epitope_info = load_reference(a, species)
     if a.reference_population == 'all-valid':
         raw = raw.with_columns(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('reference_valid'))
+    epitope_documents = {}
+    if getattr(a, 'epitope_idf', False):
+        from ..aggregate.motif_discrimination import epitope_motif_documents
+        document_rows = db.load(a.vdjdb, species=species, gene=a.locus)
+        valid = pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
+        if a.reference_population == 'curated-benchmark':
+            valid &= pl.col('reference_valid').fill_null(False)
+        document_rows = document_rows.filter(valid)
+        for mode in modes:
+            epitope_documents[mode] = epitope_motif_documents(document_rows, locus=a.locus,
+                mode=mode, min_records=a.min_records)
+        del document_rows
+        mark('epitope_motif_documents')
     model = load_v_loops(organism)
     raw = raw.with_columns(resolve_v_alleles(raw['v'],model,locus=a.locus).alias('_allele'))
     available = pl.col('reference_valid') & pl.col('_allele').is_not_null() & (pl.col('cdr3').str.len_chars() >= 8)
@@ -150,6 +171,11 @@ def main(a, *, return_inputs=False):
     mark('reference_and_pgen')
     selected_nodes = [source.filter(mixture_available).select('cdr3') for _,source in groups]
     nodes = (pl.concat(selected_nodes).unique(maintain_order=True) if selected_nodes else raw.head(0).select('cdr3')).with_row_index('_node')
+    publicity = None
+    if getattr(a, 'publicity', False):
+        from ..aggregate.publicity import junction_publicity
+        publicity = junction_publicity(nodes['cdr3'], events['junction_aa'], threads=a.threads)
+        mark('control_publicity')
     pairs = overlap(nodes['cdr3'].to_list(),scope='1,0,0,1',threads=a.threads) if nodes.height else None
     edges = pairs.filter(pl.col('a_idx')<pl.col('b_idx')).select('a_idx','b_idx') if pairs is not None else None
     memberships = []
@@ -194,7 +220,7 @@ def main(a, *, return_inputs=False):
         degree_edges = {key[0]: part.select('a', 'b') for key, part in joined.group_by('_group')}
     degree_nodes = {key[0]: part.sort('_local') for key, part in
                     degree_membership.group_by('_group')} if degree_membership is not None else {}
-    summaries, degree_rows, length_tables, gene_tables = [], [], [], []
+    summaries, degree_rows, length_tables, gene_tables, acquisition_tables = [], [], [], [], []
     mark('reference_graphs')
     for group_id, (task, source) in enumerate(groups):
         retained = source.filter(available)
@@ -218,6 +244,14 @@ def main(a, *, return_inputs=False):
         for mode, control_motif in (control_motifs or {}).items():
             motifs = motif_selection_information(source.filter(mixture_available), control_motif, locus=a.locus, mode=mode).with_columns(
                 *[pl.lit(value).alias(key) for key, value in gene_context.items()])
+            if epitope_documents:
+                motifs = motifs.join(epitope_documents[mode],
+                    on=['v_gene', 'junction_length', 'length_scope', 'motif'],
+                    how='left', nulls_equal=True, validate='m:1', maintain_order='left').with_columns(
+                        pl.col('idf').alias('control_idf'),
+                        (pl.col('reference_fraction')*pl.col('epitope_idf')).alias('conditional_epitope_tfidf'),
+                        pl.when(pl.col('control_keys') > 0).then(
+                            (pl.col('control_keys')/pl.col('control_with_motif')).log(2)).alias('conditional_control_idf_bits'))
             if a.mock_replicates and source.filter(mixture_available).height:
                 import hashlib
                 from ..aggregate.motif_information import motif_bootstrap
@@ -247,10 +281,13 @@ def main(a, *, return_inputs=False):
         degree_context['invalid_reference_records'] = source.height - source.filter(mixture_available).height
         degree_context.update(graph_population='all_valid_junctions', graph_scope='full_reference',
                               junctions=n, graph_edges=edge_count)
-        degree_rows.extend(degree_context | dict(degree=int(d), junction_count=int(c))
+        degree_rows.extend(degree_context | dict(degree=int(d), inclusive_degree=int(d)+1, junction_count=int(c))
                            for d, c in zip(values, counts))
         if not n:
-            degree_rows.append(degree_context | dict(degree=None, junction_count=0))
+            degree_rows.append(degree_context | dict(degree=None, inclusive_degree=None, junction_count=0))
+        depths = np.unique(np.rint(np.geomspace(1, n, min(n, 25))).astype(np.int64)) if n else np.array([], dtype=np.int64)
+        acquisition_tables.append(graph_acquisition(degrees, depths).with_columns(
+            *[pl.lit(value).alias(key) for key, value in degree_context.items()]))
         # Local node indices, not join order, align junction lengths with degrees.
         length_graph = degree_nodes[group_id].select(
             pl.col('cdr3').str.len_chars().alias('junction_length')).with_columns(
@@ -278,13 +315,27 @@ def main(a, *, return_inputs=False):
             hamming_degree_variance=float(degrees.var()) if n else None,
             hamming_max_degree=int(degrees.max()) if n else None,
             hamming_isolated_fraction=float(np.count_nonzero(degrees == 0) / n) if n else None)
+        degree_summary.update(degree_diversity(degrees))
         degree_summary.update({f'hamming_{name}_degree': float(np.quantile(degrees, q)) if n else None
                                for name, q in [('q10', .1), ('median', .5), ('q90', .9)]})
+        if publicity is not None:
+            public_records = source.filter(mixture_available).select('cdr3').join(publicity, on='cdr3', validate='m:1')
+            control_n = publicity['control_junctions'][0] if publicity.height else events['junction_aa'].n_unique()
+            count = public_records.height
+            hits = int((public_records['control_hamming1_junctions'] > 0).sum())
+            matches = int(public_records['control_hamming1_junctions'].sum())
+            degree_summary.update(publicity_valid_source_records=count,
+                publicity_invalid_source_records=source.height-count,
+                publicity_control_junctions=control_n, publicity_matched_source_records=hits,
+                publicity_record_control_pairs=matches,
+                publicity_record_fraction=hits/count if count else None,
+                publicity_mean_control_fraction=matches/(count*control_n) if count else None)
         summaries.append(context | full | v_full | degree_summary | dict(structure_status='available' if full['junctions'] else 'empty_reference'))
         mark('target_'+str(group_id))
     prefix.parent.mkdir(parents=True,exist_ok=True)
     summary_path = Path(str(prefix)+'.structures.tsv')
     degree_path = Path(str(prefix)+'.degrees.tsv')
+    acquisition_path = Path(str(prefix)+'.graph-acquisition.tsv')
     length_path = Path(str(prefix)+'.lengths.tsv')
     gene_path = Path(str(prefix)+'.genes.tsv')
     if not summaries:
@@ -301,7 +352,8 @@ def main(a, *, return_inputs=False):
             for c in ('original_weight', 'gapblock_weight', 'stem4_weight')],
             pl.lit('empty_reference').alias('mixture_weight_status'))
     summary.drop('_mixture_group').write_csv(summary_path, separator='\t')
-    tables = [summary_path, degree_path, length_path, gene_path]
+    pl.concat(acquisition_tables, how='diagonal_relaxed').write_csv(acquisition_path, separator='\t')
+    tables = [summary_path, degree_path, length_path, gene_path, acquisition_path]
     if spectratype_control is not None:
         spectratype_path = Path(str(prefix)+'.spectratype.tsv')
         spectratype_lengths_path = Path(str(prefix)+'.spectratype-lengths.tsv')
@@ -367,12 +419,28 @@ def main(a, *, return_inputs=False):
         graph_node_unit='unique full junction', v_usage_unit='unique full junction/resolved V allele keys; gene-level categories',
         degree_population='all valid full junctions, including unresolved V; fixed full reference',
         degree_quantiles='linear interpolation of the unique-junction degree distribution',
+        inclusive_degree='degree+1; self counted once; inclusive degree 1 is an orphan',
+        graph_acquisition=dict(sampling='uniform distinct junction vertices without replacement; fixed observed Hamming<=1 induced graph',
+            depths='up to 25 rounded geometric depths from 1 through N; no extrapolation',
+            orphan_probability='choose(N-1-d,m-1)/choose(N-1,m-1); d excludes self',
+            expected_edges='E*m*(m-1)/(N*(N-1)); E observed undirected edges',
+            interpretation='observed graph acquisition only; not unseen-family coverage or taxon-abundance C-index',
+            hill='uniform vertex p=1/N; binary self-inclusive Hamming similarity Z; ordinariness Zp=(degree+1)/N; graph_hill0=mean(1/Zp), graph_hill1=exp(-mean(log(Zp))), graph_hill2=1/mean(Zp); enrichment=N/Hill',
+            degree_chao='existing vdjtools Chao1/sample_coverage with synthetic counts degree+1; degree_mass=sum(degree+1), singletons=orphans, doubletons=degree-one vertices; descriptive degree-mass proxy, not unseen-family coverage',
+            source_sha256=sha256(Path(graph_acquisition.__code__.co_filename))),
         length_coverage='exact junction length; all valid reference records and unique junctions; modeled records counted separately; no cross-length Hamming edges',
         gene_usage='all valid reference rows; V/J alleles pooled; unresolved calls retained; full and exact-length strata; record and junction/gene-key denominators explicit',
         control=control_info,
+        publicity=(dict(search='Hamming<=1 full junction; substitutions only; exact control matches retained',
+            unit='valid reference source records; repeated records retain their weight; distinct control junctions',
+            record_fraction='matched valid source records / all valid source records',
+            mean_control_fraction='record-control matching pairs / (valid source records * distinct control junctions)',
+            native_batches=1, source_sha256=sha256(Path(junction_publicity.__code__.co_filename)))
+            if publicity is not None else None),
         spectratype=(dict(sampling_unit='distinct full-junction/V-gene/J-gene keys; V/J alleles pooled; source records and event multiplicities do not weight keys',
             missing_policy='unresolved V/J retained as explicit null key categories; invalid reference rows counted separately; unsupported lengths retained',
             cdf_max_distance='maximum absolute empirical CDF gap; KS effect only, no p-value',
+            length_information='KL(reference||control) and equal-mixture Jensen-Shannon divergence in bits/key; no smoothing; unsupported control length gives infinite KL; descriptive, not a support test',
             wasserstein1='sum of absolute CDF gaps across integer lengths; amino-acid residues',
             shifts='reference minus control mean and ordinary sample median; amino-acid residues',
             central_interval='smallest control length with CDF>=0.025 and CDF>=0.975; both endpoints included',
@@ -383,8 +451,16 @@ def main(a, *, return_inputs=False):
             if control_info is not None else None),
         motif_information=(dict(rows=motif_rows, mode=a.motif_mode,
             modes=modes,
-            k=None if a.motif_mode == 'all' else 4 if 'wild' in a.motif_mode else 3,
-            masks=None if a.motif_mode == 'all' else [0,1,2,3] if 'wild' in a.motif_mode else [],
+            epitope_idf=(dict(documents='distinct epitopes with >=min_records valid source records in complete same-species/locus reference, independently of target filters',
+                conditioning='V gene, pooled or exact length; one token-presence vote per epitope',
+                formula='1+ln((epitope_documents+1)/(epitope_document_frequency+1))',
+                tfidf='reference_fraction * epitope_idf; reference_fraction conditional on V/length',
+                control='control_idf aliases original global control-junction idf; conditional_control_idf_bits=log2(control_keys/control_with_motif), infinity if absent',
+                interpretation='epitope discrimination descriptor versus control rarity; neither proves germline origin',
+                source_sha256=sha256(Path(epitope_motif_documents.__code__.co_filename)))
+                if epitope_documents else None),
+            k=None if a.motif_mode in {'all', 'full20'} else 4 if 'wild' in a.motif_mode else 3,
+            masks=None if a.motif_mode in {'all', 'full20'} else [0,1,2,3] if 'wild' in a.motif_mode else [],
             alphabet=None if a.motif_mode == 'all' else '11 IMGT classes' if 'imgt' in a.motif_mode else '20 amino acids',
             views=[dict(mode=mode, k=4 if 'wild' in mode else 3,
                 masks=[0,1,2,3] if 'wild' in mode else [],

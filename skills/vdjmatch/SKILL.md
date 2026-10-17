@@ -5,6 +5,29 @@ description: Annotate single or paired TCR repertoires against VDJdb with the vd
 
 # VDJmatch repertoire annotation
 
+`reference-structure --control` exports length KL(reference||control) and
+equal-mixture Jensen–Shannon divergence in bits per junction/V/J key in
+`.spectratype.tsv`. Unsupported control lengths give infinite KL; JS remains
+bounded by one bit. `.degrees.tsv` includes self-inclusive degree, and
+`.graph-acquisition.tsv` interpolates expected edges and connected sampled
+vertices of the fixed Hamming<=1 graph without replacement. These are
+descriptive effects, not class support tests or unseen-family coverage.
+Add `--publicity` to search all reference junctions against unique control
+junctions in one native Hamming<=1 batch. Summary fields retain valid source
+record counts, matched records and record/control pair denominators.
+Structure summaries include uniform-vertex binary-similarity Hill0/1/2,
+Shannon-equivalent entropy and N/Hill enrichment from existing graph degrees.
+Degree+1 Chao1/coverage is explicitly a synthetic degree-mass proxy; actual
+occurrence-based coverage remains in `reference-coverage`.
+`reference-structure --motif-mode full20 --epitope-idf` emits full20 exact3
+and single-X wild4 views, with distinct V/length-conditional epitope-document
+IDF and control rarity. Index profiles preserve core3 support and add the
+separate full20 union's selection-aware class and marginal any-chain support.
+`score-confusion candidates.tsv --truth truth.tsv --profiles profiles.tsv`
+exports source-eligible per-epitope TP/FN/FP/TN, MCC and balanced accuracy from
+complete explicit scorer dispositions. Ties, multiple truth labels and no-hits
+are retained. Exact-hit filtering belongs to the producing scorer.
+
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)
 for advanced scorers. Run `vdjmatch annotate --help` to verify installed options.

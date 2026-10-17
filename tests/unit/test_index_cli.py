@@ -13,6 +13,8 @@ def test_custom_and_fetched_index_and_api_share_the_saved_bundle(tmp_path, monke
     assert main(['index', '--vdjdb', str(source), '--threads', '1']) == 0
     bundle = next(source.with_name(source.name + '.vdjmatch').glob('*/manifest.json')).parent
     assert pl.read_csv(bundle / 'profiles.tsv', separator='\t').height == 2
+    joint = pl.read_csv(bundle / 'joint-profiles.tsv', separator='\t')
+    assert joint.height == 1 and joint['both_chains_observed'].to_list() == [False]
     assert 'profiles.tsv' in capsys.readouterr().out
 
     def forbidden(*args, **kwargs):

@@ -44,7 +44,8 @@ No query repertoire, Pgen model or external control is required.
    vdjmatch index --vdjdb reference.zip --species HomoSapiens --threads 4
 
 The printed sibling directory ``REFERENCE.vdjmatch/IDENTITY/`` contains saved
-native indexes, normalized observations, ``profiles.tsv``, ``profiles.parquet``
+native indexes, normalized observations, ``profiles.tsv``, ``profiles.parquet``,
+``joint-profiles.tsv``
 and a checksummed manifest. Unchanged references reopen these assets without
 rebuilding or reclassifying. Source bytes, filters, implementation and native
 format determine identity; incomplete or corrupt assets rebuild from the source.
@@ -76,6 +77,25 @@ Monte Carlo tail are included alongside each decision. V concentration and
 neighbour density remain descriptive, without a binary concentration/enrichment
 class flag. A small supported effect need not provide
 useful binding prediction, and these classes do not change the scoring default.
+
+``length_database_kl_bits`` and ``length_database_js_bits`` describe each
+eligible target's exact length law against the complete same-species/locus
+database junction/V-key population. They add no support test or class switch.
+The separate control-based ``reference-structure`` length fields use
+junction/V/J keys and identify their control denominator explicitly.
+``joint-profiles.tsv`` retains both marginal classes, each chain's valid
+record count and eligibility, and ``any_chain_motif_supported``. A supported
+chain suffices; false plus unknown remains unknown. The table marks whether
+both chains are observed and eligible, without asserting physical pairing.
+
+The separate ``full20_profile_class`` and ``full20_motif_*`` fields replace
+the core motif feature set with the union of full20 3-mers and 4-mers with
+one X at each possible position. The three-residue terminal trim is unchanged.
+Maximum selection over the entire union repeats inside every one of the
+199 V-conditional label shuffles. Its per-axis cutoff is also 0.005. This
+alternative preserves the original core3 class and does not combine the two
+motif tests into a larger family with the original error bound. Joint profiles
+also export ``any_chain_full20_motif_supported``.
 
 Neighbour enrichment is ``(w/Pw)/(b/Pb)``. ``w`` counts unordered distinct
 within-target Levenshtein-one pairs; ``b`` counts target-to-background pairs.
@@ -1594,7 +1614,44 @@ the reference value. The control's inclusive central interval uses inverse-CDF
 2.5% and 97.5% endpoints (smallest observed length whose cumulative fraction
 reaches the probability). Reference tail mass counts only lengths strictly
 outside those endpoints. Discrete length gaps and void bins need no smoothing,
-Gaussian assumption or disjoint-bin KL comparison.
+or Gaussian assumption. ``length_kl_bits`` is KL(reference || control) in
+bits per key, infinite if any reference length lacks control support.
+``length_js_bits`` is equal-mixture Jensen–Shannon divergence, between zero
+and one bit, including disjoint supports. These describe length selection;
+neither field alone establishes above-noise class support.
+
+``structure.degrees.tsv`` also exports ``inclusive_degree=degree+1``: self
+counts once, so orphans have inclusive degree one. The accompanying
+``structure.graph-acquisition.tsv`` gives exact expected edge counts and
+connected/orphan sampled vertices under uniform sampling without replacement
+from this observed Hamming<=1 graph. It uses up to 25 geometric depths through
+the full distinct-junction count. This is interpolation of observed graph
+structure, without extrapolation to unseen families. It does not treat
+overlapping neighbourhoods as disjoint taxa for Chao coverage.
+
+The structure summary additionally reports similarity-aware ``graph_hill0``,
+``graph_hill1`` and ``graph_hill2``. With uniform mass over N junctions and
+binary self-inclusive Hamming similarity, ordinariness is ``z=(degree+1)/N``.
+The three summaries are ``mean(1/z)``, ``exp(-mean(log(z)))`` and
+``1/mean(z)``. Shannon-equivalent entropy uses natural logs; ``N/Hill`` is
+reported as enrichment. An orphan graph has Hill=N/enrichment=1; a complete
+graph has Hill=1/enrichment=N. No additional search or dense matrix is needed.
+Separate ``degree_chao1`` and ``degree_chao_coverage`` apply existing vdjtools
+estimators to the synthetic count vector ``degree+1``. Their exported
+``degree_mass`` is the sum of these counts; degree singletons are orphans
+and degree doubletons have one neighbour. ``degree_chao_status`` labels this
+degree-mass proxy. Ordinary occurrence-based Chao coverage remains available
+through ``reference-coverage``.
+
+Add ``--publicity`` with ``--control`` to measure epitope record publicity by
+one additional native seqtree batch. Full-junction Hamming distance at most
+one includes exact matches and excludes indels. Control junctions are unique;
+reference source-record multiplicity is retained. ``publicity_record_fraction``
+is the fraction of valid reference records with at least one control match.
+``publicity_mean_control_fraction`` divides the matching record/control-junction
+pair count by valid reference records times distinct control junctions.
+Both integer numerators and denominators are exported. These pooled-control
+statistics do not estimate donor prevalence or determine germline origin.
 
 The control also enables ``structure.motifs.tsv``. Select its projection with
 ``--motif-mode exact3`` (full-amino-acid 3-mers), ``wild4`` (full-amino-acid
@@ -1613,6 +1670,20 @@ document frequency, ``N`` the target's total junction/V-key count and ``n``
 the keys containing the motif in the row's V/length stratum. Repeated windows
 count once per document. No vector norm is applied. The same global IDF is
 used for both length scopes; TF-IDF and binary selection bits remain separate.
+
+Use ``--motif-mode full20`` for just full20 3-mers and single-X 4-mers at all
+four mask positions. Add ``--epitope-idf`` to keep a second IDF based on the
+complete same-species/locus reference, independent of ``--epitope`` filters.
+Its documents are epitopes with at least ``--min-records`` valid source records.
+Within each V/length stratum, ``epitope_documents`` counts eligible epitopes
+and ``epitope_document_frequency`` counts those containing the motif at least
+once. ``epitope_idf=1+ln((epitope_documents+1)/(epitope_document_frequency+1))``;
+``conditional_epitope_tfidf=reference_fraction*epitope_idf`` uses conditional
+motif presence. ``control_idf`` preserves the original control IDF, while
+``conditional_control_idf_bits=log2(control_keys/control_with_motif)`` measures
+conditional control rarity (infinite if absent; null if no control stratum).
+These are distinct descriptive axes. Control commonness alone does not prove
+germline origin, and epitope IDF alone does not establish held-out accuracy.
 
 Add ``--mock-replicates 50 --seed 0`` to export ``control_tfidf_mean``,
 ``control_tfidf_lo`` and ``control_tfidf_hi`` in the same motif table. These
@@ -2038,3 +2109,33 @@ outputs retain the main prefix. All four motif views are explicitly labelled.
 The sparse-hit and compressed-bootstrap routes require native seqtree and
 vdjtools builds exposing those capabilities; version strings alone do not
 establish that support.
+
+vdjmatch score-confusion
+------------------------
+
+Reduce complete scorer candidate outputs to one-vs-other annotation-retrieval
+confusion tables. This command does not score receptors, refit models or choose
+thresholds. Benchmark score producers must filter matching exact hits only and
+retain fixed reference models. Ordinary exact-retained annotation is a separate
+population.
+
+.. code-block:: sh
+
+   vdjmatch score-confusion candidates.tsv --truth truth.tsv \
+     --profiles profiles.tsv --threads 1 --output-prefix retrieval
+
+Candidate columns are ``species,locus,query_id,epitope,scorer,score,supported``.
+Scores increase with evidence; ``supported`` is an explicit Boolean. Every
+scorer must represent every truth query in every supplied context, including
+no-hit rows (null epitope/score, false support). Truth columns are
+``species,locus,query_id,epitope`` with every known membership retained.
+Multiple truth labels are allowed. All supported finite maximum-score labels
+win, including exact ties. Unsearched or unsupported queries cannot disappear.
+
+``retrieval.confusion.tsv`` gives TP/FN/FP/TN, accuracy, balanced accuracy and
+MCC per scorer and pooled epitope with at least 30 valid source records.
+Undefined denominators produce null metrics. All query, positive/negative,
+no-hit and tied-query counts are explicit; ``retrieval.calls.tsv`` retains
+winning labels and no-hit dispositions. When full index profiles are supplied,
+the metric table includes alpha, beta and joint marginal classes for plotting.
+An other-class retrieval label is not proof of experimental nonbinding.

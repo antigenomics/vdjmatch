@@ -55,7 +55,7 @@ def _restore(directory, identity):
         if (manifest['identity'] != identity or genes != sorted(set(genes)) or
                 not set(genes) <= {'TRA', 'TRB'} or manifest['artifact_path'] != str(directory)):
             return None
-        expected = {'normalized-reference.parquet', 'profiles.parquet', 'profiles.tsv'} | {
+        expected = {'normalized-reference.parquet', 'profiles.parquet', 'profiles.tsv', 'joint-profiles.tsv'} | {
             gene+suffix for gene in genes for suffix in ('.seqtree', '.keys.parquet')}
         if set(manifest['files']) != expected or not all(
                 valid(directory/name, manifest['files'][name]['sha256']) for name in expected):
@@ -95,7 +95,7 @@ def load_or_build_index(source, *, asset='default', species=None, threads=4, **f
     ``filters`` are forwarded unchanged to :func:`vdjmatch.db.load`.
     """
     from .. import db
-    from ..aggregate.fast_profiles import reference_profiles
+    from ..aggregate.fast_profiles import reference_profiles, joint_reference_profiles
     from ..match.engine import VdjdbIndex
 
     if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
@@ -131,6 +131,7 @@ def load_or_build_index(source, *, asset='default', species=None, threads=4, **f
         write('normalized-reference.parquet', reference.write_parquet)
         write('profiles.parquet', profiles.write_parquet)
         write('profiles.tsv', lambda path: profiles.write_csv(path, separator='\t'))
+        write('joint-profiles.tsv', lambda path: joint_reference_profiles(profiles).write_csv(path, separator='\t'))
         for gene, (native, keys, _) in index._by_gene.items():
             write(gene+'.seqtree', lambda path, native=native: native.save(str(path)))
             write(gene+'.keys.parquet', keys.write_parquet)

@@ -5,6 +5,7 @@ normality tests or binding confidence. Junction lengths include both anchors.
 """
 import numpy as np
 import polars as pl
+from scipy.special import rel_entr
 
 from .structure import _gene_expression
 
@@ -65,11 +66,14 @@ def length_control(histogram):
 
 
 def length_summary(histogram, control):
-    """Compare empirical CDFs without bin matching, smoothing or a p-value.
+    """Compare empirical length laws without bin matching or smoothing.
 
     Wasserstein-1 integrates absolute CDF differences over integer length gaps,
     including lengths absent in either population. Median is the ordinary sample
     median (mean of the middle two observations for even key counts).
+    KL(reference || control) and equal-mixture Jensen–Shannon divergence are
+    bits per distinct junction/V/J key. JS is bounded by one bit; KL is infinite
+    when a reference length has no control support. Neither is a support test.
     """
     reference = _distribution(histogram)
     row = dict(reference_keys=reference['total'] if reference else 0, control_keys=control['total'],
@@ -78,10 +82,15 @@ def length_summary(histogram, control):
         control_tail_keys=control['tail_keys'], control_tail_fraction=control['tail_keys']/control['total'])
     if reference is None:
         return row | dict(reference_mean_length=None, reference_median_length=None,
+            length_kl_bits=None, length_js_bits=None,
             cdf_max_distance=None, wasserstein1_residues=None, mean_length_shift_residues=None,
             median_length_shift_residues=None, reference_tail_keys=0, reference_tail_fraction=None,
             spectratype_status='empty_reference')
     grid = np.union1d(reference['lengths'], control['lengths'])
+    p, q = np.zeros(len(grid)), np.zeros(len(grid))
+    for population, probabilities in ((reference, p), (control, q)):
+        probabilities[np.searchsorted(grid, population['lengths'])] = population['counts']/population['total']
+    mixture = (p+q)/2
     def cdf_at(population):
         index = np.searchsorted(population['lengths'], grid, side='right')
         return np.r_[0., population['cdf']][index]
@@ -89,6 +98,8 @@ def length_summary(histogram, control):
     tails = int(reference['counts'][(reference['lengths'] < control['lower']) |
                                    (reference['lengths'] > control['upper'])].sum())
     return row | dict(reference_mean_length=reference['mean'], reference_median_length=reference['median'],
+        length_kl_bits=float(rel_entr(p, q).sum()/np.log(2.)),
+        length_js_bits=float((rel_entr(p, mixture).sum()+rel_entr(q, mixture).sum())/(2*np.log(2.))),
         cdf_max_distance=float(gap.max()), wasserstein1_residues=float(np.dot(gap[:-1], np.diff(grid))),
         mean_length_shift_residues=reference['mean']-control['mean'],
         median_length_shift_residues=reference['median']-control['median'],

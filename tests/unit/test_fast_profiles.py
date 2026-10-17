@@ -9,6 +9,23 @@ def reference(rows):
     return normalize(pl.DataFrame(rows, schema=['species', 'gene', 'epitope', 'cdr3', 'v', 'mhc_a'], orient='row'))
 
 
+def test_joint_marginal_support_keeps_missing_chains_unknown():
+    from vdjmatch.aggregate.fast_profiles import joint_reference_profiles
+    rows = []
+    for epitope, a, b in [('A', True, False), ('B', False, False), ('C', None, False), ('D', True, None)]:
+        for locus, supported in [('TRA', a), ('TRB', b)]:
+            if epitope == 'D' and locus == 'TRB':
+                continue
+            rows.append(dict(species='HomoSapiens', epitope=epitope, level='epitope', locus=locus,
+                valid_source_records=30, classification_eligible=True,
+                motif_supported=supported, profile_class='example'))
+    result = joint_reference_profiles(pl.DataFrame(rows))
+    assert result['any_chain_motif_supported'].to_list() == [True, False, None, True]
+    assert result['both_chains_observed'].to_list() == [True, True, True, False]
+    assert result['both_chains_eligible'].to_list() == [True, True, True, False]
+    assert result['joint_class'][-1] == 'alpha: example; beta: missing_chain'
+
+
 def test_identical_label_sets_have_enrichment_one_and_duplicate_records_do_not_add_edges():
     from vdjmatch.aggregate.fast_profiles import reference_profiles
     raw = reference([('HomoSapiens', 'TRB', ep, seq, 'TRBV19', 'HLA-A*02:01')
