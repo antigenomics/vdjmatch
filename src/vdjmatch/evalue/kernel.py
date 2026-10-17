@@ -119,7 +119,7 @@ def _compact_kernel_selection(scores, exact, permutation, starts, peptides):
 def grouped_kernel_selection(queries, references, groups, *, query_keys, search_keys,
         paired, cutoffs, radius, kernel_scale, scorer, assayed=False, withheld_column=None,
         position_weighting='uniform', geometry_preset=None, _detailed=False, progress=False,
-        _allow_empty_background=False, _scores_only=False, _consume=None, **geometry):
+        _allow_empty_background=False, _scores_only=False, _consume=None, _return_hits=False, **geometry):
     """Compact all-label selection from one bounded native reference traversal.
 
     Memberships deduplicate search keys separately from pMHC annotations. Other
@@ -130,6 +130,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     can receive each detailed observation batch directly, without retaining the
     complete table or starting another native search. Consumer batches include
     the integer execution axes ``_target`` and ``_query_order`` for keyed writes.
+    Detailed mode can also return radius-hit IDs for query dispositions.
     """
     import polars as pl
     from ..match.geometry import grouped_total_distance_count_batch, distance_cutoff
@@ -366,6 +367,8 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
                 expanded=(part.join(allowed,on='query_id',how='inner').join(values,on=['_row','_target'],how='inner')
                     if assayed else part.join(values,on='_row',how='inner'))
                 expanded=expanded.join(targets,on='_target',how='left',validate='m:1')
+                if _return_hits:
+                    hit_ids.update(expanded.filter(pl.col('_radius_hit'))['query_id'])
                 if _consume is None:
                     states.append(expanded.select('query_id',*PMHC,'kernel_score','_target','_query_order')
                         if _scores_only else expanded.drop('_row','_radius_hit'))

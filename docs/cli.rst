@@ -213,6 +213,12 @@ query-by-target product. ``--details`` additionally writes candidate and full
 all-label enrichment TSVs for continuous accuracy or detailed inspection.
 The advanced ``neighbours`` kernel route enables compact output with
 ``--selection-only``; its default detailed exports remain unchanged.
+``evidence --evidence-only`` exports all-label enrichment, selection and query
+dispositions (plus linked and full-reference marginal evidence for pairs), while
+omitting candidate distance matrices. It requires uniform ``vdjdb-other`` kernel
+scoring with non-null peptide targets and excludes other diagnostic reducers.
+Scores and fixed models are
+identical to detailed output; this option adds no calibration.
 Selection pools restrictions of one peptide, retains score ties and conflicting
 exact-label ambiguity, and reports winner/(winner+strongest other peptide) as
 ``kernel_support_share``. Kernel scores and shares are relative evidence. Use
