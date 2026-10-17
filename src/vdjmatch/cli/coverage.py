@@ -33,7 +33,7 @@ def add_graph_options(p, *, combined=False):
     p.add_argument('--gap-open', type=int, default=11)
     p.add_argument('--gap-extend', type=int, default=1)
     p.add_argument('--leiden-resolution', type=float, default=1.)
-    p.add_argument('--nboot', type=int, default=50, help='vdjtools augmented-assemblage bootstrap replicates')
+    p.add_argument('--nboot', type=int, default=200, help='vdjtools augmented-assemblage bootstrap replicates')
     p.add_argument('--pair-budget', type=int, default=2_000_000)
 
 

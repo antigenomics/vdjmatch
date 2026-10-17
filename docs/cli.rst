@@ -63,6 +63,8 @@ It reloads raw observations and rebuilds graphs and label-shuffle diagnostics
 on every invocation, without reopening saved profile/index bundles. Outputs are
 ``fresh.profiles.tsv``, ``fresh.joint-profiles.tsv`` and a manifest with raw,
 package-source and actual native hashes checked before and after calculation.
+``--shuffles`` defaults to 999 (minimum 200). The shuffle count and recipe
+are recorded; earlier 199-shuffle outputs remain historical comparisons.
 ``--species human`` or ``mouse`` selects one population; omission retains all
 represented species. ``--reference-population`` defaults to curated benchmark
 validity; ``all-valid`` retains all valid junction records. A new output prefix
@@ -75,7 +77,7 @@ axes: V-usage KL and enriched core 3-mer presence conditional on V. The core tri
 three residues from each end of the full junction. Each motif is counted once
 per junction/V key; overlapping motifs are not added as independent evidence.
 
-The reference itself supplies the noise comparison: 199 fixed label shuffles
+The reference itself supplies the noise comparison: 999 fixed label shuffles
 (seed 0). Whole key-membership vectors shuffle globally for V usage and within
 V for the motif test, preserving each target's V composition in the latter.
 The strongest motif is selected again inside every shuffle. Each axis requires
@@ -107,7 +109,7 @@ The separate ``full20_profile_class`` and ``full20_motif_*`` fields replace
 the core motif feature set with the union of full20 3-mers and 4-mers with
 one X at each possible position. The three-residue terminal trim is unchanged.
 Maximum selection over the entire union repeats inside every one of the
-199 V-conditional label shuffles. Its per-axis cutoff is also 0.005. This
+999 V-conditional label shuffles. Its per-axis cutoff is also 0.005. This
 alternative preserves the original core3 class and does not combine the two
 motif tests into a larger family with the original error bound. Joint profiles
 also export ``any_chain_full20_motif_supported``.
@@ -169,7 +171,7 @@ One-control complete-score mode
 With the default ``--background vdjdb-other``, ``--control RAW_TABLE`` opts into
 combined-score calibration. The control supplies full junction/V/J events;
 productive and amino-acid eligibility are reported separately. Use
-``--mock-replicates N`` (default199), ``--seed N`` (default0), repeatable
+``--mock-replicates N`` (default200), ``--seed N`` (default0), repeatable
 ``--evidence-type TYPE`` and ``--min-score N`` (default0). Reference filters apply
 before the null populations are created. Query and control must be different
 inputs. Unsupported nondefault geometry/selection options raise an error.
@@ -1721,7 +1723,7 @@ conditional control rarity (infinite if absent; null if no control stratum).
 These are distinct descriptive axes. Control commonness alone does not prove
 germline origin, and epitope IDF alone does not establish held-out accuracy.
 
-Add ``--mock-replicates 50 --seed 0`` to export ``control_tfidf_mean``,
+Add ``--mock-replicates 200 --seed 0`` to export ``control_tfidf_mean``,
 ``control_tfidf_lo`` and ``control_tfidf_hi`` in the same motif table. These
 are the mean and 2.5/97.5 percentiles from the existing Pgen-matched control
 sampler, with IDF fixed. Source-record counts are matched within one-bit Pgen
@@ -1905,7 +1907,7 @@ invalid/mismatched query rows retain unavailable diagnostics.
 the selected reference's record counts and one-bit log2-Pgen composition.
 ``p_query`` compares the observed score against same-Pgen control queries on
 the real reference. ``p_both`` is their maximum. Each direction uses
-``--mock-replicates`` fresh draws (default 199), seeded by ``--seed`` (default 0).
+``--mock-replicates`` fresh draws (default 200), seeded by ``--seed`` (default 0).
 Exact overlaps stay eligible in random draws. Read abundance is ignored;
 control weights count available rearrangement events. Species and chain are
 selected separately. Bundled native Pgen models are selected automatically.
@@ -1949,10 +1951,10 @@ occurrence coverage at exact-clonotype and Leiden-community resolution:
 
    vdjmatch reference-coverage --vdjdb reference.zip --species human --locus TRB \
      --epitope DEMO --geometry levenshtein --scope 1,1,1,1 \
-     --nboot 50 --seed 0 --threads 4 --output-prefix coverage-edit
+     --nboot 200 --seed 0 --threads 4 --output-prefix coverage-edit
    vdjmatch reference-coverage --vdjdb reference.zip --species human --locus TRB \
      --epitope DEMO --geometry sw --sw-radius 40 --cdr-loops cdr12plus \
-     --gap-open 11 --gap-extend 1 --nboot 50 --seed 0 --threads 4 \
+     --gap-open 11 --gap-extend 1 --nboot 200 --seed 0 --threads 4 \
      --output-prefix coverage-sw
 
 ``DEMO`` and radius 40 illustrate syntax; the command does not select a
@@ -1987,7 +1989,7 @@ for the estimators. The manifest records inputs, model/source/native identities,
 geometry, partition parameters, seeds and versions. Missing V/J calls remain
 explicit in the exact key; full SW with germline loops requires resolvable V.
 
-Add ``--control RAW_CONTROL --mock-replicates 50`` for Pgen-matched reference-size
+Add ``--control RAW_CONTROL --mock-replicates 200`` for Pgen-matched reference-size
 control populations, using the same event-slot law as the motif diagnostic.
 Each mock gets its own graph partition; each population's occurrence bootstrap
 then holds its complete partition fixed. One native graph batch per invocation
@@ -2126,7 +2128,7 @@ are shared in memory only for that invocation; no computed intermediates are sav
    vdjmatch reference-diagnostics --vdjdb reference.zip --species human --locus TRB \
      --epitope DEMO --control raw-events.tsv.gz --motif-mode all --geometry both \
      --sw-radius-knee --cdr-loops cdr12plus --pair-budget 8000000000 \
-     --mock-replicates 50 --nboot 50 --seed 0 --threads 12 --output-prefix diagnostics
+     --mock-replicates 200 --nboot 200 --seed 0 --threads 12 --output-prefix diagnostics
 
 ``--sw-radius-knee`` selects one radius from the real reference only. Each
 modeled full-junction/V/J vertex contributes its nearest other vertex's full
@@ -2190,3 +2192,22 @@ maximum and the number of defined epitopes accompany each. Exact summed
 confusion counts and query-target appearance counts remain available. A null
 or nonfinite metric contributes no defined value and is not replaced by zero.
 The individual-epitope confusion table is always retained.
+
+Class means also include an Efron nonparametric bootstrap, controlled by
+``--nboot`` (default 1000, minimum 200) and ``--seed`` (default 0). Each
+replicate samples N epitope units with replacement from the N observed epitopes
+in that class group. The same multinomial multiplicities apply across scorers
+and metrics. Scores, reference models and class memberships stay fixed: the
+estimand is the conditional class-group macro mean, not uncertainty in model
+training or class selection. Graph edges, overlapping motif tokens and repeated
+source records are not treated as independent bootstrap units.
+``bootstrap_se_*`` uses sample standard deviation (ddof=1), ``bootstrap_bias_*``
+is bootstrap mean minus observed mean, and ``bootstrap_lo_*``/``bootstrap_hi_*``
+are 2.5/97.5 percentiles. ``bootstrap_valid_*`` and ``bootstrap_status_*`` retain
+undefined-resample information. Intervals are unavailable if fewer than two
+epitopes have a defined metric or any replicate is undefined; no zero fill or
+silent rejection of resamples is used. This empirical bootstrap is separate
+from label-permutation nulls, control draws without replacement and the Chao
+augmented-assemblage law used for unseen-taxon coverage.
+Method: `Efron (1979), Bootstrap Methods: Another Look at the Jackknife
+<https://doi.org/10.1214/aos/1176344552>`_.

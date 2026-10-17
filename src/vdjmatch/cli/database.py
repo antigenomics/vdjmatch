@@ -14,7 +14,7 @@ def register(subparsers):
     p.add_argument('--max-edits',type=int,default=5,help='maximum full-junction Levenshtein distance; applied identically to queries and nulls')
     p.add_argument('--scope',help='with --control: fixed substitution,insertion,deletion,total budget')
     p.add_argument('--statistic',choices=['nearest','count'],default='nearest',help='with --control: nearest distance or number of distinct matching junctions')
-    p.add_argument('--mock-replicates',type=int,default=199,help='fresh draws in each randomization direction (default: 199)')
+    p.add_argument('--mock-replicates',type=int,default=200,help='fresh draws in each randomization direction (default: 200)')
     p.add_argument('--seed',type=int,default=0)
     p.add_argument('--epitope',action='append',help='filter the reference before matching and recalibration')
     p.add_argument('--evidence-type',action='append',help='select supplied reference evidence types before recalibration')

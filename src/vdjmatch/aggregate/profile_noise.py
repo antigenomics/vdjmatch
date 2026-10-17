@@ -1,6 +1,6 @@
 """Fixed label-shuffle evidence for V usage and V-conditional core motifs.
 
-The 199 shuffles and per-axis 0.005 cutoff are fixed before outcomes. Their
+The default 999 shuffles and per-axis 0.005 cutoff are fixed before outcomes. Their
 union bound is 0.01 per profile, not database-wide or final-score calibration.
 """
 import numpy as np
@@ -11,11 +11,11 @@ from scipy.special import rel_entr
 from .structure import _gene_expression
 from ..evalue.epitope_rules import _tokens
 
-NOISE_RECIPE = 'v1:199-shuffles;seed0-independent-streams;global-V-KL;within-V-max-enriched-core-exact3-KL;axis-p<=.005'
+NOISE_RECIPE = 'v2:999-shuffles;seed0-independent-streams;global-V-KL;within-V-max-enriched-core-exact3-KL;axis-p<=.005'
 _UNKNOWN = '__UNRESOLVED_V__'
 
 
-def profile_noise(rows, *, locus, eligible_targets, motif_modes=('exact3',)):
+def profile_noise(rows, *, locus, eligible_targets, motif_modes=('exact3',), shuffles=999):
     """Return selection-aware gene/motif statistics per eligible ``_target``.
 
     All supplied rows define the global distinct junction/V-key population.
@@ -28,6 +28,8 @@ def profile_noise(rows, *, locus, eligible_targets, motif_modes=('exact3',)):
     and all four single-X 4-mer masks. Maximum selection repeats over the
     complete union inside every shuffle, using the same V-conditional null.
     """
+    if type(shuffles) is not int or shuffles < 1:
+        raise ValueError('positive integer shuffles required')
     if locus not in {'TRA', 'TRB'} or not {'_target', 'cdr3', 'v'}.issubset(rows.columns):
         raise ValueError('profile noise requires TRA/TRB and target/junction/V rows')
     if tuple(motif_modes) not in {('exact3',), ('exact3', 'wild4')}:
@@ -118,15 +120,15 @@ def profile_noise(rows, *, locus, eligible_targets, motif_modes=('exact3',)):
     gene_sum, motif_sum = np.zeros(B.shape[1]), np.zeros(B.shape[1])
     gene_max, motif_max = np.zeros(B.shape[1]), np.zeros(B.shape[1])
     gene_ge, motif_ge = np.zeros(B.shape[1], dtype=int), np.zeros(B.shape[1], dtype=int)
-    for _ in range(199):
+    for _ in range(shuffles):
         g = gene_stat((B[global_rng.permutation(keys.height)].T@Z).toarray())
         permutation = np.concatenate([motif_rng.permutation(group) for group in groups])
         m = motif_stat(B[permutation].T@X)
         gene_sum += g; motif_sum += m
         gene_max = np.maximum(gene_max, g); motif_max = np.maximum(motif_max, m)
         gene_ge += g >= gene_observed; motif_ge += m >= motif_observed
-    gene_mean, motif_mean = gene_sum/199, motif_sum/199
-    gene_p, motif_p = (gene_ge+1)/200, (motif_ge+1)/200
+    gene_mean, motif_mean = gene_sum/shuffles, motif_sum/shuffles
+    gene_p, motif_p = (gene_ge+1)/(shuffles+1), (motif_ge+1)/(shuffles+1)
     unresolved = observed_v[:, genes.index(_UNKNOWN)] if _UNKNOWN in genes else np.zeros(B.shape[1])
     unique_junctions = source.join(columns, on='_target', how='inner', validate='m:1').group_by('_column').agg(
         pl.col('cdr3').n_unique().alias('_junctions'))
@@ -155,7 +157,7 @@ def profile_noise(rows, *, locus, eligible_targets, motif_modes=('exact3',)):
             motif_reference_v_keys=int(observed_v[i, v]) if has_motif else None,
             motif_background_with_motif=int(global_m[selected]) if has_motif else None,
             motif_background_v_keys=int(global_v[v]) if has_motif else None,
-            noise_shuffles=199, noise_status=status)
+            noise_shuffles=shuffles, noise_status=status)
     return output
 
 

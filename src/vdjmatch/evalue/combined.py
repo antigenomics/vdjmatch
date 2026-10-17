@@ -78,7 +78,7 @@ def _with_overall(scores):
         _overall(scores).select(*_KEYS, 'score').with_columns(pl.lit('database').alias('test_scope'))])
 
 
-def calibrate_combined(queries, reference, raw_control, *, species, locus, replicates=199,
+def calibrate_combined(queries, reference, raw_control, *, species, locus, replicates=200,
                        seed=0, threads=1, exclude_exact=False, model_context=None,
                        detail_targets=None,report_p=.01):
     """Calibrate the actual sum and axis/label selection from one raw control.

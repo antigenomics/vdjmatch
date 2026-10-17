@@ -42,6 +42,9 @@ For a fresh classification rebuild use `reference-profiles --vdjdb RAW
 --output-prefix NEW --threads 4`. It rebuilds raw graphs/shuffles on every call;
 `index` remains the reusable annotation-model preparation route. The fresh
 manifest checks package source, actual native bytes and raw identities.
+New profile nulls default to999label shuffles (`--shuffles`, minimum200).
+Diagnostic matched-control and Chao-bootstrap defaults are200replicates.
+Permutation/matched-control envelopes are not Efron bootstrap CIs.
 
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)
@@ -124,7 +127,7 @@ score. No fitted JSON input/output is required. Outputs are `.queries.tsv`
 (every raw chain row with calibration identity/status), `.database.tsv`
 (selected-label/axis tails), `.epitopes.tsv` (fixed full-pMHC tails and score
 components; continuous `score` versus support-gated `call_score`), and `.calibration.tsv` (population, seed/model/native provenance).
-Use `--mock-replicates` (default199) and `--seed` (default0) explicitly when pinning
+Use `--mock-replicates` (default200) and `--seed` (default0) explicitly when pinning
 reproduction. Reference species/locus/evidence/score/pMHC filtering precedes mocks.
 Custom labelled references use long `junction_aa,locus,epitope` rows with `pair_id`,
 or wide `junction_aa_alpha/beta,v_alpha/beta,j_alpha/beta,epitope` rows; retain their

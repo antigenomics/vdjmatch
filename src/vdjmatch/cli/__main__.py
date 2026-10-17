@@ -88,7 +88,7 @@ def _cmd_annotate(a: argparse.Namespace) -> int:
     if a.control and a.background == 'vdjdb-other':
         from .combined import main
         return main(a)
-    if a.mock_replicates != 199 or a.seed != 0 or a.fpr != .01 or a.evidence_type or a.min_score:
+    if a.mock_replicates != 200 or a.seed != 0 or a.fpr != .01 or a.evidence_type or a.min_score:
         raise ValueError('mock-replicates, seed, fpr and evidence filters require annotate --control with the default background')
     from ..runner.annotation import annotate_repertoires
 
@@ -836,8 +836,8 @@ def main(argv: list[str] | None = None) -> int:
     annotation.add_argument("--metadata", help="TSV with path and optional sample_id; paths relative to this TSV")
     annotation.add_argument("--details", dest="selection_only", action="store_false",
                             help="also export per-target evidence and candidates; memory grows with queries × targets")
-    annotation.add_argument('--mock-replicates', type=int, default=199,
-                            help='with --control: fresh draws per direction (default: 199)')
+    annotation.add_argument('--mock-replicates', type=int, default=200,
+                            help='with --control: fresh draws per direction (default: 200)')
     annotation.add_argument('--seed', type=int, default=0, help='with --control: reproducible randomization seed')
     annotation.add_argument('--fpr', type=float, default=.01,
                             help='with --control: any-call P-value threshold for reported specificities (default: 0.01)')

@@ -21,10 +21,13 @@ def test_planted_interior_motif_survives_selection_aware_null_and_duplicates():
     result = profile_noise(source, locus='TRB', eligible_targets=[0])
     assert result == profile_noise(pl.concat([source, source]), locus='TRB', eligible_targets=[0])
     value = result[0]
-    assert value['noise_shuffles'] == 199
+    legacy = profile_noise(source, locus='TRB', eligible_targets=[0], shuffles=199)[0]
+    assert legacy['noise_shuffles'] == 199 and legacy['motif_p'] == .005
+    assert legacy['motif'] == value['motif']
+    assert value['noise_shuffles'] == 999
     assert value['gene_kl_bits'] == value['gene_excess_bits'] == 0.
     assert value['gene_p'] == 1. and not value['gene_supported']
-    assert value['motif_p'] == .005 and value['motif_supported']
+    assert value['motif_p'] == .001 and value['motif_supported']
     assert value['motif_excess_bits'] > 0
     assert value['motif_reference_with_motif'] == value['motif_reference_v_keys'] == 30
     assert value['motif_background_v_keys'] == 120
@@ -38,7 +41,7 @@ def test_v_only_contrast_does_not_manufacture_conditional_motif_support():
     source = rows([(0, sequences('GGG'), 'TRBV19'), (1, sequences('GGG'), 'TRBV20-1')])
     result = profile_noise(source, locus='TRB', eligible_targets=[0])[0]
     assert result['gene_kl_bits'] == 1.
-    assert result['gene_p'] == .005 and result['gene_supported']
+    assert result['gene_p'] == .001 and result['gene_supported']
     assert result['motif_kl_bits'] == 0.
     assert result['motif_p'] == 1. and not result['motif_supported']
     assert result['motif'] is None
@@ -102,10 +105,10 @@ def test_full20_union_selects_gapped_fourmer_inside_every_null():
     exact = profile_noise(source, locus='TRB', eligible_targets=[0])[0]
     union = profile_noise(source, locus='TRB', eligible_targets=[0], motif_modes=('exact3', 'wild4'))[0]
     assert union['motif'] == 'WXGG'
-    assert union['motif_p'] == .005 and union['motif_supported']
+    assert union['motif_p'] == .001 and union['motif_supported']
     assert union['motif_kl_bits'] > exact['motif_kl_bits']
     assert union['motif_reference_with_motif'] == union['motif_reference_v_keys'] == 30
-    assert union['noise_shuffles'] == 199
+    assert union['noise_shuffles'] == 999
     shared = source.with_columns(pl.lit(0).alias('_target'))
     assert not profile_noise(shared, locus='TRB', eligible_targets=[0],
         motif_modes=('exact3', 'wild4'))[0]['motif_supported']

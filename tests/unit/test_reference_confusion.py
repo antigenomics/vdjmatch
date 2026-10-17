@@ -76,3 +76,23 @@ def test_class_groups_keep_equal_epitope_weight_and_undefined_counts():
     assert groups['query_target_appearances'].to_list() == [110, 110]
     with pytest.raises(ValueError, match='one row'):
         class_group_confusion(pl.concat([metrics, metrics]))
+    other = metrics.with_columns(pl.lit('other').alias('scorer'),
+        (1-pl.col('accuracy')).alias('accuracy'))
+    boot = class_group_confusion(pl.concat([metrics, other]), nboot=1000, seed=0)
+    original = boot.filter(pl.col('scorer') == 'test').row(0, named=True)
+    opposite = boot.filter(pl.col('scorer') == 'other').row(0, named=True)
+    assert original['bootstrap_se_accuracy'] == pytest.approx(.2/2**.5, abs=.02)
+    assert original['bootstrap_lo_accuracy'] == .4 and original['bootstrap_hi_accuracy'] == .8
+    assert original['bootstrap_lo_accuracy'] == pytest.approx(1-opposite['bootstrap_hi_accuracy'])
+    assert original['bootstrap_se_accuracy'] == pytest.approx(opposite['bootstrap_se_accuracy'])
+    assert original['bootstrap_valid_accuracy'] == 1000
+    assert original['bootstrap_status_mcc'] == 'insufficient_epitopes'
+    assert original['bootstrap_lo_mcc'] is None
+    assert original['bootstrap_valid_mcc'] < 1000
+    mixed = pl.concat([metrics, metrics.head(1).with_columns(pl.lit('TRB').alias('locus'),
+        pl.lit(float('inf')).alias('mcc'), pl.lit(float('nan')).alias('balanced_accuracy'))])
+    combined = class_group_confusion(mixed, nboot=1000, seed=0)
+    singleton = combined.filter(pl.col('locus') == 'TRB').row(0, named=True)
+    assert singleton['bootstrap_lo_accuracy'] is None
+    assert singleton['mcc_defined_epitopes'] == singleton['balanced_accuracy_defined_epitopes'] == 0
+    assert singleton['bootstrap_valid_mcc'] == singleton['bootstrap_valid_balanced_accuracy'] == 0

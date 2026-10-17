@@ -6,7 +6,7 @@ import polars as pl
 
 from .structure import _gene_expression
 
-PROFILE_RECIPE = 'v4:source>=30;core-exact3;V-KL-and-V-conditional-motif-max;199-label-shuffles;seed0;axis-p<=.005;nonidentical-Levenshtein1;pooled-and-pMHC;descriptive-length-KL-JS'
+PROFILE_RECIPE = 'v5:source>=30;core-exact3;V-KL-and-V-conditional-motif-max;999-label-shuffles;seed0;axis-p<=.005;nonidentical-Levenshtein1;pooled-and-pMHC;descriptive-length-KL-JS'
 _MHC = ['mhc_a', 'mhc_b', 'mhc_class']
 _CONTEXT = ['level', 'species', 'gene', 'epitope', *_MHC]
 _SCHEMA = {name: pl.String for name in ['level', 'species', 'locus', 'epitope', *_MHC,
@@ -38,7 +38,7 @@ def _near_lengths(histogram, keys):
         for delta in (-1, 0, 1)]).group_by(*keys, '_length').agg(pl.col('_n').sum())
 
 
-def _population(rows, *, locus, threads):
+def _population(rows, *, locus, threads, shuffles):
     """Reduce one species/locus graph; no per-target search or full-frame scans."""
     from .. import cluster
 
@@ -97,15 +97,15 @@ def _population(rows, *, locus, threads):
     by_target = {row['_target']: row for row in result.to_dicts()}
     from .profile_noise import profile_noise
     eligible = selected.group_by('_target').len().filter(pl.col('len') >= 30)['_target'].to_list()
-    noise = profile_noise(selected, locus=locus, eligible_targets=eligible)
-    full20 = profile_noise(selected, locus=locus, eligible_targets=eligible, motif_modes=('exact3', 'wild4'))
+    noise = profile_noise(selected, locus=locus, eligible_targets=eligible, shuffles=shuffles)
+    full20 = profile_noise(selected, locus=locus, eligible_targets=eligible, motif_modes=('exact3', 'wild4'), shuffles=shuffles)
     return {target: by_target.get(target, {}) | noise.get(target, {}) |
         {'full20_'+key: full20.get(target, {}).get(key) for key in _FULL20_COLUMNS} |
         {'background_junctions': nodes.height-excluded_counts.get(epitope, 0)}
         for target, epitope in rows.select('_target', 'epitope').unique().iter_rows()}
 
 
-def reference_profiles(reference: pl.DataFrame, *, threads=4) -> pl.DataFrame:
+def reference_profiles(reference: pl.DataFrame, *, threads=4, shuffles=999) -> pl.DataFrame:
     """Describe pooled epitopes and full pMHC groups in a normalized reference.
 
     Keep source-record eligibility separate from unique-junction graph evidence.
@@ -116,6 +116,8 @@ def reference_profiles(reference: pl.DataFrame, *, threads=4) -> pl.DataFrame:
     """
     if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
         raise ValueError('threads must be a positive integer')
+    if type(shuffles) is not int or shuffles < 1:
+        raise ValueError('positive integer shuffles required')
     required = {'species', 'gene', 'epitope', 'cdr3', 'v', 'reference_valid', *_MHC}
     if required-set(reference.columns):
         raise ValueError('fast profiles require the normalized reference schema')
@@ -136,7 +138,7 @@ def reference_profiles(reference: pl.DataFrame, *, threads=4) -> pl.DataFrame:
         pl.col('_valid').sum().alias('valid_source_records')).join(targets, on='_target', validate='1:1').sort('_target')
     profiles = {}
     for (_, locus), population in all_rows.partition_by(['species', 'gene'], as_dict=True, maintain_order=True).items():
-        profiles.update(_population(population, locus=locus, threads=threads))
+        profiles.update(_population(population, locus=locus, threads=threads, shuffles=shuffles))
     output = []
     for target in inventory.to_dicts():
         data = profiles.get(target['_target'], {})

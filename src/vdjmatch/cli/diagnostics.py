@@ -7,7 +7,7 @@ def register(subparsers):
     from .coverage import add_graph_options
     parser = register_structure(subparsers, 'reference-diagnostics')
     add_graph_options(parser, combined=True)
-    parser.set_defaults(func=main, motif_mode='all', mock_replicates=50)
+    parser.set_defaults(func=main, motif_mode='all', mock_replicates=200)
 
 
 def main(a):

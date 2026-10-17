@@ -5,7 +5,7 @@ import numpy as np
 import polars as pl
 
 
-def abundance_coverage(counts, *, nboot=50, seed=0, threads=1):
+def abundance_coverage(counts, *, nboot=200, seed=0, threads=1):
     """Chao1 richness, unseen mass, entropy and effort/coverage curves.
 
     Counts are database occurrences, not read/cell abundance. The iNEXT

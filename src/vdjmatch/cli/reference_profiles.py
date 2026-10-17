@@ -7,6 +7,7 @@ def register(subparsers):
     parser.add_argument('--vdjdb', required=True)
     parser.add_argument('--species', choices=['human', 'mouse', 'HomoSapiens', 'MusMusculus'])
     parser.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
+    parser.add_argument('--shuffles', type=int, default=999, help='label-shuffle null replicates (default: 999)')
     parser.add_argument('--threads', type=int, default=4)
     parser.add_argument('--output-prefix', required=True)
     parser.set_defaults(func=main)
@@ -26,6 +27,8 @@ def main(a):
     started = time.monotonic()
     if a.threads < 1:
         raise ValueError('positive threads required')
+    if a.shuffles < 200:
+        raise ValueError('at least 200 label shuffles required for scientific profiles')
     prefix = _validate_output_paths(a.output_prefix, [a.vdjdb])
     def freeze():
         paths = sorted(Path(__file__).resolve().parents[1].rglob('*.py'))+[Path(native.__file__)]
@@ -37,7 +40,7 @@ def main(a):
     if a.reference_population == 'all-valid':
         reference = reference.with_columns(pl.col('cdr3').str.contains(
             r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('reference_valid'))
-    profiles = reference_profiles(reference, threads=a.threads)
+    profiles = reference_profiles(reference, threads=a.threads, shuffles=a.shuffles)
     joint = joint_reference_profiles(profiles)
     prefix.parent.mkdir(parents=True, exist_ok=True)
     outputs = {}
@@ -49,7 +52,7 @@ def main(a):
     if identity != db.provenance(a.vdjdb) or sources != after:
         raise ValueError('reference or producing source/native changed during fresh profiling')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(dict(reference=identity,
-        reference_population=a.reference_population, species=species, profile_recipe=PROFILE_RECIPE,
+        reference_population=a.reference_population, species=species, profile_recipe=PROFILE_RECIPE.replace('999-label-shuffles', f'{a.shuffles}-label-shuffles'), shuffles=a.shuffles,
         source_before=sources, source_after=after, source_frozen=True, reference_rows=reference.height,
         profile_rows=profiles.height, joint_rows=joint.height, threads=a.threads,
         calculation='fresh source observations, reference graphs and label shuffles; no saved diagnostic rows',

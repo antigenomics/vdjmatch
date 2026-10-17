@@ -6,18 +6,26 @@ QUERY = [*CONTEXT, 'query_id']
 TARGET = [*CONTEXT, 'epitope']
 
 
-def class_group_confusion(metrics):
+def class_group_confusion(metrics, *, nboot=0, seed=0):
     """Equal-epitope macro summaries for alpha, beta and joint class heatmaps.
 
     Align class axis to scored locus, keep species/scorers separate, and report
     defined denominators for each metric. Original core3 and full20 definitions
     are separate rows. Individual epitope metrics remain the primary input.
     """
+    import numpy as np
+    if type(nboot) is not int or nboot < 0 or nboot == 1 or type(seed) is not int or seed < 0:
+        raise ValueError('nboot must be zero or at least two; seed must be nonnegative')
+    rng = np.random.default_rng(seed)
     schema = {c: pl.String for c in [*CONTEXT, 'scorer', 'class_axis', 'class_definition', 'epitope_class']}
     schema.update({c: pl.Int64 for c in ['epitopes', 'query_target_appearances', 'positives', 'negatives', 'tp', 'tn', 'fp', 'fn']})
     for metric in ('accuracy', 'balanced_accuracy', 'mcc'):
         schema[metric+'_defined_epitopes'] = pl.Int64
         schema.update({stat+'_'+metric: pl.Float64 for stat in ('mean', 'median', 'min', 'max')})
+        if nboot:
+            schema['bootstrap_valid_'+metric] = pl.Int64
+            schema['bootstrap_status_'+metric] = pl.String
+            schema.update({'bootstrap_'+stat+'_'+metric: pl.Float64 for stat in ('se', 'bias', 'lo', 'hi')})
     if metrics.select(*TARGET, 'scorer').is_duplicated().any():
         raise ValueError('class-group input must contain one row per pooled epitope/scorer/locus')
     parts = []
@@ -39,9 +47,57 @@ def class_group_confusion(metrics):
             for metric in ('accuracy', 'balanced_accuracy', 'mcc'):
                 aggregates += [pl.col(metric).count().alias(metric+'_defined_epitopes'),
                     *[getattr(pl.col(metric), stat)().alias(stat+'_'+metric) for stat in ('mean', 'median', 'min', 'max')]]
-            parts.append(part.group_by(*CONTEXT, 'scorer', 'class_axis', 'class_definition', 'epitope_class').agg(aggregates))
-    return (pl.concat(parts).select(*[pl.col(c).cast(dtype) for c, dtype in schema.items()])
+            groups = [*CONTEXT, 'class_axis', 'class_definition', 'epitope_class']
+            summary = part.group_by(*groups, 'scorer').agg(aggregates)
+            if nboot:
+                boot = _bootstrap_class_means(part, groups, nboot=nboot, rng=rng)
+                summary = summary.join(boot, on=[*groups, 'scorer'], validate='1:1')
+            parts.append(summary.select(*[pl.col(c).cast(dtype) for c, dtype in schema.items()]))
+    return (pl.concat(parts)
         .sort(*CONTEXT, 'class_definition', 'class_axis', 'epitope_class', 'scorer') if parts else pl.DataFrame(schema=schema))
+
+
+def _bootstrap_class_means(part, groups, *, nboot, rng):
+    """Efron empirical epitope bootstrap, paired across scorers and metrics.
+
+    Multinomial multiplicities equal sampling N epitope units with replacement.
+    Fixed references and class memberships define the conditional estimand.
+    Do not resample dependent graph edges, tokens or duplicated source records.
+    """
+    import numpy as np
+    records, metrics = [], ('accuracy', 'balanced_accuracy', 'mcc')
+    for key, frame in part.sort([*groups, 'epitope', 'scorer']).group_by(groups, maintain_order=True):
+        epitopes = frame.select('epitope').unique().sort('epitope').with_row_index('_e')
+        scorers = frame.select('scorer').unique().sort('scorer').with_row_index('_s')
+        indexed = frame.join(epitopes, on='epitope', validate='m:1').join(scorers, on='scorer', validate='m:1')
+        n, methods = epitopes.height, scorers.height
+        values = np.full((n, methods, 3), np.nan)
+        values[indexed['_e'].to_numpy(), indexed['_s'].to_numpy(), :] = indexed.select(metrics).to_numpy()
+        values = values.reshape(n, -1)
+        finite = np.isfinite(values)
+        draws = np.full((nboot, methods*3), np.nan)
+        for start in range(0, nboot, 32):
+            weights = rng.multinomial(n, np.full(n, 1/n), size=min(32, nboot-start))
+            denominator = weights @ finite.astype(np.float64)
+            draws[start:start+len(weights)] = np.divide(weights @ np.nan_to_num(values), denominator,
+                out=np.full(denominator.shape, np.nan), where=denominator > 0)
+        for method, scorer in enumerate(scorers['scorer']):
+            record = dict(zip(groups, key)) | {'scorer': scorer}
+            for k, metric in enumerate(metrics):
+                column = method*3+k
+                sample = draws[:, column]
+                valid = int(np.isfinite(sample).sum())
+                sufficient = int(finite[:, column].sum()) >= 2
+                usable = sufficient and valid == nboot
+                record.update({'bootstrap_valid_'+metric: valid,
+                    'bootstrap_status_'+metric: 'empirical_epitope_percentile' if usable else
+                        'insufficient_epitopes' if not sufficient else 'undefined_resamples',
+                    'bootstrap_se_'+metric: float(sample.std(ddof=1)) if usable else None,
+                    'bootstrap_bias_'+metric: float(sample.mean()-np.nanmean(values[:, column])) if usable else None,
+                    'bootstrap_lo_'+metric: float(np.quantile(sample, .025)) if usable else None,
+                    'bootstrap_hi_'+metric: float(np.quantile(sample, .975)) if usable else None})
+            records.append(record)
+    return pl.DataFrame(records, infer_schema_length=None)
 
 
 def reference_confusion(scores, truth, profiles):
