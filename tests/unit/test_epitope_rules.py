@@ -247,6 +247,78 @@ def test_cli_grouped_rules_match_scalar_tasks(tmp_path,monkeypatch):
         assert (tmp_path/f'grouped.{suffix}.tsv').read_bytes()==(tmp_path/f'scalar.{suffix}.tsv').read_bytes()
 
 
+@pytest.mark.parametrize('paired',[False,True])
+@pytest.mark.parametrize('exclude_exact',[False,True])
+def test_rules_only_preserves_status_and_evidence_without_comparator_search(tmp_path,monkeypatch,paired,exclude_exact):
+    import json
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.match import geometry
+    meta=dict(species='human',mhc_a='HLA-A*02',mhc_b='B2M',mhc_class='MHCI')
+    queries=[];records=[]
+    for i,(sequence,epitope,gene) in enumerate([
+        ('CASSLGQAYEQYF','E','TRBV19*01'),('CASSWGRAYEQYF','F','TRBV19*01'),
+        ('CASSLGQAYEQYF','absent','TRBV19*01'),('INVALID','E','TRBV19*01'),
+        ('CASSLGQAYEQYF','E','TRBV999*01'),('CASSLGQAYEQYF','','TRBV19*01')]):
+        queries.append(dict(junction_aa=sequence,v_call=gene,locus='TRB',epitope=epitope,clone_id=str(i),**meta))
+        if paired:queries.append(dict(junction_aa='CAVRDSNYQLIW',v_call='TRAV1-1*01',locus='TRA',epitope=epitope,clone_id=str(i),**meta))
+    if paired:
+        queries.append(dict(junction_aa='CASSLGQAYEQYF',v_call='TRBV19*01',locus='TRB',epitope='E',clone_id='missing-alpha',**meta))
+        queries.append(dict(junction_aa='CAVRDSNYQLIW',v_call='TRAV1-1*01',locus='TRA',epitope='E',clone_id='missing-beta',**meta))
+    for i,(sequence,epitope) in enumerate([('CASSLGQAYEQYF','E'),('CASSLGRAYEQYF','F')]):
+        records.append(dict(cdr3=sequence,v='TRBV19*01',gene='TRB',complex_id=i+1,
+            epitope=epitope,**(meta|dict(species='HomoSapiens'))))
+        if paired:records.append(dict(cdr3='CAVRDSNYQLIW',v='TRAV1-1*01',gene='TRA',complex_id=i+1,
+            epitope=epitope,**(meta|dict(species='HomoSapiens'))))
+    sample=tmp_path/'queries.tsv';reference=tmp_path/'reference.tsv'
+    pl.DataFrame(queries).write_csv(sample,separator='\t');pl.DataFrame(records).write_csv(reference,separator='\t')
+    args=['neighbours',str(sample),'--vdjdb',str(reference),'--locus','paired' if paired else 'TRB',
+        '--targets-from-sample','--unbounded-nearest','--background','vdjdb-other',
+        '--neighbour-weighting','linear','--junction-ends','trim3','--epitope-rules']
+    if exclude_exact:args+=['--exclude-exact']
+    assert main(args+['--output-prefix',str(tmp_path/'normal')])==0
+    def unused(*args,**kwargs):raise AssertionError('rules-only executed an unused comparator search')
+    for name in ('distance_matrix','paired_distance_matrix','total_distance_count_batch','paired_total_distance_mass_batch'):
+        monkeypatch.setattr(geometry,name,unused)
+    assert main(args+['--rules-only','--output-prefix',str(tmp_path/'projected')])==0
+    assert (tmp_path/'normal.queries.tsv').read_bytes()==(tmp_path/'projected.queries.tsv').read_bytes()
+    normal=pl.read_csv(tmp_path/'normal.enrichment.tsv',separator='\t',infer_schema_length=0)
+    projected=pl.read_csv(tmp_path/'projected.enrichment.tsv',separator='\t',infer_schema_length=0)
+    fields=['query_id','epitope','mhc_a','mhc_b','mhc_class',*[c for c in normal.columns if c.startswith('rule_')]]
+    assert normal.select(fields).equals(projected.select(fields))
+    assert set(projected.columns)==set(fields) and not (tmp_path/'projected.candidates.tsv').exists()
+    report=json.loads((tmp_path/'projected.manifest.json').read_text())
+    assert report['rules_only'] is True and report['output_tables']==['queries','enrichment']
+
+
+@pytest.mark.parametrize('species',['human','mouse'])
+def test_rules_only_single_or_empty_context(tmp_path,species):
+    from vdjmatch.cli.__main__ import main
+    meta=dict(epitope='E',mhc_a='HLA-A*02',mhc_b='B2M',mhc_class='MHCI')
+    sample=tmp_path/'q.tsv';reference=tmp_path/'r.tsv'
+    pl.DataFrame([dict(junction_aa='CASSLGQAYEQYF',v_call='TRBV19*01',locus='TRB',species='human',**meta)]).write_csv(sample,separator='\t')
+    pl.DataFrame([dict(cdr3='CASSLGQAYEQYF',v='TRBV19*01',gene='TRB',species='HomoSapiens',**meta)]).write_csv(reference,separator='\t')
+    args=['neighbours',str(sample),'--vdjdb',str(reference),'--locus','TRB','--species',species,
+        '--targets-from-sample','--unbounded-nearest','--background','vdjdb-other',
+        '--neighbour-weighting','linear','--epitope-rules','--exclude-exact']
+    for name,extra in [('normal',[]),('projected',['--rules-only'])]:
+        assert main(args+extra+['--output-prefix',str(tmp_path/name)])==0
+    assert (tmp_path/'normal.queries.tsv').read_bytes()==(tmp_path/'projected.queries.tsv').read_bytes()
+    normal=pl.read_csv(tmp_path/'normal.enrichment.tsv',separator='\t',infer_schema_length=0)
+    projected=pl.read_csv(tmp_path/'projected.enrichment.tsv',separator='\t',infer_schema_length=0)
+    assert normal.select(projected.columns).equals(projected)
+
+
+@pytest.mark.parametrize('extra',[[],['--epitope-rules'],['--epitope-rules','--targets-from-sample'],
+    ['--epitope-rules','--targets-from-sample','--unbounded-nearest','--nearest-rank']])
+def test_rules_only_rejects_unsupported_workflows(extra,capsys):
+    from vdjmatch.cli.__main__ import main
+    with pytest.raises(SystemExit) as error:
+        main(['neighbours','unused.tsv','--vdjdb','unused-reference.tsv','--locus','TRB',
+              '--rules-only','--background','vdjdb-other','--neighbour-weighting','linear',
+              '--output-prefix','unused',*extra])
+    assert error.value.code==2 and '--rules-only requires' in capsys.readouterr().err
+
+
 @pytest.mark.parametrize('diagnostic',['epitope-rules','chemistry'])
 def test_cli_rules_preserve_existing_fields_and_empty_schema(tmp_path,diagnostic):
     from vdjmatch.cli.__main__ import main

@@ -97,6 +97,7 @@ def register(subparsers, name='neighbours'):
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
     p.add_argument('--conditional-j',action='store_true',help='experimental J usage conditional on V and junction length; ranking only')
     p.add_argument('--epitope-rules',action='store_true',help='experimental joint V usage with V-conditioned CDR3/motif kernels; ranking only')
+    p.add_argument('--rules-only',action='store_true',help='declared-target unbounded rule evidence and query statuses; omit ordinary counts and candidate distances')
     p.add_argument('--chemistry',action='store_true',help='experimental V-conditioned local KF4 mixture; requires bench extra; ranking only')
     p.add_argument('--chemistry-bandwidth-factor',type=float,default=1.0,help='Gaussian bandwidth / amino-acid-table KF4 standard deviation')
     p.add_argument('--nearest-rank',action='store_true',help='experimental background rank at the exhaustive nearest target distance; uniform geometry only')
@@ -193,6 +194,13 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     j_geometry=geometry_extra in J_GEOMETRY_EXTRAS
     kernel=a.neighbour_weighting=='kernel'
     selection_only=getattr(a,'selection_only',False)
+    rules_only=getattr(a,'rules_only',False)
+    if rules_only and (not (a.epitope_rules and a.targets_from_sample and a.unbounded_nearest and
+            a.background=='vdjdb-other' and a.neighbour_weighting=='linear' and
+            a.position_weighting=='uniform' and a.distance_matrix=='clipped' and a.alphabet=='full') or
+            a.all_targets or selection_only or a.nearest_rank or a.reference_radius or a.shortlist_audit or
+            a.conditional_j or a.chemistry or a.stem_depth or geometry_extra or a.withhold_epitope):
+        raise ValueError('--rules-only requires declared-target unbounded clipped epitope rules with linear vdjdb-other background and no other diagnostics')
     if marginal_tables is not None and (a.locus!='paired' or not kernel):
         raise ValueError('run-local marginal tables require paired kernel scoring')
     if selection_only and (not kernel or a.shortlist_audit or a.unbounded_nearest):
@@ -401,6 +409,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     selection_state=selection_pending=None
     selection_peptide=None
     selection_hit_ids=set()
+    rules_hit_ids=set()
     selection_dispositions={}
     background_provenance=None
     background_costs={'control_load':0.0,'native_count_batches':0.0}
@@ -418,7 +427,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                     pl.col(('j'+suffix if query else 'j_'+suffix) if paired else 'j').alias(f'j{i}')])
             return frame.select(fields)
         rule_batches=None
-        if a.epitope_rules and len(groups)>1:
+        if a.epitope_rules and (len(groups)>1 or rules_only):
             from ..evalue.epitope_rules import reference_epitope_rules,grouped_reference_epitope_rules
             rule_start=time.perf_counter()
             residuals=grouped_reference_epitope_rules(features(r).with_columns(r['epitope']),
@@ -427,6 +436,12 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 v_loop_distances=(v_loop_distances if a.distance_matrix=='clipped' and a.alphabet=='full' else None))
             rule_batches={tuple(task[c] for c in PMHC):residual for (task,_,_),residual in zip(groups,residuals)}
             background_costs['epitope_rules']=time.perf_counter()-rule_start
+            if rules_only:
+                for (task,part,_),residual in zip(groups,residuals):
+                    if not part.height:continue
+                    enrichment_rows.append(residual.with_columns(*[pl.lit(task[c],dtype=pl.String).alias(c) for c in PMHC]))
+                    rules_hit_ids.update(residual.filter(pl.col('rule_reference_population')>
+                        pl.col('rule_reference_excluded_hits'))['query_id'])
         from ..match.geometry import total_distance_count_batch,paired_total_distance_mass_batch
         from ..evalue.control import raw_gene_background
         linear=a.neighbour_weighting=='linear'
@@ -596,7 +611,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             background_provenance['reduction']='one grouped reference traversal; whole search-key counts minus keys exclusive to target peptide; shared-label keys retained'
         population_queries=(q.select(query_keys).unique(maintain_order=True)
                             if kernel and not a.targets_from_sample else None)
-        for task,part,reference_part in ([] if grouped_kernel or grouped_detailed else groups):
+        for task,part,reference_part in ([] if rules_only or grouped_kernel or grouped_detailed else groups):
             radius=target_radii[tuple(task[c] for c in PMHC)] if a.reference_radius else a.radius
             unique=(population_queries if population_queries is not None else
                     part.select(query_keys).unique(maintain_order=True))
@@ -720,6 +735,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             for query_id in query_part['query_id']:
                 dispositions[query_id]=('invalid_target' if any(not isinstance(v,str) or not v.strip() for v in task.values())
                                         else 'searched' if reference_part.height else 'no_reference')
+        if rules_only:continue
         if not reference_part.height or not query_part.height:
             continue
         if a.shortlist_audit:
@@ -828,7 +844,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             'sequence_ida','sequence_idb','species',*PMHC] if c in pair_rows.columns],'available','status',
             'v_call_alpha','v_call_beta',
             pl.col('_allelea').alias('resolved_v_allele_alpha'),pl.col('_alleleb').alias('resolved_v_allele_beta'))
-        hit_ids=selection_hit_ids if selection_only else set(out['query_id'])
+        hit_ids=selection_hit_ids if selection_only else rules_hit_ids if rules_only else set(out['query_id'])
         status=status.with_columns(pl.Series('status',[
             old if old!='searched' else dispositions.get(query_id) if dispositions.get(query_id) in {'invalid_target','no_reference'} else
             'matched' if query_id in hit_ids else 'no_neighbours'
@@ -843,7 +859,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     status=status.with_columns(pl.col('available').fill_null(False))
     if (a.targets_from_sample or a.all_targets) and not paired:
         valid_target_ids=set(dispositions)
-        hit_ids=selection_hit_ids if selection_only else set(out['query_id'])
+        hit_ids=selection_hit_ids if selection_only else rules_hit_ids if rules_only else set(out['query_id'])
         species_ids=set(raw.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(
             ['human','homosapiens','homo sapiens'] if organism=='human' else ['mouse','musmusculus','mus musculus']))['query_id']) if 'species' in raw.columns else set(raw['query_id'])
         status=status.with_columns(pl.Series('status',[
@@ -859,7 +875,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             'raw_radius':pl.Float64,'nearest_keys':pl.UInt64,'radius':pl.UInt32,
             'radius_floor':pl.Float64,'floor_source':pl.String,'radius_status':pl.String}
         pl.DataFrame(radius_rows,schema=radius_schema).write_csv(str(prefix)+'.radii.tsv',separator='\t')
-    if not selection_only:
+    if not (selection_only or rules_only):
         out.write_csv(str(prefix)+'.candidates.tsv',separator='\t')
     status.write_csv(str(prefix)+'.queries.tsv',separator='\t')
     if a.shortlist_audit:
@@ -913,6 +929,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             empty=local_chemistry_evidence(pop.with_row_index('query_id'),pop,pop,paired=paired,
                 bandwidth_factor=a.chemistry_bandwidth_factor)
             enrichment=enrichment.with_columns(*[pl.Series(c,[],dtype=t) for c,t in empty.schema.items() if c!='query_id'])
+        if rules_only:
+            enrichment=enrichment.select('query_id',*PMHC,*[c for c in enrichment.columns if c.startswith('rule_')])
         enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment.tsv',separator='\t')
         if kernel:
             from ..evalue.kernel import select_kernel
@@ -966,6 +984,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
         from .calibration import paired_call_event,paired_pipeline_sources
     Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
         'selection_only':selection_only,
+        **({'rules_only':True,'status_derivation':'preserve ingestion/target precedence; matched iff fixed reference population exceeds excluded exact hits; availability unchanged'} if rules_only else {}),
         **({'paired_call_event':paired_call_event(),'paired_source_sha256':paired_pipeline_sources()} if paired and kernel else {}),
         **({'geometry_extra':geometry_extra,
             'geometry_extra_status':'advanced retained diagnostic',
@@ -975,7 +994,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                if paired and geometry_extra in ('norm','jnorm') else {}),
             'calibration_transfer':'requires its own geometry and all-label selection calibration'} if geometry_extra else {}),
         **({'marginal_execution':'run-local union chain population services'} if marginal_tables is not None else {}),
-        'output_tables':(['queries','selection'] if selection_only else ['queries','candidates']+
+        'output_tables':(['queries','enrichment'] if rules_only else ['queries','selection'] if selection_only else ['queries','candidates']+
             (['enrichment','selection'] if kernel else ['enrichment'] if a.background else [])+
             (['paired-evidence'] if paired and kernel else [])),
         'software':{'vdjmatch':version('vdjmatch'),'seqtree':version('seqtree'),

@@ -579,6 +579,17 @@ count only filtered same-V hit contributions. Ordinary annotation retains exact
 reference evidence. This option leaves existing comparator/rank fields
 unchanged and does not supply a new end-user call threshold.
 
+For rule tables without unused nearest-distance diagnostics, add ``--rules-only``
+to ``neighbours --epitope-rules --targets-from-sample --unbounded-nearest
+--background vdjdb-other --neighbour-weighting linear``. This projection writes
+``queries.tsv`` and rule-only ``enrichment.tsv``, retaining ingestion availability
+and target-validation precedence. A valid target is matched when its fixed
+reference population exceeds its excluded exact-hit count; exact-only targets
+remain ``no_neighbours`` and empty targets remain ``no_reference``. The first
+projection requires the standard clipped/full/uniform geometry and excludes
+other diagnostics. Ordinary candidate outputs and scoring defaults stay on their
+existing route.
+
 Experimental original-based fixed refinement
 --------------------------------------------
 
