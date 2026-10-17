@@ -94,3 +94,42 @@ def test_evidence_only_rejects_null_assayed_peptide_instead_of_dense_fallback(tm
     with pytest.raises(SystemExit):
         main(['evidence', str(sample), '--vdjdb', str(reference), '--locus', 'TRB',
               '--targets-from-sample', '--evidence-only', '--output-prefix', str(tmp_path/'invalid')])
+
+
+def test_gzip_evidence_preserves_plain_paired_exports(tmp_path):
+    import gzip
+    from vdjmatch.cli.__main__ import main
+    sample, reference = fixture(tmp_path, True)
+    args = ['evidence', str(sample), '--vdjdb', str(reference), '--locus', 'paired',
+            '--all-targets', '--exclude-exact', '--evidence-only']
+    plain, compressed = tmp_path/'plain', tmp_path/'gzip'
+    assert main(args+['--output-prefix', str(plain)]) == 0
+    assert main(args+['--gzip-evidence', '--output-prefix', str(compressed)]) == 0
+    from vdjmatch.cli import neighbours
+    from vdjmatch.runner.annotation import _core_defaults
+    served = tmp_path/'served'
+    options = _core_defaults(reference, served)
+    options.sample, options.locus, options.reference_population = str(sample), 'paired', 'curated-benchmark'
+    options.all_targets = options.exclude_exact = options.evidence_only = options.gzip_evidence = True
+    marginals = {locus: {kind: pl.read_csv(str(plain)+'.'+locus+'.'+kind+'.tsv',
+        separator='\t', schema_overrides={'query_id': pl.UInt32})
+        for kind in ['queries', 'selection', 'enrichment']} for locus in ['TRA', 'TRB']}
+    assert neighbours.main(options, marginal_tables=marginals) == 0
+    for exported in [compressed, served]:
+        for lane in ['', '.TRA', '.TRB']:
+            for kind in ['queries', 'selection']:
+                assert Path(str(plain)+lane+'.'+kind+'.tsv').read_bytes() == Path(str(exported)+lane+'.'+kind+'.tsv').read_bytes()
+            for kind in ['enrichment'] + (['paired-evidence'] if not lane else []):
+                expected = Path(str(plain)+lane+'.'+kind+'.tsv').read_bytes()
+                actual = Path(str(exported)+lane+'.'+kind+'.tsv.gz')
+                assert gzip.decompress(actual.read_bytes()) == expected
+                assert not actual.with_suffix('').exists()
+            if exported == compressed or not lane:
+                manifest = json.loads(Path(str(exported)+lane+'.manifest.json').read_text())
+                assert manifest['evidence_compression'] == dict(codec='gzip', level=1,
+                    tables=['enrichment']+(['paired-evidence'] if not lane else []))
+    ties = pl.read_csv(str(compressed)+'.selection.tsv', separator='\t')
+    assert ties['tied_peptides'].max() > 1
+    with pytest.raises(SystemExit):
+        main(['evidence', str(sample), '--vdjdb', str(reference), '--locus', 'paired',
+              '--gzip-evidence', '--output-prefix', str(tmp_path/'invalid')])

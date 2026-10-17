@@ -53,6 +53,7 @@ def register(subparsers, name='neighbours'):
     exports.add_argument('--selection-only',action='store_true',help='kernel selection with bounded table retention; omit detailed candidate and all-label evidence tables')
     if name!='annotate':
         exports.add_argument('--evidence-only',action='store_true',help='export all kernel evidence and query dispositions without candidate distance matrices')
+        p.add_argument('--gzip-evidence',action='store_true',help='with --evidence-only: gzip enrichment and paired-evidence TSVs at level1')
     p.add_argument('--all-targets',action='store_true',help='emit separate evidence for every full pMHC; query target labels are ignored')
     p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep the full background model fixed')
     p.add_argument('--threads',type=int,default=1)
@@ -199,6 +200,11 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     selection_only=getattr(a,'selection_only',False)
     rules_only=getattr(a,'rules_only',False)
     evidence_only=getattr(a,'evidence_only',False)
+    gzip_evidence=getattr(a,'gzip_evidence',False)
+    if gzip_evidence and not evidence_only:
+        raise ValueError('--gzip-evidence requires --evidence-only')
+    evidence_suffix='.tsv.gz' if gzip_evidence else '.tsv'
+    evidence_write_options={'compression':'gzip','compression_level':1} if gzip_evidence else {}
     if evidence_only and (selection_only or not kernel or a.background!='vdjdb-other' or
             a.position_weighting!='uniform' or a.shortlist_audit or a.unbounded_nearest or
             a.reference_radius or a.nearest_rank or a.conditional_j or a.epitope_rules or
@@ -948,7 +954,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             enrichment=enrichment.with_columns(*[pl.Series(c,[],dtype=t) for c,t in empty.schema.items() if c!='query_id'])
         if rules_only:
             enrichment=enrichment.select('query_id',*PMHC,*[c for c in enrichment.columns if c.startswith('rule_')])
-        enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment.tsv',separator='\t')
+        enrichment.sort('query_id',*PMHC).write_csv(str(prefix)+'.enrichment'+evidence_suffix,separator='\t',**evidence_write_options)
         if kernel:
             from ..evalue.kernel import select_kernel
             selected=select_kernel(status,enrichment.filter(~pl.col('epitope').is_in(a.withhold_epitope or [])))
@@ -971,10 +977,12 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 if (selection_only and set(lane)!=required) or not required.issubset(lane):
                     raise ValueError('union marginals require query/selection and detailed evidence tables')
                 for kind,frame in lane.items():
-                    frame.write_csv(marginal.output_prefix+'.'+kind+'.tsv',separator='\t')
+                    compressed=gzip_evidence and kind in ('enrichment','paired-evidence')
+                    frame.write_csv(marginal.output_prefix+'.'+kind+(evidence_suffix if compressed else '.tsv'),
+                        separator='\t',**(evidence_write_options if compressed else {}))
             mapping=pair_rows.select('query_id',pl.col('query_id'+suffix).alias('_chain_id'))
             if not selection_only:
-                lane=pl.read_csv(marginal.output_prefix+'.enrichment.tsv',separator='\t',
+                lane=pl.read_csv(marginal.output_prefix+'.enrichment'+evidence_suffix,separator='\t',
                                  schema_overrides={'query_id':raw.schema['query_id']})
                 lane=mapping.join(lane.rename({'query_id':'_chain_id'}),on='_chain_id',how='inner').select(
                     'query_id',*PMHC,pl.col('kernel_score').alias('kernel_'+name+'_score'))
@@ -990,7 +998,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 pl.col('exact_peptides').alias(name+'_exact_peptides'))
             selected=selected.join(calls,on='query_id',how='left',validate='1:1',maintain_order='left')
         if not selection_only:
-            combined.sort('query_id',*PMHC).write_csv(str(prefix)+'.paired-evidence.tsv',separator='\t')
+            combined.sort('query_id',*PMHC).write_csv(str(prefix)+'.paired-evidence'+evidence_suffix,separator='\t',**evidence_write_options)
         selected.with_columns(
             pl.max_horizontal('kernel_score','kernel_alpha_score','kernel_beta_score').alias('kernel_any_axis_score'),
             pl.any_horizontal(*[
@@ -1002,6 +1010,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     manifest={'sample_sha256':sha256(Path(a.sample)),
         'selection_only':selection_only,
         **({'evidence_only':True} if evidence_only else {}),
+        **({'evidence_compression':{'codec':'gzip','level':1,
+            'tables':['enrichment']+(['paired-evidence'] if paired else [])}} if gzip_evidence else {}),
         **({'rules_only':True,'status_derivation':'preserve ingestion/target precedence; matched iff fixed reference population exceeds excluded exact hits; availability unchanged'} if rules_only else {}),
         **({'paired_call_event':paired_call_event(),'paired_source_sha256':paired_pipeline_sources()} if paired and kernel else {}),
         **({'geometry_extra':geometry_extra,

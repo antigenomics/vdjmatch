@@ -218,7 +218,9 @@ dispositions (plus linked and full-reference marginal evidence for pairs), while
 omitting candidate distance matrices. It requires uniform ``vdjdb-other`` kernel
 scoring with non-null peptide targets and excludes other diagnostic reducers.
 Scores and fixed models are
-identical to detailed output; this option adds no calibration.
+identical to detailed output; this option adds no calibration. Add
+``--gzip-evidence`` to write enrichment and paired-evidence as ``.tsv.gz`` with
+native gzip level1; query dispositions and selection remain plain TSVs.
 Selection pools restrictions of one peptide, retains score ties and conflicting
 exact-label ambiguity, and reports winner/(winner+strongest other peptide) as
 ``kernel_support_share``. Kernel scores and shares are relative evidence. Use
