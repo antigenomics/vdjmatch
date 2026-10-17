@@ -30,6 +30,8 @@ def register(subparsers, name='reference-structure'):
     p.add_argument('--control', help='raw rearrangement control for descriptive V/J event-frequency ratios')
     p.add_argument('--control-model', help='prepared immutable control directory from prepare-control')
     p.add_argument('--publicity', action='store_true', help='one batched Hamming<=1 control search for record publicity; requires --control')
+    p.add_argument('--neighbor-draws', type=int, default=0,
+                   help='uniform same-N clonotype draws from VDJdb and optional control; zero disables')
     p.add_argument('--motif-mode', choices=['exact3', 'imgt3', 'wild4', 'imgt_wild4', 'full20', 'all'],
                    default='imgt_wild4', help='control-relative motif projection (default: imgt_wild4)')
     p.add_argument('--epitope-idf', action='store_true', help='add eligible-epitope document IDF separately from control rarity; requires --control')
@@ -76,6 +78,8 @@ def main(a, *, return_inputs=False):
         print(f'reference-structure {label}: {stages[label]:.3f}s', flush=True)
     if a.threads < 1:
         raise ValueError('positive threads required')
+    if getattr(a, 'neighbor_draws', 0) < 0:
+        raise ValueError('neighbor-draws must be nonnegative')
     if getattr(a, 'control_model', None) and not a.control:
         raise ValueError('--control-model requires its original --control input for validation')
     if getattr(a, 'publicity', False) and not a.control:
@@ -375,6 +379,40 @@ def main(a, *, return_inputs=False):
     pl.DataFrame(clonotype_rows, schema_overrides={'degree': pl.Int64, 'inclusive_degree': pl.Int64,
         'clonotype_count': pl.Int64}, infer_schema_length=None).write_csv(clonotype_degree_path, separator='\t')
     tables = [summary_path, degree_path, length_path, gene_path, acquisition_path, clonotype_degree_path]
+    neighbor_info = None
+    if getattr(a, 'neighbor_draws', 0):
+        from ..aggregate.neighbor_background import uniform_neighbor_draws, compare_neighbor_draws, DRAW_SCHEMA
+        background = db.load(a.vdjdb, species=species, gene=a.locus)
+        valid = pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
+        if a.reference_population == 'curated-benchmark':
+            valid &= pl.col('reference_valid').fill_null(False)
+        populations = [('vdjdb', background.filter(valid))]
+        if a.control:
+            populations.append(('control', events.rename({'junction_aa': 'cdr3'})))
+        draws, comparisons, counts, batches = [], [], {}, 0
+        for name, population in populations:
+            clones = population.select('cdr3', _gene_expression(a.locus, 'V').alias('v_gene'),
+                _gene_expression(a.locus, 'J').alias('j_gene')).unique().sort('cdr3', 'v_gene', 'j_gene', nulls_last=True)
+            counts[name] = clones.height
+            sizes = summary.filter(pl.col('degree_clonotypes').is_between(1, clones.height))['degree_clonotypes'].unique().to_list()
+            draw = (uniform_neighbor_draws(clones['cdr3'], sizes, replicates=a.neighbor_draws,
+                seed=a.seed, threads=a.threads) if sizes else pl.DataFrame(schema=DRAW_SCHEMA))
+            batches += bool(sizes)
+            comparisons.append(compare_neighbor_draws(summary, draw, population_clonotypes=clones.height)
+                .with_columns(pl.lit(name).alias('background')))
+            draws.append(draw.with_columns(pl.lit(name).alias('background')))
+        for suffix, frame in [('neighbor-draws', pl.concat(draws)),
+                ('neighbor-background', pl.concat(comparisons))]:
+            path = Path(str(prefix)+'.'+suffix+'.tsv')
+            frame.write_csv(path, separator='\t')
+            tables.append(path)
+        neighbor_info = dict(replicates=a.neighbor_draws, seed=a.seed, populations=counts,
+            sampling='uniform distinct junction/V-gene/J-gene clonotypes without replacement; abundance ignored; shared nested prefixes across N',
+            geometry='full-junction inclusive Hamming<=1, self excluded, exact links between distinct clonotypes retained',
+            native_batches=batches,
+            interpretation='observed density or connected fraction divided by its draw mean; no knee selection, Pgen matching or significance test',
+            source_sha256=sha256(Path(uniform_neighbor_draws.__code__.co_filename)))
+        mark('uniform_neighbor_backgrounds')
     if spectratype_control is not None:
         spectratype_path = Path(str(prefix)+'.spectratype.tsv')
         spectratype_lengths_path = Path(str(prefix)+'.spectratype-lengths.tsv')
@@ -431,6 +469,7 @@ def main(a, *, return_inputs=False):
         loader_sha256=sha256(Path(db.load.__code__.co_filename)),
         search_source_sha256=sha256(Path(overlap.__code__.co_filename)),
         native_batches=1 if nodes.height else 0, searched_unique_junctions=nodes.height,
+        uniform_neighbor_background=neighbor_info,
         global_hamming_edges=edges.height if edges is not None else 0, targets=len(summaries),
         mixture_weights='gap=1-sum_L p_L^2; stem4=sum_LV p_LV^2-sum_LVC p_LVC^2; original=remainder',
         mixture_population='all valid full AA junction/V-gene keys; unknown or ambiguous V is explicit category; source records counted separately',

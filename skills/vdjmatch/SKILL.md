@@ -34,6 +34,10 @@ New degree/Hill/Chao/acquisition indices use allele-pooled junction/V-gene/J-gen
 clonotypes and keep unresolved categories; `.clonotype-degrees.tsv` reports
 their self-inclusive degree histogram. Legacy `hamming_*`/`.degrees.tsv`
 statistics remain junction-only.
+`--neighbor-draws 200` exports uniform same-N clonotype background draws from
+VDJdb and optional control. One native graph batch per sampled population;
+shared nested prefixes across N. These are background distributions, not
+bootstrap CIs or knee-selected statistics.
 For a fresh classification rebuild use `reference-profiles --vdjdb RAW
 --output-prefix NEW --threads 4`. It rebuilds raw graphs/shuffles on every call;
 `index` remains the reusable annotation-model preparation route. The fresh

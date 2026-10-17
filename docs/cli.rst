@@ -1673,6 +1673,22 @@ pair count by valid reference records times distinct control junctions.
 Both integer numerators and denominators are exported. These pooled-control
 statistics do not estimate donor prevalence or determine germline origin.
 
+Use ``--neighbor-draws 200`` for same-N background comparisons. N counts
+distinct allele-pooled full-junction/V-gene/J-gene clonotypes. Uniform draws
+without replacement use all valid same-species/locus VDJdb clonotypes and,
+with ``--control``, observed control clonotypes, ignoring event/read abundance.
+Each independent replicate supplies nested prefixes for every requested N;
+draws across N are correlated. One native Hamming batch searches the union of
+sampled junctions per background. Different clonotypes sharing an exact
+junction remain neighbours; self is excluded.
+``structure.neighbor-draws.tsv`` retains every replicate. The separate
+``structure.neighbor-background.tsv`` gives observed values, draw means,
+medians and 10th/90th percentiles for pair density, connected fraction and
+mean degree, plus observed/mean ratios. Zero/zero is unavailable and a
+positive value over zero is infinite. Empty or undersized backgrounds remain
+explicit. These are random-background distributions, not bootstrap confidence
+intervals or a knee-selection procedure. No Pgen matching is applied here.
+
 The control also enables ``structure.motifs.tsv``. Select its projection with
 ``--motif-mode exact3`` (full-amino-acid 3-mers), ``wild4`` (full-amino-acid
 4-mers with one wildcard at each of the four positions), ``imgt3`` (3-mers
