@@ -368,18 +368,33 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
             radii.update((prepared_seqs[q],r) for q,r in zip(query_indices,prepared_radii))
             sparse_counts = dict(zip(query_indices,unit_counts))
             unit = ((0,sparse_counts.get(i,0)) for i in range(len(seqs)))
+        columnar = (pool_reference and prepared is not None and
+                    not puncture_populations and not export_punctured)
         # Original significance used the nearest nonexact target radius, capped at one.
         # Only target-supported radii enter the original formula. Narrower control
         # balls have the identical CDF at those radii; unsupported queries need none.
         counts = control_histograms(control,seqs,threads=threads,radii=radii) if control_counts is None else control_counts
-        reference_keys = set(rs)
-        reference_sizes = {s:len(rs)-int(puncture_populations and s in reference_keys) for s in seqs}
-        significance = {s:(evalue_result(hs[1],counts[s][1],reference_sizes[s],control_sizes[s])['p_enrichment']
-                        if hs[1] else 1.0) if reference_sizes[s] and control_sizes[s] else None
-                        for s,hs in zip(seqs,unit)}
-        for query in queries.iter_rows(named=True):
+        if columnar:
+            import numpy as np
+            scores=np.zeros(queries.height,dtype=np.float64)
+            probabilities=np.ones(queries.height,dtype=np.float64)
+            significance={prepared_seqs[q]: (evalue_result(n,counts[prepared_seqs[q]][1],len(rs),len(control))
+                ['p_enrichment'] if n else 1.0) for q,n in zip(query_indices,unit_counts)}
+            # Source appearances, including repeated IDs, are indexed by position.
+            # Only sparse supported junctions enter the unchanged scalar edge loop.
+            selected=queries.select('query_id','cdr3','v').with_row_index('_density_row')
+            selected=(selected.join(pl.DataFrame({'cdr3':[prepared_seqs[q] for q in query_indices]}),
+                on='cdr3',how='semi',maintain_order='left') if query_indices else selected.head(0))
+        else:
+            reference_keys = set(rs)
+            reference_sizes = {s:len(rs)-int(puncture_populations and s in reference_keys) for s in seqs}
+            significance = {s:(evalue_result(hs[1],counts[s][1],reference_sizes[s],control_sizes[s])['p_enrichment']
+                            if hs[1] else 1.0) if reference_sizes[s] and control_sizes[s] else None
+                            for s,hs in zip(seqs,unit)}
+            selected=queries
+        for query in (() if columnar and not selected.height else selected.iter_rows(named=True)):
             s, v = query['cdr3'], gene_family(query['v'])
-            nr, nc_population = reference_sizes[s], control_sizes[s]
+            nr, nc_population = (len(rs),len(control)) if columnar else (reference_sizes[s],control_sizes[s])
             total = 0.0 if nr and nc_population else None
             if export_punctured:
                 punctured_nr = len(rs)-int(s in reference_keys)
@@ -401,12 +416,23 @@ def density(queries, reference, control, *, threads=1, pool_reference=False, con
                 total += weighted/max(nr/nc_population*nc,.01)
                 if export_punctured and punctured_total is not None:
                     punctured_total += weighted/max(punctured_nr/punctured_nc*nc,.01)
+            if columnar:
+                scores[query['_density_row']]=total
+                probabilities[query['_density_row']]=significance[s]
+                continue
             rows.append({'query_id':query['query_id'], **dict(zip(PMHC,key)),
                          'score':total, 'p_enrichment':significance[s],
                          'n_reference':nr,'control_size':nc_population,
                          'estimator':'punctured-pssm-density-v1' if puncture_populations else 'historical-pssm-density-v1',
                          **({'punctured_score':punctured_total,'punctured_n_reference':punctured_nr,
                              'punctured_control_size':punctured_nc} if export_punctured else {})})
+        if columnar:
+            return queries.select('query_id').with_columns(*[
+                pl.lit(value,dtype=pl.String).alias(name) for name,value in zip(PMHC,key)],
+                pl.Series('score',scores),pl.Series('p_enrichment',probabilities),
+                pl.lit(len(rs),dtype=pl.UInt64).alias('n_reference'),
+                pl.lit(len(control),dtype=pl.UInt64).alias('control_size'),
+                pl.lit('historical-pssm-density-v1').alias('estimator'))
     schema={'query_id':queries.schema['query_id'], **{c:pl.String for c in PMHC},
             'score':pl.Float64,'p_enrichment':pl.Float64,'n_reference':pl.UInt64,
             'control_size':pl.UInt64,'estimator':pl.String}
