@@ -983,6 +983,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             mapping=pair_rows.select('query_id',pl.col('query_id'+suffix).alias('_chain_id'))
             if not selection_only:
                 lane=pl.read_csv(marginal.output_prefix+'.enrichment'+evidence_suffix,separator='\t',
+                                 columns=['query_id',*PMHC,'kernel_score'],
                                  schema_overrides={'query_id':raw.schema['query_id']})
                 lane=mapping.join(lane.rename({'query_id':'_chain_id'}),on='_chain_id',how='inner').select(
                     'query_id',*PMHC,pl.col('kernel_score').alias('kernel_'+name+'_score'))
