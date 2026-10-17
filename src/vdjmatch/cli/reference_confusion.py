@@ -45,7 +45,7 @@ def main(a):
         population='complete explicit scorer query dispositions; eligible targets have >=30 valid source records',
         decision='all supported finite maximum-score labels win; exact ties retained; explicit no-hit rows retained',
         interpretation='one-vs-other annotation retrieval; other-class labels do not demonstrate experimental nonbinding',
-        class_groups='separate alpha/TRA, beta/TRB and joint/paired classes; species separate; equal-epitope macro mean/median/range with defined-epitope denominators; core3 and full20 definitions separate',
+        class_groups='alpha/TRA and beta/TRB marginal classes; joint epitope classes also group single-chain metrics when both chains are observed, retaining scored locus; species separate; equal-epitope macro mean/median/range with defined-epitope denominators; core3 and full20 definitions separate',
         class_bootstrap=dict(nboot=a.nboot, seed=a.seed, unit='epitope',
             law='Efron nonparametric empirical bootstrap; N epitope units with replacement via multinomial multiplicities; paired across scorers and metrics',
             estimand='conditional class-group macro mean; fixed class memberships, reference models and scores',

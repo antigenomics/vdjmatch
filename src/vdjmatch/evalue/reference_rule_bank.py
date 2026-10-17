@@ -80,10 +80,11 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
         return n, m, supported, score
     masses = np.zeros((Q, T, 2))
     rank = np.ones((Q, T))
-    native = pl.concat([membership, whole.select('_ref').with_columns(pl.lit(T, dtype=pl.UInt32).alias('_target')),
-        exclusive.with_columns((pl.col('_target')+T+1).alias('_target'))]).sort('_ref', '_target')
-    models = 2*T+1
-    offsets = np.r_[0, np.cumsum(np.bincount(native['_ref'].to_numpy(), minlength=R))]
+    # One target per peptide: native whole/exclusive channels already supply
+    # each fixed complement, without artificial duplicate target models.
+    offsets = W.indptr
+    exclusive_peptides = np.full(R, -1, dtype=np.int64)
+    exclusive_peptides[exclusive['_ref'].to_numpy()] = exclusive['_target'].to_numpy()
     context = precompute_v_loop_distances(species=species)
     scale, quantum = distance_units()
     bound = 3*scale*sum(max((f[c].str.len_chars().max() or 0) for f in (queries, whole)) for c in seq)
@@ -91,7 +92,7 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
     weights = np.maximum(0, distance_cutoff(radius)-np.asarray(cuts, dtype=np.int64))
     # Keep native counts under128MiB; reduce labels in windows instead of
     # materializing every query/label/distance float scratch array together.
-    per_query = 4*((1+2*models+1)*(len(cuts)+1)+models)
+    per_query = 4*((1+3*T)*(len(cuts)+1)+T)
     per_query_total = per_query+min(T, 256)*(len(cuts)*80+256)
     chunk_size = min(65536, (128*1024**2)//per_query, (256*1024**2)//per_query_total)
     if chunk_size < 1:
@@ -108,8 +109,8 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
             paired=paired, species=species, threads=threads, ctrim=3, v_loop_weight=0,
             matrix='clipped', same_v_gene=conditional, exclude_exact=True, v_loop_distances=context,
             chunk_size=chunk_size, reference_target_offsets=offsets,
-            reference_target_ids=native['_target'].to_numpy(), target_peptide_ids=[0]*models,
-            reference_exclusive_peptide_ids=[-1]*R)
+            reference_target_ids=W.indices, target_peptide_ids=list(range(T)),
+            reference_exclusive_peptide_ids=exclusive_peptides)
         for chunk in iterator:
             rows = part['_query_row'].slice(chunk.start, chunk.stop-chunk.start).to_numpy()
             n, m, supported, _ = populations(rows)
@@ -120,7 +121,7 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
             for start in range(0, T, 256):
                 targets = np.arange(start, min(T, start+256))
                 tc = counts[:, 1+targets, :].astype(np.int64)
-                bc = counts[:, 1+T, None, :].astype(np.int64)-counts[:, 1+T+1+targets, :]
+                bc = counts[:, 0, None, :].astype(np.int64)-counts[:, 1+2*T+targets, :]
                 if (not np.array_equal(tc[:, :, -1], (n-er)[:, targets]) or
                         not np.array_equal(bc[:, :, -1], (m-eb)[:, targets])):
                     raise ArithmeticError('all-label rank bound did not cover eligible hits')

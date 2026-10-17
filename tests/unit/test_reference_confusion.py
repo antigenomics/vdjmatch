@@ -96,3 +96,73 @@ def test_class_groups_keep_equal_epitope_weight_and_undefined_counts():
     assert singleton['bootstrap_lo_accuracy'] is None
     assert singleton['mcc_defined_epitopes'] == singleton['balanced_accuracy_defined_epitopes'] == 0
     assert singleton['bootstrap_valid_mcc'] == singleton['bootstrap_valid_balanced_accuracy'] == 0
+
+
+def test_joint_classes_describe_single_chain_scores_without_fusing_populations():
+    from vdjmatch.aggregate.reference_confusion import class_group_confusion
+    from polars.testing import assert_frame_equal
+
+    base = pl.DataFrame({'species': ['HomoSapiens']*3, 'locus': ['TRA']*3,
+        'epitope': ['A', 'B', 'C'], 'scorer': ['first']*3,
+        'alpha_profile_class': ['v_only']*3, 'beta_profile_class': ['motif_only']*3,
+        'alpha_full20_profile_class': ['v_and_motif']*3,
+        'beta_full20_profile_class': ['v_and_motif']*3,
+        'joint_class': ['alpha: v_only; beta: motif_only']*3,
+        'full20_joint_class': ['alpha: v_and_motif; beta: v_and_motif']*3,
+        'both_chains_observed': [True, False, None],
+        'alpha_valid_source_records': [30]*3, 'beta_valid_source_records': [1, None, None],
+        'both_chains_eligible': [False]*3,
+        'queries': [10, 10, 10], 'positives': [5]*3, 'negatives': [5]*3,
+        'tp': [4, 2, 1], 'tn': [4, 2, 1], 'fp': [1, 3, 4], 'fn': [1, 3, 4],
+        'accuracy': [.8, .4, .2], 'balanced_accuracy': [.8, .4, .2], 'mcc': [.6, -.2, -.6]})
+    # Locus, scorer and species remain independent metric populations.
+    populations = []
+    for species in ('HomoSapiens', 'MusMusculus'):
+        for locus in ('TRA', 'TRB', 'paired'):
+            for scorer in ('first', 'second'):
+                populations.append(base.with_columns(pl.lit(species).alias('species'),
+                    pl.lit(locus).alias('locus'), pl.lit(scorer).alias('scorer')))
+    metrics = pl.concat(populations)
+    grouped = class_group_confusion(metrics)
+    joint = grouped.filter(pl.col('class_axis') == 'joint')
+    assert joint.height == 3*2*2*2
+    singles = joint.filter(pl.col('locus').is_in(['TRA', 'TRB']))
+    assert singles['epitopes'].to_list() == [1]*16
+    assert singles['query_target_appearances'].to_list() == [10]*16
+    assert singles['mean_accuracy'].to_list() == pytest.approx([.8]*16)
+    assert set(singles['class_definition']) == {'core3', 'full20'}
+    assert set(singles['epitope_class']) == {base['joint_class'][0], base['full20_joint_class'][0]}
+    assert singles.select('species', 'locus', 'scorer', 'class_definition').unique().height == 16
+    assert joint.filter(pl.col('locus') == 'paired')['epitopes'].to_list() == [3]*8
+    # Mixed joint groups combine real paired intervals with singleton null intervals.
+    singleton_bootstrap = class_group_confusion(metrics, nboot=1000, seed=3)
+    singleton_joint = singleton_bootstrap.filter((pl.col('class_axis') == 'joint') &
+        pl.col('locus').is_in(['TRA', 'TRB']))
+    paired_joint = singleton_bootstrap.filter((pl.col('class_axis') == 'joint') &
+        (pl.col('locus') == 'paired'))
+    assert singleton_joint['bootstrap_lo_accuracy'].null_count() == singleton_joint.height
+    assert set(singleton_joint['bootstrap_status_accuracy']) == {'insufficient_epitopes'}
+    assert paired_joint['bootstrap_lo_accuracy'].null_count() == 0
+    assert singleton_bootstrap.schema['bootstrap_lo_accuracy'] == pl.Float64
+    legacy_singleton = class_group_confusion(metrics.drop('both_chains_observed'), nboot=1000, seed=3)
+    assert_frame_equal(singleton_bootstrap.filter(~((pl.col('class_axis') == 'joint') &
+        pl.col('locus').is_in(['TRA', 'TRB']))), legacy_singleton, check_exact=True)
+    reverse_metrics = metrics.filter((pl.col('locus') != 'paired') | (pl.col('epitope') == 'A')).with_columns(
+        pl.lit(True).alias('both_chains_observed'))
+    reverse = class_group_confusion(reverse_metrics, nboot=1000, seed=3)
+    reverse_legacy = class_group_confusion(reverse_metrics.drop('both_chains_observed'), nboot=1000, seed=3)
+    assert_frame_equal(reverse.filter(~((pl.col('class_axis') == 'joint') &
+        pl.col('locus').is_in(['TRA', 'TRB']))), reverse_legacy, check_exact=True)
+    # Missing joint observation metadata preserves the earlier paired behavior.
+    bootstrap_metrics = pl.concat([metrics, metrics.filter(pl.col('epitope') == 'B').with_columns(
+        pl.lit('D').alias('epitope'), pl.lit(True).alias('both_chains_observed'))])
+    legacy_bootstrap = class_group_confusion(bootstrap_metrics.drop('both_chains_observed'), nboot=1000, seed=3)
+    extended_bootstrap = class_group_confusion(bootstrap_metrics, nboot=1000, seed=3)
+    new_rows = (pl.col('class_axis') == 'joint') & pl.col('locus').is_in(['TRA', 'TRB'])
+    assert_frame_equal(extended_bootstrap.filter(~new_rows), legacy_bootstrap, check_exact=True)
+    previous = class_group_confusion(metrics.drop('both_chains_observed'))
+    assert_frame_equal(grouped.filter(pl.col('class_axis') != 'joint'),
+        previous.filter(pl.col('class_axis') != 'joint'))
+    assert_frame_equal(joint.filter(pl.col('locus') == 'paired'),
+        previous.filter(pl.col('class_axis') == 'joint'))
+    assert previous.filter((pl.col('class_axis') == 'joint') & pl.col('locus').is_in(['TRA', 'TRB'])).is_empty()

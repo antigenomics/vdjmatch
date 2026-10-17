@@ -23,6 +23,8 @@ from .vgene import precompute_v_similarities
 
 
 _PREPARED_LIMIT_BYTES = 2 * 1024**3
+# Union-only transient construction budget; retained prepared state stays at 2 GiB.
+_UNION_PEAK_LIMIT_BYTES = 8 * 1024**3
 _PreparedDensity = namedtuple('_PreparedDensity',
     'queries references query_indices offsets refs substitutions penalties unit_counts radii')
 
@@ -33,9 +35,17 @@ class PreparedBudget:
         self.retained = 0
         self.query_axes = {}
 
-    def check(self, allocation, temporary=0):
-        if self.retained + allocation + temporary > _PREPARED_LIMIT_BYTES:
-            raise ValueError('historical prepared neighbours exceed the 2 GiB allocation budget; '
+    def check(self, allocation, temporary=0, *, peak_limit_bytes=None):
+        """Always cap owned state at 2 GiB; default transient-inclusive cap is 2 GiB."""
+        owned=self.retained+allocation
+        peak=_PREPARED_LIMIT_BYTES if peak_limit_bytes is None else peak_limit_bytes
+        if owned > _PREPARED_LIMIT_BYTES:
+            raise ValueError('historical prepared neighbours exceed the 2 GiB owned-state allocation budget '
+                             f'({peak/1024**3:g} GiB peak ceiling); '
+                             'restrict the requested targets or query population')
+        if owned+temporary > peak:
+            raise ValueError(f'historical prepared neighbours exceed the {peak/1024**3:g} GiB peak '
+                             'allocation budget (2 GiB owned-state ceiling); '
                              'restrict the requested targets or query population')
 
     def query_axis(self, seqs):
@@ -99,7 +109,7 @@ def control_histograms(control, sequences, *, threads=1, radii=None):
     return out
 
 
-def _density_neighbours(seqs, rs, threads):
+def _density_neighbours(seqs, rs, threads, *, unit_reference_ids=None):
     idx = Index.build(rs, 'aa')
     by_length = defaultdict(list)
     for s in seqs:
@@ -109,20 +119,138 @@ def _density_neighbours(seqs, rs, threads):
         p = SearchParams(max_subs=5, max_ins=0, max_dels=0, max_total_edits=5, engine='seqtm')
         p.pos_matrix = significance_pssm(length)
         hits.update(zip(batch, idx.search_batch(batch, p, threads)))
-    unit = idx.edit_histogram_batch(seqs, first_hit.scope(1,1,1), threads, True)
+    if unit_reference_ids is None:
+        unit = idx.edit_histogram_batch(seqs, first_hit.scope(1,1,1), threads, True)
+    else:
+        # Histogram bins cannot be partitioned among targets. Keep radius-one
+        # reference identities from the same Index, including indel-only hits.
+        for row in idx.search_batch(seqs, first_hit.scope(1,1,1), threads):
+            unit_reference_ids.append([h.ref_id for h in row if h.n_subs+h.n_ins+h.n_dels == 1])
+        unit = [(0,len(row)) for row in unit_reference_ids]
     radii = {s:max([1 if hs[1] else 0]+[h.n_subs for h in hits[s] if rs[h.ref_id]!=s])
              for s,hs in zip(seqs,unit)}
     return hits, unit, radii
 
 
+def _union_control_histograms(control, batches, *, threads, prepared_batches, budget):
+    """One fixed union search; 2 GiB owned state and 8 GiB transient-inclusive estimate.
+
+    These allocation estimates are not whole-process RSS. The caller must still
+    measure total process-tree memory before accepting a representative workload.
+    """
+    seqs=None
+    first_queries=None
+    static_batches=type(batches) in (list,tuple)
+    references=[]
+    for queries, reference in batches:
+        if not queries.height or not reference.height:
+            continue
+        if seqs is None:
+            first_queries=queries
+            seqs=queries['cdr3'].unique(maintain_order=True).to_list()
+        elif not static_batches or queries is not first_queries:
+            current=queries['cdr3'].unique(maintain_order=True).to_list()
+            if current != seqs:
+                raise ValueError('identical_queries requires identical ordered unique junction axes')
+        references.append(reference.unique('cdr3',keep='first',maintain_order=True)['cdr3'].to_list())
+    if seqs is None:
+        return {}
+    axis=budget.query_axis(seqs)
+    base=sum(_prepared_size(axis,rs,0,active_queries=0,include_query_axis=False) for rs in references)
+    budget.check(base,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+    members=pl.concat([pl.DataFrame({'cdr3':rs}).with_row_index('_local_ref').with_columns(
+        pl.lit(target,dtype=pl.UInt32).alias('_target')) for target,rs in enumerate(references)])
+    union=members.select('cdr3').unique(maintain_order=True).with_row_index('_union_ref')
+    members=members.join(union,on='cdr3',validate='m:1').drop('cdr3')
+    rs=union['cdr3'].to_list()
+    unit_ids=[]
+    hits,unit,radii=_density_neighbours(seqs,rs,threads,unit_reference_ids=unit_ids)
+    temporary=(sys.getsizeof(hits)+sys.getsizeof(radii)+_query_axis_size(seqs)+_query_axis_size(rs)
+        +sum(sys.getsizeof(row)+sum(max(128,sys.getsizeof(h)) for h in row) for row in hits.values())
+        +sys.getsizeof(unit_ids)+sum(sys.getsizeof(row)+len(row)*32 for row in unit_ids)
+        +sys.getsizeof(unit)+len(unit)*128+members.estimated_size()*4+union.estimated_size()*2)
+    budget.check(base,temporary,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+    if prepared_batches is None:
+        return control_histograms(control,radii,threads=threads,radii=radii)
+    # Generator conversion can retain Python tuples/lists and both new frames
+    # while the native Hit lists and unit-reference lists are still live.
+    conversion=256*(sum(len(row) for row in hits.values())+sum(map(len,unit_ids)))
+    budget.check(base,temporary+conversion,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+    schema={'_query':pl.UInt32,'_union_ref':pl.UInt32,'_order':pl.UInt32,
+            '_subs':pl.UInt8,'_penalty':pl.Int64,'_unit':pl.Boolean,'_exact':pl.Boolean}
+    edges=pl.DataFrame(((i,h.ref_id,k,h.n_subs,h.score,False,rs[h.ref_id]==s)
+        for i,s in enumerate(seqs) for k,h in enumerate(hits[s])),schema=schema,orient='row')
+    unit_edges=pl.DataFrame(((i,r,0,1,0,True,False) for i,row in enumerate(unit_ids) for r in row),
+        schema=schema,orient='row')
+    del hits,unit_ids,unit
+    edges=pl.concat([edges,unit_edges])
+    del unit_edges
+    # Count expansion before allocating the target-membership join or its sort.
+    fanout=members.group_by('_union_ref').len()
+    expanded=edges.join(fanout,on='_union_ref',validate='m:1').select(
+        pl.col('len').cast(pl.UInt64).sum()).item() or 0
+    active_bound=min(expanded,len(seqs)*len(references))
+    # Includes sparse pack metadata, joined rows, sort/copy scratch and raw axes.
+    temporary=(_query_axis_size(seqs)+_query_axis_size(rs)+sys.getsizeof(radii)+len(radii)*64
+        +members.estimated_size()*4+edges.estimated_size()*4+expanded*256)
+    budget.check(base+expanded*13+active_bound*149,temporary,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+    # All-hit seqtm traverses codec-ordered trie leaves, not score/ref-ID order.
+    # Filtering that union order reproduces each subset trie exactly; sorting by
+    # local IDs or penalties would change the historical floating reduction.
+    joined=edges.join(members,on='_union_ref',validate='m:m').sort('_target','_query','_unit','_order')
+    del edges,members,union,fanout
+    temporary=joined.estimated_size()*4+_query_axis_size(rs)+sys.getsizeof(radii)+len(radii)*64
+    if prepared_batches is not None:
+        groups=iter(joined.group_by('_target',maintain_order=True))
+        current=next(groups,None)
+        part=stats=pssm=None
+        def packed(code,values):
+            out=array(code)
+            out.frombytes(values.to_numpy().tobytes())
+            return out
+        for target,rs in enumerate(references):
+            if current is None or current[0][0] != target:
+                size=_prepared_size(axis,rs,0,active_queries=0,include_query_axis=False)
+                budget.check(size,temporary,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+                result=_PreparedDensity(axis,rs,array('I'),array('Q',[0]),array('I'),array('B'),
+                    array('q'),array('Q'),array('B'))
+            else:
+                part=current[1]
+                stats=part.group_by('_query').agg(
+                    pl.col('_unit').sum().cast(pl.UInt64).alias('_counts'),
+                    (~pl.col('_unit')).sum().cast(pl.UInt64).alias('_edges'),
+                    pl.when(pl.col('_unit')).then(pl.lit(1,dtype=pl.UInt8))
+                        .when(~pl.col('_exact')).then(pl.col('_subs')).otherwise(pl.lit(0,dtype=pl.UInt8))
+                        .max().alias('_radius')).sort('_query')
+                pssm=part.filter(~pl.col('_unit'))
+                size=_prepared_size(axis,rs,pssm.height,active_queries=stats.height,include_query_axis=False)
+                budget.check(size,temporary+part.estimated_size()*4+stats.estimated_size()*4,
+                    peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+                offsets=array('Q',[0]);offsets.extend(packed('Q',stats['_edges'].cum_sum()))
+                result=_PreparedDensity(axis,rs,packed('I',stats['_query']),offsets,
+                    packed('I',pssm['_local_ref']),packed('B',pssm['_subs']),packed('q',pssm['_penalty']),
+                    packed('Q',stats['_counts']),packed('B',stats['_radius']))
+                current=next(groups,None)
+            prepared_batches.append(result)
+            budget.retained+=size
+        del groups,current,part,stats,pssm
+    del joined
+    return control_histograms(control,radii,threads=threads,radii=radii)
+
+
 def shared_control_histograms(control, batches, *, threads=1, prepared_batches=None,
-                              prepared_budget=None):
+                              prepared_budget=None, identical_queries=False):
     """One transient control CDF per junction at its largest needed target radius.
 
     Optional prepared batches retain flat CSR integer edges for consumption once
     in this invocation. A shared budget bounds all retained batches to 2 GiB,
     including shared raw axes, sparse query metadata and temporary Python hits.
+    The explicit identical-query union path keeps the same 2 GiB owned-state
+    ceiling and allows an 8 GiB transient-inclusive allocation estimate.
     Counts below the largest radius are exactly unchanged.
+    ``identical_queries`` explicitly validates one ordered unique junction axis
+    and searches its union reference once; source query multiplicities remain in
+    the downstream reducer. Ordinary per-target preparation remains the default.
     """
     if threads < 1 or not len(control):
         raise ValueError('positive threads and a nonempty control are required')
@@ -135,6 +263,9 @@ def shared_control_histograms(control, batches, *, threads=1, prepared_batches=N
                 budget.retained += _query_axis_size(p.queries)
             budget.retained += _prepared_size(p.queries,p.references,len(p.refs),
                 active_queries=len(p.query_indices),include_query_axis=False)
+    if identical_queries:
+        return _union_control_histograms(control,batches,threads=threads,
+            prepared_batches=prepared_batches,budget=budget)
     for queries, reference in batches:
         if not queries.height or not reference.height:
             continue

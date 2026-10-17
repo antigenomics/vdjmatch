@@ -9,14 +9,17 @@ TARGET = [*CONTEXT, 'epitope']
 def class_group_confusion(metrics, *, nboot=0, seed=0):
     """Equal-epitope macro summaries for alpha, beta and joint class heatmaps.
 
-    Align class axis to scored locus, keep species/scorers separate, and report
-    defined denominators for each metric. Original core3 and full20 definitions
-    are separate rows. Individual epitope metrics remain the primary input.
+    Align marginal class axes to scored locus. Joint classes also describe
+    single-chain metrics when both marginal chains are observed; the scored
+    locus, species and scorer stay separate. No paired score is inferred.
+    Report defined metric denominators and separate core3/full20 definitions.
+    Individual epitope metrics remain the primary input.
     """
     import numpy as np
     if type(nboot) is not int or nboot < 0 or nboot == 1 or type(seed) is not int or seed < 0:
         raise ValueError('nboot must be zero or at least two; seed must be nonnegative')
     rng = np.random.default_rng(seed)
+    joint_rng = np.random.default_rng(np.random.SeedSequence(seed).spawn(1)[0])
     schema = {c: pl.String for c in [*CONTEXT, 'scorer', 'class_axis', 'class_definition', 'epitope_class']}
     schema.update({c: pl.Int64 for c in ['epitopes', 'query_target_appearances', 'positives', 'negatives', 'tp', 'tn', 'fp', 'fn']})
     for metric in ('accuracy', 'balanced_accuracy', 'mcc'):
@@ -32,10 +35,14 @@ def class_group_confusion(metrics, *, nboot=0, seed=0):
     for definition, prefix in [('core3', ''), ('full20', 'full20_')]:
         for axis, loci, field in [('alpha', ['TRA'], 'alpha_'+prefix+'profile_class'),
                 ('beta', ['TRB'], 'beta_'+prefix+'profile_class'),
-                ('joint', ['PAIRED', 'TRA+TRB'], prefix+'joint_class')]:
+                ('joint', ['TRA', 'TRB', 'PAIRED', 'TRA+TRB'], prefix+'joint_class')]:
             if field not in metrics.columns:
                 continue
             part = metrics.filter(pl.col('locus').str.to_uppercase().is_in(loci))
+            if axis == 'joint':
+                observed = (pl.col('both_chains_observed').fill_null(False)
+                    if 'both_chains_observed' in part.columns else pl.lit(False))
+                part = part.filter(~pl.col('locus').str.to_uppercase().is_in(['TRA', 'TRB']) | observed)
             if not part.height:
                 continue
             part = part.with_columns(pl.lit(axis).alias('class_axis'),
@@ -50,7 +57,14 @@ def class_group_confusion(metrics, *, nboot=0, seed=0):
             groups = [*CONTEXT, 'class_axis', 'class_definition', 'epitope_class']
             summary = part.group_by(*groups, 'scorer').agg(aggregates)
             if nboot:
-                boot = _bootstrap_class_means(part, groups, nboot=nboot, rng=rng)
+                if axis == 'joint':
+                    single = pl.col('locus').str.to_uppercase().is_in(['TRA', 'TRB'])
+                    # New descriptive groups must not consume legacy bootstrap draws.
+                    boot = pl.concat([_bootstrap_class_means(subset, groups, nboot=nboot, rng=stream)
+                        for subset, stream in [(part.filter(~single), rng), (part.filter(single), joint_rng)]
+                        if subset.height], how='vertical_relaxed')
+                else:
+                    boot = _bootstrap_class_means(part, groups, nboot=nboot, rng=rng)
                 summary = summary.join(boot, on=[*groups, 'scorer'], validate='1:1')
             parts.append(summary.select(*[pl.col(c).cast(dtype) for c, dtype in schema.items()]))
     return (pl.concat(parts)

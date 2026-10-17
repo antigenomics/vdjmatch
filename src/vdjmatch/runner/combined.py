@@ -59,7 +59,8 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
             work.append((selected, ref))
     prepared = deque()
     counts = shared_control_histograms(index, work, threads=threads,
-        prepared_batches=prepared, prepared_budget=PreparedBudget()) if work else None
+        prepared_batches=prepared, prepared_budget=PreparedBudget(),
+        **({'identical_queries':True} if cases is None else {})) if work else None
     exact_cdf = {}
     similarity_rows = None
     if not exclude_exact and work:
