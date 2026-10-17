@@ -94,9 +94,74 @@ def _rule_rank_mass(q, r, b, out, *, paired, exclude_exact, species, threads, na
     return mass,rank
 
 
+def _prepare_rule_frame(frame, axes, query=False):
+    seq=[f'seq{i}' for i in axes];v=[f'v{i}' for i in axes]
+    f=frame.select(*(['query_id'] if query else []),*seq,*v)
+    if any(f[c].null_count() for c in seq+v):raise ValueError('complete junctions/resolved V alleles required')
+    if not query:f=f.unique([*seq,*v],maintain_order=True)
+    return f.with_row_index('_id').with_columns(*[pl.col(c).alias('_allele'+str(i)) for i,c in enumerate(v)]).with_columns(*[pl.col(c).str.replace(r'\*.*$','') for c in v])
+
+
+def _rule_kernel_score(kind):
+    n=pl.col('rule_reference_v_count');m=pl.col('rule_control_v_count')
+    rm=pl.col('rule_reference_'+kind+'_mass');bm=pl.col('rule_control_'+kind+'_mass')
+    # The pooled pseudo-observation is a model statistic, not a filtered
+    # hit statistic. An exact same-V receptor has kernel one when available.
+    available=pl.col('rule_'+kind+'_available') if kind in MOTIFS else pl.lit(True)
+    exact=pl.when(available).then(pl.col('rule_reference_removed_v')+pl.col('rule_control_removed_v')).otherwise(0)
+    c=(rm+bm+exact+.5)/(n+m+1)
+    return pl.col('rule_v_score')*((rm+c)/(n+1))/((bm+c)/(m+1))
+
+
+def _motif_counts(frame, axes, mode):
+    v=[f'v{i}' for i in axes];tokens=[f't{i}' for i in axes]
+    return _tokens(frame,axes,mode).group_by([*v,*tokens]).len().rename({'len':'_count'})
+
+
+def _apply_rule_motif(out, q, axes, mode, counts):
+    """Unchanged one-mode hit numerator, fixed prior and enrichment reduction."""
+    v=[f'v{i}' for i in axes]
+    qt=_tokens(q,axes,mode);token_cols=[f't{i}' for i in axes]
+    lengths=qt.group_by('_id').len().rename({'len':'_tokens'})
+    frequencies=[]
+    for side,freq in zip(('reference','control'),counts):
+        frequencies.append(freq.rename({'_count':'_'+side}))
+        mass=qt.join(freq,on=[*v,*token_cols],how='left',validate='m:1').group_by('_id').agg(pl.col('_count').fill_null(0).sum().cast(pl.Float64).alias('_mass')).join(lengths,on='_id',validate='1:1')
+        mass=mass.select('_id',(pl.col('_mass')/pl.col('_tokens')).alias('_mass'))
+        out=out.join(mass,on='_id',how='left',validate='1:1').with_columns(
+            (pl.col('_mass').fill_null(0)-pl.when(pl.col('_mass').is_not_null()).then(pl.col('rule_'+side+'_removed_v')).otherwise(0)).alias('rule_'+side+'_'+mode+'_mass')).drop('_mass')
+    usable=out.select('_id').join(lengths,on='_id',how='left',validate='1:1')['_tokens'].fill_null(0)>0
+    out=out.with_columns(pl.Series('rule_'+mode+'_available',usable))
+    for side in ('reference','control'):
+        # Fixed equal mixture of kernels: overlap is not independent evidence.
+        out=out.with_columns(pl.when(pl.col('rule_'+mode+'_available')).then((pl.col('rule_'+side+'_spatial_mass')+pl.col('rule_'+side+'_'+mode+'_mass'))/2)
+            .otherwise(pl.col('rule_'+side+'_spatial_mass')).alias('rule_'+side+'_mixed_'+mode+'_mass'))
+    out=out.with_columns(_rule_kernel_score(mode).alias('rule_'+mode+'_score'),_rule_kernel_score('mixed_'+mode).alias('rule_mixed_'+mode+'_score'))
+    # Reference enrichment is a fixed V-conditioned model statistic. Query
+    # tokens only look up its frequencies; hit exclusion never refits it.
+    if (int(out['rule_reference_v_count'].max() or 0) * int(out['rule_control_v_count'].max() or 0) *
+            int(lengths['_tokens'].max() or 0) > 2**53-1):
+        raise ValueError('conditional motif counts exceed the exactly representable integer budget')
+    enriched=qt.join(frequencies[0],on=[*v,*token_cols],how='left',validate='m:1').join(frequencies[1],on=[*v,*token_cols],how='left',validate='m:1')
+    enriched=enriched.join(out.select('_id','rule_reference_v_count','rule_control_v_count'),on='_id',validate='m:1')
+    # Sum the exact positive cross-count differences before one division.
+    # A floating group mean can change its last bit with the query batch.
+    delta=(pl.col('_reference').fill_null(0).cast(pl.Int64)*pl.col('rule_control_v_count')-
+        pl.col('_control').fill_null(0).cast(pl.Int64)*pl.col('rule_reference_v_count')).clip(lower_bound=0)
+    enriched=enriched.group_by('_id').agg(delta.sum().alias('_sum'),pl.len().alias('_terms'),
+        pl.col('rule_reference_v_count').first(),pl.col('rule_control_v_count').first()).select('_id',
+            (pl.col('_sum')/(pl.col('_terms').cast(pl.Int64)*pl.col('rule_reference_v_count').clip(lower_bound=1)*
+                pl.col('rule_control_v_count').clip(lower_bound=1))).alias('_enrichment'))
+    out=out.join(enriched,on='_id',how='left',validate='1:1').with_columns(
+        pl.when(pl.col('rule_v_supported')).then(pl.col('_enrichment').fill_null(0)).otherwise(0.0).alias('rule_'+mode+'_enrichment')).drop('_enrichment')
+    # Bounded correlated sequence bonus, not independent likelihood evidence.
+    out=out.with_columns((pl.col('rule_rank_score')*(1+pl.col('rule_'+mode+'_enrichment'))).alias('rule_enriched_'+mode+'_score'))
+    return out
+
+
 def reference_epitope_rules(queries, reference, background, *, paired=False,
                             exclude_exact=False, species='human', threads=1, radius=90, v_loop_distances=None,
-                            _rank_mass=None):
+                            _rank_mass=None, _motif_modes=MOTIFS):
     """Frames: query_id, seq0/v0 [seq1/v1], with resolved V alleles.
 
     For a supported joint gene category g, shared prior p_g=(n_g+m_g+.5)/(N+M+.5K).
@@ -122,12 +187,7 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
     if queries['query_id'].null_count() or queries['query_id'].n_unique()!=queries.height:
         raise ValueError('unique non-null query IDs required')
     axes=range(2 if paired else 1);seq=[f'seq{i}' for i in axes];v=[f'v{i}' for i in axes]
-    def prepare(frame,query=False):
-        f=frame.select(*(['query_id'] if query else []),*seq,*v)
-        if any(f[c].null_count() for c in seq+v):raise ValueError('complete junctions/resolved V alleles required')
-        if not query:f=f.unique([*seq,*v],maintain_order=True)
-        return f.with_row_index('_id').with_columns(*[pl.col(c).alias('_allele'+str(i)) for i,c in enumerate(v)]).with_columns(*[pl.col(c).str.replace(r'\*.*$','') for c in v])
-    q=prepare(queries,True);r=prepare(reference);b=prepare(background)
+    q=_prepare_rule_frame(queries,axes,True);r=_prepare_rule_frame(reference,axes);b=_prepare_rule_frame(background,axes)
     K=pl.concat([r.select(v),b.select(v)]).unique().height+1
     def counts(pop,side):
         out=q.select('_id','query_id',*seq,*v).join(pop.group_by(v).len().rename({'len':'g'}),on=v,how='left',validate='m:1')
@@ -150,14 +210,6 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
     out=out.with_columns(supported.alias('rule_v_supported'),
         pl.when(supported).then(pl.col('rule_reference_v_probability')/pl.col('rule_control_v_probability')).otherwise(1.0).alias('rule_v_score'),
         pl.when((N>0)&(M>0)).then(pl.lit('empirical_reference_rule_only')).otherwise(pl.lit('empty_population')).alias('rule_status'))
-    def score(kind):
-        rm=pl.col('rule_reference_'+kind+'_mass');bm=pl.col('rule_control_'+kind+'_mass')
-        # The pooled pseudo-observation is a model statistic, not a filtered
-        # hit statistic. An exact same-V receptor has kernel one when available.
-        available=pl.col('rule_'+kind+'_available') if kind in MOTIFS else pl.lit(True)
-        exact=pl.when(available).then(pl.col('rule_reference_removed_v')+pl.col('rule_control_removed_v')).otherwise(0)
-        c=(rm+bm+exact+.5)/(n+m+1)
-        return pl.col('rule_v_score')*((rm+c)/(n+1))/((bm+c)/(m+1))
     if _rank_mass is None:
         mass,rank=_rule_rank_mass(q,r,b,out,paired=paired,exclude_exact=exclude_exact,
             species=species,threads=threads,native_radius=native_radius,v_loop_distances=v_loop_distances)
@@ -173,47 +225,11 @@ def reference_epitope_rules(queries, reference, background, *, paired=False,
         if not np.array_equal(conditional_totals,expected) or not np.array_equal(global_totals[fallback],global_expected[fallback]):
             raise ArithmeticError('CDR3 rank bound did not cover every eligible reference')
     out=out.with_columns(*[pl.Series('rule_'+side+'_spatial_mass',mass[:,i]) for i,side in enumerate(('reference','control'))])
-    out=out.with_columns(score('spatial').alias('rule_spatial_score'))
+    out=out.with_columns(_rule_kernel_score('spatial').alias('rule_spatial_score'))
     out=out.with_columns(pl.Series('rule_cdr3_rank',rank)).with_columns(
         (pl.col('rule_v_score')*pl.col('rule_cdr3_rank')).alias('rule_rank_score'))
-    for mode in MOTIFS:
-        qt=_tokens(q,axes,mode);token_cols=[f't{i}' for i in axes]
-        lengths=qt.group_by('_id').len().rename({'len':'_tokens'})
-        frequencies=[]
-        for side,pop in [('reference',r),('control',b)]:
-            pt=_tokens(pop,axes,mode)
-            freq=pt.group_by([*v,*token_cols]).len().rename({'len':'_count'})
-            frequencies.append(freq.rename({'_count':'_'+side}))
-            mass=qt.join(freq,on=[*v,*token_cols],how='left',validate='m:1').group_by('_id').agg(pl.col('_count').fill_null(0).sum().cast(pl.Float64).alias('_mass')).join(lengths,on='_id',validate='1:1')
-            mass=mass.select('_id',(pl.col('_mass')/pl.col('_tokens')).alias('_mass'))
-            out=out.join(mass,on='_id',how='left',validate='1:1').with_columns(
-                (pl.col('_mass').fill_null(0)-pl.when(pl.col('_mass').is_not_null()).then(pl.col('rule_'+side+'_removed_v')).otherwise(0)).alias('rule_'+side+'_'+mode+'_mass')).drop('_mass')
-        usable=out.select('_id').join(lengths,on='_id',how='left',validate='1:1')['_tokens'].fill_null(0)>0
-        out=out.with_columns(pl.Series('rule_'+mode+'_available',usable))
-        for side in ('reference','control'):
-            # Fixed equal mixture of kernels: overlap is not independent evidence.
-            out=out.with_columns(pl.when(pl.col('rule_'+mode+'_available')).then((pl.col('rule_'+side+'_spatial_mass')+pl.col('rule_'+side+'_'+mode+'_mass'))/2)
-                .otherwise(pl.col('rule_'+side+'_spatial_mass')).alias('rule_'+side+'_mixed_'+mode+'_mass'))
-        out=out.with_columns(score(mode).alias('rule_'+mode+'_score'),score('mixed_'+mode).alias('rule_mixed_'+mode+'_score'))
-        # Reference enrichment is a fixed V-conditioned model statistic. Query
-        # tokens only look up its frequencies; hit exclusion never refits it.
-        if (int(out['rule_reference_v_count'].max() or 0) * int(out['rule_control_v_count'].max() or 0) *
-                int(lengths['_tokens'].max() or 0) > 2**53-1):
-            raise ValueError('conditional motif counts exceed the exactly representable integer budget')
-        enriched=qt.join(frequencies[0],on=[*v,*token_cols],how='left',validate='m:1').join(frequencies[1],on=[*v,*token_cols],how='left',validate='m:1')
-        enriched=enriched.join(out.select('_id','rule_reference_v_count','rule_control_v_count'),on='_id',validate='m:1')
-        # Sum the exact positive cross-count differences before one division.
-        # A floating group mean can change its last bit with the query batch.
-        delta=(pl.col('_reference').fill_null(0).cast(pl.Int64)*pl.col('rule_control_v_count')-
-            pl.col('_control').fill_null(0).cast(pl.Int64)*pl.col('rule_reference_v_count')).clip(lower_bound=0)
-        enriched=enriched.group_by('_id').agg(delta.sum().alias('_sum'),pl.len().alias('_terms'),
-            pl.col('rule_reference_v_count').first(),pl.col('rule_control_v_count').first()).select('_id',
-                (pl.col('_sum')/(pl.col('_terms').cast(pl.Int64)*pl.col('rule_reference_v_count').clip(lower_bound=1)*
-                    pl.col('rule_control_v_count').clip(lower_bound=1))).alias('_enrichment'))
-        out=out.join(enriched,on='_id',how='left',validate='1:1').with_columns(
-            pl.when(pl.col('rule_v_supported')).then(pl.col('_enrichment').fill_null(0)).otherwise(0.0).alias('rule_'+mode+'_enrichment')).drop('_enrichment')
-        # Bounded correlated sequence bonus, not independent likelihood evidence.
-        out=out.with_columns((pl.col('rule_rank_score')*(1+pl.col('rule_'+mode+'_enrichment'))).alias('rule_enriched_'+mode+'_score'))
+    for mode in _motif_modes:
+        out=_apply_rule_motif(out,q,axes,mode,[_motif_counts(pop,axes,mode) for pop in (r,b)])
     scores=[c for c in out.columns if c.endswith('_score')]
     return out.with_columns(*[pl.when((N>0)&(M>0)).then(pl.col(c)).otherwise(None).alias(c) for c in scores]).drop('_id')
 
@@ -336,6 +352,29 @@ def grouped_reference_epitope_rules(reference, groups, *, paired=False, exclude_
             on='_original_row',how='left',validate='m:1').sort('_row','_target')
         traverse(query,requests,False)
         query=original_query
-    return [reference_epitope_rules(q,r,reference.filter(pl.col('epitope')!=task['epitope']).select(keys),
-        _rank_mass=(mass,rank,conditional,global_),**options)
+    outputs=[reference_epitope_rules(q,r,reference.filter(pl.col('epitope')!=task['epitope']).select(keys),
+        _rank_mass=(mass,rank,conditional,global_),_motif_modes=(),**options).with_row_index('_id')
         for (task,q,r),mass,rank,conditional,global_ in zip(groups,masses,ranks,conditional_totals,global_totals)]
+    prepared_whole=_prepare_rule_frame(whole.select(keys),axes)
+    for mode in MOTIFS:
+        whole_counts=_motif_counts(prepared_whole,axes,mode)
+        token_keys=[*genes,*[f't{i}' for i in axes]]
+        # One mode/current peptide only. Shared-label keys remain in the full
+        # background; all target-peptide MHC contexts leave it together.
+        for peptide in peptides:
+            removed=_prepare_rule_frame(exclusive.filter(pl.col('epitope')==peptide).select(keys),axes)
+            removed_counts=_motif_counts(removed,axes,mode).rename({'_count':'_removed'})
+            background=whole_counts.join(removed_counts,on=token_keys,how='left',validate='1:1').with_columns(
+                (pl.col('_count').cast(pl.Int64)-pl.col('_removed').fill_null(0).cast(pl.Int64)).alias('_count')).drop('_removed')
+            if background.filter(pl.col('_count')<0).height:
+                raise ArithmeticError('exclusive peptide motif counts exceed the fixed whole model')
+            background=background.filter(pl.col('_count')>0)
+            for i,(task,q,r) in enumerate(groups):
+                if task['epitope']!=peptide:continue
+                query_frame=_prepare_rule_frame(q,axes,True)
+                target_counts=_motif_counts(_prepare_rule_frame(r,axes),axes,mode)
+                outputs[i]=_apply_rule_motif(outputs[i],query_frame,axes,mode,(target_counts,background))
+                del query_frame,target_counts
+            del removed,removed_counts,background
+        del whole_counts
+    return [out.drop('_id') for out in outputs]

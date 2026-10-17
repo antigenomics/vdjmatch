@@ -187,10 +187,12 @@ def test_grouped_rules_equal_scalar_across_models(monkeypatch,paired,exclude_exa
         ref=ref.rename({'seq0':'seq1','v0':'v1'}).with_columns(
             pl.lit('CAVRDSNYQLIW').alias('seq0'),pl.lit('TRAV1-1*01').alias('v0'))
     fields=[f'{kind}{i}' for i in range(2 if paired else 1) for kind in ('seq','v')]
+    allele_duplicate=ref.head(1).with_columns(pl.lit('TRBV19*02').alias('v1' if paired else 'v0'))
+    ref=pl.concat([ref,allele_duplicate,ref.head(1)])
     q=ref.select(fields).head(2).with_row_index('query_id')
     unsupported=q.head(1).with_columns(pl.lit(9,dtype=pl.UInt32).alias('query_id'),
         pl.lit('TRBV7-9*01').alias('v1' if paired else 'v0'))
-    q=pl.concat([q,unsupported])
+    q=pl.concat([q,unsupported,q.head(1).with_columns(pl.lit(11,dtype=pl.UInt32).alias('query_id'))])
     groups=[(dict(epitope='A'),q,ref.filter((pl.col('epitope')=='A')&(pl.col('mhc')=='x')).select(fields)),
             (dict(epitope='A'),q.reverse(),ref.filter(pl.col('epitope')=='A').select(fields)),
             (dict(epitope='C'),q.head(1),ref.filter(pl.col('epitope')=='C').select(fields))]
@@ -211,6 +213,40 @@ def test_grouped_rules_equal_scalar_across_models(monkeypatch,paired,exclude_exa
     assert len(calls)==2 and calls[0]['same_v_gene'] and not calls[1]['same_v_gene']
     for got,want in zip(actual,expected):
         assert_frame_equal(got,want,check_exact=True)
+
+
+def test_grouped_rules_prepare_whole_motif_counts_once_per_mode(monkeypatch):
+    from vdjmatch.evalue import epitope_rules
+    from polars.testing import assert_frame_equal
+    ref=pl.DataFrame(dict(seq0=['CASSLGQAYEQYF','CASSLGRAYEQYF','CASSWGRAYEQYF'],
+        v0=['TRBV19*01']*3,epitope=['A','B','C']))
+    q=ref.head(1).drop('epitope').with_row_index('query_id')
+    groups=[(dict(epitope=p),q,ref.filter(pl.col('epitope')==p)) for p in ('A','B','A')]
+    expected=[epitope_rules.reference_epitope_rules(q,r,ref.filter(pl.col('epitope')!=task['epitope']),exclude_exact=True)
+        for task,q,r in groups]
+    calls=[];prepare=epitope_rules._motif_counts
+    def count(frame,axes,mode):
+        calls.append((frame.height,mode))
+        return prepare(frame,axes,mode)
+    monkeypatch.setattr(epitope_rules,'_motif_counts',count)
+    actual=epitope_rules.grouped_reference_epitope_rules(ref,groups,exclude_exact=True)
+    assert [mode for size,mode in calls if size==3]==list(MOTIFS)
+    # One whole model, two current-peptide exclusive models and three target
+    # models per mode; repeated peptide A does not rebuild its complement.
+    assert len(calls)==len(MOTIFS)*(1+2+3)
+    for got,want in zip(actual,expected):assert_frame_equal(got,want,check_exact=True)
+
+
+def test_shared_motif_reducer_keeps_exact_integer_budget_guard():
+    from vdjmatch.evalue import epitope_rules
+    ref=pl.DataFrame(dict(seq0=['CASSLGQAYEQYF'],v0=['TRBV19*01']))
+    query=ref.with_row_index('query_id')
+    out=reference_epitope_rules(query,ref,ref,_motif_modes=()).with_row_index('_id').with_columns(
+        pl.lit(2**27).alias('rule_reference_v_count'),pl.lit(2**27).alias('rule_control_v_count'))
+    q=epitope_rules._prepare_rule_frame(query,range(1),True)
+    counts=epitope_rules._motif_counts(epitope_rules._prepare_rule_frame(ref,range(1)),range(1),'exact3')
+    with pytest.raises(ValueError,match='exactly representable integer budget'):
+        epitope_rules._apply_rule_motif(out,q,range(1),'exact3',(counts,counts))
 
 
 def test_grouped_rules_empty_background_and_invalid_query():
