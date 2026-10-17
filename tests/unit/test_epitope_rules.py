@@ -288,6 +288,10 @@ def test_rules_only_preserves_status_and_evidence_without_comparator_search(tmp_
     assert set(projected.columns)==set(fields) and not (tmp_path/'projected.candidates.tsv').exists()
     report=json.loads((tmp_path/'projected.manifest.json').read_text())
     assert report['rules_only'] is True and report['output_tables']==['queries','enrichment']
+    assert 'nearest distances omitted' in report['selection']
+    assert report['junction_end_trim']=={'n_terminal':3,'c_terminal':3}
+    assert report['background_enrichment']['nearest_output']=='omitted'
+    assert report['background_enrichment']['v_loop_weight']==0
 
 
 @pytest.mark.parametrize('species',['human','mouse'])

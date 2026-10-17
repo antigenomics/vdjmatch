@@ -982,7 +982,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 str(prefix)+'.selection.tsv',separator='\t')
     if paired and kernel:
         from .calibration import paired_call_event,paired_pipeline_sources
-    Path(str(prefix)+'.manifest.json').write_text(json.dumps({'sample_sha256':sha256(Path(a.sample)),
+    manifest={'sample_sha256':sha256(Path(a.sample)),
         'selection_only':selection_only,
         **({'rules_only':True,'status_derivation':'preserve ingestion/target precedence; matched iff fixed reference population exceeds excluded exact hits; availability unchanged'} if rules_only else {}),
         **({'paired_call_event':paired_call_event(),'paired_source_sha256':paired_pipeline_sources()} if paired and kernel else {}),
@@ -1113,5 +1113,15 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             'interpretation':'conditional all-reference rank mean with refined all-censored imputation; control ties conservative; no biological confidence or transferred P/E-value',
             'selection':'identical rule for every task; no fitted weights or task routing'}}
            if a.nearest_rank and a.neighbour_weighting=='local-rank' else {}),
-        'calibration':'none','wall_seconds':time.perf_counter()-start},indent=2)+'\n')
+        'calibration':'none','wall_seconds':time.perf_counter()-start}
+    if rules_only:
+        manifest.update(selection='fixed-model unbounded hit eligibility; nearest distances omitted',
+            distance='rule-only clipped 3*CDR3, trim3/3; V usage counted once, no V-loop distance',
+            junction_end_trim={'n_terminal':3,'c_terminal':3})
+        manifest['background_enrichment'].update(v_loop_weight=0,v_regions='unused',
+            geometry='rule-only clipped CDR3, trim3/3',
+            formula='rule_* predictive ratios and conditional multi-reference ranks',
+            kernel='spatial and motif kernels declared in epitope_rules; ordinary comparator omitted',
+            calibration='none; empirical reference ranking only',nearest_output='omitted')
+    Path(str(prefix)+'.manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     return 0
