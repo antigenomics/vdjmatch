@@ -16,9 +16,10 @@ def _identity(source, *, asset, species, filters):
     from importlib import import_module
     from importlib.metadata import version
     import seqtree._core as native
-    from ..aggregate import fast_profiles, structure
+    from ..aggregate import fast_profiles, structure, profile_noise
     from ..cli import epitope
     from ..match import engine
+    from ..evalue import epitope_rules
     from . import schema, vdjdb
     overlap = import_module('vdjmatch.cluster.overlap')
 
@@ -34,8 +35,10 @@ def _identity(source, *, asset, species, filters):
         profile_recipe=fast_profiles.PROFILE_RECIPE,
         source_sha256={name: sha256(Path(module.__file__)) for name, module in
             [('normalizer', schema), ('loader', vdjdb), ('engine', engine), ('profiles', fast_profiles),
-             ('profile_genes', structure), ('profile_populations', epitope), ('profile_graph', overlap)]} |
+             ('profile_genes', structure), ('profile_populations', epitope), ('profile_graph', overlap),
+             ('profile_noise', profile_noise), ('profile_tokens', epitope_rules)]} |
             {'bundle': sha256(Path(__file__))},
+        numerics={name: version(name) for name in ['numpy', 'scipy', 'polars']},
         native=dict(version=version('seqtree'), sha256=sha256(Path(native.__file__)),
             capabilities=['Index.build', 'Index.save', 'Index.load']))
 

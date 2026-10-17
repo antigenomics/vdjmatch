@@ -23,8 +23,7 @@ def test_identical_label_sets_have_enrichment_one_and_duplicate_records_do_not_a
         assert row['exact_shared_junctions'] == 2
         assert row['neighbor_enrichment'] == 1.
         assert row['neighbor_coverage'] == 1.
-        assert row['neighbor_enriched'] is False
-        assert row['v_majority'] is True
+        assert row['max_v_gene_share'] == 1.
 
 
 def test_indel_neighbors_use_one_batch_per_species_locus_without_species_leak(monkeypatch):
@@ -47,7 +46,7 @@ def test_indel_neighbors_use_one_batch_per_species_locus_without_species_leak(mo
     assert human['neighbor_coverage'].to_list() == [1., 1.]
     mouse = result.filter(pl.col('species') == 'MusMusculus')
     assert mouse['background_junctions'].to_list() == [0, 0]
-    assert mouse['neighbor_enriched'].to_list() == [None, None]
+    assert mouse['neighbor_enrichment'].to_list() == [None, None]
 
 
 def test_missing_v_keeps_mass_and_full_pmhc_background_excludes_the_whole_peptide():
@@ -61,7 +60,7 @@ def test_missing_v_keeps_mass_and_full_pmhc_background_excludes_the_whole_peptid
     result = reference_profiles(raw, threads=1)
     target = result.filter((pl.col('level') == 'pmhc') & (pl.col('mhc_a') == 'HLA-A*02:01')).row(0, named=True)
     assert target['reference_v_keys'] == 4 and target['unresolved_v_keys'] == 3
-    assert target['v_majority'] is None
+    assert target['max_v_gene_share'] == .25
     assert target['background_junctions'] == 1  # other restriction of A is not background
     assert target['support_status'] == 'insufficient_source_records'
     assert result.filter(pl.col('epitope') == 'B')['mhc_context_status'].to_list() == ['modal_annotation', 'incomplete_mhc']
@@ -74,12 +73,12 @@ def test_no_neighbours_and_all_invalid_targets_remain_explicit():
         ('HomoSapiens', 'TRA', 'C', 'CAXF', 'TRAV1-1', None)])
     result = reference_profiles(raw, threads=1)
     assert result.height == 6
-    assert result.filter(pl.col('epitope') != 'C')['neighbor_enriched'].null_count() == 4
+    assert result.filter(pl.col('epitope') != 'C')['neighbor_enrichment'].null_count() == 4
     bad = result.filter(pl.col('epitope') == 'C')
     assert bad['excluded_source_records'].to_list() == [1, 1]
     assert bad['junctions'].to_list() == [0, 0]
     assert bad['background_junctions'].to_list() == [2, 2]
-    assert bad['v_majority'].null_count() == 2
+    assert bad['max_v_gene_share'].null_count() == 2
     assert reference_profiles(raw.head(0), threads=1).height == 0
     assert reference_profiles(raw.filter(pl.col('epitope') == 'C'), threads=1)['junctions'].to_list() == [0, 0]
     single = reference_profiles(raw.filter(pl.col('epitope') == 'A'), threads=1)
@@ -115,5 +114,6 @@ def test_a_twofold_ratio_does_not_supply_a_noise_validated_class():
         [('HomoSapiens', 'TRB', 'B', 'CALAF', 'TRBV19', 'HLA-A*02:01')])
     result = reference_profiles(raw, threads=1).filter(pl.col('epitope') == 'A')
     assert result['neighbor_enrichment'].to_list() == [2., 2.]
-    assert result['neighbor_enriched'].to_list() == [True, True]
-    assert result['profile_class'].to_list() == ['pending_noise_validation'] * 2
+    assert result['profile_class'].to_list() == ['no_supported_axis'] * 2
+    assert result['gene_p'].to_list() == [1., 1.]
+    assert result['motif_p'].to_list() == [1., 1.]

@@ -5,6 +5,87 @@ All routes start with anchored junctions, chain identities and V genes. They
 retain reference peptide–MHC labels and query identity. Ordinary annotation
 keeps exact evidence; a benchmark filters exact query hits while keeping the reference model fixed.
 
+Fast reference classification
+-----------------------------
+
+Index preparation classifies reference structure, separately by species/chain
+and pooled epitope or observed full pMHC. It uses reference labels, never query
+assay outcomes. Eligibility is at least 30 valid source observations; counts of
+distinct junction/V keys remain separate. All observations and pair links stay
+in the saved model. These descriptive classes do not establish binding or select
+a scoring default.
+
+Let the population contain :math:`K` distinct full-junction/allele-pooled-V keys.
+Each key retains its complete binary target-membership vector, including shared
+labels. For a target with :math:`N` keys, let :math:`n_v` count its V-gene keys and
+:math:`q_v=K_v/K` be the population V distribution. The gene statistic, in bits
+per target key, is
+
+.. math::
+
+   G=\sum_{v:n_v>0}\frac{n_v}{N}\log_2\frac{n_v/N}{q_v}.
+
+The background includes the target, as in the fixed-cohort label-shuffle
+comparison. Every observed category consequently has population support; no
+pseudocount or zero-frequency extrapolation is needed. Unresolved V calls
+retain their mass and prevent a biological class assignment.
+
+Tokenize the junction after trimming three residues at each end, retaining each
+exact amino-acid 3-mer once per key. For motif :math:`t` within V gene :math:`v`,
+let :math:`a_{vt}` count target presence and :math:`A_{vt}` population presence.
+Write :math:`p_{vt}=a_{vt}/n_v` and :math:`q_{vt}=A_{vt}/K_v`. The sequence
+statistic is the strongest enriched binary projection:
+
+.. math::
+
+   M=\max_{v,t:p_{vt}>q_{vt}}
+      \frac{n_v}{N}\left[
+        p_{vt}\log_2\frac{p_{vt}}{q_{vt}}+
+        (1-p_{vt})\log_2\frac{1-p_{vt}}{1-q_{vt}}\right].
+
+An empty maximum is zero; :math:`0\log 0=0`. Motif depletion does not supply
+positive motif evidence. The V weight expresses one projection in bits per
+target key; it does not sum correlated, overlapping motifs. Stable lexical
+V/motif order resolves exact ties. The selected motif and its four presence
+counts remain visible.
+
+Two independent fixed random streams (seed 0) generate 199 shuffles. For
+:math:`G`, permute complete membership vectors over population keys. For
+:math:`M`, permute those vectors only within V genes. Target sizes and all
+shared-membership relationships remain fixed; the latter null also fixes every
+target's V composition. Recompute the same maximum over motifs in each
+replicate, so choosing the best motif is part of the null statistic.
+
+For either observed statistic :math:`S` and shuffled values :math:`S_b`, report
+
+.. math::
+
+   \Delta S=S-\frac{1}{199}\sum_{b=1}^{199}S_b,\qquad
+   p_S=\frac{1+\sum_{b=1}^{199}\mathbf1\{S_b\ge S\}}{200}.
+
+Support requires :math:`\Delta S>0` and :math:`p_S\le0.005`; with 199 draws,
+this requires exceeding every shuffled value. Ties count against support.
+Under the respective exchangeability nulls these Monte Carlo tails are
+conservative; allocating 0.005 to each of two axes bounds the per-profile
+probability of falsely supporting either true-null axis by 0.01, without an
+independence assumption. This does not control errors across every database
+profile, remove study/ascertainment bias or calibrate selected query calls.
+Effects and null maxima are shown even when support is absent.
+
+The two support flags define V-and-motif, V-only, motif-only and no-supported-axis
+leaves. Missing background, unresolved V and inadequate distinct support remain
+unclassified. A small effect measured precisely can pass its noise test while
+remaining weak for prediction. Neighbour coverage and edit-one pair-density
+enrichment are separate structural descriptors; pair counts share vertices and
+are not independent binomial observations.
+
+Implementation reuses the core tokenizer, fixed sparse key/target membership and
+key/V-motif presence matrices. Identical target memberships are reduced once.
+Shuffles perform count reductions only; no sequence search, SW, Pgen calculation
+or reference-model refitting occurs inside them. The completed class table and
+native search index are durable prepared-reference assets; query predictions
+are not reused.
+
 Current kernel evidence
 -----------------------
 

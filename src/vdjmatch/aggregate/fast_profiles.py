@@ -6,18 +6,25 @@ import polars as pl
 
 from .structure import _gene_expression
 
-PROFILE_RECIPE = 'v2-descriptors:source>=30;nonidentical-Levenshtein1;pooled-and-pMHC;classification-pending-noise-validation'
+PROFILE_RECIPE = 'v3:source>=30;core-exact3;V-KL-and-V-conditional-motif-max;199-label-shuffles;seed0;axis-p<=.005;nonidentical-Levenshtein1;pooled-and-pMHC'
 _MHC = ['mhc_a', 'mhc_b', 'mhc_class']
 _CONTEXT = ['level', 'species', 'gene', 'epitope', *_MHC]
 _SCHEMA = {name: pl.String for name in ['level', 'species', 'locus', 'epitope', *_MHC,
-    'mhc_context_status', 'support_status', 'neighbor_status', 'max_v_gene', 'profile_class']}
+    'mhc_context_status', 'support_status', 'neighbor_status', 'max_v_gene', 'profile_class',
+    'classification_status', 'noise_status', 'motif_v_gene', 'motif']}
 _SCHEMA.update({name: pl.Int64 for name in ['source_records', 'valid_source_records',
     'excluded_source_records', 'junctions', 'background_junctions', 'exact_shared_junctions',
     'within_opportunities', 'between_opportunities', 'within_neighbor_pairs', 'between_neighbor_pairs',
-    'neighbor_junctions', 'reference_v_keys', 'unresolved_v_keys']})
+    'neighbor_junctions', 'reference_v_keys', 'unresolved_v_keys', 'noise_shuffles',
+    'motif_reference_with_motif', 'motif_reference_v_keys',
+    'motif_background_with_motif', 'motif_background_v_keys']})
 _SCHEMA.update({name: pl.Float64 for name in ['within_pair_density', 'between_pair_density',
-    'neighbor_enrichment', 'neighbor_coverage', 'max_v_gene_share', 'unresolved_v_fraction']})
-_SCHEMA.update({name: pl.Boolean for name in ['classification_eligible', 'v_majority', 'neighbor_enriched']})
+    'neighbor_enrichment', 'neighbor_coverage', 'max_v_gene_share', 'unresolved_v_fraction',
+    'gene_kl_bits', 'gene_null_mean_bits', 'gene_null_max_bits', 'gene_excess_bits', 'gene_p',
+    'motif_kl_bits', 'motif_null_mean_bits', 'motif_null_max_bits', 'motif_excess_bits', 'motif_p']})
+_SCHEMA.update({name: pl.Boolean for name in ['classification_eligible',
+    'gene_supported', 'motif_supported']})
+_NOISE_COLUMNS = [name for name in _SCHEMA if name.startswith(('gene_', 'motif_')) or name in {'motif', 'noise_status', 'noise_shuffles'}]
 
 
 def _near_lengths(histogram, keys):
@@ -31,6 +38,9 @@ def _population(rows, *, locus, threads):
     from .. import cluster
 
     selected = rows.filter(pl.col('_valid'))
+    if locus not in {'TRA', 'TRB'}:
+        return {target: {'junctions': n, 'noise_status': 'unsupported_locus'}
+            for target, n in selected.group_by('_target').agg(pl.col('cdr3').n_unique()).iter_rows()}
     nodes = selected.select('cdr3').unique().sort('cdr3').with_row_index('_node').with_columns(
         pl.col('_node').cast(pl.Int64), pl.col('cdr3').str.len_chars().cast(pl.Int64).alias('_length'))
     membership = selected.select('_target', 'epitope', 'cdr3').unique().join(nodes, on='cdr3', validate='m:1')
@@ -80,7 +90,11 @@ def _population(rows, *, locus, threads):
     excluded_counts = dict(exclusive.group_by('epitope').len().iter_rows())
     result = summary.join(gene_counts, on='_target', validate='1:1')
     by_target = {row['_target']: row for row in result.to_dicts()}
-    return {target: by_target.get(target, {}) | {'background_junctions': nodes.height-excluded_counts.get(epitope, 0)}
+    from .profile_noise import profile_noise
+    eligible = selected.group_by('_target').len().filter(pl.col('len') >= 30)['_target'].to_list()
+    noise = profile_noise(selected, locus=locus, eligible_targets=eligible)
+    return {target: by_target.get(target, {}) | noise.get(target, {}) |
+        {'background_junctions': nodes.height-excluded_counts.get(epitope, 0)}
         for target, epitope in rows.select('_target', 'epitope').unique().iter_rows()}
 
 
@@ -124,21 +138,27 @@ def reference_profiles(reference: pl.DataFrame, *, threads=4) -> pl.DataFrame:
         own_op, cross_op = data.get('within_opportunities', 0), data.get('between_opportunities', 0)
         own_rate, cross_rate = m/own_op if own_op else None, cross/cross_op if cross_op else None
         if not n or not bg or not own_op or not cross_op:
-            ratio, enriched, status = None, None, 'insufficient_pair_opportunities'
+            ratio, status = None, 'insufficient_pair_opportunities'
         elif not m and not cross:
-            ratio, enriched, status = None, None, 'no_neighbor_evidence'
+            ratio, status = None, 'no_neighbor_evidence'
         else:
             ratio = own_rate/cross_rate if cross_rate else math.inf
-            enriched, status = ratio > 1, 'zero_between_neighbors' if not cross else 'observed'
+            status = 'zero_between_neighbors' if not cross else 'observed'
         keys, missing, maximum = data.get('reference_v_keys', 0), data.get('unresolved_v_keys', 0), data.get('_max_v_keys', 0)
-        v_majority = (True if 2*maximum >= keys else None if 2*(maximum+missing) >= keys else False) if keys else None
         eligible = target['valid_source_records'] >= 30
-        label = 'pending_noise_validation' if eligible else 'insufficient_source_records'
+        classification_status = ('insufficient_source_records' if not eligible else
+            'no_other_peptide_background' if not bg else data.get('noise_status', 'insufficient_distinct_keys'))
+        if classification_status == 'observed':
+            gene, motif = data['gene_supported'], data['motif_supported']
+            label = 'v_and_motif' if gene and motif else 'v_only' if gene else 'motif_only' if motif else 'no_supported_axis'
+        else:
+            label = classification_status
         output.append({key: target[key] for key in ['level', 'species', 'epitope', *_MHC]} |
             dict(locus=target['gene'], source_records=target['source_records'],
                 valid_source_records=target['valid_source_records'],
                 excluded_source_records=target['source_records']-target['valid_source_records'],
                 classification_eligible=eligible, support_status='eligible' if eligible else 'insufficient_source_records',
+                classification_status=classification_status,
                 mhc_context_status='modal_annotation' if target['level']=='epitope' else
                     'incomplete_mhc' if any(not target[c] for c in _MHC) else 'observed_full_pmhc',
                 junctions=n, background_junctions=bg, exact_shared_junctions=data.get('exact_shared_junctions', 0),
@@ -146,7 +166,8 @@ def reference_profiles(reference: pl.DataFrame, *, threads=4) -> pl.DataFrame:
                 within_neighbor_pairs=m, between_neighbor_pairs=cross, neighbor_junctions=data.get('neighbor_junctions', 0),
                 within_pair_density=own_rate, between_pair_density=cross_rate,
                 neighbor_enrichment=ratio, neighbor_coverage=data.get('neighbor_junctions', 0)/n if n else None,
-                neighbor_enriched=enriched, neighbor_status=status, reference_v_keys=keys, unresolved_v_keys=missing,
+                neighbor_status=status, reference_v_keys=keys, unresolved_v_keys=missing,
                 unresolved_v_fraction=missing/keys if keys else None, max_v_gene=data.get('max_v_gene'),
-                max_v_gene_share=maximum/keys if keys else None, v_majority=v_majority, profile_class=label))
+                max_v_gene_share=maximum/keys if keys else None, profile_class=label) |
+                {key: data.get(key) for key in _NOISE_COLUMNS})
     return pl.DataFrame(output, schema=_SCHEMA).sort('species', 'locus', 'level', 'epitope', *_MHC, nulls_last=True)

@@ -54,11 +54,28 @@ and ``update`` accept a positive ``--threads`` budget (default 4).
 
 Profiles retain separate species and TRA/TRB chains, at pooled-peptide and
 observed full-pMHC levels. Eligibility requires at least 30 valid source records;
-distinct-junction count is shown alongside. V concentration and neighbour
-enrichment are descriptive fields. The structural classifier is being revised to
-compare V-usage KL and additional V-conditioned motif information against
-finite-sample noise; eligible rows currently report ``pending_noise_validation``.
-Neither the ``v_majority`` nor the ``neighbor_enriched`` flag is a noise test.
+distinct-junction count is shown alongside. Classification tests two information
+axes: V-usage KL and enriched core 3-mer presence conditional on V. The core trims
+three residues from each end of the full junction. Each motif is counted once
+per junction/V key; overlapping motifs are not added as independent evidence.
+
+The reference itself supplies the noise comparison: 199 fixed label shuffles
+(seed 0). Whole key-membership vectors shuffle globally for V usage and within
+V for the motif test, preserving each target's V composition in the latter.
+The strongest motif is selected again inside every shuffle. Each axis requires
+a Monte Carlo tail probability at most 0.005 and positive information above the
+null mean. The two tests give a per-profile error bound of 0.01 under their
+respective exchangeability nulls. This is not a database-wide guarantee or
+binding-score calibration. See :doc:`algorithms` for definitions.
+
+The decision leaves are ``v_and_motif``, ``v_only``, ``motif_only`` and
+``no_supported_axis``. Insufficient source records, unresolved V calls, fewer
+than two distinct keys or missing other-peptide background remain explicit.
+The selected motif's observed counts, raw/excess bits, null mean/maximum and
+Monte Carlo tail are included alongside each decision. V concentration and
+neighbour density remain descriptive, without a binary concentration/enrichment
+class flag. A small supported effect need not provide
+useful binding prediction, and these classes do not change the scoring default.
 
 Neighbour enrichment is ``(w/Pw)/(b/Pb)``. ``w`` counts unordered distinct
 within-target Levenshtein-one pairs; ``b`` counts target-to-background pairs.
