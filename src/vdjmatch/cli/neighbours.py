@@ -318,8 +318,6 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
         _,q=_prepare(data)
         metadata=raw
     reference_species={'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
-    from ..db.index import load_or_build_index
-    load_or_build_index(a.vdjdb, threads=a.threads)
     r=db.load(a.vdjdb,species=reference_species,gene=None if paired else a.locus,epitope=None if kernel else a.epitope,
               mhc_a=None if kernel else a.mhc_a,mhc_b=None if kernel else a.mhc_b,mhc_match=a.mhc_match)
     original=r.height

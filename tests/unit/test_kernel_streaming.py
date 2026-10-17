@@ -94,3 +94,14 @@ def test_paired_streaming_preserves_unlinked_marginal_selections(tmp_path):
         assert_frame_equal(pl.read_csv(str(tmp_path/'False')+suffix+'.selection.tsv',separator='\t'),
                            pl.read_csv(str(tmp_path/'True')+suffix+'.selection.tsv',separator='\t'),check_dtypes=False,check_exact=True)
     assert not (tmp_path/'True.paired-evidence.tsv').exists()
+
+
+def test_annotation_does_not_prepare_unused_reference_profiles(tmp_path, monkeypatch):
+    from vdjmatch.db import index
+    def forbidden(*args, **kwargs):
+        raise AssertionError('annotation must not prepare unused reference profiles')
+    monkeypatch.setattr(index, 'load_or_build_index', forbidden)
+    sample, reference = _single_inputs(tmp_path)
+    assert _annotation_main(['annotate', str(sample), '--vdjdb', str(reference),
+        '--locus', 'TRB', '--selection-only', '--output-prefix', str(tmp_path/'result')]) == 0
+    assert not reference.with_name(reference.name+'.vdjmatch').exists()

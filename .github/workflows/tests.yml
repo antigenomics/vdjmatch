@@ -31,9 +31,8 @@ jobs:
         run: python -c "import vdjmatch; print(vdjmatch.__version__)"
       - name: Install the precursor extra (vdjtools carries the recombination model)
         run: pip install -e ".[precursor]"
-      - name: Install and verify hit-list-only native exclusion
+      - name: Verify released hit-list-only native exclusion
         run: |
-          pip install --force-reinstall --no-deps "seqtree @ git+https://github.com/antigenomics/seqtree.git@956f0028eb774a87121eb83972a09ebe20278fdb"
           python -c "from seqtree import Index, _core; assert _core.exact_exclusion_hits_only; assert hasattr(Index, 'alignment_max_batch')"
           pytest tests/unit/test_classical.py tests/unit/test_fixed_scope.py -q
       - name: Run unit tests

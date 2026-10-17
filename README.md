@@ -24,7 +24,7 @@
 reporting peptide–MHC candidates, competing evidence and optional background calibration.
 Native sequence search uses [`seqtree`](https://github.com/antigenomics/seqtree);
 repertoire ingestion reuses published `vdjtools` readers.
-The minimum `vdjtools` version is 5.0.1, which validates explicit native thread
+The minimum `vdjtools` version is 5.2.0, which validates explicit native thread
 requests against the process CPU allocation.
 
 The Python implementation follows the legacy Java/Groovy package, preserved on the

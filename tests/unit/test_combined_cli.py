@@ -42,6 +42,10 @@ def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypat
     from vdjmatch.evalue import combined
     from vdjmatch.cli.__main__ import main
     sample, reference, control = inputs(tmp_path)
+    from vdjmatch.db import index
+    def forbidden_profiles(*args, **kwargs):
+        raise AssertionError('annotation must not prepare unused reference profiles')
+    monkeypatch.setattr(index, 'load_or_build_index', forbidden_profiles)
     pl.read_csv(sample, separator='\t').with_columns(pl.lit('A').alias('epitope'),
         pl.lit('HLA-A*02:01').alias('mhc_a'),pl.lit('B2M').alias('mhc_b'),
         pl.lit('MHCI').alias('mhc_class')).write_csv(sample, separator='\t')

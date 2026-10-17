@@ -49,7 +49,7 @@ Permutation/matched-control envelopes are not Efron bootstrap CIs.
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)
 for advanced scorers. Run `vdjmatch annotate --help` to verify installed options.
-Use `vdjtools>=5.0.1` for ingestion and allocation-aware native thread validation.
+Use `vdjtools>=5.2.0` for ingestion and allocation-aware native thread validation.
 
 ```sh
 vdjmatch annotate airr_directory/ --threads 4 -o annotation

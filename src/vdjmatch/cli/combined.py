@@ -212,8 +212,6 @@ def main(a):
     if a.metadata:
         protected.append(Path(a.metadata))
     prefix = _validate_output_paths(a.output_prefix, protected)
-    from ..db.index import load_or_build_index
-    load_or_build_index(reference_path, threads=a.threads)
     reference = db.load(reference_path, epitope=a.epitope, mhc_a=a.mhc_a, mhc_b=a.mhc_b,
         mhc_match=a.mhc_match, evidence_type=a.evidence_type, min_score=a.min_score)
     species_name = {'human': 'HomoSapiens', 'mouse': 'MusMusculus'}[organism]

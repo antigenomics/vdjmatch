@@ -50,8 +50,9 @@ and a checksummed manifest. Unchanged references reopen these assets without
 rebuilding or reclassifying. Source bytes, filters, implementation and native
 format determine identity; incomplete or corrupt assets rebuild from the source.
 The reference's parent directory must be writable. ``Annotator.from_path`` and
-public annotation commands also prepare these assets automatically. ``index``
-and ``update`` accept a positive ``--threads`` budget (default 4).
+``match`` also prepare these assets automatically. ``annotate`` scores its
+reference directly without preparing unused profile sidecars. ``index`` and
+``update`` accept a positive ``--threads`` budget (default 4).
 
 Use ``reference-profiles`` for a fresh scientific classification rebuild:
 
