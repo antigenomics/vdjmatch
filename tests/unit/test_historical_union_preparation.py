@@ -143,13 +143,18 @@ def test_union_budget_rejects_before_search_and_before_join(monkeypatch):
     monkeypatch.setattr(historical,'_PREPARED_LIMIT_BYTES',2*1024**3)
     historical.shared_control_histograms(control,[(query,reference)],prepared_batches=[],identical_queries=True)
     hit_rows,unit_rows,_=native(list(axis),refs,1)
-    assert checks[3][2]-checks[2][2]==256*(sum(map(len,hit_rows.values()))+sum(row[1] for row in unit_rows))
+    edge_count=sum(map(len,hit_rows.values()))+sum(row[1] for row in unit_rows)
+    assert checks[3][2]-checks[2][2]==23*edge_count+2*((edge_count+7)//8)+4096
     assert checks[0][3]=={}  # Shared raw-axis ownership retains its default ceiling.
     assert all(row[3]=={'peak_limit_bytes':8*gib} for row in checks[1:])
     limit=sum(checks[3][:3])-1
     assert max(sum(row[:3]) for row in checks[:3])<limit
     checks.clear()
     monkeypatch.setattr(historical,'_UNION_PEAK_LIMIT_BYTES',limit)
+    import numpy as np
+    def forbidden_columns(*args,**kwargs):
+        pytest.fail('typed edge columns must not allocate before their budget check')
+    monkeypatch.setattr(np,'empty',forbidden_columns)
     with pytest.raises(ValueError,match='peak allocation budget'):
         historical.shared_control_histograms(control,[(query,reference)],prepared_batches=[],identical_queries=True)
     assert len(checks)==4
@@ -182,3 +187,82 @@ def test_streamed_all_six_scores_equal_old_per_target_preparation(monkeypatch):
         assert_frame_equal(pl.concat(after[name]).sort('query_id',*PMHC),
             pl.concat(before[name]).sort('query_id',*PMHC),check_exact=name!='motif',
             rel_tol=0,abs_tol=1e-16)
+
+
+def test_union_dense_edges_use_exact_active_query_target_metadata(monkeypatch):
+    from types import SimpleNamespace
+    n=20
+    query=pl.DataFrame({'cdr3':['CASS'+a+'YEQYF' for a in 'ACDEFGHIKLMNPQRSTVWY']})
+    reference=query.rename({'cdr3':'cdr3'})
+    axis=tuple(query['cdr3'])
+    refs=reference['cdr3'].to_list()
+    def found(seqs,rs,threads,*,unit_reference_ids):
+        # Only one query is active in each target, despite many expanded edges.
+        rows={s:[] for s in seqs}
+        rows[seqs[0]]=[SimpleNamespace(ref_id=i,n_subs=1,score=i*7) for i in reversed(range(n))]
+        unit_reference_ids.extend([[0] if i==0 else [] for i in range(n)])
+        return rows,[(0,1 if i==0 else 0) for i in range(n)],dict.fromkeys(seqs,1)
+    monkeypatch.setattr(historical,'_density_neighbours',found)
+    monkeypatch.setattr(historical,'control_histograms',lambda *a,**k:{s:[0]*6 for s in axis})
+    base=historical._query_axis_size(axis)+n*historical._prepared_size(
+        axis,refs,0,active_queries=0,include_query_axis=False)
+    expanded=n*(n+1)
+    exact_active=n
+    limit=base+expanded*13+exact_active*149
+    assert limit < base+expanded*13+min(expanded,n*n)*149
+    monkeypatch.setattr(historical,'_PREPARED_LIMIT_BYTES',limit)
+    budget=historical.PreparedBudget()
+    prepared=[]
+    historical.shared_control_histograms(Index.build(['CASSF']),[(query,reference)]*n,
+        prepared_batches=prepared,prepared_budget=budget,identical_queries=True)
+    assert len(prepared)==n and budget.retained<=limit
+    for part in prepared:
+        assert list(part.query_indices)==[0]
+        assert list(part.refs)==list(reversed(range(n)))
+        assert list(part.penalties)==[i*7 for i in reversed(range(n))]
+        assert list(part.unit_counts)==[1]
+        assert list(part.offsets)==[0,n]
+
+
+def test_union_target_windows_preserve_order_and_empty_targets(monkeypatch):
+    query,reference,control=_inputs()
+    query=query.filter(pl.col('query_id')!=4)
+    populated=reference.filter(pl.col('epitope').is_in(['A','B']))
+    empty=populated.head(1).with_columns(pl.lit('CFFFFF').alias('cdr3'))
+    batches=[(query,empty if i in (0,7,19) else populated) for i in range(20)]
+    calls=[]
+    native=historical._density_neighbours
+    def searched(*args,**kwargs):
+        calls.append(1)
+        return native(*args,**kwargs)
+    monkeypatch.setattr(historical,'_density_neighbours',searched)
+    checks=[]
+    check=historical.PreparedBudget.check
+    def recorded(self,allocation,temporary=0,**kwargs):
+        checks.append(self.retained+allocation+temporary)
+        return check(self,allocation,temporary,**kwargs)
+    monkeypatch.setattr(historical.PreparedBudget,'check',recorded)
+    expected=[]
+    counts=historical.shared_control_histograms(control,batches,prepared_batches=expected,identical_queries=True)
+    assert calls==[1]
+    # The first six checks cover search, typed conversion and exact key metadata.
+    # Force the wide expansion into several windows without changing any model.
+    initial_peak=max(checks[:6])
+    wide_peak=checks[6]
+    assert wide_peak>initial_peak
+    limit=(initial_peak+wide_peak)//2
+    monkeypatch.setattr(historical,'_UNION_PEAK_LIMIT_BYTES',limit)
+    joins=[]
+    join=pl.DataFrame.join
+    def observed(self,other,*args,**kwargs):
+        if '_unit' in self.columns and '_local_ref' in other.columns:
+            joins.append((other['_target'].min(),other['_target'].max()))
+        return join(self,other,*args,**kwargs)
+    monkeypatch.setattr(pl.DataFrame,'join',observed)
+    actual=[]
+    assert historical.shared_control_histograms(control,batches,prepared_batches=actual,identical_queries=True)==counts
+    assert calls==[1,1] and len(joins)>1
+    assert actual==expected
+    assert joins[0][0]==0 and joins[-1][1]==19
+    assert all(a[1]+1==b[0] for a,b in zip(joins,joins[1:]))
+    assert all(not actual[i].refs and list(actual[i].offsets)==[0] for i in (0,7,19))

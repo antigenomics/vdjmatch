@@ -172,35 +172,100 @@ def _union_control_histograms(control, batches, *, threads, prepared_batches, bu
     budget.check(base,temporary,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
     if prepared_batches is None:
         return control_histograms(control,radii,threads=threads,radii=radii)
-    # Generator conversion can retain Python tuples/lists and both new frames
-    # while the native Hit lists and unit-reference lists are still live.
-    conversion=256*(sum(len(row) for row in hits.values())+sum(map(len,unit_ids)))
+    import numpy as np
+    edge_count=sum(len(row) for row in hits.values())
+    total_edges=edge_count+sum(map(len,unit_ids))
+    # Contiguous numeric columns share storage with Polars; boolean columns add
+    # two packed bitmaps. No Python tuple table or concatenated edge copy exists.
+    conversion=total_edges*23+2*((total_edges+7)//8)+4096
     budget.check(base,temporary+conversion,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
     schema={'_query':pl.UInt32,'_union_ref':pl.UInt32,'_order':pl.UInt32,
             '_subs':pl.UInt8,'_penalty':pl.Int64,'_unit':pl.Boolean,'_exact':pl.Boolean}
-    edges=pl.DataFrame(((i,h.ref_id,k,h.n_subs,h.score,False,rs[h.ref_id]==s)
-        for i,s in enumerate(seqs) for k,h in enumerate(hits[s])),schema=schema,orient='row')
-    unit_edges=pl.DataFrame(((i,r,0,1,0,True,False) for i,row in enumerate(unit_ids) for r in row),
-        schema=schema,orient='row')
-    del hits,unit_ids,unit
-    edges=pl.concat([edges,unit_edges])
-    del unit_edges
-    # Count expansion before allocating the target-membership join or its sort.
-    fanout=members.group_by('_union_ref').len()
-    expanded=edges.join(fanout,on='_union_ref',validate='m:1').select(
-        pl.col('len').cast(pl.UInt64).sum()).item() or 0
-    active_bound=min(expanded,len(seqs)*len(references))
-    # Includes sparse pack metadata, joined rows, sort/copy scratch and raw axes.
-    temporary=(_query_axis_size(seqs)+_query_axis_size(rs)+sys.getsizeof(radii)+len(radii)*64
-        +members.estimated_size()*4+edges.estimated_size()*4+expanded*256)
-    budget.check(base+expanded*13+active_bound*149,temporary,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
-    # All-hit seqtm traverses codec-ordered trie leaves, not score/ref-ID order.
-    # Filtering that union order reproduces each subset trie exactly; sorting by
-    # local IDs or penalties would change the historical floating reduction.
-    joined=edges.join(members,on='_union_ref',validate='m:m').sort('_target','_query','_unit','_order')
-    del edges,members,union,fanout
-    temporary=joined.estimated_size()*4+_query_axis_size(rs)+sys.getsizeof(radii)+len(radii)*64
-    if prepared_batches is not None:
+    columns={name:np.empty(total_edges,dtype=dtype) for name,dtype in
+        [('_query',np.uint32),('_union_ref',np.uint32),('_order',np.uint32),
+         ('_subs',np.uint8),('_penalty',np.int64),('_unit',np.bool_),('_exact',np.bool_)]}
+    columns['_order'][edge_count:]=0
+    columns['_subs'][edge_count:]=1
+    columns['_penalty'][edge_count:]=0
+    columns['_unit'][:edge_count]=False
+    columns['_unit'][edge_count:]=True
+    columns['_exact'][edge_count:]=False
+    at=0
+    for i,s in enumerate(seqs):
+        row=hits.pop(s)
+        end=at+len(row)
+        columns['_query'][at:end]=i
+        for k,h in enumerate(row,start=at):
+            columns['_order'][k]=k-at
+            columns['_union_ref'][k]=h.ref_id
+            columns['_subs'][k]=h.n_subs
+            columns['_penalty'][k]=h.score
+            columns['_exact'][k]=rs[h.ref_id]==s
+        at=end
+        del row
+    del hits,unit
+    for i,row in enumerate(unit_ids):
+        end=at+len(row)
+        columns['_query'][at:end]=i
+        columns['_union_ref'][at:end]=row
+        at=end
+    del unit_ids,row
+    edges=pl.DataFrame(columns,schema=schema)
+    del columns
+    # Small target totals determine windows before any wide membership join.
+    target_edges=(edges.lazy().group_by('_union_ref').len(name='_edge_rows')
+        .join(members.lazy(),on='_union_ref').group_by('_target').agg(
+            pl.col('_edge_rows').cast(pl.UInt64).sum()).collect(engine='streaming'))
+    expanded=int(target_edges['_edge_rows'].sum())
+    source_temporary=(_query_axis_size(seqs)+_query_axis_size(rs)+sys.getsizeof(radii)+len(radii)*64
+        +members.estimated_size()*4+edges.estimated_size()+union.estimated_size()*2)
+    # Two-UInt32 projected keys have a separate bounded join/hash allowance.
+    budget.check(base+expanded*13,source_temporary+expanded*64,
+        peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+    target_active=(edges.lazy().select('_query','_union_ref').unique()
+        .join(members.lazy().select('_union_ref','_target'),on='_union_ref')
+        .select('_query','_target').unique().group_by('_target').len(name='_active')
+        .collect(engine='streaming'))
+    active_queries=int(target_active['_active'].sum())
+    allocation=base+expanded*13+active_queries*149
+    budget.check(allocation,source_temporary,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+    reserved_owned=budget.retained+allocation
+    edge_sizes=dict(target_edges.iter_rows())
+    active_sizes=dict(target_active.iter_rows())
+    windows=[]
+    begin=0
+    rows=largest=active=0
+    def scratch(rows,largest,active):
+        # Wide rows are 29.25 bytes, rounded to 32: four joined/sort buffers,
+        # four copies of the largest target, and four aligned 24-byte stats rows.
+        return 128*(rows+largest)+96*active
+    for target in range(len(references)):
+        size=edge_sizes.get(target,0)
+        count=active_sizes.get(target,0)
+        needed=source_temporary+scratch(rows+size,max(largest,size),max(active,count))
+        if reserved_owned+needed>_UNION_PEAK_LIMIT_BYTES:
+            if target==begin:
+                budget.check(allocation,needed,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+            windows.append((begin,target))
+            begin=target
+            rows=largest=active=0
+            budget.check(allocation,source_temporary+scratch(size,size,count),
+                peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+        rows+=size
+        largest=max(largest,size)
+        active=max(active,count)
+    windows.append((begin,len(references)))
+    for begin,end in windows:
+        # Filtering the codec-DFS order reproduces each subset trie exactly.
+        # Search the full fixed population once; only the columnar join is windowed.
+        window_members=members.filter(pl.col('_target').is_between(begin,end-1))
+        rows=sum(edge_sizes.get(target,0) for target in range(begin,end))
+        largest=max((edge_sizes.get(target,0) for target in range(begin,end)),default=0)
+        active=max((active_sizes.get(target,0) for target in range(begin,end)),default=0)
+        budget.check(max(0,reserved_owned-budget.retained),
+            source_temporary+scratch(rows,largest,active),peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+        joined=edges.join(window_members,on='_union_ref',validate='m:m').sort('_target','_query','_unit','_order')
+        temporary=source_temporary+joined.estimated_size()*4
         groups=iter(joined.group_by('_target',maintain_order=True))
         current=next(groups,None)
         part=stats=pssm=None
@@ -208,10 +273,12 @@ def _union_control_histograms(control, batches, *, threads, prepared_batches, bu
             out=array(code)
             out.frombytes(values.to_numpy().tobytes())
             return out
-        for target,rs in enumerate(references):
+        for target in range(begin,end):
+            rs=references[target]
             if current is None or current[0][0] != target:
                 size=_prepared_size(axis,rs,0,active_queries=0,include_query_axis=False)
-                budget.check(size,temporary,peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
+                budget.check(size,temporary+max(0,reserved_owned-budget.retained-size),
+                    peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
                 result=_PreparedDensity(axis,rs,array('I'),array('Q',[0]),array('I'),array('B'),
                     array('q'),array('Q'),array('B'))
             else:
@@ -224,7 +291,8 @@ def _union_control_histograms(control, batches, *, threads, prepared_batches, bu
                         .max().alias('_radius')).sort('_query')
                 pssm=part.filter(~pl.col('_unit'))
                 size=_prepared_size(axis,rs,pssm.height,active_queries=stats.height,include_query_axis=False)
-                budget.check(size,temporary+part.estimated_size()*4+stats.estimated_size()*4,
+                budget.check(size,temporary+part.estimated_size()*4+stats.estimated_size()*4
+                    +max(0,reserved_owned-budget.retained-size),
                     peak_limit_bytes=_UNION_PEAK_LIMIT_BYTES)
                 offsets=array('Q',[0]);offsets.extend(packed('Q',stats['_edges'].cum_sum()))
                 result=_PreparedDensity(axis,rs,packed('I',stats['_query']),offsets,
@@ -233,8 +301,8 @@ def _union_control_histograms(control, batches, *, threads, prepared_batches, bu
                 current=next(groups,None)
             prepared_batches.append(result)
             budget.retained+=size
-        del groups,current,part,stats,pssm
-    del joined
+        del groups,current,part,stats,pssm,joined,window_members
+    del edges,members,union
     return control_histograms(control,radii,threads=threads,radii=radii)
 
 
