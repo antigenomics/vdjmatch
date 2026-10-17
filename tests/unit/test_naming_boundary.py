@@ -4,10 +4,14 @@ from pathlib import Path
 import re
 import subprocess
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_repository_naming_boundary():
+    if not (ROOT/".git").exists():
+        pytest.skip("repository-only check requires Git checkout metadata")
     policy = json.loads((ROOT/'examples/comparison-provenance.ipynb').read_text())
     pattern = re.compile('|'.join(policy['metadata']['forbidden_package_patterns']), re.I)
     names = subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard'],

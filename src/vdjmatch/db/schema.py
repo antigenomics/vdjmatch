@@ -77,7 +77,7 @@ def _unpivot_paired(df: pl.DataFrame) -> pl.DataFrame:
     parts = [
         df.with_columns(
             *[
-                pl.col(src).alias(dst) if src in df.columns else pl.lit(None).alias(dst)
+                pl.col(src).cast(pl.String).alias(dst) if src in df.columns else pl.lit(None, dtype=pl.String).alias(dst)
                 for dst, src in cols.items()
             ],
             pl.lit(gene).alias("gene"),

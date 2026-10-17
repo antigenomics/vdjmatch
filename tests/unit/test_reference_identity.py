@@ -336,3 +336,12 @@ def test_whitespace_only_reference_annotation_is_missing(column):
 def test_nonblank_reference_annotation_source_values_are_retained():
     raw = pairs().with_columns(pl.lit(' PEP ').alias('epitope'))
     assert schema.normalize(raw)['epitope'].to_list() == [' PEP '] * 2
+
+
+@pytest.mark.parametrize('side,locus,v,j', [('alpha','TRA','TRAV12-2','TRAJ33'),
+    ('beta','TRB','TRBV19','TRBJ2-7')])
+def test_one_chain_wide_reference_retains_gene_calls(side, locus, v, j):
+    out = schema.normalize(pl.DataFrame({f'junction_aa_{side}':['CASSF'],
+        f'v_{side}':[v], f'j_{side}':[j], 'epitope':['DEMO']}))
+    assert out.height == 1
+    assert out.select('gene','v','j','complex_id').row(0) == (locus,v,j,0)

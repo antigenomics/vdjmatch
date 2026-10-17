@@ -1,9 +1,13 @@
 """Read comparison programs from their canonical notebook sources."""
+import importlib.util
 import json
+import sys
+from tempfile import TemporaryDirectory
 from pathlib import Path
 import shutil
 
 ROOT = Path(__file__).resolve().parent
+_worker_directory = None
 
 
 def programs():
@@ -23,6 +27,43 @@ def load(namespace, name):
     raise ImportError('comparison notebook not found: '+name)
 
 
+def program_path(name):
+    """Materialize notebook-owned worker source for an isolated tool interpreter."""
+    if Path(name).name != name or not name.endswith('.py'):
+        raise ValueError('comparison worker must be a Python basename')
+    if (ROOT/name).is_file():
+        return ROOT/name
+    for _, notebook in programs():
+        if notebook['metadata'].get('legacy_filename') == name:
+            global _worker_directory
+            if _worker_directory is None:
+                _worker_directory = TemporaryDirectory(prefix='vdjmatch-comparison-workers-')
+            target = Path(_worker_directory.name)/name
+            source = ''.join(''.join(c['source'])+'\n' for c in notebook['cells']
+                if c['cell_type'] == 'code' and c['metadata'].get('program'))
+            target.write_text(source)
+            return target
+    raise ImportError('comparison notebook not found: '+name)
+
+
+class _NotebookModules:
+    """Resolve imports of comparison programs without generating source modules."""
+    def find_spec(self, fullname, path=None, target=None):
+        if '.' not in fullname and any(notebook['metadata'].get('legacy_filename') == fullname+'.py'
+                for _, notebook in programs()):
+            return importlib.util.spec_from_loader(fullname, self)
+
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, module):
+        module.__file__ = str(ROOT/(module.__name__+'.py'))
+        load(vars(module), module.__name__)
+
+
+sys.meta_path.append(_NotebookModules())
+
+
 def export(destination):
     """Export a fresh executable comparison bundle; no prediction is computed."""
     destination = Path(destination)
@@ -30,6 +71,9 @@ def export(destination):
     for path in ROOT.iterdir():
         if path.is_file() and path.suffix in ('.py','.js','.md'):
             shutil.copyfile(path,destination/path.name)
+    if (ROOT/'external').is_dir():
+        shutil.copytree(ROOT/'external', destination/'external',
+            ignore=shutil.ignore_patterns('.git', '.venv', '__pycache__', 'node_modules'))
     for _, notebook in programs():
         metadata = notebook['metadata']
         original = metadata['legacy_filename']
