@@ -5,7 +5,40 @@ Selection evidence as information
 
 **Scope and status.**
 
-The objective is to identify which receptor features distinguish a pMHC-specific repertoire from the declared control, and use those features to choose the scoring rule. The equations below define this objective and its calibration contract; they do not promote a new default or establish superiority over other predictors. The V-conditioned masked-four-mer score and the reference/control gene–length information decomposition are implemented diagnostics. A complete information-directed selector and its whole-cohort calibration remain to be established. The original/general score is retained when the available features do not support a more specific rule.
+Reference profiles describe which receptor features distinguish a target from a declared background. The gene–length decomposition and V-conditioned motif scores are implemented diagnostics. A tested class-based selector regressed against the accepted original baseline and was not promoted. The equations below explain evidence and calibration; they do not establish an optimal scorer or change the annotation default.
+
+Reading a reference profile
+---------------------------
+
+Keep the following axes separate:
+
+* V support measures gene-usage enrichment. Conditional motif support asks whether
+  a junction pattern adds information within V; it does not isolate a J-gene effect.
+* Length KL/JS describes the entire spectratype. JS remains finite when an
+  unsmoothed KL is infinite because the background lacks a reference length.
+* Same-size neighbour comparisons distinguish concentrated local families from
+  a large reference. Mean degree and the fraction of connected vertices answer
+  different questions. Self-inclusive Hill2 re-expresses mean degree.
+* Background publicity measures sequence availability in the declared control,
+  not sharing across donors or experimental specificity.
+* Occurrence rarefaction estimates represented mass and richness at a stated
+  clonotype/community resolution. Graph acquisition interpolates observed
+  connectivity; it does not estimate unseen receptors.
+* Alpha/beta support retains each marginal and observed pair links. A joint-class
+  row grouping single-chain metrics is not a paired-score performance estimate.
+
+``full20`` denotes the full amino-acid alphabet: core exact triplets and all
+single-wildcard four-mer masks share one selection-aware shuffle maximum.
+It does not denote untrimmed junctions. The current profile default is 999
+shuffles; historical 199-shuffle index outputs retain their own identities.
+At 999 shuffles, the inclusive 0.005 tail permits up to four shuffled exceedances.
+
+For class/scorer heatmaps, prefer MCC and balanced accuracy to raw accuracy under
+class imbalance. State the number of defined epitopes for each macro mean, keep
+undefined MCCs unavailable, and compare scorers on matching denominators.
+Reference-label retrieval, experimental binding discrimination and final-event
+null calibration are different endpoints. A descriptive class does not prescribe
+a scorer, a molecular mechanism or a binding probability.
 
 Likelihood ratios, selection factors and bits
 ---------------------------------------------
