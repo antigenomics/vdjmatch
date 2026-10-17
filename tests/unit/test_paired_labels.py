@@ -89,3 +89,19 @@ def test_empty_and_all_unsupported():
         assert calls.height==scores.height==n
         assert calls['paired_label_source'].to_list()==['none']*n
         assert scores['supported'].to_list()==[False]*n
+
+
+def test_native_chosen_axis_ambiguity_survives_single_label():
+    from vdjmatch.aggregate.paired_labels import paired_labels
+    e,s=inputs()
+    s=s.with_columns(pl.lit('ranked_evidence').alias('linked_selection_status'),
+        pl.lit('ranked_evidence').alias('alpha_selection_status'),
+        pl.lit('ranked_evidence').alias('beta_selection_status'))
+    s=s.with_columns(
+        pl.when(pl.col('query_id')=='4294967297').then(pl.lit('ambiguous')).otherwise(pl.col('linked_selection_status')).alias('linked_selection_status'),
+        pl.when(pl.col('query_id')=='agree').then(pl.lit('ambiguous')).otherwise(pl.col('alpha_selection_status')).alias('alpha_selection_status'))
+    calls,_=paired_labels(e,s,species='HomoSapiens')
+    chosen=calls.filter(pl.col('query_id').is_in(['4294967297','agree']))
+    assert chosen['paired_label_count'].to_list()==[1,1]
+    assert chosen['paired_label_status'].to_list()==['ambiguous','ambiguous']
+    assert chosen['paired_epitope'].to_list()==['A','A']

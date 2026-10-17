@@ -50,8 +50,17 @@ def paired_labels(evidence, selection, *, species):
     calls=selection.with_row_index('_label_order').join(chosen,on='query_id',how='left').with_columns(
         pl.col('paired_label_source').fill_null('none'),
         pl.col('paired_epitope').count().over('query_id').cast(pl.UInt32).alias('paired_label_count'))
+    native_ambiguity=pl.lit(False)
+    for axis,_,maximum,_,_ in AXES:
+        status='linked_selection_status' if axis=='linked' else axis+'_selection_status'
+        if status not in calls.columns: continue
+        source='linked' if axis=='linked' else 'marginal_fallback'
+        value=pl.col(maximum).cast(pl.Float64)
+        native_ambiguity=native_ambiguity | ((pl.col('paired_label_source')==source) &
+            value.is_finite() & (value>0) & (pl.col(status)=='ambiguous')).fill_null(False)
     calls=calls.with_columns(pl.when(pl.col('paired_label_count')==0).then(pl.lit('no_support'))
-        .when(pl.col('paired_label_count')>1).then(pl.lit('ambiguous')).otherwise(pl.lit('ranked_evidence')).alias('paired_label_status'))
+        .when((pl.col('paired_label_count')>1) | native_ambiguity).then(pl.lit('ambiguous'))
+        .otherwise(pl.lit('ranked_evidence')).alias('paired_label_status'))
     calls=calls.sort('_label_order','paired_epitope').drop('_label_order')
     scores=calls.select(pl.lit(species).alias('species'),pl.lit('PAIRED').alias('locus'),'query_id',
         pl.col('paired_epitope').alias('epitope'),pl.lit('stem4_linked_first').alias('scorer'),
