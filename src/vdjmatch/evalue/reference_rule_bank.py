@@ -89,7 +89,11 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
     scale, quantum = distance_units()
     bound = 3*scale*sum(max((f[c].str.len_chars().max() or 0) for f in (queries, whole)) for c in seq)
     cuts = list(range(0, 200*bound+1, 600*quantum))
-    weights = np.maximum(0, distance_cutoff(radius)-np.asarray(cuts, dtype=np.int64))
+    native_radius = distance_cutoff(radius)
+    weights = np.maximum(0, native_radius-np.asarray(cuts, dtype=np.int64))
+    spatial_bins = int(np.count_nonzero(weights))
+    # Sum CDF increments times weights by telescoping; zero-weight bins vanish.
+    spatial_steps = weights[:spatial_bins]-np.r_[weights[1:spatial_bins], np.int64(0)]
     # Keep native counts under128MiB; reduce labels in windows instead of
     # materializing every query/label/distance float scratch array together.
     per_query = 4*((1+3*T)*(len(cuts)+1)+T)
@@ -126,8 +130,8 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
                         not np.array_equal(bc[:, :, -1], (m-eb)[:, targets])):
                     raise ArithmeticError('all-label rank bound did not cover eligible hits')
                 if conditional:
-                    masses[np.ix_(rows, targets, [0])] = (np.diff(tc, axis=2, prepend=0)@weights/distance_cutoff(radius))[:, :, None]
-                    masses[np.ix_(rows, targets, [1])] = (np.diff(bc, axis=2, prepend=0)@weights/distance_cutoff(radius))[:, :, None]
+                    masses[np.ix_(rows, targets, [0])] = (tc[:, :, :spatial_bins]@spatial_steps/native_radius)[:, :, None]
+                    masses[np.ix_(rows, targets, [1])] = (bc[:, :, :spatial_bins]@spatial_steps/native_radius)[:, :, None]
                 shell = np.diff(tc, axis=2, prepend=0)
                 a, b, c = np.nonzero(shell)
                 before = np.where(c > 0, bc[a, b, c-1], 0)

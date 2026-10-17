@@ -36,7 +36,7 @@ def paired_call_event():
         axes=['linked','alpha','beta'],selection='each axis: max restriction then max peptide; ties retained',
         linked='alpha+beta distance to genuine linked references',
         marginals='full compatible TRA/TRB references including unlinked observations',
-        exact_policy='linked: both full junctions; marginals: own full junction; V/J do not change puncture')
+        exact_policy='hit filtering only: linked both full junctions; marginals own full junction across V/J; fixed model populations retained')
 
 
 def paired_pipeline_sources():
@@ -125,7 +125,7 @@ def pipeline_binding(manifest):
             geometry=geometry, sources=sources, model_file_sha256=file_hash, model_semantic_sha256=semantic_hash,
             statistic=PAIRED_STATISTIC if locus=='paired' else 'final selected kernel_score',
             selection='independent linked/alpha/beta selections; maximum scalar only' if locus=='paired' else 'max restriction then max peptide; ties retained',
-            exact_policy=(('linked: both full junctions; marginals: own full junction; no ordinary exact-retained transfer' if locus=='paired' else 'full-junction puncture across V/J; no ordinary exact-retained transfer') if geometry['exclude_exact']
+            exact_policy=(('hit filtering only: linked both full junctions; marginals own full junction across V/J; fixed model populations retained; no ordinary exact-retained transfer' if locus=='paired' else 'full-junction hit filtering across V/J; fixed model populations retained; no ordinary exact-retained transfer') if geometry['exclude_exact']
                           else 'exact evidence retained across all labels; ordinary annotation'))
     except (KeyError, TypeError, AttributeError) as exc:
         raise ValueError('binding manifest is missing required producer identities') from exc

@@ -42,7 +42,7 @@ def manifests():
         reference_sha256='a' * 64, geometry=geometry, sources=sources, model_file_sha256=file_hash,
         model_semantic_sha256=semantic, statistic='final selected kernel_score',
         selection='max restriction then max peptide; ties retained',
-        exact_policy='full-junction puncture across V/J; no ordinary exact-retained transfer')
+        exact_policy='full-junction hit filtering across V/J; fixed model populations retained; no ordinary exact-retained transfer')
     return reference, annotation, binding
 
 

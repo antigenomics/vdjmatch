@@ -65,7 +65,8 @@ def test_native_peptide_channels_exactly_match_legacy_artificial_models(monkeypa
 
 
 @pytest.mark.parametrize('paired', [False, True])
-def test_streamed_rules_match_every_scalar_model(paired):
+@pytest.mark.parametrize('radius', [.005, 90.005])
+def test_streamed_rules_match_every_scalar_model(paired, radius):
     from vdjmatch.evalue.reference_rule_bank import stream_reference_rules
     from vdjmatch.evalue.epitope_rules import reference_epitope_rules
     reference = pl.DataFrame({'seq0': ['CASSLGQAYEQYF', 'CASSLGRAYEQYF', 'CASSLGRAYEQYF',
@@ -83,13 +84,13 @@ def test_streamed_rules_match_every_scalar_model(paired):
     collected = {}
     def consume(scorer, frame):
         collected.setdefault(scorer, []).append(frame)
-    stream_reference_rules(queries, reference, paired=paired, species='human', threads=1, consume=consume)
+    stream_reference_rules(queries, reference, paired=paired, species='human', threads=1, radius=radius, consume=consume)
     expected = []
     for epitope in sorted(reference['epitope'].unique()):
         expected.append(reference_epitope_rules(queries,
             reference.filter(pl.col('epitope') == epitope).select(keys),
             reference.filter(pl.col('epitope') != epitope).select(keys),
-            paired=paired, exclude_exact=True).with_columns(pl.lit(epitope).alias('epitope')))
+            paired=paired, exclude_exact=True, radius=radius).with_columns(pl.lit(epitope).alias('epitope')))
     expected = pl.concat(expected).sort('query_id', 'epitope')
     score_columns = [c for c in expected.columns if c.endswith('_score')]
     assert len(collected) == len(score_columns) == 15
