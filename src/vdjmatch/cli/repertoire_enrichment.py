@@ -2,13 +2,21 @@
 from pathlib import Path
 
 
-def _single_v(frame,column):
-    """Pool same-gene alleles; refuse unresolved multi-gene calls without dropping rows."""
+def _single_v(frame,column,*,species='human',locus='TRB',impute=True):
+    """Pool alleles and impute unresolved V without changing source rows/counts."""
     import polars as pl
+    from ..evalue.mock_reference import _modal_gene
     genes=pl.col(column).cast(pl.String).str.to_uppercase().str.split(',').list.eval(pl.element().str.split('*').list.first().str.strip_chars()).list.unique()
-    ambiguous=frame.select((genes.list.len()>1).sum()).item()
-    if ambiguous:raise ValueError(f'{ambiguous}unresolved multi-gene V calls; exact V matching cannot choose a gene or discard these records')
-    return frame.with_columns(genes.list.first().alias(column))
+    if not impute:
+        resolved=(genes.list.len()==1)&genes.list.first().str.contains(r'^TR[AB]V[A-Z0-9/.-]+$').fill_null(False)
+        return frame.with_columns(pl.when(resolved).then(genes.list.first()).otherwise(pl.col(column)).alias(column))
+    resolved=(genes.list.len()==1)&genes.list.first().str.contains('^'+locus+r'V[A-Z0-9/.-]+$').fill_null(False)
+    frame=frame.with_columns(pl.col(column).alias('original_v'),genes.list.first().alias('_pooled_v'),(~resolved.fill_null(False)).alias('_v_missing'))
+    if frame['_v_missing'].any():
+        replacement=_modal_gene(frame.filter(~pl.col('_v_missing')),'_pooled_v',species=species,locus=locus).split('*')[0]
+        frame=frame.with_columns(pl.when(pl.col('_v_missing')).then(pl.lit(replacement)).otherwise(pl.col('_pooled_v')).alias('_pooled_v'))
+    prior=pl.col('v_imputed') if 'v_imputed' in frame.columns else pl.lit(False)
+    return frame.with_columns(pl.col('_pooled_v').alias(column),(prior|pl.col('_v_missing')).alias('v_imputed')).drop('_pooled_v','_v_missing')
 
 
 def _repertoire_strata(frame):
@@ -72,8 +80,9 @@ def main(a):
     def freeze():return {str(p):sha256(p) for p in source_files}
     before,source_before=identities(),freeze();model_before=_pgen_model_identity(a.species,a.locus)
     raw_control=_read_table(inputs[1]);v_column=_resolve(raw_control).get('v')
-    if v_column:raw_control=_single_v(raw_control,v_column)
-    controls=control_events(raw_control,species=a.species,locus=a.locus);del raw_control
+    if v_column:raw_control=_single_v(raw_control,v_column,impute=False)
+    controls=_single_v(control_events(raw_control,species=a.species,locus=a.locus),'v',impute=False);del raw_control
+    control_v_imputed=int(controls['v_imputed'].sum()) if 'v_imputed' in controls.columns else 0
     stages['control_ingestion_seconds']=time.monotonic()-start
     print(f'control ingestion: {controls.height} event keys',flush=True)
     t=time.monotonic();prepared=None
@@ -97,13 +106,15 @@ def main(a):
         t=time.monotonic()
         frame,report=io.read_rearrangement(path,valid_aa=False,return_report=True)
         valid=pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
-        locus=pl.col('locus').eq(a.locus).fill_null(False)
+        missing_locus=pl.col('locus').is_null()|(pl.col('locus').str.strip_chars()=='')
+        locus=pl.col('locus').eq(a.locus).fill_null(False)|missing_locus.fill_null(True)
         called=(pl.col('v').is_not_null()&(pl.col('v').str.strip_chars()!='')).fill_null(False)
-        selected=_single_v(frame.filter(valid&locus&called),'v')
-        if not selected.height:raise ValueError('repertoire has no valid selected-locus V-labelled records')
+        selected=_single_v(frame.filter(valid&locus),'v',species=a.species,locus=a.locus)
+        if not selected.height:raise ValueError('repertoire has no valid selected-locus records')
         reports.append(dict(sample_id=sample,**report,selected_records=selected.height,selected_reads=int(selected['count'].sum()),
             invalid_aa_records=frame.filter(~valid).height,other_or_missing_locus_records=frame.filter(valid&~locus).height,
-            missing_v_records=frame.filter(valid&locus&~called).height,
+            missing_v_records=frame.filter(valid&locus&~called).height,imputed_v_records=int(selected['v_imputed'].sum()),
+            imputed_locus_records=frame.filter(valid&missing_locus).height,
             retained_noncanonical_anchor_records=selected.filter(~pl.col('cdr3').str.contains(r'^C[ACDEFGHIKLMNPQRSTVWY]*[FW]$')).height))
         del frame
         missing=selected.select(pl.col('cdr3').alias('junction_aa')).unique().join(pgen.select('junction_aa'),on='junction_aa',how='anti')
@@ -147,7 +158,8 @@ def main(a):
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(dict(inputs=before,input_after=after,inputs_frozen=True,
         source_before=source_before,source_after=source_after,source_frozen=True,pgen_model=model_before,prepared_pgen=prepared,
         software={n:version(n) for n in ['vdjmatch','vdjtools','seqtree','polars','numpy','scipy']},species=a.species,locus=a.locus,
-        source_records=source_records,control_keys=controls.height,matched_query_rows=search_keys,native_search_batches=search_batches,
+        source_records=source_records,control_keys=controls.height,control_imputed_v_keys=control_v_imputed,
+        missing_metadata_policy='retain AA-valid source records; unresolved V uses label-independent observed mode or bundled-model mode, allele pooled; missing locus uses requested locus; original calls and flags retained during ingestion',matched_query_rows=search_keys,native_search_batches=search_batches,
         processing="one real repertoire or one mock matched at a time; fixed reference index reused; only aggregate mock endpoints retained",sample_seeds=[a.seed+i for i in range(len(paths))],
         scope='full-junction Hamming<=1 and exact V gene, allele-pooled; exact reference matches retained',reference_population=a.reference_population,
         mock_replicates=a.mock_replicates,seed=a.seed,threads=a.threads,event_sampler=EVENT_SAMPLER,

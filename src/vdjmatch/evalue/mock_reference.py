@@ -143,6 +143,16 @@ def normalize_control(frame: pl.DataFrame, *, species='human', locus='TRB') -> p
     return _normalize_control(frame, species=species, locus=locus, gene_keys=False)
 
 
+def _modal_gene(frame, column, *, species, locus, kind='v'):
+    """Choose a label-independent observed mode, falling back to the bundled model."""
+    observed=frame.group_by(column).len().sort('len',column,descending=[True,False])
+    if observed.height:return observed[column][0]
+    from vdjtools.model import load_bundled
+    model=load_bundled(locus,'olga' if _organism(species)=='human' else 'arda',organism=_organism(species),collapse=False)
+    prior=model.tables[kind+'_choice'];allele=kind+'_allele'
+    return prior.filter(pl.col(allele).str.contains('^'+locus+kind.upper())).sort('p',allele,descending=[True,False])[allele][0]
+
+
 def control_events(frame: pl.DataFrame, *, species='human', locus='TRB') -> pl.DataFrame:
     """Retain the joint junction/V/J event law for full-score randomization.
 
@@ -220,16 +230,13 @@ def _normalize_control(frame, *, species, locus, gene_keys):
             value=pl.col(column).cast(pl.String).str.strip_chars().str.to_uppercase()
             valid=value.str.contains('^'+locus+kind.upper()+r'[A-Z0-9/.-]+(?:\*[A-Z0-9]+)?$').fill_null(False)
             missing=frame.select((~valid).any()).item()
-            frame=frame.with_columns(pl.when(value.is_null()|value.eq('')).then(pl.lit('__MISSING_'+kind.upper()+'__')).otherwise(value).alias('_original_control_'+kind),(~valid).alias(kind+'_imputed'))
+            prior=pl.col(kind+'_imputed') if kind+'_imputed' in frame.columns else pl.lit(False)
+            original=pl.when(prior).then(pl.col('original_'+kind)).otherwise(value) if 'original_'+kind in frame.columns else value
+            imputed=imputed or frame.select(prior.any()).item()
+            frame=frame.with_columns(pl.when(original.is_null()|original.eq('')).then(pl.lit('__MISSING_'+kind.upper()+'__')).otherwise(original).alias('_original_control_'+kind),(prior|~valid).alias(kind+'_imputed'))
             if missing:
                 imputed=True
-                observed=frame.filter(valid).group_by(column).len().sort('len',column,descending=[True,False])
-                if observed.height:replacement=observed[column][0]
-                else:
-                    from vdjtools.model import load_bundled
-                    model=load_bundled(locus,'olga' if organism=='human' else 'arda',organism=organism,collapse=False)
-                    prior=model.tables[kind+'_choice'];allele=kind+'_allele'
-                    replacement=prior.filter(pl.col(allele).str.contains('^'+locus+kind.upper())).sort('p',allele,descending=[True,False])[allele][0]
+                replacement=_modal_gene(frame.filter(valid),column,species=organism,locus=locus,kind=kind)
                 frame=frame.with_columns(pl.when(valid).then(value).otherwise(pl.lit(replacement)).alias(column))
             original_gene_columns.append('_original_control_'+kind)
             frame=frame.with_columns(pl.col(column).alias('_control_'+kind))

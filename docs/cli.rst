@@ -2301,11 +2301,14 @@ Strict repertoire enrichment
 Pgen-matched real-control draws. The metadata TSV must have unique ``sample_id``
 and ``path`` columns; paths resolve relative to the metadata file. Input counts
 are read counts. Source receptor records and their counts remain distinct even
-when their amino-acid junctions coincide. Invalid amino acids, missing V calls and
-other loci are counted in the ingestion table; noncanonical anchor residues and
-zero model Pgen do not themselves discard records. Same-gene V alleles are
-pooled; unresolved multi-gene V calls fail explicitly without choosing a gene
-or dropping source observations.
+when their amino-acid junctions coincide. Invalid amino acids and other loci are
+counted in the ingestion table; noncanonical anchor residues and zero model Pgen
+do not themselves discard records. Same-gene V alleles are pooled. Missing or
+unresolved V uses the label-independent observed V-gene mode, falling back to the
+bundled model mode; missing locus uses the requested locus. Original source calls
+remain in the raw input, and imputed-record counts accompany ingestion. Control
+event identities retain distinct original missing-gene keys while preserving the
+established allele-pooled event law for complete inputs.
 
 .. code-block:: console
 
