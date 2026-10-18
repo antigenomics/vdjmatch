@@ -2307,10 +2307,12 @@ pMHC regardless of repeated reference observations. Both matched receptor-record
 counts and their summed read counts are compared with the mock distributions.
 
 Every mock has the source repertoire's record count, the same rounded-log2-Pgen
-histogram and the same read-count multiset within every bin. The existing
+histogram and the same read-count multiset within every bin. Bins follow the
+original vdjbet rule ``round(log2(Pgen + 2**-60))``, with ties to even, applied
+identically to real and control probabilities. The existing
 control-event slot sampler draws without replacement, then randomly assigns the
 source count roles. An absent or undersized bin fails explicitly; it cannot be
-remapped or fixed by dropping source observations. Zero Pgen has its own bin.
+remapped or fixed by dropping source observations. Zero Pgen falls in bin -60.
 Pgen bins use inclusive Hamming≤1 full-junction probability by default.
 ``--pgen-mismatches 0`` selects exact-sequence probability; the supplied
 feature bank and fresh calculations must use the same definition.

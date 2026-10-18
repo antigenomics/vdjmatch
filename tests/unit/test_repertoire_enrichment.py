@@ -95,3 +95,10 @@ def test_streamed_mock_measurements_equal_precomputed_memberships():
     actual=matched_enrichment(observations,control,None,targets,seed=7,measure=measure)
     assert all(a.equals(b) for a,b in zip(expected,actual))
     assert sizes==[3]*201
+
+
+def test_original_vdjbet_pgen_binning_includes_zero_and_extreme_tail():
+    from vdjmatch.cli.repertoire_enrichment import _repertoire_strata
+    x=pl.DataFrame(dict(junction_aa=['CASSF','CATSF','CARTF','CASRF'],pgen=[0.,2.**-112,2.**-61,2.**-20]))
+    result=_repertoire_strata(x)
+    assert dict(zip(result['junction_aa'],result['pgen_bin']))==dict(CASSF=-60,CATSF=-60,CARTF=-59,CASRF=-20)

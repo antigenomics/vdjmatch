@@ -11,6 +11,13 @@ def _single_v(frame,column):
     return frame.with_columns(genes.list.first().alias(column))
 
 
+def _repertoire_strata(frame):
+    """Original vdjbet round(log2(Pgen +2^-60)) applied to both populations."""
+    import polars as pl
+    from ..evalue.mock_reference import pgen_strata
+    return pgen_strata(frame.with_columns((pl.col('pgen')+2.**-60).alias('pgen')))
+
+
 def register(subparsers):
     p=subparsers.add_parser('repertoire-enrichment',help=__doc__)
     p.add_argument('metadata',help='TSV with unique sample_id,path; paths relative to this file')
@@ -38,7 +45,7 @@ def main(a):
     from ..aggregate.candidates import PMHC
     from ..aggregate.repertoire_enrichment import matched_enrichment
     from ..db.cache import sha256
-    from ..evalue.mock_reference import control_events,compute_pgen,pgen_strata,load_pgen_features,_pgen_model_identity,EVENT_SAMPLER
+    from ..evalue.mock_reference import control_events,compute_pgen,load_pgen_features,_pgen_model_identity,EVENT_SAMPLER
     from ..io.airr import _read_table
     from ..io.columns import _resolve
     from ..match.engine import VdjdbIndex
@@ -74,7 +81,7 @@ def main(a):
         pgen,prepared=load_pgen_features(a.pgen_features,controls,controls,species=a.species,locus=a.locus,mismatches=a.pgen_mismatches)
     else:
         pgen=compute_pgen(controls,controls.head(0),species=a.species,locus=a.locus,threads=a.threads,mismatches=a.pgen_mismatches)
-    controls=controls.join(pgen_strata(pgen),on='junction_aa',validate='m:1').select('junction_aa','v','event_weight','pgen_bin').with_row_index('query_id')
+    controls=controls.join(_repertoire_strata(pgen),on='junction_aa',validate='m:1').select('junction_aa','v','event_weight','pgen_bin').with_row_index('query_id')
     stages['control_pgen_seconds']=time.monotonic()-t
     print('control Pgen bins ready',flush=True)
     t=time.monotonic()
@@ -103,7 +110,7 @@ def main(a):
         sample_pgen=pgen.join(selected.select(pl.col('cdr3').alias('junction_aa')).unique(),on='junction_aa',how='semi')
         if missing.height:
             sample_pgen=pl.concat([sample_pgen,compute_pgen(missing,controls.head(0),species=a.species,locus=a.locus,threads=a.threads,mismatches=a.pgen_mismatches)])
-        observations=selected.select('cdr3','count').with_row_index('query_id',offset=controls.height).join(pgen_strata(sample_pgen),left_on='cdr3',right_on='junction_aa',validate='m:1').with_columns(pl.lit(sample).alias('sample_id')).select('sample_id','query_id','count','pgen_bin')
+        observations=selected.select('cdr3','count').with_row_index('query_id',offset=controls.height).join(_repertoire_strata(sample_pgen),left_on='cdr3',right_on='junction_aa',validate='m:1').with_columns(pl.lit(sample).alias('sample_id')).select('sample_id','query_id','count','pgen_bin')
         real_keys=selected.select('cdr3','v');source_records+=selected.height
         del selected,sample_pgen,missing
         def measure(rows,counts):
@@ -145,7 +152,8 @@ def main(a):
         scope='full-junction Hamming<=1 and exact V gene, allele-pooled; exact reference matches retained',reference_population=a.reference_population,
         mock_replicates=a.mock_replicates,seed=a.seed,threads=a.threads,event_sampler=EVENT_SAMPLER,
         pgen_mismatches=a.pgen_mismatches,pgen_definition=f'inclusive Hamming<={a.pgen_mismatches} marginal full-junction probability, summed over model V/J',
-        matching='exact rounded-log2Pgen bins; no missing-bin remapping or dropped source records; counts fixed within bins; event slots without replacement',
+        pgen_binning='round(log2(Pgen+2**-60)), ties-to-even; original vdjbet offset applied identically to real/control masses',
+        matching='exact vdjbet rounded-log2Pgen bins; no missing-bin remapping or dropped source records; counts fixed within bins; event slots without replacement',
         inference='independent per-sample/per-full-pMHC one-sided empirical (1+mock>=real)/(B+1); central95percent mock intervals, no donor/timepoint contrasts or correction',
         automatic_detection_threshold=None,calculation='fresh raw queries/mocks/matches; explicitly supplied immutable Pgen assets only; new query masses remain in-memory',
         stages=stages,seconds=time.monotonic()-start,tables=tables),indent=2)+'\n')
