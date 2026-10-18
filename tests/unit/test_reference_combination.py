@@ -87,7 +87,9 @@ def test_structure_cli_exports_mixture_weights_for_unmodeled_v_once(tmp_path, mo
     full = pl.read_csv(str(prefix) + '.structures.tsv', separator='\t')
     assert not (tmp_path / 'weights.punctures.tsv').exists()
     assert calls == [2]
-    assert full['junctions'].item() == 1
+    assert full['junctions'].item() == 2
+    assert full['v_geometry_imputed_records'].item() == 1
+    assert full['unavailable_records'].item() == 0
     assert full['mixture_junctions'].item() == 2
     assert full['hamming_junctions'].item() == 2
     degrees = pl.read_csv(str(prefix) + '.degrees.tsv', separator='\t')
