@@ -208,6 +208,7 @@ class Annotator:
         background_mass=False,
         exclude_epitopes=None,
         retain_hits=True,
+        _prepare_consumer=False,
     ):
         import math
 
@@ -327,6 +328,8 @@ class Annotator:
                         c = c.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius"))
                     cs.append(c)
                 return h
+            if _prepare_consumer:
+                return consume, cs, reference_records
             h = self._index.annotate(
                 gq,
                 sp,
@@ -582,6 +585,12 @@ class Annotator:
         return_hits=False,
         progress=False,
         exclude_exact=False,
+        _axis_consumers=None,
+        _prepared_queries=None,
+        _reference_views=None,
+        _linked_radii=None,
+        _match_v=False,
+        _match_j=False,
     ):
         """Genuine same-complex evidence; optional fixed-ball chain-independent calibration.
 
@@ -629,6 +638,8 @@ class Annotator:
             paired_controls[chain] = ctrl
         _, qa = _prepare(data, cdr3a, locus="TRA")
         _, qb = _prepare(data, cdr3b, locus="TRB")
+        if _prepared_queries is not None:
+            qa, qb = _prepared_queries
         sp = (
             search_params(
                 scope,
@@ -655,6 +666,7 @@ class Annotator:
                 )
             )
 
+        groups = ['query_id'] + (['radius'] if _linked_radii is not None else [])
         dtype = qa.schema["query_id"]
         out_schema = {
             "query_id": dtype,
@@ -681,18 +693,20 @@ class Annotator:
                 "p_poisson_raw": pl.Float64, "p_upper": pl.Float64,
                 "finite_control_delta": pl.Float64,
             })
+        if _linked_radii is not None:
+            out_schema['radius'] = pl.UInt16
         def summarize(joint):
-            records = joint.group_by(["query_id", *PMHC]).agg(
+            records = joint.group_by([*groups, *PMHC]).agg(
                 pl.col("complex_id").n_unique().alias("n_records")
             )
-            unique = joint.unique(subset=["query_id", *PMHC, "db_cdr3", "db_cdr3_beta"])
-            out = unique.group_by(["query_id", *PMHC]).agg(
+            unique = joint.unique(subset=[*groups, *PMHC, "db_cdr3", "db_cdr3_beta"])
+            out = unique.group_by([*groups, *PMHC]).agg(
                 pl.len().alias("n_hits"),
                 ((-(pl.col("score") + pl.col("score_beta")) / score_scale).exp())
                 .sum()
                 .alias("ned_score"),
             )
-            return out.join(records, on=["query_id", *PMHC], nulls_equal=True)
+            return out.join(records, on=[*groups, *PMHC], nulls_equal=True)
 
         def linked(ha, hb):
             detail = projection(ha, "alpha_").join(
@@ -725,42 +739,78 @@ class Annotator:
             import numpy as np
             ia, ib = (self._index.index_for(gene) for gene in ("TRA", "TRB"))
             if ia is None or ib is None:
-                return pl.DataFrame(schema=out_schema)
+                if _axis_consumers is None:
+                    return pl.DataFrame(schema=out_schema)
+                from seqtree import Index
+                # An absent linked partner cannot veto a supported marginal.
+                if ia is None:ia = Index.build([],alphabet='aa')
+                if ib is None:ib = Index.build([],alphabet='aa')
             if not callable(getattr(ia, 'search_paired_batch_consume', None)):
                 raise RuntimeError('bounded paired reduction requires seqtree Index.search_paired_batch_consume; rebuild/install the current native source')
             valid = lambda c: pl.col(c).is_not_null() & pl.col(c).str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$")
             population = qa.select('query_id', pl.col('cdr3').alias('_a')).join(
                 qb.select('query_id', pl.col('cdr3').alias('_b')), on='query_id', validate='1:1')
-            population = population.filter(valid('_a') & valid('_b')).with_row_index('_qi')
+            if _axis_consumers is None:
+                population = population.filter(valid('_a') & valid('_b'))
+            else:
+                population = population.with_columns(
+                    pl.when(valid('_a')).then(pl.col('_a')).otherwise(pl.lit('')).alias('_a'),
+                    pl.when(valid('_b')).then(pl.col('_b')).otherwise(pl.lit('')).alias('_b'))
+            population = population.with_row_index('_qi')
             schemas = ['_qi','ref_id','score','n_subs','n_ins','n_dels']
-            refs = [pl.DataFrame({'ref_id':pl.Series(range(len(idx)), dtype=pl.UInt32),
-                         'db_cdr3':idx.ref_seqs()}).join(
-                    self._index.records_for(gene).select(pl.col('cdr3').alias('db_cdr3'),
-                        'complex_id', *PMHC).filter(pl.col('complex_id').cast(pl.String).is_not_null() &
-                            ~pl.col('complex_id').cast(pl.String).is_in(['0',''])).unique(), on='db_cdr3')
-                for idx,gene in ((ia,'TRA'),(ib,'TRB'))]
+            refs = []
+            for axis,(idx,gene) in enumerate(((ia,'TRA'),(ib,'TRB'))):
+                records = (_reference_views[axis] if _reference_views is not None else self._index.records_for(gene))
+                fields = ['complex_id',*PMHC] + (['v','j','reference_id','vdjdb_score'] if _axis_consumers is not None else [])
+                records = records.select(pl.col('cdr3').alias('db_cdr3'),*fields)
+                if _axis_consumers is None:
+                    records = records.filter(pl.col('complex_id').cast(pl.String).is_not_null() &
+                        ~pl.col('complex_id').cast(pl.String).is_in(['0',''])).unique()
+                else:
+                    records = records.rename({'v':'db_v','j':'db_j'})
+                refs.append(pl.DataFrame({'ref_id':pl.Series(range(len(idx)), dtype=pl.UInt32),
+                    'db_cdr3':pl.Series(idx.ref_seqs(),dtype=pl.String)}).join(records,on='db_cdr3'))
             outputs = []
             def consume(start, stop, alpha, beta):
-                def expand(buffer, axis, records):
-                    # Distinct source IDs do not multiply the paired reducer's votes;
-                    # complex_id and full pMHC remain in the projection.
-                    return (pl.DataFrame(np.asarray(buffer), schema=schemas, orient='row')
-                        .select('_qi','ref_id',pl.col('score').cast(pl.Int32)).join(records, on='ref_id')
+                def expand(buffer, axis, records, queries):
+                    qfields = queries.select('query_id',pl.col('v').alias('query_v'),
+                        pl.col('j').alias('query_j'),pl.col('locus').alias('query_locus'),'count')
+                    hits = (pl.DataFrame(np.asarray(buffer), schema=schemas, orient='row')
+                        .with_columns(pl.col('score').cast(pl.Int32),pl.col('n_subs','n_ins','n_dels').cast(pl.UInt16))
+                        .join(records, on='ref_id')
                         .join(population.slice(start,stop-start).select('_qi','query_id',
                             pl.col(axis).alias('query_cdr3')), on='_qi', validate='m:1')
-                        .drop('_qi','ref_id').sort('query_id','score','db_cdr3').unique(maintain_order=True))
-                detail = linked(expand(alpha,'_a',refs[0]), expand(beta,'_b',refs[1]))
-                if detail.height:
-                    outputs.append(summarize(detail.select(
-                        *keys, pl.col("alpha_score").alias("score"),
-                        pl.col("beta_score").alias("score_beta"),
-                        pl.col("alpha_db_cdr3").alias("db_cdr3"),
-                        pl.col("beta_db_cdr3").alias("db_cdr3_beta")).unique()))
+                        .join(qfields,on='query_id',validate='m:1').drop('_qi','ref_id')
+                        .sort('query_id','score','db_cdr3'))
+                    if _match_v or _match_j:
+                        from .match.engine import _genefam
+                        for kind,flag in [('v',_match_v),('j',_match_j)]:
+                            if flag:hits = hits.filter(_genefam(pl.col('db_'+kind)) == _genefam(pl.col('query_'+kind)))
+                    return hits
+                ha,hb = expand(alpha,'_a',refs[0],qa),expand(beta,'_b',refs[1],qb)
+                if _axis_consumers is not None:
+                    for callback,hits in zip(_axis_consumers,(ha,hb)):
+                        marginal = hits.filter(pl.col('query_cdr3')!=pl.col('db_cdr3')) if exclude_exact else hits
+                        callback(marginal)
+                for radius in _linked_radii if _linked_radii is not None else [None]:
+                    def selected(hits):
+                        if radius is not None:
+                            hits = hits.filter(pl.sum_horizontal('n_subs','n_ins','n_dels')<=radius)
+                        # Paired votes are unique complex/pMHC/junction projections;
+                        # source multiplicity remains available to marginal reducers above.
+                        return hits.select(*keys,'score','db_cdr3','query_cdr3').unique(maintain_order=True)
+                    detail = linked(selected(ha), selected(hb))
+                    if detail.height:
+                        joint = detail.select(*keys,pl.col('alpha_score').alias('score'),
+                            pl.col('beta_score').alias('score_beta'),pl.col('alpha_db_cdr3').alias('db_cdr3'),
+                            pl.col('beta_db_cdr3').alias('db_cdr3_beta')).unique()
+                        if radius is not None:joint = joint.with_columns(pl.lit(radius,dtype=pl.UInt16).alias('radius'))
+                        outputs.append(summarize(joint))
             if progress:
                 import sys
                 print(f'paired: searching {population.height:,} queries in one native population batch', file=sys.stderr)
             ia.search_paired_batch_consume(ib,population['_a'].to_list(),population['_b'].to_list(),
-                sp,consume,threads=threads,chunk_size=32,max_hit_bytes=64*1024**2)
+                sp,consume,threads=threads,chunk_size=32,max_hit_bytes=64*1024**2,**({'skip_empty':True} if _axis_consumers is not None else {}))
             if progress:
                 print('paired: native search complete',file=sys.stderr)
             if not outputs:
@@ -867,21 +917,21 @@ class Annotator:
                     for k in ("n_control_joint", "E_raw", "p_poisson_raw", "p_upper", "finite_control_delta")
                 ])
         out = out.sort(
-            ["query_id", "ned_score", *PMHC],
-            descending=[False, True, False, False, False, False],
+            [*groups, "ned_score", *PMHC],
+            descending=[False]*len(groups)+[True,False,False,False,False],
             nulls_last=True,
         )
         out = out.with_columns(
-            pl.int_range(1, pl.len() + 1).over("query_id").cast(pl.UInt32).alias("rank")
+            pl.int_range(1, pl.len() + 1).over(groups).cast(pl.UInt32).alias("rank")
         )
-        best = out.group_by("query_id").agg(
+        best = out.group_by(groups).agg(
             pl.col("ned_score").first().alias("_best"),
             pl.col("ned_score")
             .get(1, null_on_oob=True)
             .fill_null(0.0)
             .alias("_second"),
         )
-        out = out.join(best, on="query_id").with_columns(
+        out = out.join(best, on=groups).with_columns(
             (
                 pl.col("ned_score")
                 - pl.when(pl.col("rank") == 1)
@@ -893,6 +943,78 @@ class Annotator:
         )
         candidates = out.select([pl.col(c).cast(t) for c, t in out_schema.items()])
         return (detail, candidates) if return_hits else candidates
+
+    def paired_scope_candidates(self, data, *, cdr3a='cdr3a', cdr3b='cdr3b',
+                                scope=DEFAULT_SCOPE, ball=False, matrix=None,
+                                va='va',vb='vb',ja='ja',jb='jb',
+                                match_v=False, match_j=False, control=None, calibrate=False,
+                                species=None, threads=1, progress=False, exclude_exact=False):
+        """Separate linked and full-reference marginal scope evidence.
+
+        Each chain uses the declared edit budget; paired radius is the bottleneck
+        maximum of the two edit counts. Linked ranking retains the existing paired
+        exponential mass; marginal ranking/calibration retains NED. Linked E-values
+        and final linked-first/marginal-union selection calibration are unavailable.
+        Empty/invalid partners retain valid marginal evidence. No detailed hit table
+        is retained. Native coordinated consumption with ``skip_empty`` is required.
+        """
+        if any(not callable(getattr(self._index.index_for(chain),'search_paired_batch_consume',None))
+               for chain in self.loci if chain in {'TRA','TRB'}):
+            raise RuntimeError('paired scope axes require seqtree Index.search_paired_batch_consume with skip_empty; install the compatible native build')
+        _,qa = _prepare(data,cdr3a,va,ja,locus='TRA')
+        _,qb = _prepare(data,cdr3b,vb,jb,locus='TRB')
+        source = data if 'query_id' in data.columns else data.with_row_index('query_id')
+        restored = []
+        for q,seq,vcol,jcol,chain in ((qa,cdr3a,va,ja,'TRA'),(qb,cdr3b,vb,jb,'TRB')):
+            # _prepare drops missing/invalid sequences. They remain original paired
+            # observations here, with an explicitly empty native axis and audit flag.
+            raw = source.select('query_id',
+                pl.col(seq).cast(pl.String).str.strip_chars().str.to_uppercase().alias('_raw_cdr3'),
+                (pl.col(vcol).cast(pl.String) if vcol in source.columns else pl.lit(None,dtype=pl.String)).alias('_raw_v'),
+                (pl.col(jcol).cast(pl.String) if jcol in source.columns else pl.lit(None,dtype=pl.String)).alias('_raw_j'))
+            q = raw.join(q,on='query_id',how='left',validate='1:1',maintain_order='left').with_columns(
+                pl.coalesce('cdr3','_raw_cdr3').alias('cdr3'),pl.coalesce('v','_raw_v').alias('v'),
+                pl.coalesce('j','_raw_j').alias('j'),pl.col('locus').fill_null(chain),
+                pl.col('count').fill_null(0)).drop('_raw_cdr3','_raw_v','_raw_j')
+            restored.append(q)
+        qa,qb = restored
+        queries = [self._matching_queries(q,match_v=match_v,match_j=match_j,species=species)
+            if match_v or match_j else q for q in (qa,qb)]
+        parts = {'linked':[],'TRA':[],'TRB':[]}
+        gap = DEFAULT_SCALE if matrix is not None else 1
+        radii = range(1,6) if ball and matrix is not None else [None]
+        for radius in radii:
+            params = search_params(f'{radius},{min(radius,2)},{min(radius,2)},{radius}',
+                matrix=matrix,gap_open=gap,gap_extend=gap) if radius is not None else (
+                search_params('5,2,2,5',gap_open=1,gap_extend=1) if ball else
+                (search_params(scope,matrix=matrix or '',gap_open=gap,gap_extend=gap) if isinstance(scope,str) else scope))
+            callbacks=[];marginals=[];references=[]
+            for chain,q in zip(('TRA','TRB'),queries):
+                valid_q = q.filter(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False))
+                if valid_q.height and chain in self.loci:
+                    callback,rows,reference = self._evidence(valid_q,params,threads=threads,
+                        match_v=match_v,match_j=match_j,control=control,calibrate=calibrate,
+                        species=species,score_scale=400. if matrix is not None else 1.,
+                        exclude_exact=exclude_exact,radii=range(1,6) if ball and matrix is None else None,
+                        retain_hits=False,_prepare_consumer=True)
+                else:
+                    callback,rows,reference = lambda h:None,[],self._index.records_for(chain)
+                callbacks.append(callback);marginals.append(rows);references.append(reference)
+            linked = self.paired_candidates(data,cdr3a=cdr3a,cdr3b=cdr3b,scope=params,
+                threads=threads,progress=progress,exclude_exact=exclude_exact,
+                score_scale=400. if matrix is not None else 1.,_axis_consumers=callbacks,
+                _prepared_queries=queries,_reference_views=references,
+                _linked_radii=range(1,6) if ball and matrix is None else None,
+                _match_v=match_v,_match_j=match_j)
+            frames = [linked,*[pl.concat(rows,how='diagonal_relaxed') if rows else
+                pl.DataFrame(schema=candidate_schema(qa.schema['query_id'])) for rows in marginals]]
+            for axis,frame in zip(parts,frames):
+                if radius is not None:frame = frame.with_columns(pl.lit(radius,dtype=pl.UInt16).alias('radius'))
+                elif 'radius' not in frame.columns:frame = frame.with_columns(pl.lit(None,dtype=pl.UInt16).alias('radius'))
+                parts[axis].append(frame)
+        result = {axis:pl.concat(frames,how='diagonal_relaxed').sort('radius','query_id','rank',nulls_last=True)
+            for axis,frames in parts.items()}
+        return result,queries
 
     def annotate_paired(
         self,

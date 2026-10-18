@@ -606,8 +606,33 @@ P-value. Ball output can be large and does not include fixed-mode CIGAR strings.
    vdjmatch match cells.tsv --vdjdb reference.zip --paired --scope 3,1,1,3 \
      --threads 4 --output-prefix results/paired
 
-Paired receptors currently use fixed mode with an explicit edit scope. Graded
-paired balls require a separately validated joint calibration before use.
+Paired matching retains its linked-only fixed-mode default. The explicit
+``--paired-marginals`` opt-in adds fixed scopes and graded balls for unit,
+hard-V unit, weighted and hard-V weighted families. Each chain receives the
+same declared budget; paired ball radius is ``max(edits_alpha, edits_beta)``.
+The linked axis retains the existing unique-junction-pair exponential mass;
+TRA/TRB axes retain existing NED ranking over all references, including unlinked
+observations. Label assignment retains every positive linked maximum peptide,
+falling back to the union of supported chain maxima only without linked support.
+Missing/invalid partners retain their valid marginal and explicit validity flags.
+
+This opt-in exports linked ``candidates``, ``TRA.candidates``, ``TRB.candidates``
+and ``calls`` tables with separate continuous axes and radius labels. It retains
+no detailed hit table. Linked E-values and final selection E/P fields remain null;
+``uncalibrated_paired_scope_selection`` identifies the final event. Marginal
+fixed-predicate calibration is reported only on its own axis and never transferred
+to linked or selected evidence. Final independent-pair empirical calibration
+remains required; these outputs do not establish a calibrated paired detector.
+The native build must provide ``Index.search_paired_batch_consume`` with
+``skip_empty``. Compatible finite-cap controls use existing histograms; custom
+control adapters and other geometries can retain materialized control hits.
+
+.. code-block:: bash
+
+   vdjmatch match cells.tsv --vdjdb reference.zip --paired --paired-marginals \
+     --search-mode ball --matrix none --match-v --no-evalue --no-hit-table \
+     --output-prefix results/paired-v-unit
+
 Both fixed and graded single-chain modes accept ``--match-v`` and ``--match-j``
 with an explicitly gene-labelled raw ``--control`` table or ``--no-evalue``.
 Gene matching pools allele suffixes and preserves IMGT slash-containing names;
@@ -619,7 +644,9 @@ imputation. Distinct full junctions within each gene predicate define fixed cont
 sizes; abundance is ignored, and exact-hit filtering does not decrement model sizes.
 One native histogram batch per gene-conditioned population supplies control counts.
 Reference sizes follow the identical gene predicates. Sequence-only controls remain
-rejected for this calibration; paired hard-gene predicates are still unsupported.
+rejected for this calibration. Paired hard-gene predicates require the explicit
+``--paired-marginals`` opt-in; their linked and selected-event calibration remains
+unavailable.
 These fixed-ball E-values describe expected neighbour counts, not final selected-label
 false-call probabilities; final-call calibration is a separate procedure.
 
