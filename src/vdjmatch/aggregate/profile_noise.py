@@ -11,7 +11,7 @@ from scipy.special import rel_entr
 from .structure import _gene_expression
 from ..evalue.epitope_rules import _tokens
 
-NOISE_RECIPE = 'v2:999-shuffles;seed0-independent-streams;global-V-KL;within-V-max-enriched-core-exact3-KL;axis-p<=.005'
+NOISE_RECIPE = 'v3:label-independent-seed0-frequency-imputed-V;original-key-identities-retained;999-shuffles;seed0-independent-streams;global-V-KL;within-V-max-enriched-core-exact3-KL;axis-p<=.005'
 _UNKNOWN = '__UNRESOLVED_V__'
 
 
@@ -22,8 +22,10 @@ def profile_noise(rows, *, locus, eligible_targets, motif_modes=('exact3',), shu
     Shuffle complete binary target-membership vectors, retaining shared labels.
     G shuffles globally; M shuffles only within V, retaining target V counts.
     Each motif statistic is one best enriched presence projection, not a sum of
-    dependent tokens. Unknown V keys remain in all denominators and flag the
-    affected targets as unresolved.
+    dependent tokens. Missing V is imputed once per original junction/V key from
+    the global resolved-key gene frequencies, independently of target labels.
+    Original keys remain distinct and all denominators retain missing-V keys.
+    An entirely unresolved population uses one neutral missing-gene category.
     ``motif_modes=('exact3','wild4')`` tests the union of full20 core 3-mers
     and all four single-X 4-mer masks. Maximum selection repeats over the
     complete union inside every shuffle, using the same V-conditional null.
@@ -44,8 +46,13 @@ def profile_noise(rows, *, locus, eligible_targets, motif_modes=('exact3',), shu
     if keys.is_empty():
         return {target: _empty() for target in targets}
     genes = keys['_v'].unique().sort().to_list()
-    keys = keys.with_columns(pl.col('_v').replace_strict(dict(zip(genes, range(len(genes)))),
-        return_dtype=pl.Int64).alias('_gene'))
+    gene_ids = keys['_v'].replace_strict(dict(zip(genes, range(len(genes)))),return_dtype=pl.Int64).to_numpy().copy()
+    if _UNKNOWN in genes and len(genes)>1:
+        missing=gene_ids==genes.index(_UNKNOWN)
+        counts=np.bincount(gene_ids[~missing],minlength=len(genes))
+        imputation_rng=np.random.default_rng(np.random.SeedSequence(0).spawn(3)[2])
+        gene_ids[missing]=imputation_rng.choice(len(genes),size=int(missing.sum()),p=counts/counts.sum())
+    keys=keys.drop('_key').with_columns(pl.Series('_gene',gene_ids)).sort('_gene','cdr3','_v').with_row_index('_key')
     columns = pl.DataFrame({'_target': targets, '_column': range(len(targets))})
     membership = source.join(columns, on='_target', how='inner', validate='m:1').join(
         keys, on=['cdr3', '_v'], validate='m:1').select('_key', '_column').unique()
@@ -129,7 +136,6 @@ def profile_noise(rows, *, locus, eligible_targets, motif_modes=('exact3',), shu
         gene_ge += g >= gene_observed; motif_ge += m >= motif_observed
     gene_mean, motif_mean = gene_sum/shuffles, motif_sum/shuffles
     gene_p, motif_p = (gene_ge+1)/(shuffles+1), (motif_ge+1)/(shuffles+1)
-    unresolved = observed_v[:, genes.index(_UNKNOWN)] if _UNKNOWN in genes else np.zeros(B.shape[1])
     unique_junctions = source.join(columns, on='_target', how='inner', validate='m:1').group_by('_column').agg(
         pl.col('cdr3').n_unique().alias('_junctions'))
     junction_counts = dict(unique_junctions.iter_rows())
@@ -138,7 +144,6 @@ def profile_noise(rows, *, locus, eligible_targets, motif_modes=('exact3',), shu
     for column, target in enumerate(targets):
         i = inverse[column]
         status = ('empty_target' if not n[i] else 'insufficient_unique_junctions' if junction_counts.get(column, 0) < 2
-            else 'unresolved_v_calls' if unresolved[i] else 'unresolved_v_background' if _UNKNOWN in genes
             else 'whole_population_target' if n[i] == keys.height else 'observed')
         unresolved_axis = status != 'observed'
         selected = int(chosen[i])

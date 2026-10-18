@@ -64,11 +64,16 @@ def test_unknown_genes_and_degenerate_populations_remain_explicit():
     from vdjmatch.aggregate.profile_noise import profile_noise
     source = rows([(0, sequences('WGG'), None), (1, sequences('LLL'), 'TRBV19')])
     value = profile_noise(source, locus='TRB', eligible_targets=[0])[0]
-    assert value['noise_status'] == 'unresolved_v_calls'
-    assert value['gene_supported'] is value['motif_supported'] is None
+    assert value['noise_status'] == 'observed'
+    assert value['gene_supported'] is False and value['motif_supported'] is True
     background = profile_noise(source, locus='TRB', eligible_targets=[1])[1]
-    assert background['noise_status'] == 'unresolved_v_background'
-    assert background['gene_supported'] is background['motif_supported'] is None
+    assert background['noise_status'] == 'observed'
+    assert isinstance(background['gene_supported'],bool) and isinstance(background['motif_supported'],bool)
+    assert source['v'].null_count()==30
+    assert value==profile_noise(pl.concat([source,source]).reverse(),locus='TRB',eligible_targets=[0])[0]
+    missing=profile_noise(source.with_columns(pl.lit(None,dtype=pl.String).alias('v')),locus='TRB',eligible_targets=[0])[0]
+    assert missing['noise_status']=='observed' and missing['gene_supported'] is False
+    assert missing['gene_p']==1. and missing['motif_supported'] is True
     singleton = profile_noise(rows([(0, ['CASSF'], 'TRBV19')]), locus='TRB', eligible_targets=[0])[0]
     assert singleton['noise_status'] == 'insufficient_unique_junctions'
     assert singleton['gene_supported'] is singleton['motif_supported'] is None
@@ -112,3 +117,14 @@ def test_full20_union_selects_gapped_fourmer_inside_every_null():
     shared = source.with_columns(pl.lit(0).alias('_target'))
     assert not profile_noise(shared, locus='TRB', eligible_targets=[0],
         motif_modes=('exact3', 'wild4'))[0]['motif_supported']
+
+
+def test_imputed_v_blocks_preserve_conditional_shuffle_counts():
+    import math
+    from vdjmatch.aggregate.profile_noise import profile_noise
+    source=rows([(0,sequences('WGG'),'TRBV19'),(1,sequences('LLL'),'TRBV20-1'),(2,sequences('AAA'),None)])
+    before=source.clone()
+    result=profile_noise(source,locus='TRB',eligible_targets=[0,1,2],shuffles=19)
+    assert source.equals(before)
+    assert all(math.isfinite(row[field]) for row in result.values() for field in ['gene_kl_bits','motif_kl_bits','motif_null_mean_bits','motif_null_max_bits'])
+    assert result==profile_noise(source.reverse(),locus='TRB',eligible_targets=[0,1,2],shuffles=19)

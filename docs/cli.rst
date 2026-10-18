@@ -88,8 +88,14 @@ respective exchangeability nulls. This is not a database-wide guarantee or
 binding-score calibration. See :doc:`algorithms` for definitions.
 
 The decision leaves are ``v_and_motif``, ``v_only``, ``motif_only`` and
-``no_supported_axis``. Insufficient source records, unresolved V calls, fewer
-than two distinct keys or missing other-peptide background remain explicit.
+``no_supported_axis``. Missing V calls are imputed once per original distinct
+junction/V key from resolved-gene frequencies within the same species/locus,
+using a fixed seed0 stream independent of epitope labels. Original calls, key
+identities and unresolved-key counts/fractions are retained; imputation never
+merges original keys. A wholly unresolved population uses one neutral missing
+category, providing no invented V-usage signal. Missing V does not veto classes.
+Insufficient source records, fewer than two distinct keys or missing
+other-peptide background remain explicit.
 The selected motif's observed counts, raw/excess bits, null mean/maximum and
 Monte Carlo tail are included alongside each decision. V concentration and
 neighbour density remain descriptive, without a binary concentration/enrichment

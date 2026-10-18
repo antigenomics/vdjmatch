@@ -6,7 +6,7 @@ import polars as pl
 
 from .structure import _gene_expression
 
-PROFILE_RECIPE = 'v5:source>=30;core-exact3;V-KL-and-V-conditional-motif-max;999-label-shuffles;seed0;axis-p<=.005;nonidentical-Levenshtein1;pooled-and-pMHC;descriptive-length-KL-JS'
+PROFILE_RECIPE = 'v6:label-independent-seed0-frequency-imputed-V;original-key-identities-retained;source>=30;core-exact3;V-KL-and-V-conditional-motif-max;999-label-shuffles;seed0;axis-p<=.005;nonidentical-Levenshtein1;pooled-and-pMHC;descriptive-length-KL-JS'
 _MHC = ['mhc_a', 'mhc_b', 'mhc_class']
 _CONTEXT = ['level', 'species', 'gene', 'epitope', *_MHC]
 _SCHEMA = {name: pl.String for name in ['level', 'species', 'locus', 'epitope', *_MHC,
