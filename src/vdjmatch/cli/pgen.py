@@ -72,6 +72,9 @@ def main(a):
                                pl.col('j').alias('j_call'), pl.col('gene').alias('locus'))
     else:
         raw = _read_table(a.sample)
+    input_pgen_ignored = bool(getattr(a, 'features_only', False) and 'pgen' in raw.columns)
+    if input_pgen_ignored:
+        raw = raw.drop('pgen')
     if 'query_id' not in raw.columns:
         raw = raw.with_row_index('query_id')
     if raw['query_id'].null_count() or raw['query_id'].n_unique() != raw.height:
@@ -161,6 +164,7 @@ def main(a):
                        'same length, no indels; summed over all model V/J and recombination scenarios',
         'sequence_contract': 'full anchor-inclusive junction; AIRR junction_aa or normalized VDJdb cdr3; no anchor fabrication',
         'input_format': 'vdjdb' if a.vdjdb else 'airr',
+        'input_pgen_ignored': input_pgen_ignored,
         'reference': reference,
         'control': control, 'features': features,
         'sample': {'sha256': sha256(Path(a.sample))} if Path(a.sample).is_file() else reference,

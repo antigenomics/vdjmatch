@@ -239,10 +239,12 @@ def test_vdjdb_zip_preserves_reference_observations(tmp_path,model_path,rich):
 def test_features_only_writes_unique_columnar_bank(tmp_path,model_path):
     from vdjmatch.cli.__main__ import main
     import polars as pl,json
-    source=tmp_path/"keys.tsv";source.write_text("junction_aa\nCAVRDSNYQLIW\nCAVRDSNYQLIW\n")
+    source=tmp_path/"keys.tsv";source.write_text("junction_aa\tpgen\nCAVRDSNYQLIW\t999\nCAVRDSNYQLIW\t999\n")
     prefix=tmp_path/"fresh"
     assert main(["pgen",str(source),"--model-path",str(model_path),"--species","human","--locus","TRA","--mismatches","0","--features-only","--output-prefix",str(prefix)])==0
     bank=pl.read_parquet(tmp_path/"fresh.features.parquet")
     assert bank.height==1 and bank["junction_aa"].item()=="CAVRDSNYQLIW"
+    assert 0<=bank["pgen"].item()<=1
+    assert json.loads((tmp_path/"fresh.manifest.json").read_text())["input_pgen_ignored"]
     assert not (tmp_path/"fresh.scores.tsv").exists()
     assert json.loads((tmp_path/"fresh.manifest.json").read_text())["options"]["features_only"]
