@@ -33,8 +33,8 @@ def _pgen_model_identity(species, locus):
         native_sha256=sha256(Path(native_core.__file__)))
 
 
-def load_pgen_features(path, reference, control, *, species='human', locus='TRB'):
-    """Validate an explicitly supplied Hamming-1 feature bank and its producer identity.
+def load_pgen_features(path, reference, control, *, species='human', locus='TRB', mismatches=1):
+    """Validate a durable feature bank with the requested probability and model preprocessing.
 
     These requested durable model features are distinct from resampled controls.
     Require the complete reference/control junction union; never fill missing mass
@@ -55,9 +55,9 @@ def load_pgen_features(path, reference, control, *, species='human', locus='TRB'
         raise ValueError('Pgen feature manifest requires features, options and model identities')
     feature, options, model = (manifest[key] for key in ('features', 'options', 'model'))
     organism = _organism(species)
-    if (type(options.get('mismatches')) is not int or options['mismatches'] != 1 or
+    if (type(options.get('mismatches')) is not int or options['mismatches'] != mismatches or
             _organism(options.get('species')) != organism or options.get('locus') != locus):
-        raise ValueError('Pgen features must match species/locus and Hamming mismatches=1')
+        raise ValueError(f'Pgen features must match species/locus and Hamming mismatches={mismatches}')
     recorded_path = feature.get('path')
     if not isinstance(recorded_path, str) or Path(recorded_path).name != path.name:
         raise ValueError('Pgen feature manifest basename does not match the requested table')
@@ -88,6 +88,13 @@ def load_pgen_features(path, reference, control, *, species='human', locus='TRB'
     digest = hashlib.sha256(''.join(f'{name}\t{files[name]}\n' for name in sorted(files)).encode()).hexdigest()
     if model.get('sha256') != digest:
         raise ValueError('Pgen feature model SHA256 does not match its consumed files')
+    from vdjtools.model import io as model_io, native as native_bridge
+    software = manifest.get('software', {})
+    implementation = {'model_io_sha256': sha256(Path(model_io.__file__)),
+        'native_bridge_sha256': sha256(Path(native_bridge.__file__))}
+    if model.get('anchor_repair') != 'vdjtools load_model' or any(
+            software.get(name) != digest for name, digest in implementation.items()):
+        raise ValueError('Pgen feature model preprocessing/anchor repair differs from current implementation')
     frame = pl.read_parquet(path)
     required = {'junction_aa', 'pgen', 'species', 'locus'}
     if (not required <= set(frame.columns) or not frame.schema['pgen'].is_numeric() or
@@ -254,21 +261,22 @@ def _normalize_control(frame, *, species, locus, gene_keys):
     return result.sort(['junction_aa', 'v', 'j'] if gene_keys else 'junction_aa')
 
 
-def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='human', locus='TRB', threads=1) -> pl.DataFrame:
+def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='human', locus='TRB', threads=1, mismatches=0) -> pl.DataFrame:
     """Compute marginal full-junction Pgen once over the reference/control union.
 
     Bundled human OLGA or mouse ARDA models are selected by species/locus.
     Supplied Pgen columns are ignored; no calculated values are persisted.
+    ``mismatches`` selects exact probability (0) or inclusive Hamming<=1 mass (1).
     """
     from vdjtools.model import load_bundled, native
 
     organism = _organism(species)
-    if locus not in {'TRA', 'TRB'} or threads < 1:
-        raise ValueError('Pgen requires TRA/TRB and positive threads')
+    if locus not in {'TRA', 'TRB'} or threads < 1 or type(mismatches) is not int or mismatches not in (0,1):
+        raise ValueError('Pgen requires TRA/TRB, positive threads and mismatches0or1')
     sequences = pl.concat([reference.select('junction_aa'), control.select('junction_aa')]).unique().sort('junction_aa')
     model = load_bundled(locus, 'olga' if organism == 'human' else 'arda', organism=organism, collapse=False)
     probabilities = np.asarray(native.pgen_aa_batch(model, sequences['junction_aa'].to_list(),
-        mismatches=0, threads=threads), dtype=np.float64)
+        mismatches=mismatches, threads=threads), dtype=np.float64)
     if probabilities.shape != (sequences.height,) or not np.all(
             np.isfinite(probabilities) & (probabilities >= 0) & (probabilities <= 1)):
         raise RuntimeError('native Pgen returned invalid probabilities')

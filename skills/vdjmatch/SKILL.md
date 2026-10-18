@@ -354,3 +354,13 @@ all alpha/beta maximum peptides, including disagreements. No supported axis
 emits a no-support row. This separate reducer preserves native evidence and the
 any-call scalar. Its `.scores.tsv` contains selected-label indicators only for
 `score-confusion`, never continuous AP/ROC evidence or calibrated confidence.
+
+
+`repertoire-enrichment metadata.tsv --vdjdb RAW --control RAW_CONTROL` runs fresh
+per-repertoire Pgen/count-matched mocks and one V+Hamming1 native search. Preserve
+source-record/read units, exact bins (including zero), event counts and full pMHC;
+missing/undersized bins fail. Optional validated `--pgen-features` reuses durable
+model features only. Defaults200mocks/seed0/threads4; both P-values and central95%
+mock intervals are descriptive outputs, with no automatic call threshold or
+between-sample test. Use a new output prefix and the research process-tree RAM
+monitor. See CLI docs for the exact source/control/metadata contract.

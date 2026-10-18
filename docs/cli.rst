@@ -2268,3 +2268,60 @@ by ``score-confusion``: its score is a selected-label indicator (1, otherwise
 null), **not continuous evidence for AP/ROC, a probability or calibrated
 confidence**. The manifest pins inputs and sources; existing any-call
 calibration does not establish confidence for this label policy.
+
+
+Strict repertoire enrichment
+----------------------------
+
+``repertoire-enrichment`` evaluates each repertoire independently against fresh
+Pgen-matched real-control draws. The metadata TSV must have unique ``sample_id``
+and ``path`` columns; paths resolve relative to the metadata file. Input counts
+are read counts. Source receptor records and their counts remain distinct even
+when their amino-acid junctions coincide. Invalid amino acids, missing V calls and
+other loci are counted in the ingestion table; noncanonical anchor residues and
+zero model Pgen do not themselves discard records. Same-gene V alleles are
+pooled; unresolved multi-gene V calls fail explicitly without choosing a gene
+or dropping source observations.
+
+.. code-block:: console
+
+   vdjmatch repertoire-enrichment samples.tsv --vdjdb reference.zip \
+     --control control.tsv.gz --species human --locus TRB --threads 4 \
+     --mock-replicates 200 --seed 0 --output-prefix fresh
+
+One native batch searches the source/control junction union with full-junction
+Hamming distance at most one and matching V genes (alleles pooled). Ordinary
+exact reference evidence remains present. A receptor contributes once per full
+pMHC regardless of repeated reference observations. Both matched receptor-record
+counts and their summed read counts are compared with the mock distributions.
+
+Every mock has the source repertoire's record count, the same rounded-log2-Pgen
+histogram and the same read-count multiset within every bin. The existing
+control-event slot sampler draws without replacement, then randomly assigns the
+source count roles. An absent or undersized bin fails explicitly; it cannot be
+remapped or fixed by dropping source observations. Zero Pgen has its own bin.
+Pgen bins use inclusive Hamming≤1 full-junction probability by default.
+``--pgen-mismatches 0`` selects exact-sequence probability; the supplied
+feature bank and fresh calculations must use the same definition.
+``--pgen-features`` accepts the validated durable control feature bank with the selected probability definition; only
+additional query masses are computed, in memory, without writing a feature cache.
+
+Outputs are ``.summary.tsv``, ``.mocks.parquet``, ``.matching-audit.tsv``,
+``.ingestion.tsv`` and ``.manifest.json``. Each endpoint's empirical upper-tail
+P-value is ``(1 + number of mocks at least as large as observed)/(B + 1)``, with
+``B`` mocks. At 200 mocks its minimum is 1/201. Lower/upper fields are the central
+95% mock interval, not a confidence interval over biological donors. Enrichment
+ratios are undefined when the mock mean is zero. No detection threshold,
+multiple-testing correction or comparison between samples is imposed.
+
+The manifest pins raw inputs, source/native bytes, model inputs, prepared-feature
+identity, model-preprocessing source hashes, seed, stages and output hashes. Use an external summed-process-tree RAM
+monitor for a large research cohort; this command does not reuse predictions,
+mock samples or fitted nulls from another run. Row-preserving tcR input uses the
+owning vdjtools ``read_mitcr(collapse=False)`` capability when available.
+
+For durable probability preparation, ``pgen INPUT --features-only`` writes the
+unique columnar ``.features.parquet`` bank and manifest while omitting the large
+row-wise TSV. Existing probability columns are ignored. ``--mismatches 0`` and
+``--mismatches 1`` produce separate, explicitly defined probability banks using
+vdjtools; the normal row-wise output remains the default.

@@ -17,6 +17,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
         "clonecount",
         "clone count",
         "readcount",
+        "read.count",
         "uniquetagcountmolecule",
     ),
     "pair_id": ("pair_id", "cell_id", "clone_id", "cloneid", "complex.id", "clonotype_id"),
