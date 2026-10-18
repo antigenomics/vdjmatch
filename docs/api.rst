@@ -59,6 +59,20 @@ raises an error, and missing metadata requires ``species="human"`` or
    :undoc-members:
    :show-inheritance:
 
+Bounded candidate dependency
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Candidate-only single-chain reduction requires the native
+``seqtree.Index.search_batch_consume`` method. The declared ``seqtree>=1.2.0``
+dependency floor does not guarantee this development capability; the API checks
+the installed native method and raises an explicit error when it is absent.
+The reviewed development build must be installed to use this path. Requests
+that retain full hit tables continue to use the existing batch API.
+
+Release and clean-install CI verification remain pending until a compatible
+seqtree release is published and its native capability is verified in the
+installed environment. A local development build does not satisfy that gate.
+
 Detailed paired output
 ~~~~~~~~~~~~~~~~~~~~~~
 
