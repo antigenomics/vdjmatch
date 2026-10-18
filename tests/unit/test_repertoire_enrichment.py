@@ -44,7 +44,7 @@ def test_repertoire_enrichment_cli_end_to_end(tmp_path,mismatches):
     assert summary["matched_records"].item()==2 and summary["matched_reads"].item()==7
     assert summary["p_records"].item()==summary["p_reads"].item()==1
     manifest=json.loads(Path(str(prefix)+".manifest.json").read_text())
-    assert manifest["source_frozen"] and manifest["inputs_frozen"] and manifest["native_search_batches"]==1
+    assert manifest["source_frozen"] and manifest["inputs_frozen"] and manifest["native_search_batches"]==201
     assert manifest["automatic_detection_threshold"] is None
     assert manifest["pgen_mismatches"]==mismatches
 
@@ -79,3 +79,19 @@ def test_v_ambiguity_policy():
     for value in ["TRBV2,TRBV3","TRBV2*01,TRBV3*01"]:
         with pytest.raises(ValueError,match="unresolved multi-gene V"):
             _single_v(pl.DataFrame({"v":[value]}),"v")
+
+
+def test_streamed_mock_measurements_equal_precomputed_memberships():
+    observations=pl.DataFrame(dict(sample_id=['s']*3,query_id=[0,1,2],count=[7,3,5],pgen_bin=[-8,-8,-12]))
+    control=pl.DataFrame(dict(query_id=[3,4,5],event_weight=[1,1,1],pgen_bin=[-8,-8,-12]))
+    targets=pl.DataFrame(dict(epitope=['X','Y']))
+    hits=pl.DataFrame(dict(query_id=[0,0,1,2,3],epitope=['X']*5))
+    sizes=[]
+    def measure(rows,counts):
+        sizes.append(len(rows))
+        matched=np.isin(rows,[0,1,2,3])
+        return np.array([matched.sum(),0]),np.array([counts[matched].sum(),0])
+    expected=matched_enrichment(observations,control,hits,targets,seed=7)
+    actual=matched_enrichment(observations,control,None,targets,seed=7,measure=measure)
+    assert all(a.equals(b) for a,b in zip(expected,actual))
+    assert sizes==[3]*201

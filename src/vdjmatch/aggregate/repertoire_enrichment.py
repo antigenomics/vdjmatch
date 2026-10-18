@@ -9,7 +9,7 @@ from ..evalue.mock_reference import _sample_event_indices
 from ..io.columns import _integer_count
 
 
-def matched_enrichment(observations, control, matches, targets, *, replicates=200, seed=0):
+def matched_enrichment(observations, control, matches, targets, *, replicates=200, seed=0, measure=None):
     """Return real/null counts, empirical upper-tail P-values and exact-bin audit.
 
     Observations have sample_id/query_id/count/pgen_bin. Controls have query_id,
@@ -22,6 +22,8 @@ def matched_enrichment(observations, control, matches, targets, *, replicates=20
     P-values are (1 + number of mocks >= real)/(replicates + 1). Intervals describe
     the central95percent mock distribution, not uncertainty over biological donors.
     No automatic detection threshold or between-sample comparison is applied.
+    Optional measure(query_ids, counts) returns two target-ordered integer vectors
+    by matching only that real/mock draw; it replaces stored memberships entirely.
     """
     if type(replicates) is not int or replicates<200 or type(seed) is not int or seed<0:
         raise ValueError('at least200mocks and a nonnegative integer seed required')
@@ -30,7 +32,7 @@ def matched_enrichment(observations, control, matches, targets, *, replicates=20
     if not {'sample_id','query_id','count','pgen_bin'}<=set(observations.columns) or not {'query_id','event_weight','pgen_bin'}<=set(control.columns):
         raise ValueError('source/control identities, integer counts and Pgen bins required')
     columns=targets.columns
-    if 'epitope' not in columns or not {'query_id',*columns}<=set(matches.columns):
+    if 'epitope' not in columns or (measure is None and not {'query_id',*columns}<=set(matches.columns)):
         raise ValueError('explicit epitope target memberships required')
     obs=observations.select('sample_id','query_id','pgen_bin',_integer_count('count').alias('count'))
     ctrl=control.select('query_id','pgen_bin',_integer_count('event_weight').alias('event_weight'))
@@ -44,13 +46,21 @@ def matched_enrichment(observations, control, matches, targets, *, replicates=20
     if ctrl['event_weight'].max()>=10**9:raise ValueError('control event bin exceeds supported slot budget')
     obs=obs.with_columns(pl.col('query_id').cast(pl.Int64),pl.col('pgen_bin').cast(pl.Int64))
     ctrl=ctrl.with_columns(pl.col('query_id','pgen_bin').cast(pl.Int64)).sort('pgen_bin','query_id')
-    q=pl.concat([obs.select('query_id'),ctrl.select('query_id')]).unique().sort('query_id').with_row_index('_row')
-    obs=obs.join(q,on='query_id',validate='m:1').sort('sample_id','pgen_bin','query_id')
-    ctrl=ctrl.join(q,on='query_id',validate='m:1')
     inventory=targets.unique().sort(columns,nulls_last=True).with_row_index('_target')
-    member=matches.select(pl.col('query_id').cast(pl.Int64),*columns).unique().join(q,on='query_id',how='left',validate='m:1').join(inventory,on=columns,how='left',validate='m:1',nulls_equal=True)
-    if member['_row'].null_count() or member['_target'].null_count():raise ValueError('membership contains unknown query or target')
-    matrix=sparse.coo_matrix((np.ones(member.height,dtype=np.int64),(member['_row'].to_numpy(),member['_target'].to_numpy())),shape=(q.height,inventory.height)).tocsr()
+    if measure is None:
+        q=pl.concat([obs.select('query_id'),ctrl.select('query_id')]).unique().sort('query_id').with_row_index('_row')
+        obs=obs.join(q,on='query_id',validate='m:1')
+        ctrl=ctrl.join(q,on='query_id',validate='m:1')
+        member=matches.select(pl.col('query_id').cast(pl.Int64),*columns).unique().join(q,on='query_id',how='left',validate='m:1').join(inventory,on=columns,how='left',validate='m:1',nulls_equal=True)
+        if member['_row'].null_count() or member['_target'].null_count():raise ValueError('membership contains unknown query or target')
+        matrix=sparse.coo_matrix((np.ones(member.height,dtype=np.int64),(member['_row'].to_numpy(),member['_target'].to_numpy())),shape=(q.height,inventory.height)).tocsr()
+        def measure(rows,counts):
+            matched=matrix[rows]
+            return np.asarray(matched.sum(axis=0)).ravel(),np.asarray(matched.T@counts).ravel()
+    else:
+        obs=obs.with_columns(pl.col('query_id').alias('_row'))
+        ctrl=ctrl.with_columns(pl.col('query_id').alias('_row'))
+    obs=obs.sort('sample_id','pgen_bin','query_id')
     pools={}
     for (bin_id,),part in ctrl.partition_by('pgen_bin',as_dict=True).items():
         cumulative=np.cumsum(part['event_weight'].to_numpy(),dtype=np.int64)
@@ -66,16 +76,14 @@ def matched_enrichment(observations, control, matches, targets, *, replicates=20
             if available<group.height:raise ValueError(f'Pgen bin {bin_id}: need{group.height}control events, have{available}; exact matching cannot remap or discard source records')
             plan.append((group['_position'].to_numpy(),pools[bin_id]))
             audits.append(dict(sample_id=sample,pgen_bin=bin_id,requested_records=group.height,available_control_events=available,mock_replicates=replicates,exact_histogram_and_counts=True))
-        real=matrix[rows];actual_records=np.asarray(real.sum(axis=0)).ravel();actual_reads=np.asarray(real.T@counts).ravel()
+        actual_records,actual_reads=measure(rows,counts)
         mock_records=np.empty((replicates,inventory.height),dtype=np.int64);mock_reads=np.empty_like(mock_records)
         draw=np.empty(len(rows),dtype=rows.dtype)
         for replicate in range(replicates):
             for positions,(events,cumulative) in plan:
                 selected=events[_sample_event_indices(cumulative,len(positions),rng)];rng.shuffle(selected)
                 draw[positions]=selected
-            matched=matrix[draw]
-            mock_records[replicate]=np.asarray(matched.sum(axis=0)).ravel()
-            mock_reads[replicate]=np.asarray(matched.T@counts).ravel()
+            mock_records[replicate],mock_reads[replicate]=measure(draw,counts)
         fields=dict(sample_id=pl.repeat(sample,inventory.height,eager=True),n_records=pl.repeat(len(rows),inventory.height,eager=True),n_reads=pl.repeat(total,inventory.height,eager=True),matched_records=actual_records,matched_reads=actual_reads)
         for endpoint,values,observed in [('records',mock_records,actual_records),('reads',mock_reads,actual_reads)]:
             mean=values.mean(axis=0)
