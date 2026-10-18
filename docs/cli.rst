@@ -2289,8 +2289,11 @@ or dropping source observations.
      --control control.tsv.gz --species human --locus TRB --threads 4 \
      --mock-replicates 200 --seed 0 --output-prefix fresh
 
-One native batch searches the source/control junction union with full-junction
-Hamming distance at most one and matching V genes (alleles pooled). Ordinary
+The reference index is built once. One native batch searches each real repertoire
+or each freshly drawn mock, with full-junction Hamming distance at most one and
+matching V genes (alleles pooled). Only one repertoire is loaded at a time; the
+whole control bank is never searched. Sample seeds are the requested seed plus
+the zero-based metadata row number and are recorded in the manifest. Ordinary
 exact reference evidence remains present. A receptor contributes once per full
 pMHC regardless of repeated reference observations. Both matched receptor-record
 counts and their summed read counts are compared with the mock distributions.
