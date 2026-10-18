@@ -591,6 +591,9 @@ class Annotator:
         confidence and does not model repertoire co-occurrence (deferred research).
         ``return_hits=True`` returns ``(joint_hits, candidates)`` from the same searches;
         chain metadata in the detailed hits uses ``alpha_`` and ``beta_`` prefixes.
+        Candidate-only output requires native ``Index.search_paired_batch_consume``:
+        one worker pool searches both fixed chain indexes and reduces complete query
+        blocks. Hit buffers are bounded; the final candidate table remains in memory.
         ``exclude_exact=True`` removes only the exact/exact hit pair, retaining full
         reference and control population sizes. Its fixed-ball
         calibration uses simultaneous category bounds and a binomial tail with
@@ -636,12 +639,6 @@ class Annotator:
             if isinstance(scope, str)
             else scope
         )
-        ha = self._index.annotate(
-            qa, sp, gene="TRA", threads=threads, align=align, progress=progress
-        )
-        hb = self._index.annotate(
-            qb, sp, gene="TRB", threads=threads, align=align, progress=progress
-        )
         keys = ["query_id", "complex_id", *PMHC]
 
         def projection(h, prefix):
@@ -658,25 +655,6 @@ class Annotator:
                 )
             )
 
-        detail = projection(ha, "alpha_").join(
-            projection(hb, "beta_"), on=keys, nulls_equal=True
-        )
-        if exclude_exact:
-            detail = detail.filter(
-                (pl.col("alpha_db_cdr3") != pl.col("alpha_query_cdr3"))
-                | (pl.col("beta_db_cdr3") != pl.col("beta_query_cdr3"))
-            )
-        if return_hits:
-            detail = detail.sort(
-                ["query_id", "complex_id", "alpha_record_id", "beta_record_id"]
-            )
-        joint = detail.select(
-            *keys,
-            pl.col("alpha_score").alias("score"),
-            pl.col("beta_score").alias("score_beta"),
-            pl.col("alpha_db_cdr3").alias("db_cdr3"),
-            pl.col("beta_db_cdr3").alias("db_cdr3_beta"),
-        ).unique()
         dtype = qa.schema["query_id"]
         out_schema = {
             "query_id": dtype,
@@ -703,20 +681,91 @@ class Annotator:
                 "p_poisson_raw": pl.Float64, "p_upper": pl.Float64,
                 "finite_control_delta": pl.Float64,
             })
-        if not joint.height:
-            empty = pl.DataFrame(schema=out_schema)
-            return (detail, empty) if return_hits else empty
-        records = joint.group_by(["query_id", *PMHC]).agg(
-            pl.col("complex_id").n_unique().alias("n_records")
-        )
-        unique = joint.unique(subset=["query_id", *PMHC, "db_cdr3", "db_cdr3_beta"])
-        out = unique.group_by(["query_id", *PMHC]).agg(
-            pl.len().alias("n_hits"),
-            ((-(pl.col("score") + pl.col("score_beta")) / score_scale).exp())
-            .sum()
-            .alias("ned_score"),
-        )
-        out = out.join(records, on=["query_id", *PMHC], nulls_equal=True)
+        def summarize(joint):
+            records = joint.group_by(["query_id", *PMHC]).agg(
+                pl.col("complex_id").n_unique().alias("n_records")
+            )
+            unique = joint.unique(subset=["query_id", *PMHC, "db_cdr3", "db_cdr3_beta"])
+            out = unique.group_by(["query_id", *PMHC]).agg(
+                pl.len().alias("n_hits"),
+                ((-(pl.col("score") + pl.col("score_beta")) / score_scale).exp())
+                .sum()
+                .alias("ned_score"),
+            )
+            return out.join(records, on=["query_id", *PMHC], nulls_equal=True)
+
+        def linked(ha, hb):
+            detail = projection(ha, "alpha_").join(
+                projection(hb, "beta_"), on=keys, nulls_equal=True
+            )
+            if exclude_exact:
+                detail = detail.filter(
+                    (pl.col("alpha_db_cdr3") != pl.col("alpha_query_cdr3"))
+                    | (pl.col("beta_db_cdr3") != pl.col("beta_query_cdr3"))
+                )
+            return detail
+
+        if return_hits:
+            ha = self._index.annotate(
+                qa, sp, gene="TRA", threads=threads, align=align, progress=progress
+            )
+            hb = self._index.annotate(
+                qb, sp, gene="TRB", threads=threads, align=align, progress=progress
+            )
+            detail = linked(ha, hb).sort(
+                ["query_id", "complex_id", "alpha_record_id", "beta_record_id"])
+            if not detail.height:
+                return detail, pl.DataFrame(schema=out_schema)
+            out = summarize(detail.select(
+                *keys, pl.col("alpha_score").alias("score"),
+                pl.col("beta_score").alias("score_beta"),
+                pl.col("alpha_db_cdr3").alias("db_cdr3"),
+                pl.col("beta_db_cdr3").alias("db_cdr3_beta")).unique())
+        else:
+            import numpy as np
+            ia, ib = (self._index.index_for(gene) for gene in ("TRA", "TRB"))
+            if ia is None or ib is None:
+                return pl.DataFrame(schema=out_schema)
+            if not callable(getattr(ia, 'search_paired_batch_consume', None)):
+                raise RuntimeError('bounded paired reduction requires seqtree Index.search_paired_batch_consume; rebuild/install the current native source')
+            valid = lambda c: pl.col(c).is_not_null() & pl.col(c).str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$")
+            population = qa.select('query_id', pl.col('cdr3').alias('_a')).join(
+                qb.select('query_id', pl.col('cdr3').alias('_b')), on='query_id', validate='1:1')
+            population = population.filter(valid('_a') & valid('_b')).with_row_index('_qi')
+            schemas = ['_qi','ref_id','score','n_subs','n_ins','n_dels']
+            refs = [pl.DataFrame({'ref_id':pl.Series(range(len(idx)), dtype=pl.UInt32),
+                         'db_cdr3':idx.ref_seqs()}).join(
+                    self._index.records_for(gene).select(pl.col('cdr3').alias('db_cdr3'),
+                        'complex_id', *PMHC).filter(pl.col('complex_id').cast(pl.String).is_not_null() &
+                            ~pl.col('complex_id').cast(pl.String).is_in(['0',''])).unique(), on='db_cdr3')
+                for idx,gene in ((ia,'TRA'),(ib,'TRB'))]
+            outputs = []
+            def consume(start, stop, alpha, beta):
+                def expand(buffer, axis, records):
+                    # Distinct source IDs do not multiply the paired reducer's votes;
+                    # complex_id and full pMHC remain in the projection.
+                    return (pl.DataFrame(np.asarray(buffer), schema=schemas, orient='row')
+                        .select('_qi','ref_id',pl.col('score').cast(pl.Int32)).join(records, on='ref_id')
+                        .join(population.slice(start,stop-start).select('_qi','query_id',
+                            pl.col(axis).alias('query_cdr3')), on='_qi', validate='m:1')
+                        .drop('_qi','ref_id').sort('query_id','score','db_cdr3').unique(maintain_order=True))
+                detail = linked(expand(alpha,'_a',refs[0]), expand(beta,'_b',refs[1]))
+                if detail.height:
+                    outputs.append(summarize(detail.select(
+                        *keys, pl.col("alpha_score").alias("score"),
+                        pl.col("beta_score").alias("score_beta"),
+                        pl.col("alpha_db_cdr3").alias("db_cdr3"),
+                        pl.col("beta_db_cdr3").alias("db_cdr3_beta")).unique()))
+            if progress:
+                import sys
+                print(f'paired: searching {population.height:,} queries in one native population batch', file=sys.stderr)
+            ia.search_paired_batch_consume(ib,population['_a'].to_list(),population['_b'].to_list(),
+                sp,consume,threads=threads,chunk_size=32,max_hit_bytes=64*1024**2)
+            if progress:
+                print('paired: native search complete',file=sys.stderr)
+            if not outputs:
+                return pl.DataFrame(schema=out_schema)
+            out = pl.concat(outputs)
         # Coverage uses unique paired junctions, rather than publication observations.
         ra = self._index.records_for("TRA")
         rb = self._index.records_for("TRB")
@@ -743,12 +792,22 @@ class Annotator:
         for locus, q in [("TRA", qa), ("TRB", qb)]:
             ctrl = paired_controls[locus]
             if ctrl is not None:
-                hits = _search_unique_junctions(ctrl, q["cdr3"].to_list(), sp, threads)
-                counts.append(dict(zip(q["query_id"], map(len, hits))))
-                exact_counts.append(dict(zip(q["query_id"], [
-                    sum(ctrl.ref_seq(h.ref_id) == junction for h in group)
-                    for junction, group in zip(q["cdr3"], hits)
-                ])) if exclude_exact else {})
+                if (sp.engine in {'auto','seqtm'} and sp.mode == 'all'
+                    and sp.gap_open > 0 and sp.gap_extend > 0 and 0 < sp.max_total_edits <= 5
+                    and callable(getattr(ctrl, 'edit_histogram_batch', None))):
+                    keys = list(dict.fromkeys(q['cdr3']))
+                    histogram = ctrl.edit_histogram_batch(keys, sp, threads, False)
+                    totals = dict(zip(keys, map(sum, histogram)))
+                    exact = dict(zip(keys, (row[0] for row in histogram)))
+                    counts.append(dict(zip(q['query_id'], (totals[key] for key in q['cdr3']))))
+                    exact_counts.append(dict(zip(q['query_id'], (exact[key] for key in q['cdr3']))) if exclude_exact else {})
+                else:
+                    hits = _search_unique_junctions(ctrl, q["cdr3"].to_list(), sp, threads)
+                    counts.append(dict(zip(q["query_id"], map(len, hits))))
+                    exact_counts.append(dict(zip(q["query_id"], [
+                        sum(ctrl.ref_seq(h.ref_id) == junction for h in group)
+                        for junction, group in zip(q["cdr3"], hits)
+                    ])) if exclude_exact else {})
                 sizes.append(len(ctrl))
             else:
                 counts.append({})
