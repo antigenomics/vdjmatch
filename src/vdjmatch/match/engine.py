@@ -136,18 +136,22 @@ class VdjdbIndex:
         region_aware: bool = False,
         progress: bool = False,
         chunk: int = 2000,
+        consumer=None,
     ) -> pl.DataFrame:
         """Long hit evidence, preserving query_id/locus and all reference metadata.
 
         Search is one native batch of distinct junctions even with progress enabled. ``threads`` controls seqtree;
         Polars performs sequential post-search stages in its existing process-wide pool.
-        ``chunk`` is retained for signature compatibility; it does not split native search.
+        With ``consumer``, expand and emit at most ``chunk`` complete query rows
+        at a time after the same single native search; no wide hit table is retained.
         ``exclude_exact`` removes zero-edit hits before alignment and observation expansion.
         """
         if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
             raise ValueError(
                 "threads must be a nonnegative integer (0 selects native automatic)"
             )
+        if consumer is not None and (type(chunk) is not int or chunk < 1):
+            raise ValueError('positive integer output chunk required')
         q = queries
         if "query_id" not in q.columns:
             q = q.with_row_index("query_id")
@@ -189,91 +193,107 @@ class VdjdbIndex:
         res = _search_unique_junctions(idx, query_junctions, params, threads)
         if progress:
             print(f"{gene}: native search complete", file=sys.stderr)
+        def expanded(flat):
+            if not flat:
+                return self.empty_hits(
+                    q.schema["query_id"], align=align, region_aware=region_aware
+                )
+            hits = pl.DataFrame(flat, schema=_HIT_SCHEMA, orient="row").join(
+                uc, on="ref_id"
+            )
+            hits = hits.join(
+                q.select(
+                    "qi",
+                    "query_id",
+                    pl.col("cdr3").alias("query_cdr3"),
+                    pl.col("v").alias("query_v"),
+                    pl.col("j").alias("query_j"),
+                    pl.col("locus").alias("query_locus"),
+                    "count",
+                    *[
+                        pl.col(c).alias("query_" + c)
+                        for c in ("sequence_id", "pair_id")
+                        if c in q.columns
+                    ],
+                ),
+                on="qi",
+                validate="m:1",
+            )
+            # Align sequence pairs before many-record expansion. No repeated work per observation.
+            if align or region_aware:
+                pairs = hits.select("ref_id", "query_cdr3", "query_v", "query_j").unique(
+                    maintain_order=True
+                )
+                ret = pen = None
+                if region_aware:
+                    from . import regions
+
+                    ret, pen = regions.load_retention(), regions.vdjam_penalties()
+                cs, ml, rs = [], [], []
+                for ref, qc, qv, qj in pairs.iter_rows():
+                    aln = idx.align(int(ref), qc, params)
+                    cs.append(cigar.to_cigar(aln.ops))
+                    ml.append(cigar.match_line(aln.ops))
+                    if region_aware:
+                        rs.append(
+                            regions.aligned_score(
+                                aln.aligned_query,
+                                aln.aligned_ref,
+                                aln.ops,
+                                qv,
+                                qj,
+                                gene,
+                                ret,
+                                pen,
+                            )
+                        )
+                pairs = pairs.with_columns(pl.Series("cigar", cs), pl.Series("match", ml))
+                if region_aware:
+                    pairs = pairs.with_columns(pl.Series("region_score", rs))
+                hits = hits.join(
+                    pairs,
+                    on=["ref_id", "query_cdr3", "query_v", "query_j"],
+                    nulls_equal=True,
+                    validate="m:1",
+                )
+            shared = (set(hits.columns) & set(records.columns)) - {"cdr3"}
+            record_rows = records.rename({c: f"db_metadata_{c}" for c in shared})
+            hits = hits.join(record_rows, on="cdr3").rename(
+                {"cdr3": "db_cdr3", "v": "db_v", "j": "db_j"}
+            )
+            if match_v:
+                hits = hits.filter(_genefam(pl.col("db_v")) == _genefam(pl.col("query_v")))
+            if match_j:
+                hits = hits.filter(_genefam(pl.col("db_j")) == _genefam(pl.col("query_j")))
+            out = hits.drop("qi", "ref_id").sort(["query_id", "score", "db_cdr3"])
+            template = self.empty_hits(
+                q.schema["query_id"], align=align, region_aware=region_aware
+            )
+            return out.select(
+                *[pl.col(c).cast(dtype) for c, dtype in template.schema.items()],
+                *[pl.col(c) for c in out.columns if c not in template.columns],
+            )
+        if consumer is not None:
+            for start in range(0, q.height, chunk):
+                stop = min(start + chunk, q.height)
+                rows = [(qi, hit.ref_id, hit.score, hit.n_subs, hit.n_ins, hit.n_dels)
+                    for qi in range(start, stop) for hit in res[qi]
+                    if not exclude_exact or query_junctions[qi] != reference_junctions[hit.ref_id]]
+                # Release consumed outer memberships without mutating shared hit lists.
+                res[start:stop] = [()] * (stop-start)
+                block = expanded(rows)
+                del rows
+                consumer(block)
+                del block
+            return self.empty_hits(q.schema['query_id'], align=align, region_aware=region_aware)
         flat = [
             (qi, h.ref_id, h.score, h.n_subs, h.n_ins, h.n_dels)
             for qi, hl in enumerate(res)
             for h in hl
             if not exclude_exact or query_junctions[qi] != reference_junctions[h.ref_id]
         ]
-        if not flat:
-            return self.empty_hits(
-                q.schema["query_id"], align=align, region_aware=region_aware
-            )
-        hits = pl.DataFrame(flat, schema=_HIT_SCHEMA, orient="row").join(
-            uc, on="ref_id"
-        )
-        hits = hits.join(
-            q.select(
-                "qi",
-                "query_id",
-                pl.col("cdr3").alias("query_cdr3"),
-                pl.col("v").alias("query_v"),
-                pl.col("j").alias("query_j"),
-                pl.col("locus").alias("query_locus"),
-                "count",
-                *[
-                    pl.col(c).alias("query_" + c)
-                    for c in ("sequence_id", "pair_id")
-                    if c in q.columns
-                ],
-            ),
-            on="qi",
-            validate="m:1",
-        )
-        # Align sequence pairs before many-record expansion. No repeated work per observation.
-        if align or region_aware:
-            pairs = hits.select("ref_id", "query_cdr3", "query_v", "query_j").unique(
-                maintain_order=True
-            )
-            ret = pen = None
-            if region_aware:
-                from . import regions
+        return expanded(flat)
 
-                ret, pen = regions.load_retention(), regions.vdjam_penalties()
-            cs, ml, rs = [], [], []
-            for ref, qc, qv, qj in pairs.iter_rows():
-                aln = idx.align(int(ref), qc, params)
-                cs.append(cigar.to_cigar(aln.ops))
-                ml.append(cigar.match_line(aln.ops))
-                if region_aware:
-                    rs.append(
-                        regions.aligned_score(
-                            aln.aligned_query,
-                            aln.aligned_ref,
-                            aln.ops,
-                            qv,
-                            qj,
-                            gene,
-                            ret,
-                            pen,
-                        )
-                    )
-            pairs = pairs.with_columns(pl.Series("cigar", cs), pl.Series("match", ml))
-            if region_aware:
-                pairs = pairs.with_columns(pl.Series("region_score", rs))
-            hits = hits.join(
-                pairs,
-                on=["ref_id", "query_cdr3", "query_v", "query_j"],
-                nulls_equal=True,
-                validate="m:1",
-            )
-        shared = (set(hits.columns) & set(records.columns)) - {"cdr3"}
-        records = records.rename({c: f"db_metadata_{c}" for c in shared})
-        hits = hits.join(records, on="cdr3").rename(
-            {"cdr3": "db_cdr3", "v": "db_v", "j": "db_j"}
-        )
-        if match_v:
-            hits = hits.filter(_genefam(pl.col("db_v")) == _genefam(pl.col("query_v")))
-        if match_j:
-            hits = hits.filter(_genefam(pl.col("db_j")) == _genefam(pl.col("query_j")))
-        out = hits.drop("qi", "ref_id").sort(["query_id", "score", "db_cdr3"])
-        template = self.empty_hits(
-            q.schema["query_id"], align=align, region_aware=region_aware
-        )
-        return out.select(
-            *[pl.col(c).cast(dtype) for c, dtype in template.schema.items()],
-            *[pl.col(c) for c in out.columns if c not in template.columns],
-        )
 
 
 def _empty_hits(query_id_type=pl.UInt32) -> pl.DataFrame:

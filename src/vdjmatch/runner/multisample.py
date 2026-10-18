@@ -31,6 +31,7 @@ def annotate_sample(
     exclude_exact=False,
     search_mode="fixed",
     unified_distance="edit",
+    retain_hits=True,
 ):
     """Return hit/candidate/call/count tables plus explicit ingestion diagnostics.
 
@@ -108,11 +109,12 @@ def annotate_sample(
                 "summary": aggregate.epitope_summary(hits),
                 "ingestion": pl.DataFrame([report])}
     if search_mode == "ball":
-        hits, c = ann.graded_candidates(
+        result = ann.graded_candidates(
             queries, threads=threads, matrix=matrix, control=control,
             calibrate=with_evalue, species=species, exclude_exact=exclude_exact,
-            return_hits=True, match_v=match_v, match_j=match_j,
+            return_hits=retain_hits, match_v=match_v, match_j=match_j,
         )
+        hits, c = result if retain_hits else (index.empty_hits(queries.schema['query_id']), result)
         calls = pl.concat([
             _append_calls(queries, queries, c.filter(pl.col("radius") == radius),
                           index.genes, "vdjmatch_").with_columns(pl.lit(radius).alias("radius"))

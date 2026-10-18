@@ -246,6 +246,8 @@ def conditioned_counts(queries, controls, params, *, match_v=False, match_j=Fals
     import polars as pl
     from seqtree import Index
 
+    if not params.max_total_edits and any((params.max_subs,params.max_ins,params.max_dels)):
+        raise ValueError('gene-conditioned controls require an explicit total-edit cap')
     kinds=[k for k,flag in [('v',match_v),('j',match_j)] if flag]
     if not kinds or not {'cdr3',*kinds} <= set(controls.columns):
         raise ValueError('gene-conditioned controls require junction and requested gene columns')

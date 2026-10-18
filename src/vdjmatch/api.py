@@ -207,6 +207,7 @@ class Annotator:
         radii=None,
         background_mass=False,
         exclude_epitopes=None,
+        retain_hits=True,
     ):
         import math
 
@@ -243,19 +244,6 @@ class Annotator:
                 kinds = tuple(k for k, enabled in [('v', match_v), ('j', match_j)] if enabled)
                 gene_flags = gq.select('query_id', *[pl.col(k).alias('query_'+k)
                     for kind in kinds for k in ('original_'+kind, kind+'_imputed')])
-            h = self._index.annotate(
-                gq,
-                sp,
-                gene=gene,
-                threads=threads,
-                match_v=match_v,
-                match_j=match_j,
-                align=align,
-                progress=progress,
-                exclude_exact=exclude_exact,
-            )
-            if exclude_epitopes is not None:
-                h = h.join(exclude_epitopes, on=["query_id", "epitope"], how="anti")
             ctrl = control.get(gene) if isinstance(control, dict) else control
             if calibrate and ctrl is None:
                 from .evalue.control import background
@@ -304,35 +292,55 @@ class Annotator:
                         orient="row",
                     )
                     ctrl_hits = ctrl_hits.filter(~pl.col("_self")).drop("_self")
-            for radius in radii if radii is not None else [None]:
-                distance = pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") + pl.col("n_dels")
-                selected = h if radius is None else h.filter(distance <= radius)
-                selected_controls = ctrl_hits
-                if radius is not None and ctrl_hits is not None:
-                    selected_controls = ctrl_hits.filter(pl.col("edits") <= radius)
-                if control_cdf is not None and radius is not None:
-                    control_totals = control_cdf.filter(pl.col('edits') == radius).select('query_id', pl.col('_nc').alias('n_control'))
-                c = reduce_candidates(
-                    selected, self._index.records_for(gene), selected_controls,
-                    control_size=len(ctrl) if ctrl is not None else None,
-                    control_counts=control_cdf, control_totals=control_totals, control_sizes=control_sizes,
-                    score_scale=score_scale, soft_v=soft_v,
-                    match_v=match_v, match_j=match_j, background_mass=background_mass,
-                    exclude_exact=exclude_exact,
-                )
-                if gene_flags is not None:
-                    c = c.join(gene_flags, on='query_id', how='left', validate='m:1')
-                if radius is not None:
-                    c = c.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius"))
-                cs.append(c)
-            hs.append(h)
+            def consume(h):
+                if exclude_epitopes is not None:
+                    h = h.join(exclude_epitopes, on=['query_id', 'epitope'], how='anti')
+                for radius in radii if radii is not None else [None]:
+                    distance = pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") + pl.col("n_dels")
+                    selected = h if radius is None else h.filter(distance <= radius)
+                    selected_controls = ctrl_hits
+                    if radius is not None and ctrl_hits is not None:
+                        selected_controls = ctrl_hits.filter(pl.col("edits") <= radius)
+                    selected_totals = control_totals
+                    if control_cdf is not None and radius is not None:
+                        selected_totals = control_cdf.filter(pl.col('edits') == radius).select('query_id', pl.col('_nc').alias('n_control'))
+                    c = reduce_candidates(
+                        selected, self._index.records_for(gene), selected_controls,
+                        control_size=len(ctrl) if ctrl is not None else None,
+                        control_counts=control_cdf, control_totals=selected_totals, control_sizes=control_sizes,
+                        score_scale=score_scale, soft_v=soft_v,
+                        match_v=match_v, match_j=match_j, background_mass=background_mass,
+                        exclude_exact=exclude_exact,
+                    )
+                    if gene_flags is not None:
+                        c = c.join(gene_flags, on='query_id', how='left', validate='m:1')
+                    if radius is not None:
+                        c = c.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius"))
+                    cs.append(c)
+                return h
+            h = self._index.annotate(
+                gq,
+                sp,
+                gene=gene,
+                threads=threads,
+                match_v=match_v,
+                match_j=match_j,
+                align=align,
+                progress=progress,
+                exclude_exact=exclude_exact,
+                **({} if retain_hits else {'consumer':consume, 'chunk':32}),
+            )
+            if retain_hits:
+                h = consume(h)
+                hs.append(h)
+        candidates = pl.concat(cs, how='diagonal_relaxed') if cs else pl.DataFrame(schema=candidate_schema(q.schema['query_id']))
+        if not retain_hits and candidates.height:
+            candidates = candidates.sort('query_locus', *(['radius'] if radii is not None else []), 'query_id', 'rank')
         return (
             pl.concat(hs, how="diagonal_relaxed")
             if hs
             else _empty_hits(q.schema["query_id"]),
-            pl.concat(cs, how="diagonal_relaxed")
-            if cs
-            else pl.DataFrame(schema=candidate_schema(q.schema["query_id"])),
+            candidates,
         )
 
     def graded_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
@@ -356,7 +364,7 @@ class Annotator:
             h, c = self._evidence(q, sp, threads=threads, control=control,
                                   calibrate=calibrate, species=species,
                                   score_scale=1.0, exclude_exact=exclude_exact,
-                                  radii=range(1, 6), match_v=match_v, match_j=match_j)
+                                  radii=range(1, 6), match_v=match_v, match_j=match_j, retain_hits=return_hits)
             h = h.with_columns((pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") +
                                 pl.col("n_dels")).alias("minimum_radius"))
         else:
@@ -367,7 +375,7 @@ class Annotator:
                 rh, rc = self._evidence(q, sp, threads=threads, control=control,
                                        calibrate=calibrate, species=species,
                                        score_scale=400.0, exclude_exact=exclude_exact,
-                                       match_v=match_v, match_j=match_j)
+                                       match_v=match_v, match_j=match_j, retain_hits=return_hits)
                 hs.append(rh.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius")))
                 cs.append(rc.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius")))
             h, c = pl.concat(hs, how="diagonal_relaxed"), pl.concat(cs, how="diagonal_relaxed")
@@ -491,6 +499,7 @@ class Annotator:
             score_scale=score_scale,
             soft_v=soft_v,
             exclude_exact=exclude_exact,
+            retain_hits=False,
         )[1]
 
     def annotate(
@@ -543,6 +552,7 @@ class Annotator:
             score_scale=score_scale,
             soft_v=soft_v,
             exclude_exact=exclude_exact,
+            retain_hits=False,
         )[1]
         return _append_calls(data, q, c, self.loci, prefix)
 
