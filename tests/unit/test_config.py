@@ -258,3 +258,27 @@ def test_fresh_reference_match_never_reads_or_writes_prepared_assets(tmp_path,mo
     assert candidates['n_target'].to_list()==[1]*5
     assert not (tmp_path/'reference.tsv.vdjmatch').exists()
     assert json.loads((tmp_path/'fresh.query.manifest.json').read_text())['fresh_reference'] is True
+
+
+def test_scope_epitope_profiles_pool_mhc_without_removing_tail_models(tmp_path):
+    ref=tmp_path/'reference.tsv';query=tmp_path/'query.tsv'
+    pl.DataFrame({'cdr3':['CASSF','CASRF','CASTF'],'gene':['TRB']*3,'species':['HomoSapiens']*3,'antigen.epitope':['E','E','TAIL'],'mhc.a':['HLA-A*01:01','HLA-A*02:01','HLA-A*03:01']}).write_csv(ref,separator='\t')
+    pl.DataFrame({'junction_aa':['CASSF'],'locus':['TRB']}).write_csv(query,separator='\t')
+    args=['match',str(query),'--vdjdb',str(ref),'--fresh-reference','--epitope-profiles','--search-mode','ball','--matrix','none','--no-evalue','--no-align','--no-hit-table','--threads','1','-o',str(tmp_path/'out')]
+    assert cli.main(args)==0
+    c=pl.read_csv(tmp_path/'out.query.candidates.txt',separator='\t')
+    assert set(c['epitope'])=={'E','TAIL'}
+    assert c.filter((pl.col('radius')==1)&(pl.col('epitope')=='E'))['n_reference'].to_list()==[2]
+    assert c.filter(pl.col('epitope')=='E')['mhc_a'].n_unique()==1
+    manifest=json.loads((tmp_path/'out.query.manifest.json').read_text())
+    assert manifest['epitope_profiles']['min_records']==1
+    with pytest.raises(SystemExit):
+        cli.main([arg for arg in args if arg!='--fresh-reference'])
+
+
+def test_prepare_reference_helper_does_not_depend_on_command_namespace(monkeypatch):
+    import vdjmatch.db.index as indexes
+    marker=object()
+    monkeypatch.setattr(indexes,'load_or_build_index',lambda *args,**kwargs:(marker,pl.DataFrame({'x':[1]}),{'artifact_path':'/tmp/reference-model'}))
+    index,profiles,manifest=cli._prepare_reference('/tmp/raw.tsv')
+    assert index is marker and profiles.height==1
