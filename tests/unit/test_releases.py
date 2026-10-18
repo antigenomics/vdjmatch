@@ -502,3 +502,20 @@ def test_explicit_primary_does_not_use_historical_bundle():
     with pytest.raises(ValueError, match="primary"):
         vdjdb._select_asset(release, "primary")
     assert vdjdb._select_asset(release, "default")[1] is None
+
+
+def test_directory_provenance_binds_names_and_bytes_independent_of_location(tmp_path):
+    import hashlib
+    from vdjmatch import db
+    roots=[tmp_path/'first',tmp_path/'second']
+    for root in roots:
+        root.mkdir();(root/'b').write_bytes(b'B');(root/'a').write_bytes(b'A')
+    left,right=map(db.provenance,roots)
+    assert left['input_sha256']==right['input_sha256']
+    expected=hashlib.sha256()
+    for name,value in sorted(left['files'].items()):expected.update(name.encode()+b'\0'+bytes.fromhex(value))
+    assert left['input_sha256']==expected.hexdigest()
+    (roots[1]/'a').rename(roots[1]/'c')
+    assert db.provenance(roots[1])['input_sha256']!=left['input_sha256']
+    (roots[0]/'a').write_bytes(b'changed')
+    assert db.provenance(roots[0])['input_sha256']!=left['input_sha256']
