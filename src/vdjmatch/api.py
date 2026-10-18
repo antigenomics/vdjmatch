@@ -225,6 +225,9 @@ class Annotator:
                 "V/J-restricted calibration requires V/J-labelled controls; sequence-only controls cannot apply that predicate"
             )
         active = sorted(set(self.loci) & set(q["locus"].drop_nulls()))
+        if not retain_hits and any(not callable(getattr(self._index.index_for(gene),
+                'search_batch_consume', None)) for gene in active):
+            raise RuntimeError('bounded candidate reduction requires seqtree Index.search_batch_consume; rebuild/install the current native source')
         if isinstance(control, dict) and any(
             control.get(gene) is None for gene in active
         ):
@@ -335,7 +338,7 @@ class Annotator:
                 progress=progress,
                 exclude_exact=exclude_exact,
                 _reference_records=reference_records if (match_v or match_j) else None,
-                **({} if retain_hits else {'consumer':consume, 'chunk':32}),
+                **({} if retain_hits else {'consumer':consume, 'chunk':32, '_candidate_only':True}),
             )
             if retain_hits:
                 h = consume(h)

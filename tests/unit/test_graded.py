@@ -44,12 +44,12 @@ def test_graded_balls_equal_five_fixed_searches(monkeypatch):
     expected = [ann.candidates(["CAAAAAAF"], scope=f"{r},{min(r,2)},{min(r,2)},{r}",
                                control=control, soft_v=False) for r in range(1, 6)]
     # One target hit batch and one bounded control histogram batch.
-    original = Index.search_batch
+    original = Index.search_batch_consume
     calls = []
-    def batch(self, queries, params, threads=0):
+    def batch(self, queries, params, consume, threads=0, **options):
         calls.append((len(queries), params.max_total_edits))
-        return original(self, queries, params, threads)
-    monkeypatch.setattr(Index, "search_batch", batch)
+        return original(self, queries, params, consume, threads=threads, **options)
+    monkeypatch.setattr(Index, "search_batch_consume", batch)
     got = ann.graded_candidates(["CAAAAAAF"], control=control)
     assert calls == [(1, 5)]
     for r, fixed in enumerate(expected, 1):
@@ -99,13 +99,22 @@ def test_bounded_observation_expansion_keeps_one_native_batch_and_all_candidates
     params=search_params('5,2,2,5',gap_open=1,gap_extend=1)
     kwargs=dict(threads=1,radii=range(1,6),exclude_exact=True,score_scale=1.0)
     _,expected=ann._evidence(q,params,**kwargs)
-    original=Index.search_batch;calls=[]
-    def batch(self,queries,params,threads=0):
-        calls.append(len(queries));return original(self,queries,params,threads)
-    monkeypatch.setattr(Index,'search_batch',batch)
+    original=Index.search_batch_consume;calls=[]
+    def batch(self,queries,params,consume,threads=0,**options):
+        calls.append(len(queries));return original(self,queries,params,consume,threads=threads,**options)
+    monkeypatch.setattr(Index,'search_batch_consume',batch)
     hits,got=ann._evidence(q,params,retain_hits=False,**kwargs)
     assert hits.is_empty() and calls==[73]
     assert_frame_equal(got,expected,check_exact=True)
+
+
+def test_candidate_only_requires_bounded_native_capability_before_controls(monkeypatch):
+    ann=Annotator.from_frame(pl.DataFrame({'gene':['TRB'],'cdr3':['CASSF'],'epitope':['E']}))
+    control=Index.build(['CASSF'])
+    monkeypatch.setattr(Index,'search_batch_consume',None)
+    monkeypatch.setattr(Index,'edit_histogram_batch',lambda *a,**k:pytest.fail('controls loaded before capability check'))
+    with pytest.raises(RuntimeError,match='search_batch_consume'):
+        ann.candidates(['CASSF'],control=control)
 
 
 def test_retained_hits_keep_the_same_epitope_exclusion():
