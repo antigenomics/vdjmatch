@@ -226,8 +226,13 @@ def test_native_bootstrap_coverage_matches_owning_python_curve():
             for draw in bootstrap_abundances(counts, nboot=5, seed=7)])
         np.testing.assert_allclose(curve['coverage_lo'], np.quantile(expected, .025, axis=0), rtol=0, atol=1e-9)
         np.testing.assert_allclose(curve['coverage_hi'], np.quantile(expected, .975, axis=0), rtol=0, atol=1e-9)
-    with pytest.raises(ValueError, match='working memory'):
-        abundance_coverage([10_000_000], nboot=5, seed=7)
+    # A large occurrence total with one taxon is compressed, not a RAM estimate failure.
+    summary, curve = abundance_coverage([10_000_000], nboot=5, seed=7)
+    assert summary['observations'] == 10_000_000 and summary['observed_taxa'] == 1
+    np.testing.assert_array_equal(curve['coverage_lo'], np.ones(curve.height))
+    np.testing.assert_array_equal(curve['coverage_hi'], np.ones(curve.height))
+    with pytest.raises(ValueError, match='int32 range'):
+        abundance_coverage([2**31], nboot=5, seed=7)
 
 
 def test_combined_uses_persisted_control_reductions_without_rebuilding(tmp_path, monkeypatch):
