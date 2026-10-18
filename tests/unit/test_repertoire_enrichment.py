@@ -105,7 +105,7 @@ def test_streamed_mock_measurements_equal_precomputed_memberships():
     assert sizes==[3]*201
 
 
-def test_original_vdjbet_pgen_binning_includes_zero_and_extreme_tail():
+def test_floored_pgen_binning_includes_zero_and_extreme_tail():
     from vdjmatch.cli.repertoire_enrichment import _repertoire_strata
     x=pl.DataFrame(dict(junction_aa=['CASSF','CATSF','CARTF','CASRF'],pgen=[0.,2.**-112,2.**-61,2.**-20]))
     result=_repertoire_strata(x)

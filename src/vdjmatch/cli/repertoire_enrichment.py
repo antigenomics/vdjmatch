@@ -20,7 +20,7 @@ def _single_v(frame,column,*,species='human',locus='TRB',impute=True):
 
 
 def _repertoire_strata(frame):
-    """Original vdjbet round(log2(Pgen +2^-60)) applied to both populations."""
+    """Floored round(log2(Pgen +2^-60)) applied to both populations."""
     import polars as pl
     from ..evalue.mock_reference import pgen_strata
     return pgen_strata(frame.with_columns((pl.col('pgen')+2.**-60).alias('pgen')))
@@ -164,8 +164,8 @@ def main(a):
         scope='full-junction Hamming<=1 and exact V gene, allele-pooled; exact reference matches retained',reference_population=a.reference_population,
         mock_replicates=a.mock_replicates,seed=a.seed,threads=a.threads,event_sampler=EVENT_SAMPLER,
         pgen_mismatches=a.pgen_mismatches,pgen_definition=f'inclusive Hamming<={a.pgen_mismatches} marginal full-junction probability, summed over model V/J',
-        pgen_binning='round(log2(Pgen+2**-60)), ties-to-even; original vdjbet offset applied identically to real/control masses',
-        matching='exact vdjbet rounded-log2Pgen bins; no missing-bin remapping or dropped source records; counts fixed within bins; event slots without replacement',
+        pgen_binning='round(log2(Pgen+2**-60)), ties-to-even; offset applied identically to real/control masses',
+        matching='exact rounded-log2Pgen bins; no missing-bin remapping or dropped source records; counts fixed within bins; event slots without replacement',
         inference='independent per-sample/per-full-pMHC one-sided empirical (1+mock>=real)/(B+1); central95percent mock intervals, no donor/timepoint contrasts or correction',
         automatic_detection_threshold=None,calculation='fresh raw queries/mocks/matches; explicitly supplied immutable Pgen assets only; new query masses remain in-memory',
         stages=stages,seconds=time.monotonic()-start,tables=tables),indent=2)+'\n')
