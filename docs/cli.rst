@@ -1805,10 +1805,13 @@ one row per full-pMHC/species/locus/segment and length scope:
 
 Here :math:`G` is V or J, :math:`L` is anchor-inclusive junction length,
 :math:`P_e` is the target distribution and :math:`P_0` the empirical control.
-V and J are separate projections. Counts include all original mass; unresolved
-genes or zero/missing control support leave affected expectations null, with
-``unresolved_comparison_keys``, ``unavailable_length_keys`` and
-``information_status`` explaining coverage. Missing MHC fields remain explicit
+V and J are separate projections. Counts include all original mass. Missing/nonfinite pointwise gene or length
+contributions receive neutral zero-bit imputation, retaining per-row
+``gene_bits_imputed``/``length_bits_imputed`` flags and original
+``unresolved_comparison_keys``/``unavailable_length_keys`` counts. The summary
+status is ``available_neutral_imputation`` when needed; other contributions
+remain usable. The displayed KL identities apply to fully observed estimates;
+imputed summaries are neutral-filled descriptive contributions. Missing MHC fields remain explicit
 context values. Reference/key/control counts and the sampling units are retained.
 These descriptive information estimates do not select a score or supply a
 P-value. See :doc:`selection-information` for the likelihood and chain-rule
@@ -2374,3 +2377,14 @@ fails at8GB of accumulated table buffers and directs large jobs to streaming.
 memory cap against the larger of RSS and macOS physical footprint per process.
 The latter includes compressed/swapped allocations; RSS alone can miss an
 overflow. Resource reports expose both totals.
+
+Missing control gene metadata
+-----------------------------
+
+V-aware control-event preparation imputes a missing V/J call with the selected
+population's modal supplied call (lexical tie-break), or the bundled vdjtools
+model mode when no call is supplied. Original normalized gene annotations remain
+part of event identity before weights are aggregated. Affected outputs carry
+``v_imputed``/``j_imputed`` indicators. Analytic control ingestion retains these
+records for imputation. Input files and source event weights remain unchanged.
+Explicit conflicting locus annotations still fail validation.

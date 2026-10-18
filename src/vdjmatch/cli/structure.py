@@ -115,7 +115,7 @@ def main(a, *, return_inputs=False):
                 a.control_model, a.control, species=organism, locus=a.locus, modes=modes)
             mark('control_model_loading')
         else:
-            control_raw, control_info = _raw_control(a.control)
+            control_raw, control_info = _raw_control(a.control, retain_missing_genes=True)
             events = control_events(control_raw, species=organism, locus=a.locus)
             control_usage = control_gene_usage(events, locus=a.locus)
             mark('raw_control')
@@ -448,7 +448,7 @@ def main(a, *, return_inputs=False):
             sampling_unit='original distinct full-junction/V-gene keys; no deduplication after residue projection',
             projections='one-based aligned cdr1/cdr2/cdr25 columns; full AA and 11 IMGT classes separately',
             allele_policy='all bundled alleles of a gene must agree per column; no default allele or inferred allele frequencies',
-            missing_policy='missing gene/model/loop or allele-dependent column keeps all mass and unavailable comparison; no smoothing',
+            missing_policy='missing gene/model/loop or allele-dependent column keeps all mass; missing consensus/length contributions use flagged neutral zero-bit imputation; residue lower-bound availability remains explicit',
             gap_policy='dot is aligned absence within a populated loop; an entirely empty loop template is unavailable',
             interpretation='consensus bits/KL describe gene-consensus categories; residue_bits_lower allows every compatible or unresolved control allele; correlated positions are not additive',
             reducer_sha256=sha256(Path(iter_germline_information.__code__.co_filename)))

@@ -21,8 +21,9 @@ def test_mock_event_annotations_stay_joint_with_rearrangement_weights():
     assert mock.group_by('junction_aa', 'v', 'j').len().sort('junction_aa', 'v')['len'].to_list() == [2, 3, 1]
     with pytest.raises(ValueError, match='convergence totals'):
         control_events(raw.drop('junction', 'incidence').with_columns(pl.lit(3).alias('convergence')))
-    with pytest.raises(ValueError, match='requires supplied V/J'):
-        control_events(raw.select('junction_aa'))
+    mocked=control_events(raw.select('junction_aa'))
+    assert mocked.height==2 and mocked['event_weight'].sum()==2
+    assert mocked['v_imputed'].all() and mocked['j_imputed'].all()
 
 
 def test_event_weights_ignore_reads_and_deduplicate_nt_events():
@@ -321,3 +322,30 @@ def test_absent_positive_and_zero_bins_share_one_capacity_aware_floor():
         .then(1).otherwise(pl.col('event_weight')).alias('event_weight'))
     with pytest.raises(ValueError, match='Pgen bin -4: need 2, have 1'):
         list(iter_mock_references(reference, thin_match, pgen=pgen, replicates=1))
+
+
+def test_missing_control_genes_are_imputed_without_losing_source_events(tmp_path):
+    from vdjmatch.evalue.mock_reference import control_events
+    raw=pl.DataFrame({'junction_aa':['CASSF']*3,'junction':['AAA','AAA','CCC'],'v_call':['TRBV19','TRBV19',None],'j_call':['TRBJ2-7',None,'TRBJ2-7'],'sample_id':['one']*3})
+    original=raw.clone();events=control_events(raw)
+    from vdjmatch.cli.combined import _raw_control
+    path=tmp_path/'partial-control.tsv';raw.write_csv(path,separator='\t')
+    retained,report=_raw_control(path,retain_missing_genes=True)
+    assert report['control_valid_rows']==3 and control_events(retained).equals(events)
+    assert raw.equals(original)
+    assert events['event_weight'].sum()==3
+    assert events['v'].to_list()==['TRBV19'] and events['j'].to_list()==['TRBJ2-7']
+    assert events['v_imputed'].item() and events['j_imputed'].item()
+    assert events.equals(control_events(raw.reverse()))
+    assert control_events(raw.with_columns(pl.col('j_call').fill_null('')))['event_weight'].sum()==3
+    mocked=control_events(raw.with_columns(pl.lit(None,dtype=pl.String).alias('v_call'),pl.lit(None,dtype=pl.String).alias('j_call')))
+    assert mocked['event_weight'].sum()==2 and mocked['v_imputed'].all() and mocked['j_imputed'].all()
+
+
+def test_imputation_retains_original_aa_event_keys_and_infers_missing_declared_locus():
+    from vdjmatch.evalue.mock_reference import control_events
+    raw=pl.DataFrame({'junction_aa':['CASSF','CASSF'],'v_call':['TRBV19',None],'j_call':['TRBJ2-7']*2})
+    assert control_events(raw)['event_weight'].sum()==2
+    counted=raw.with_columns(pl.Series('locus',['TRB',None]),pl.Series('occurrences',[2,3]))
+    assert control_events(counted)['event_weight'].sum()==5
+    assert control_events(counted.with_columns(pl.col('locus').fill_null('')))['event_weight'].sum()==5

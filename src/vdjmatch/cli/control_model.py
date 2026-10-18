@@ -36,7 +36,7 @@ def main(a):
     sources_before = {fn.__name__: sha256(Path(fn.__code__.co_filename)) for fn in source_functions}
     producer_before, raw_before = sha256(Path(__file__)), sha256(Path(a.control))
     directory.mkdir(parents=True, exist_ok=False)
-    raw, info = _raw_control(a.control)
+    raw, info = _raw_control(a.control, retain_missing_genes=True)
     events = control_events(raw, species=organism, locus=a.locus)
     del raw
     files = {}

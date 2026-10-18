@@ -111,7 +111,7 @@ def _queries(rows, a, organism):
     return raw.drop('_combined_sequence').rename({'_combined_row': 'calibration_input_row'}), populations
 
 
-def _raw_control(path):
+def _raw_control(path, *, retain_missing_genes=False):
     import polars as pl
     from ..io.airr import _read_table
     from ..io.columns import validate_counts, _resolve
@@ -137,6 +137,8 @@ def _raw_control(path):
     raw = raw.filter(pl.col(sequence).str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False))
     sequence_rows = raw.height
     fields = _resolve(raw)
+    if retain_missing_genes:
+        return raw, dict(control_source_rows=source_rows,control_productive_rows=productive_rows,control_excluded_nonproductive_rows=source_rows-productive_rows,control_excluded_invalid_sequence_rows=productive_rows-sequence_rows,control_excluded_invalid_gene_rows=0,control_valid_rows=raw.height,missing_gene_policy='retained for flagged control-event imputation')
     if not {'v', 'j'}.issubset(fields):
         raise ValueError('combined-score control requires V and J gene columns')
     v = pl.col(fields['v']).cast(pl.String).str.strip_chars().str.to_uppercase()
@@ -238,7 +240,7 @@ def main(a):
     if not reference.height:
         raise ValueError('selected reference has no valid matching-species/locus records')
     query, populations = _queries(rows, a, organism)
-    control, control_counts = _raw_control(control_path)
+    control, control_counts = _raw_control(control_path, retain_missing_genes=True)
     chains_needed = set()
     for locus, receptors in populations:
         chains = ['TRA', 'TRB'] if locus == 'paired' else [locus]
