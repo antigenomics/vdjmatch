@@ -59,6 +59,10 @@ def test_cli_gene_labelled_control_is_used_for_the_same_predicate(tmp_path):
     assert got['query_id'].n_unique()==2 and got['n_control'].to_list()==[1,1]
     manifest=json.loads((tmp_path/'out.query.manifest.json').read_text())
     assert manifest['controls']['TRB']['gene_columns']['v']=='v'
+    assert cli.main(args+['--no-hit-table','-o',str(tmp_path/'compact')])==0
+    compact=pl.read_csv(tmp_path/'compact.query.candidates.txt',separator='\t').filter(pl.col('radius')==1)
+    assert compact.sort('query_id').equals(got.sort('query_id'))
+    assert not (tmp_path/'compact.query.hits.txt').exists()
 
 
 def test_ambiguous_allele_calls_do_not_select_the_first_gene():
@@ -104,3 +108,10 @@ def test_mixed_invalid_locus_keeps_its_query_disposition():
     got=Annotator.from_frame(ref).annotate(q,match_v=True)
     assert got.height==2
     assert got['vdjmatch_status'].to_list()==['matched','invalid_query']
+
+
+def test_conditioned_counts_rejects_an_uncapped_nonexact_search():
+    from seqtree import SearchParams
+    q=pl.DataFrame({'query_id':[0],'cdr3':['CASSF'],'v':['TRBV19']})
+    with pytest.raises(ValueError,match='explicit total-edit cap'):
+        conditioned_counts(q,q.drop('query_id'),SearchParams(max_subs=2),match_v=True)

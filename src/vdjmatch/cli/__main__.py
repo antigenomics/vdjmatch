@@ -260,6 +260,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
             exclude_exact=getattr(a, "exclude_exact", False),
             search_mode=search_mode,
             unified_distance=(getattr(a, "unified_distance", None) or "edit"),
+            retain_hits=not getattr(a, 'no_hit_table', False),
         )
         for kind, frame in res.items():
             if kind == "hits" and getattr(a, "no_hit_table", False):

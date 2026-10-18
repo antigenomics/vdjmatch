@@ -2409,3 +2409,10 @@ Fresh reference matching
 reference in memory, bypassing prepared bundles without reading or writing them.
 It supports the existing fixed and graded-ball modes, including exact-hit
 exclusion, and records the fresh-reference policy in each output manifest.
+
+With ``match --search-mode ball --no-hit-table``, reference observations are
+expanded and reduced in bounded blocks of complete queries after the same one
+native full-population search. Candidate values, exact-hit filtering and no-hit
+calls are retained. This avoids retaining the full wide reference-hit table;
+native hit memberships are still held until their blocks are consumed, so actual
+whole-process-tree memory must still be measured for a large cohort.

@@ -85,3 +85,36 @@ def test_graded_histogram_preserves_all_fixed_control_fields(exclude_exact):
             control=control, exclude_exact=exclude_exact, score_scale=1.0)
         got = graded.filter(pl.col('radius')==radius).drop('radius')
         assert_frame_equal(got.sort('query_id','epitope'),fixed.sort('query_id','epitope'))
+
+
+def test_bounded_observation_expansion_keeps_one_native_batch_and_all_candidates(monkeypatch):
+    from polars.testing import assert_frame_equal
+    from vdjmatch.api import _prepare
+    from vdjmatch.match.scope import search_params
+    amino='ACDEFGHIKLMNPQRSTVWY'
+    sequences=['C'+amino[i%20]+amino[i//20]+'SSF' for i in range(72)]
+    ref=pl.DataFrame({'gene':['TRB']*72,'cdr3':sequences,'epitope':['E'+str(i%3) for i in range(72)],'reference_id':['R'+str(i%5) for i in range(72)]})
+    ann=Annotator.from_frame(ref)
+    _,q=_prepare(pl.DataFrame({'query_id':['Q'+str(i) for i in range(73)],'cdr3':sequences+['CYYYYYYYYF']}))
+    params=search_params('5,2,2,5',gap_open=1,gap_extend=1)
+    kwargs=dict(threads=1,radii=range(1,6),exclude_exact=True,score_scale=1.0)
+    _,expected=ann._evidence(q,params,**kwargs)
+    original=Index.search_batch;calls=[]
+    def batch(self,queries,params,threads=0):
+        calls.append(len(queries));return original(self,queries,params,threads)
+    monkeypatch.setattr(Index,'search_batch',batch)
+    hits,got=ann._evidence(q,params,retain_hits=False,**kwargs)
+    assert hits.is_empty() and calls==[73]
+    assert_frame_equal(got,expected,check_exact=True)
+
+
+def test_retained_hits_keep_the_same_epitope_exclusion():
+    from vdjmatch.api import _prepare
+    from vdjmatch.match.scope import search_params
+    ref=pl.DataFrame({'gene':['TRB','TRB'],'cdr3':['CASSF','CASRF'],'epitope':['A','B']})
+    ann=Annotator.from_frame(ref)
+    _,q=_prepare(['CASSF'])
+    excluded=pl.DataFrame({'query_id':q['query_id'],'epitope':['A']})
+    hits,candidates=ann._evidence(q,search_params('1',gap_open=1,gap_extend=1),exclude_epitopes=excluded)
+    assert hits['epitope'].to_list()==['B']
+    assert candidates['epitope'].to_list()==['B']
