@@ -2391,3 +2391,11 @@ part of event identity before weights are aggregated. Affected outputs carry
 ``v_imputed``/``j_imputed`` indicators. Analytic control ingestion retains these
 records for imputation. Input files and source event weights remain unchanged.
 Explicit conflicting locus annotations still fail validation.
+
+Fresh reference matching
+------------------------
+
+``match --fresh-reference`` builds its native index directly from the raw
+reference in memory, bypassing prepared bundles without reading or writing them.
+It supports the existing fixed and graded-ball modes, including exact-hit
+exclusion, and records the fresh-reference policy in each output manifest.
