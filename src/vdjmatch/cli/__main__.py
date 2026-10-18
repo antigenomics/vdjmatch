@@ -203,14 +203,19 @@ def _cmd_match(a: argparse.Namespace) -> int:
         )
     }
     from ..db.index import load_or_build_index
-    index, _, index_manifest = load_or_build_index(
-        reference,
-        asset=a.asset,
-        species=reference_species,
-        threads=p.threads,
-        min_score=p.min_score,
-        **reference_filters,
-    )
+    if getattr(a, 'fresh_reference', False):
+        index = match.VdjdbIndex.build(db.load(reference, asset=a.asset,
+            species=reference_species, min_score=p.min_score, **reference_filters))
+        index_manifest = dict(identity=dict(source=db.provenance(reference)), fresh=True)
+    else:
+        index, _, index_manifest = load_or_build_index(
+            reference,
+            asset=a.asset,
+            species=reference_species,
+            threads=p.threads,
+            min_score=p.min_score,
+            **reference_filters,
+        )
     vdj = index.reference
     print(
         f"VDJdb: {vdj.height:,} observations; indexed loci {index.genes}",
@@ -264,6 +269,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
             )
         manifest = {
             "reference": reference_provenance,
+            "fresh_reference": getattr(a, "fresh_reference", False),
             "sample": {"sha256": sha256(Path(sample))},
             "software": {
                 pkg: importlib.metadata.version(pkg)
@@ -555,6 +561,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="fixed scope, five graded balls, or experimental background-mass component scoring")
     m.add_argument("--unified-distance", choices=["edit", "gapblock"], default=None,
                    help="experimental unified-mode component, evaluated at every query length")
+    m.add_argument("--fresh-reference", action="store_true", help="build the reference index from raw input in memory; never read or write a prepared bundle")
     m.add_argument("--no-hit-table", action="store_true", help="omit the expanded observation hit export; retain candidate and call tables")
     m.add_argument("--link", default=None, help="cell linkage column for --paired")
     m.add_argument(

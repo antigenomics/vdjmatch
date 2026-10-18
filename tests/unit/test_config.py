@@ -242,3 +242,19 @@ def test_cli_rejects_invalid_parent_table_thread_cap(monkeypatch,capsys,limit):
                   '--threads','12','--output-prefix','unused'])
     assert error.value.code==2
     assert 'POLARS_MAX_THREADS must be a positive integer' in capsys.readouterr().err
+
+
+def test_fresh_reference_match_never_reads_or_writes_prepared_assets(tmp_path,monkeypatch):
+    from vdjmatch.db import index as prepared
+    def forbidden(*args,**kwargs):raise AssertionError('prepared reference accessed')
+    monkeypatch.setattr(prepared,'load_or_build_index',forbidden)
+    reference=tmp_path/'reference.tsv';query=tmp_path/'query.tsv'
+    pl.DataFrame({'cdr3':['CASSF','CATSF'],'gene':['TRB']*2,'species':['HomoSapiens']*2,'antigen.epitope':['E']*2}).write_csv(reference,separator='\t')
+    pl.DataFrame({'junction_aa':['CASSF'],'locus':['TRB']}).write_csv(query,separator='\t')
+    prefix=tmp_path/'fresh'
+    assert cli.main(['match',str(query),'--vdjdb',str(reference),'--fresh-reference','--search-mode','ball','--matrix','none','--no-evalue','--no-align','--exclude-exact','-o',str(prefix)])==0
+    candidates=pl.read_csv(tmp_path/'fresh.query.candidates.txt',separator='\t')
+    assert candidates['radius'].to_list()==[1,2,3,4,5]
+    assert candidates['n_target'].to_list()==[1]*5
+    assert not (tmp_path/'reference.tsv.vdjmatch').exists()
+    assert json.loads((tmp_path/'fresh.query.manifest.json').read_text())['fresh_reference'] is True
