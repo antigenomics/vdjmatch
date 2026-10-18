@@ -118,3 +118,35 @@ def test_retained_hits_keep_the_same_epitope_exclusion():
     hits,candidates=ann._evidence(q,search_params('1',gap_open=1,gap_extend=1),exclude_epitopes=excluded)
     assert hits['epitope'].to_list()==['B']
     assert candidates['epitope'].to_list()==['B']
+
+
+@pytest.mark.parametrize('exclude_exact',[False,True])
+def test_weighted_control_histogram_equals_materialized_hit_oracle(exclude_exact):
+    from polars.testing import assert_frame_equal
+    from vdjmatch.api import _prepare
+    from vdjmatch.match.scope import search_params
+    from vdjmatch.match.scoring import load_vdjam
+    from vdjmatch.aggregate.candidates import candidates as reduce_candidates
+    ann=Annotator.from_frame(pl.DataFrame({'gene':['TRB']*3,'cdr3':['ACA','AWA','AAA'],'epitope':['A','B','A']}))
+    _,q=_prepare(['ACA','AWA'])
+    sequences=['ACA','ACA','AWA','AAA','CCC']
+    control=Index.build(sequences,'aa')
+    matrix=load_vdjam()
+    for radius in range(1,6):
+        params=search_params(f'{radius},{min(radius,2)},{min(radius,2)},{radius}',matrix=matrix,gap_open=100,gap_extend=100)
+        hits=ann._index.annotate(q,params,gene='TRB',exclude_exact=exclude_exact)
+        native=control.search_batch(q['cdr3'].to_list(),params,1)
+        rows=[(qid,h.n_subs+h.n_ins+h.n_dels) for qid,sequence,result in zip(q['query_id'],q['cdr3'],native) for h in result if not exclude_exact or sequences[h.ref_id]!=sequence]
+        controls=pl.DataFrame(rows,schema={'query_id':q.schema['query_id'],'edits':pl.UInt32},orient='row')
+        expected=reduce_candidates(hits,ann._index.records_for('TRB'),controls,control_size=len(control),score_scale=400.,exclude_exact=exclude_exact)
+        got=ann.candidates(q,scope=params,control=control,score_scale=400.,exclude_exact=exclude_exact)
+        assert_frame_equal(got,expected,check_exact=True)
+
+
+def test_incompatible_histogram_engine_keeps_existing_control_adapter():
+    from seqtree import SearchParams
+    ann=Annotator.from_frame(pl.DataFrame({'gene':['TRB']*2,'cdr3':['CASSF','CASRF'],'epitope':['A']*2}))
+    control=Index.build(['CASSF','CASRF'],'aa')
+    params=SearchParams(engine='seqtrie',max_subs=1,max_total_edits=1,max_penalty=1)
+    got=ann.candidates(['CASSF'],scope=params,control=control,score_scale=1.)
+    assert got['n_control'].to_list()==[2]
