@@ -112,7 +112,7 @@ def annotate_sample(
         result = ann.graded_candidates(
             queries, threads=threads, matrix=matrix, control=control,
             calibrate=with_evalue, species=species, exclude_exact=exclude_exact,
-            return_hits=retain_hits, match_v=match_v, match_j=match_j,
+            return_hits=retain_hits, match_v=match_v, match_j=match_j, progress=progress,
         )
         hits, c = result if retain_hits else (index.empty_hits(queries.schema['query_id']), result)
         calls = pl.concat([

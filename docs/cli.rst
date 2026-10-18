@@ -2416,3 +2416,16 @@ native full-population search. Candidate values, exact-hit filtering and no-hit
 calls are retained. This avoids retaining the full wide reference-hit table;
 native hit memberships are still held until their blocks are consumed, so actual
 whole-process-tree memory must still be measured for a large cohort.
+
+For epitope-only reference diagnostics, ``match --fresh-reference
+--epitope-profiles`` pools MHC contexts and annotates each species/epitope with
+its modal observed MHC pair across both chains. All valid tail labels remain
+in the fixed model (internal minimum one record); query eligibility is selected
+separately. Original MHC fields remain in source metadata and the manifest
+records the pooling rule and inventory. Ordinary matching keeps full pMHC.
+
+Hard-gene reference diagnostics also impute missing/ambiguous reference calls
+once for the fixed locus population, retaining original calls, flags, source
+identities and junctions. All queries share that same annotation view; neither
+exact-hit exclusion nor query membership changes reference model counts. The
+ordinary source model remains unchanged.

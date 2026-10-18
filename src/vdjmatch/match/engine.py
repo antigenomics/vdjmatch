@@ -137,6 +137,7 @@ class VdjdbIndex:
         progress: bool = False,
         chunk: int = 2000,
         consumer=None,
+        _reference_records=None,
     ) -> pl.DataFrame:
         """Long hit evidence, preserving query_id/locus and all reference metadata.
 
@@ -173,6 +174,10 @@ class VdjdbIndex:
                 q.schema["query_id"], align=align, region_aware=region_aware
             )
         idx, uc, records = g
+        if _reference_records is not None:
+            if not records.select('record_id','cdr3').equals(_reference_records.select('record_id','cdr3')):
+                raise ValueError('gene annotation overrides must retain every reference identity and junction')
+            records = _reference_records
         q = q.filter(
             pl.col("cdr3").is_not_null()
             & pl.col("cdr3").str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$")

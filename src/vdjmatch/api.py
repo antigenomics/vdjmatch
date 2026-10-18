@@ -239,7 +239,12 @@ class Annotator:
             if not gq.height:
                 continue
             gene_flags = None
+            reference_records = self._index.records_for(gene)
             if match_v or match_j:
+                from .evalue.control import impute_gene_calls
+                reference_records = impute_gene_calls(reference_records,
+                    species=species or next(iter(reference_records['species'].drop_nulls().unique()),'human'),
+                    locus=gene, kinds=tuple(k for k,flag in [('v',match_v),('j',match_j)] if flag))
                 gq = self._matching_queries(gq, match_v=match_v, match_j=match_j, species=species)
                 kinds = tuple(k for k, enabled in [('v', match_v), ('j', match_j)] if enabled)
                 gene_flags = gq.select('query_id', *[pl.col(k).alias('query_'+k)
@@ -305,7 +310,7 @@ class Annotator:
                     if control_cdf is not None and radius is not None:
                         selected_totals = control_cdf.filter(pl.col('edits') == radius).select('query_id', pl.col('_nc').alias('n_control'))
                     c = reduce_candidates(
-                        selected, self._index.records_for(gene), selected_controls,
+                        selected, reference_records, selected_controls,
                         control_size=len(ctrl) if ctrl is not None else None,
                         control_counts=control_cdf, control_totals=selected_totals, control_sizes=control_sizes,
                         score_scale=score_scale, soft_v=soft_v,
@@ -328,6 +333,7 @@ class Annotator:
                 align=align,
                 progress=progress,
                 exclude_exact=exclude_exact,
+                _reference_records=reference_records if (match_v or match_j) else None,
                 **({} if retain_hits else {'consumer':consume, 'chunk':32}),
             )
             if retain_hits:
@@ -346,7 +352,7 @@ class Annotator:
     def graded_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
                           threads=1, control=None, calibrate=False, species=None,
                           matrix=None, sequence_convention=None, exclude_exact=False,
-                          return_hits=False, match_v=False, match_j=False):
+                          return_hits=False, match_v=False, match_j=False, progress=False):
         """Five fixed edit balls with radius-constrained weighted rankings.
 
         Unit-cost balls share one minimum-edit search. Weighted search may choose
@@ -364,7 +370,7 @@ class Annotator:
             h, c = self._evidence(q, sp, threads=threads, control=control,
                                   calibrate=calibrate, species=species,
                                   score_scale=1.0, exclude_exact=exclude_exact,
-                                  radii=range(1, 6), match_v=match_v, match_j=match_j, retain_hits=return_hits)
+                                  radii=range(1, 6), match_v=match_v, match_j=match_j, retain_hits=return_hits, progress=progress)
             h = h.with_columns((pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") +
                                 pl.col("n_dels")).alias("minimum_radius"))
         else:
@@ -375,7 +381,7 @@ class Annotator:
                 rh, rc = self._evidence(q, sp, threads=threads, control=control,
                                        calibrate=calibrate, species=species,
                                        score_scale=400.0, exclude_exact=exclude_exact,
-                                       match_v=match_v, match_j=match_j, retain_hits=return_hits)
+                                       match_v=match_v, match_j=match_j, retain_hits=return_hits, progress=progress)
                 hs.append(rh.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius")))
                 cs.append(rc.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius")))
             h, c = pl.concat(hs, how="diagonal_relaxed"), pl.concat(cs, how="diagonal_relaxed")

@@ -202,11 +202,19 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "evidence_type",
         )
     }
+    if getattr(a, 'epitope_profiles', False) and not getattr(a, 'fresh_reference', False):
+        raise ValueError('match --epitope-profiles requires --fresh-reference')
     from ..db.index import load_or_build_index
     if getattr(a, 'fresh_reference', False):
-        index = match.VdjdbIndex.build(db.load(reference, asset=a.asset,
-            species=reference_species, min_score=p.min_score, **reference_filters))
-        index_manifest = dict(identity=dict(source=db.provenance(reference)), fresh=True)
+        fresh = db.load(reference, asset=a.asset, species=reference_species,
+            min_score=p.min_score, **reference_filters)
+        pooling = None
+        if getattr(a, 'epitope_profiles', False):
+            from .epitope import pool_epitopes
+            fresh, pooling = pool_epitopes(fresh, min_records=1)
+        index = match.VdjdbIndex.build(fresh)
+        index_manifest = dict(identity=dict(source=db.provenance(reference)), fresh=True,
+            epitope_profiles=pooling)
     else:
         index, _, index_manifest = load_or_build_index(
             reference,
@@ -278,6 +286,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
             },
             "parameters": dataclasses.asdict(p),
             "reference_filters": reference_filters,
+            "epitope_profiles": index_manifest.get('epitope_profiles'),
             "control_species": control_species,
             "controls": control_provenance,
             "search_mode": search_mode,
@@ -565,6 +574,8 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--fresh-reference", action="store_true", help="build the reference index from raw input in memory; never read or write a prepared bundle")
     m.add_argument("--no-hit-table", action="store_true", help="omit the expanded observation hit export; retain candidate and call tables")
     m.add_argument("--link", default=None, help="cell linkage column for --paired")
+    m.add_argument('--epitope-profiles', action='store_true',
+        help='with --fresh-reference: pool MHC by epitope with its modal annotation; keep all valid tail labels')
     m.add_argument(
         "--pin", default=None, help="pin a specific VDJdb release tag (default: latest)"
     )

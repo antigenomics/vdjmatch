@@ -115,3 +115,16 @@ def test_conditioned_counts_rejects_an_uncapped_nonexact_search():
     q=pl.DataFrame({'query_id':[0],'cdr3':['CASSF'],'v':['TRBV19']})
     with pytest.raises(ValueError,match='explicit total-edit cap'):
         conditioned_counts(q,q.drop('query_id'),SearchParams(max_subs=2),match_v=True)
+
+
+def test_missing_reference_genes_remain_in_the_fixed_conditioned_population():
+    from vdjmatch.api import Annotator
+    from vdjmatch.api import _prepare
+    ref=pl.DataFrame({'gene':['TRB']*2,'species':['HomoSapiens']*2,'cdr3':['CASSF','CASRF'],'v':['TRBV19',None],'epitope':['A']*2})
+    ann=Annotator.from_frame(ref)
+    before=ann._index.reference.clone()
+    _,q=_prepare(pl.DataFrame({'cdr3':['CASSF'],'v':['TRBV19']}))
+    hits,c=ann._evidence(q,search_params('1',gap_open=1,gap_extend=1),match_v=True)
+    assert hits.height==2 and int(hits['v_imputed'].sum())==1
+    assert c['n_reference'].to_list()==[2]
+    assert before.equals(ann._index.reference)
