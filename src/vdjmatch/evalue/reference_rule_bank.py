@@ -243,3 +243,91 @@ def stream_reference_kernels(queries,reference,*,species='human',threads=1,paire
     return dict(native_batches=1,query_keys=q.select(query_keys).unique().height,
         reference_keys=r.select(search_keys).unique().height,query_target_rows=rows,
         geometry='current stem4 BLOSUM62 trim3; fixed VDJdb-other background; six native kernel alternatives',MHC='pooled by peptide')
+
+
+def stream_reference_policy(queries, reference, policy, *, species='human', locus='TRB',
+                            threads=1, paired=False, consume, identity_keys=()):
+    """Route fresh full-population rules/kernel scores through the frozen policy.
+
+    Only routed V/exact3 columns are retained, indexed by original query identity.
+    Every target, including missing-profile tails, reaches the policy and winner
+    consumer. Default routes preserve the kernel's original support flag: finite
+    zero kernel scores remain unsupported. No component probability is transferred.
+    """
+    from ..cli.score_policy import apply_reference_policy, FAST_ROUTES
+    if not callable(consume) or not set(policy['reference_class']) <= set(FAST_ROUTES):
+        raise ValueError('a consumer and frozen FAST_ROUTES policy classes required')
+    organism = {'human':'HomoSapiens','mouse':'MusMusculus'}.get(species,species)
+    lane = 'PAIRED' if paired else locus
+    labels = reference.select('epitope').unique().sort('epitope')
+    default = 'kernel_v_bounded'
+    # The existing selector, rather than a second routing implementation, defines
+    # which raw component columns are needed for this reference population.
+    probe = labels.with_columns(pl.lit(organism).alias('species'),pl.lit(lane).alias('locus'),
+        pl.lit(0.).alias(default),pl.lit(1.).alias('rule_v_score'),
+        pl.lit(1.).alias('rule_exact3_score'),pl.lit(None,dtype=pl.Float64).alias('rule_rank_score'))
+    plan = apply_reference_policy(probe,policy,original_column=default)
+    query_rows = queries.select('query_id').with_row_index('_policy_row')
+    target_index = dict(zip(labels['epitope'],range(labels.height)))
+    arrays,seen,columns = {},{},{}
+    for scorer,column in [('rule_v','rule_v_score'),('rule_exact3','rule_exact3_score')]:
+        needed = plan.filter(pl.col('selected_score_column').is_in([column,'rule_exact3_score / rule_v_score']))['epitope']
+        mapping = dict(zip(needed,range(len(needed))))
+        columns[scorer] = np.array([mapping.get(label,-1) for label in labels['epitope']],dtype=np.int64)
+        arrays[scorer] = np.full((queries.height,len(needed)),np.nan)
+        seen[scorer] = np.zeros((queries.height,len(needed)),dtype=bool)
+    def coordinates(frame):
+        if frame.select('query_id','epitope').is_duplicated().any():
+            raise ValueError('duplicate class-policy query/target component coordinates')
+        frame = frame.join(query_rows,on='query_id',how='left',validate='m:1',maintain_order='left')
+        if frame['_policy_row'].null_count():raise ValueError('unknown class-policy query identity')
+        target = frame['epitope'].replace_strict(target_index,return_dtype=pl.UInt32).to_numpy()
+        return frame['_policy_row'].to_numpy(),target
+    def retain(scorer,frame):
+        if scorer not in arrays or arrays[scorer].shape[1]==0:return
+        row,target = coordinates(frame)
+        col = columns[scorer][target];needed = col>=0
+        row,col = row[needed],col[needed]
+        if seen[scorer][row,col].any():raise ValueError('repeated class-policy component coordinates')
+        values = frame['score'].to_numpy()
+        arrays[scorer][row,col] = np.where(frame['supported'].to_numpy(),values,np.nan)[needed]
+        seen[scorer][row,col] = True
+    rule_info = (stream_reference_rules(queries,reference,species=species,paired=paired,
+        threads=threads,consume=retain,identity_keys=identity_keys) if any(a.size for a in arrays.values()) else
+        dict(native_batches=0,reason='all policy routes retain configured native default'))
+    if any(not present.all() for present in seen.values()):
+        raise ValueError('incomplete class-policy rule component coordinates')
+    count = 0
+    kernel_seen = np.zeros((queries.height,(labels.height+7)//8),dtype=np.uint8)
+    def select(scorer,frame):
+        nonlocal count
+        if scorer!=default:return
+        row,target = coordinates(frame)
+        flags = np.left_shift(np.uint8(1),(target%8).astype(np.uint8))
+        if np.any(kernel_seen[row,target//8]&flags):
+            raise ValueError('repeated class-policy kernel coordinates')
+        np.bitwise_or.at(kernel_seen,(row,target//8),flags)
+        values = {}
+        for name,column in [('rule_v','rule_v_score'),('rule_exact3','rule_exact3_score')]:
+            col = columns[name][target];needed = col>=0
+            value = np.full(frame.height,np.nan)
+            value[needed] = arrays[name][row[needed],col[needed]]
+            values[column] = pl.Series(column,value,nan_to_null=True)
+        source = frame.rename({'score':default,'supported':'_native_supported'}).with_columns(
+            pl.lit(organism).alias('species'),pl.lit(lane).alias('locus'),
+            *values.values(),pl.lit(None,dtype=pl.Float64).alias('rule_rank_score'))
+        selected = apply_reference_policy(source,policy,original_column=default)
+        count += frame.height
+        consume('reference_class_policy',selected.select('query_id','epitope',
+            pl.col('policy_score').alias('score'),
+            (pl.col('policy_score').is_finite() & pl.when(pl.col('selected_score_column')==default)
+                .then(pl.col('_native_supported')).otherwise(pl.lit(True))).fill_null(False).alias('supported'),
+            'reference_class','selected_score_column','policy_status'))
+    kernel_info = stream_reference_kernels(queries,reference,species=species,paired=paired,
+        threads=threads,consume=select,identity_keys=identity_keys)
+    if count!=queries.height*labels.height:
+        raise ValueError('incomplete class-policy kernel coordinates')
+    return dict(rules=rule_info,kernel=kernel_info,query_target_rows=count,
+        retained_component_bytes=sum(a.nbytes for a in arrays.values())+sum(a.nbytes for a in seen.values())+kernel_seen.nbytes,
+        original_column=default,policy='unchanged FAST_ROUTES/apply_reference_policy',
+        candidate_models='all valid fixed reference labels including tails',calibration='unavailable')

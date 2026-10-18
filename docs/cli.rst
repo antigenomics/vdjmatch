@@ -2252,6 +2252,35 @@ These are continuous relative evidence scores; they have no transferred
 P-value or E-value calibration. All six exports exactly match the detailed
 ``neighbours`` CLI under the same MHC-pooled population.
 
+``--class-policy MODEL/reference-policy.tsv`` exports only the experimental
+``reference_class_policy`` scorer. It is exclusive with ``--components`` and
+``--kernel-only``. The sibling ``manifest.json`` must bind the policy table hash,
+its reference-only provenance, the existing ``FAST_ROUTES`` and the same raw
+reference identity. Both model files are hashed before and after fresh scoring.
+The annotation default is unchanged; no query labels fit or tune these routes.
+
+Existing fixed-rule and kernel traversals supply V and core-exact3 scores plus
+``kernel_v_bounded`` as the configured default. The unchanged
+``apply_reference_policy`` selects V for ``v_only``, exact3/V for ``motif_only``,
+exact3 for ``v_and_motif`` and the configured default otherwise. Missing tail
+profiles, unavailable components and paired routes retain the existing finite
+default behavior. Kernel zero/no-hit support stays unchanged. No cross-axis
+fusion or component P/E transfer is introduced; final calibration remains open.
+
+Every valid tail model participates in winner selection. Eligibility restricts
+query sampling and continuous exports, so an unprofiled tail can win or tie
+against primary labels. Continuous parts include ``reference_class``,
+``selected_score_column`` and ``policy_status``; ``.policy-audit.tsv`` counts
+these states over all query/target coordinates, including tails and unavailable
+models. Only routed component columns are retained during traversal; the other
+component scores are not exported as new results.
+
+.. code-block:: sh
+
+   vdjmatch reference-rule-scores --vdjdb reference.zip --species human \
+     --locus TRB --class-policy MODEL/reference-policy.tsv \
+     --threads 4 --output-prefix fresh-class-policy
+
 In paired mode, eligibility uses the maximum valid chain source-record count;
 ``paired_source_records`` reports genuine complete complex observations
 separately. Eligible labels without linked references remain explicit null
