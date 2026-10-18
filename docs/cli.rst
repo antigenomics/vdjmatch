@@ -325,8 +325,9 @@ ranking. Reference and background loading errors propagate.
    * - ``--link``
      - Source linkage column for paired rows, such as ``cell_id``.
    * - ``--match-v`` / ``--match-j``
-     - Require matching V/J calls; sequence-only control calibration cannot support
-       these predicates, so combine with ``--no-evalue``. Paired matching rejects
+     - Require matching V/J genes. Supply gene-labelled raw ``--control`` tables
+       for calibration, or use ``--no-evalue``. Sequence-only controls cannot
+       calibrate these predicates. Paired matching rejects
        both flags until chain-specific V/J predicates are supported.
    * - ``--no-evalue``
      - Use explicitly uncalibrated ranking without requesting a background.
@@ -608,10 +609,19 @@ P-value. Ball output can be large and does not include fixed-mode CIGAR strings.
 Paired receptors currently use fixed mode with an explicit edit scope. Graded
 paired balls require a separately validated joint calibration before use.
 Both fixed and graded single-chain modes accept ``--match-v`` and ``--match-j``
-with ``--no-evalue``. Gene matching strips allele suffixes and preserves IMGT
-slash-containing gene names. Reference sizes follow the same gene predicates.
-Sequence-only controls cannot calibrate these restrictions; calibrated requests
-fail explicitly. Repertoire-level statistical inference remains future work.
+with an explicitly gene-labelled raw ``--control`` table or ``--no-evalue``.
+Gene matching pools allele suffixes and preserves IMGT slash-containing names;
+ambiguous genes are not reduced to the first call. Missing/ambiguous genes use
+label-independent observed modes (bundled model modes when no calls exist),
+with original calls and imputation flags retained for every query, including no-hits.
+Supplied control species/locus and known gene locus select the population before
+imputation. Distinct full junctions within each gene predicate define fixed control
+sizes; abundance is ignored, and exact-hit filtering does not decrement model sizes.
+One native histogram batch per gene-conditioned population supplies control counts.
+Reference sizes follow the identical gene predicates. Sequence-only controls remain
+rejected for this calibration; paired hard-gene predicates are still unsupported.
+These fixed-ball E-values describe expected neighbour counts, not final selected-label
+false-call probabilities; final-call calibration is a separate procedure.
 
 The experimental fixed-K annotation mode and ``--top-k`` option have been
 removed from the CLI and sample runner. The lower-level

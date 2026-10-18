@@ -114,7 +114,7 @@ def normalize_query(
     n_input = df.height
     # Select aliases instead of renaming: both junction_aa and legacy cdr3 may coexist.
     identity = [c for c in ("query_id", "sequence_id", "clone_id", "cloneid", "clonotype_id",
-                            "source_query_id", "source_sequence_id") if c in df.columns]
+                            "source_query_id", "source_sequence_id", "original_v", "v_imputed", "original_j", "j_imputed") if c in df.columns]
     df = df.select(
         [pl.col(src).alias(canon) for canon, src in found.items()] + identity
     )
