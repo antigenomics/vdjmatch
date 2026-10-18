@@ -241,31 +241,50 @@ class Annotator:
 
                 ctrl = background(gene, species)
             ctrl_hits = None
+            control_cdf = None
             if ctrl is not None:
                 if len(ctrl) == 0:
                     raise ValueError("control index is empty")
-                results = _search_unique_junctions(ctrl, gq["cdr3"].to_list(), sp, threads)
-                rows = [
-                    (qid, h.n_subs + h.n_ins + h.n_dels,
-                     exclude_exact and ctrl.ref_seq(h.ref_id) == junction)
-                    for qid, junction, hl in zip(gq["query_id"], gq["cdr3"], results)
-                    for h in hl
-                ]
-                ctrl_hits = pl.DataFrame(
-                    rows,
-                    schema={"query_id": q.schema["query_id"], "edits": pl.UInt32, "_self": pl.Boolean},
-                    orient="row",
-                )
-                ctrl_hits = ctrl_hits.filter(~pl.col("_self")).drop("_self")
+                if radii is not None:
+                    import numpy as np
+
+                    sequences = gq['cdr3'].unique(maintain_order=True).to_list()
+                    histogram = np.asarray(ctrl.edit_histogram_batch(sequences, sp, threads, False), dtype=np.uint64)
+                    if exclude_exact:
+                        histogram[:, 0] = 0
+                    cumulative = histogram.cumsum(axis=1, dtype=np.uint64)
+                    control_cdf = pl.DataFrame({
+                        'cdr3': np.repeat(sequences, cumulative.shape[1]),
+                        'edits': np.tile(np.arange(cumulative.shape[1], dtype=np.uint32), len(sequences)),
+                        '_nc': cumulative.ravel(),
+                    }).join(gq.select('query_id', 'cdr3'), on='cdr3', validate='m:m').drop('cdr3')
+                else:
+                    results = _search_unique_junctions(ctrl, gq["cdr3"].to_list(), sp, threads)
+                    rows = [
+                        (qid, h.n_subs + h.n_ins + h.n_dels,
+                         exclude_exact and ctrl.ref_seq(h.ref_id) == junction)
+                        for qid, junction, hl in zip(gq["query_id"], gq["cdr3"], results)
+                        for h in hl
+                    ]
+                    ctrl_hits = pl.DataFrame(
+                        rows,
+                        schema={"query_id": q.schema["query_id"], "edits": pl.UInt32, "_self": pl.Boolean},
+                        orient="row",
+                    )
+                    ctrl_hits = ctrl_hits.filter(~pl.col("_self")).drop("_self")
             for radius in radii if radii is not None else [None]:
                 distance = pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") + pl.col("n_dels")
                 selected = h if radius is None else h.filter(distance <= radius)
                 selected_controls = ctrl_hits
                 if radius is not None and ctrl_hits is not None:
                     selected_controls = ctrl_hits.filter(pl.col("edits") <= radius)
+                control_totals = None
+                if control_cdf is not None:
+                    control_totals = control_cdf.filter(pl.col('edits') == radius).select('query_id', pl.col('_nc').alias('n_control'))
                 c = reduce_candidates(
                     selected, self._index.records_for(gene), selected_controls,
                     control_size=len(ctrl) if ctrl is not None else None,
+                    control_counts=control_cdf, control_totals=control_totals,
                     score_scale=score_scale, soft_v=soft_v,
                     match_v=match_v, match_j=match_j, background_mass=background_mass,
                     exclude_exact=exclude_exact,
