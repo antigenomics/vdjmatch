@@ -36,7 +36,7 @@ def add_graph_options(p, *, combined=False):
     p.add_argument('--nboot', type=int, default=200, help='vdjtools augmented-assemblage bootstrap replicates')
     p.add_argument('--pair-budget', type=int, default=2_000_000)
     p.add_argument('--membership-budget-bytes', type=int, default=2*1024**3,
-        help='estimated raw reference/mock membership byte ceiling (default: 2 GiB; maximum: 8 GiB)')
+        help='estimated raw reference/mock membership byte ceiling (default: 2 GiB; 0 disables this abort)')
 
 
 def main(a, *, inputs=None):
@@ -93,7 +93,7 @@ def _main(a, *, inputs, scratch):
     reference = pl.concat(records)
     estimated_membership_rows = reference.height * (1+a.mock_replicates)
     estimated_membership_bytes = estimated_membership_rows * 1024
-    if estimated_membership_bytes > membership_budget:
+    if membership_budget and estimated_membership_bytes > membership_budget:
         raise ValueError(f'raw reference/mock membership estimate {estimated_membership_bytes} bytes exceeds explicit budget {membership_budget} bytes')
     loops = () if a.cdr_loops == 'junction' else ('cdr1', 'cdr2') if a.cdr_loops == 'cdr12' else ('cdr1', 'cdr2', 'cdr25')
     knee_curve = None
@@ -257,8 +257,8 @@ def _main(a, *, inputs, scratch):
 def validate_options(a):
     """Reject invalid/unsupported graph requests before any raw computation."""
     membership_budget = getattr(a, 'membership_budget_bytes', 2*1024**3)
-    if not 1 <= membership_budget <= 8*1024**3:
-        raise ValueError('membership budget must be positive and at most 8 GiB')
+    if membership_budget < 0:
+        raise ValueError('membership budget must be nonnegative; 0 disables this abort')
     if a.threads < 1 or a.nboot < 2 or a.seed < 0 or a.mock_replicates < 0 or a.mock_replicates == 1:
         raise ValueError('positive threads, nboot>=2, seed>=0 and mock-replicates zero or >=2 required')
     if getattr(a, 'control_model', None) and not a.control:

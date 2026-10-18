@@ -2032,6 +2032,9 @@ occurrence coverage at exact-clonotype and Leiden-community resolution:
 
 ``DEMO`` and radius 40 illustrate syntax; the command does not select a
 scientific radius or a sufficiency cutoff. Supply the intended graph scale.
+``--membership-budget-bytes 0`` disables the optional estimated raw/mock
+membership abort; its default is 2 GiB. This budget does not change graph
+membership, mock draws or reported statistics.
 The edit graph uses the declared substitution/insertion/deletion/total budgets;
 insertion and deletion budgets must be symmetric for an undirected graph.
 SW uses full local BLOSUM62 alignment independently for the full junction and
@@ -2039,8 +2042,8 @@ the selected germline CDR1/CDR2/CDR2.5 loops, summing
 ``SW(a,a)+SW(b,b)-2*SW(a,b)`` across loops. ``--cdr-loops cdr12`` omits CDR2.5;
 ``junction`` explicitly requests junction-only SW. There is no trimming, stem4
 or bounded-kernel substitution. Germline templates reuse the existing allele
-resolver; unresolved/invalid loop templates retain exact-clonotype counts and
-unavailable community memberships, with modeled/unavailable counts reported. Gaps cost
+resolver and flagged complete co-locus V-template imputation. Original V calls
+and clonotype identities remain retained alongside the imputation flags. Gaps cost
 ``gap_open+(length-1)*gap_extend`` in raw BLOSUM62 score units.
 
 Vertices are distinct full-junction/V-call/J-call keys, with supplied alleles
