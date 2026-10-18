@@ -138,13 +138,17 @@ class VdjdbIndex:
         chunk: int = 2000,
         consumer=None,
         _reference_records=None,
+        _candidate_only=False,
     ) -> pl.DataFrame:
         """Long hit evidence, preserving query_id/locus and all reference metadata.
 
         Search is one native batch of distinct junctions even with progress enabled. ``threads`` controls seqtree;
         Polars performs sequential post-search stages in its existing process-wide pool.
-        With ``consumer``, expand and emit at most ``chunk`` complete query rows
-        at a time after the same single native search; no wide hit table is retained.
+        With ``consumer``, one native population batch emits owned primitive buffers
+        for at most ``chunk`` complete distinct junctions per block. Python Hit
+        objects and the full hit table are never retained. Duplicate junctions
+        expand back to every original query identity in complete-query blocks
+        of at most ``chunk`` original identities.
         ``exclude_exact`` removes zero-edit hits before alignment and observation expansion.
         """
         if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
@@ -153,6 +157,8 @@ class VdjdbIndex:
             )
         if consumer is not None and (type(chunk) is not int or chunk < 1):
             raise ValueError('positive integer output chunk required')
+        if _candidate_only and consumer is None:
+            raise ValueError('candidate projection requires a consumer')
         q = queries
         if "query_id" not in q.columns:
             q = q.with_row_index("query_id")
@@ -174,10 +180,17 @@ class VdjdbIndex:
                 q.schema["query_id"], align=align, region_aware=region_aware
             )
         idx, uc, records = g
+        if consumer is not None and not callable(getattr(idx, 'search_batch_consume', None)):
+            raise RuntimeError('bounded hit consumption requires seqtree Index.search_batch_consume; rebuild/install the current native source')
         if _reference_records is not None:
             if not records.select('record_id','cdr3').equals(_reference_records.select('record_id','cdr3')):
                 raise ValueError('gene annotation overrides must retain every reference identity and junction')
             records = _reference_records
+        if _candidate_only:
+            # Keep every source row, including duplicates; only unused metadata
+            # columns are omitted before the many-observation hit expansion.
+            records = records.select('cdr3', 'v', 'j', 'epitope', 'mhc_a', 'mhc_b',
+                'mhc_class', 'reference_id', 'vdjdb_score')
         q = q.filter(
             pl.col("cdr3").is_not_null()
             & pl.col("cdr3").str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$")
@@ -195,17 +208,20 @@ class VdjdbIndex:
             )
         query_junctions = q["cdr3"].to_list()
         reference_junctions = uc["cdr3"].to_list() if exclude_exact else None
-        res = _search_unique_junctions(idx, query_junctions, params, threads)
-        if progress:
+        res = (_search_unique_junctions(idx, query_junctions, params, threads)
+            if consumer is None else None)
+        if progress and consumer is None:
             print(f"{gene}: native search complete", file=sys.stderr)
         def expanded(flat):
-            if not flat:
+            if isinstance(flat, pl.DataFrame):
+                hits = flat
+            elif flat:
+                hits = pl.DataFrame(flat, schema=_HIT_SCHEMA, orient="row")
+            else:
                 return self.empty_hits(
                     q.schema["query_id"], align=align, region_aware=region_aware
                 )
-            hits = pl.DataFrame(flat, schema=_HIT_SCHEMA, orient="row").join(
-                uc, on="ref_id"
-            )
+            hits = hits.join(uc, on="ref_id")
             hits = hits.join(
                 q.select(
                     "qi",
@@ -224,6 +240,8 @@ class VdjdbIndex:
                 on="qi",
                 validate="m:1",
             )
+            if exclude_exact and consumer is not None:
+                hits = hits.filter(pl.col('query_cdr3') != pl.col('cdr3'))
             # Align sequence pairs before many-record expansion. No repeated work per observation.
             if align or region_aware:
                 pairs = hits.select("ref_id", "query_cdr3", "query_v", "query_j").unique(
@@ -271,6 +289,8 @@ class VdjdbIndex:
             if match_j:
                 hits = hits.filter(_genefam(pl.col("db_j")) == _genefam(pl.col("query_j")))
             out = hits.drop("qi", "ref_id").sort(["query_id", "score", "db_cdr3"])
+            if _candidate_only:
+                return out
             template = self.empty_hits(
                 q.schema["query_id"], align=align, region_aware=region_aware
             )
@@ -279,17 +299,21 @@ class VdjdbIndex:
                 *[pl.col(c) for c in out.columns if c not in template.columns],
             )
         if consumer is not None:
-            for start in range(0, q.height, chunk):
-                stop = min(start + chunk, q.height)
-                rows = [(qi, hit.ref_id, hit.score, hit.n_subs, hit.n_ins, hit.n_dels)
-                    for qi in range(start, stop) for hit in res[qi]
-                    if not exclude_exact or query_junctions[qi] != reference_junctions[hit.ref_id]]
-                # Release consumed outer memberships without mutating shared hit lists.
-                res[start:stop] = [()] * (stop-start)
-                block = expanded(rows)
-                del rows
-                consumer(block)
-                del block
+            import numpy as np
+            unique = q.select('cdr3').unique(maintain_order=True).with_row_index('_native_qi')
+            mapping = q.select('qi', 'cdr3').join(unique, on='cdr3', validate='m:1').select('_native_qi', 'qi').sort('_native_qi', 'qi')
+            offsets = np.r_[0, np.cumsum(np.bincount(mapping['_native_qi'].to_numpy(), minlength=unique.height))]
+            primitive_schema = [('_native_qi', pl.UInt32), *_HIT_SCHEMA[1:]]
+            def emit(start, stop, buffer):
+                hits = pl.DataFrame(np.asarray(buffer), schema=primitive_schema, orient='row')
+                members = mapping.slice(int(offsets[start]), int(offsets[stop]-offsets[start]))
+                for part in members.iter_slices(chunk):
+                    selected = hits.join(part, on='_native_qi', validate='m:m').drop('_native_qi')
+                    consumer(expanded(selected))
+            idx.search_batch_consume(unique['cdr3'].to_list(), params, emit,
+                threads=threads, chunk_size=chunk, max_hit_bytes=64*1024**2)
+            if progress:
+                print(f"{gene}: native search complete", file=sys.stderr)
             return self.empty_hits(q.schema['query_id'], align=align, region_aware=region_aware)
         flat = [
             (qi, h.ref_id, h.score, h.n_subs, h.n_ins, h.n_dels)
