@@ -2182,6 +2182,14 @@ rejected. Add ``--components --germline-background PRIOR`` for the six retained
 single-chain components (21 scorers total). Supply the accepted matching density
 ``--control`` except for the bundled human TRB control; the prior is always
 explicit. These raw model inputs are hashed before and after scoring.
+Add ``--kernel-only`` to export just the six retained current stem4 kernel
+alternatives from one native traversal, using the fixed VDJdb-other background.
+This skips the fixed rules and historical components. The geometry is unchanged:
+BLOSUM62, trim3 junction ends, stem depth4 and the standard kernel ladder.
+These are continuous relative evidence scores; they have no transferred
+P-value or E-value calibration. All six exports exactly match the detailed
+``neighbours`` CLI under the same MHC-pooled population.
+
 This command covers single chains; it does not establish paired
 fusion, final-call calibration or the complete manuscript resource gate.
 

@@ -208,3 +208,32 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
         del tokens, vocabulary, X, A, B, QT, D
     return dict(queries=Q, targets=T, cases=Q*T, numeric_state_bytes=required,
                 native_batches=batches, native_chunk_size=chunk_size)
+
+
+def stream_reference_kernels(queries,reference,*,species='human',threads=1,consume):
+    """Emit the six unchanged stem4 kernel alternatives from one native traversal.
+
+    MHC is explicitly pooled by peptide by the owning reference classifier.
+    Full reference populations remain fixed; only exact junction hits are masked.
+    """
+    from .kernel import grouped_kernel_selection,ladder_cutoffs,KERNEL_SCORERS
+    from ..match.geometry import precompute_v_loop_distances
+    q=queries.rename({'seq0':'cdr3','v0':'_allele'})
+    r=reference.rename({'seq0':'cdr3','v0':'_allele'})
+    context=precompute_v_loop_distances(species=species,matrix='blosum62')
+    scale=context['distance_units'][0]
+    groups=[(dict(epitope=epitope,mhc_a=None,mhc_b=None,mhc_class=None),q,r.filter(pl.col('epitope')==epitope)) for epitope in sorted(r['epitope'].unique())]
+    rows=0
+    def emit(frame):
+        nonlocal rows
+        rows+=frame.height
+        for scorer in KERNEL_SCORERS:
+            name='kernel_'+scorer.replace('-','_')
+            consume(name,frame.select('query_id','epitope',pl.col(name).alias('score'),(pl.col(name).is_finite()&(pl.col(name)>0)).fill_null(False).alias('supported')))
+    grouped_kernel_selection(q,r,groups,query_keys=['cdr3','_allele'],search_keys=['cdr3','_allele'],paired=False,
+        cutoffs=ladder_cutoffs(scale),radius=22.5*scale,kernel_scale=22.5*scale,scorer='v-bounded',
+        _detailed=True,_consume=emit,progress=True,species=species,threads=threads,ctrim=3,matrix='blosum62',
+        stem_depth=4,stem_weight=1.,v_loop_weight=1,exclude_exact=True,v_loop_distances=context)
+    return dict(native_batches=1,query_keys=q.select('cdr3','_allele').unique().height,
+        reference_keys=r.select('cdr3','_allele').unique().height,query_target_rows=rows,
+        geometry='current stem4 BLOSUM62 trim3; fixed VDJdb-other background; six native kernel alternatives',MHC='pooled by peptide')

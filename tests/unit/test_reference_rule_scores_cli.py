@@ -258,3 +258,35 @@ def test_bundled_control_identity_and_all_valid_component_population(tmp_path, m
     assert manifest['control_info']['sha256'] == asset_hash
     continuous = pl.read_parquet(str(prefix)+'.continuous/*.parquet')
     assert continuous.height == 2*2*21
+
+
+def test_kernel_only_exports_current_six_scores_without_rule_or_control_rebuild(tmp_path,monkeypatch):
+    from vdjmatch.evalue import reference_rule_bank
+    def forbidden(*args,**kwargs):raise AssertionError('completed rules must not rerun')
+    monkeypatch.setattr(reference_rule_bank,'stream_reference_rules',forbidden)
+    source=tmp_path/'raw.tsv';prefix=tmp_path/'kernels'
+    pl.DataFrame(dict(cdr3=['CASSLGQAYEQYF','CASSLGRAYEQYF','CASSWGRAYEQYF','CASSAAAAYEQYF'],v=['TRBV19']*3+[None],j=['TRBJ2-7']*4,gene=['TRB']*4,species=['HomoSapiens']*4,epitope=['A','A','B','B'],mhc_a=['HLA-A*02:01']*4,mhc_b=['B2M']*4,mhc_class=['MHCI']*4)).write_csv(source,separator='\t')
+    assert _run(source,prefix,'--kernel-only','--min-records','1')==0
+    data=pl.read_parquet(str(prefix)+'.continuous/*.parquet')
+    assert data.height==4*2*6
+    assert set(data['scorer'])=={'kernel_'+x+'_'+y for x in ['v','all','vonly'] for y in ['bounded','rare']}
+    assert data.select('query_id','epitope','scorer').unique().height==data.height
+    queries=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
+    unknown=queries.filter(~pl.col('model_available'))['query_id'].item()
+    assert data.filter(pl.col('query_id')==unknown)['score'].null_count()==12
+    from vdjmatch.cli.neighbours import register
+    parser=argparse.ArgumentParser();register(parser.add_subparsers())
+    query_path=tmp_path/'queries.tsv'
+    queries.rename({'cdr3':'junction_aa','v':'v_call','j':'j_call'}).write_csv(query_path,separator='\t')
+    native_prefix=tmp_path/'native'
+    args=parser.parse_args(['neighbours',str(query_path),'--vdjdb',str(source),'--locus','TRB','--species','human','--reference-population','curated-benchmark','--all-targets','--exclude-exact','--background','vdjdb-other','--neighbour-weighting','kernel','--distance-matrix','blosum62','--junction-ends','trim3','--stem-depth','4','--evidence-only','--stream-evidence','--output-prefix',str(native_prefix)])
+    assert args.func(args)==0
+    native=pl.read_csv(str(native_prefix)+'.enrichment.tsv',separator='\t')
+    for scorer in data['scorer'].unique():
+        observed=data.filter((pl.col('scorer')==scorer)&(pl.col('query_id')!=unknown)).sort('query_id','epitope')
+        expected=native.select('query_id','epitope',pl.col(scorer).alias('score')).sort('query_id','epitope')
+        assert observed.select('query_id','epitope','score').equals(expected)
+
+    manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
+    assert manifest['source_frozen'] and manifest['reference_frozen'] and manifest['kernel_only']
+    assert manifest['backend']['native_batches']==1 and manifest['expected_continuous_rows']==48

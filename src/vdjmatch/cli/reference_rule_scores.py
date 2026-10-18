@@ -10,6 +10,7 @@ def register(subparsers):
     parser.add_argument('--threads', type=int, default=1)
     parser.add_argument('--min-records', type=int, default=30)
     parser.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
+    parser.add_argument('--kernel-only',action='store_true',help='export only the six current real-control-free stem4 kernel alternatives; do not rerun fixed rules')
     parser.add_argument('--components', action='store_true', help='also score the six retained single-chain components')
     parser.add_argument('--control', help='matching raw density control; default is bundled human TRB')
     parser.add_argument('--germline-background', help='explicit raw germline prior background; required with --components')
@@ -36,6 +37,8 @@ def main(a):
     started = time.monotonic()
     if a.threads < 1 or a.min_records < 1:
         raise ValueError('positive threads and min-records required')
+    if a.kernel_only and a.components:
+        raise ValueError('--kernel-only and historical --components are separate calculations')
     if a.components and not a.germline_background:
         raise ValueError('--components requires --germline-background')
     if not a.components and (a.control or a.germline_background):
@@ -103,6 +106,9 @@ def main(a):
         return frame.with_columns(pl.lit(species).alias('species'), pl.lit(a.locus).alias('locus'))
     scorers = ['rule_v', 'rule_spatial', 'rule_rank', *[
         'rule_'+prefix+mode for mode in MOTIFS for prefix in ('', 'mixed_', 'enriched_')]]
+    if a.kernel_only:
+        from ..evalue.kernel import KERNEL_SCORERS
+        scorers=['kernel_'+name.replace('-','_') for name in KERNEL_SCORERS]
     rule_scorers = scorers.copy()
     component_scorers = (['accepted_original', 'current_original', 'current_original_log',
         'gapblock', 'stem4', 'motif'] if a.components else [])
@@ -137,7 +143,11 @@ def main(a):
         retained = frame.join(eligible, on='epitope', how='semi')
         if retained.height:
             export(retained.with_columns(pl.lit(scorer).alias('scorer')))
-    backend = (stream_reference_rules(modeled_queries, modeled_reference, species=organism,
+    if a.kernel_only:
+        from ..evalue.reference_rule_bank import stream_reference_kernels
+        stream_backend=stream_reference_kernels
+    else:stream_backend=stream_reference_rules
+    backend = (stream_backend(modeled_queries, modeled_reference, species=organism,
         threads=a.threads, consume=consume) if modeled_reference.height and modeled_queries.height else {})
     # Fill only coordinates the backend cannot emit. Existing continuous parts
     # are final deliverables and are never reopened to calculate predictions.
@@ -216,11 +226,11 @@ def main(a):
         raw_records=raw.height, valid_source_records=selected.height, queries=queries.height,
         modeled_queries=modeled_queries.height, candidate_targets=len(targets), eligible_targets=eligible.height,
         winner_rows=winner_rows, continuous_rows=continuous_rows, expected_continuous_rows=expected_rows,
-        backend=backend, components=a.components, component_inputs_before=component_before,
+        backend=backend, components=a.components, kernel_only=a.kernel_only, component_inputs_before=component_before,
         model_availability='query/target model_available fields describe resolved-V, length>=8 rule geometry; component availability is scorer-specific in continuous supported/score fields',
         component_inputs_after=component_after, component_inputs_frozen=True, control_info=control_info,
         **info, exact_exclusion='hit-list only; full fixed reference models retained',
-        score_meaning='uncalibrated fixed-reference rule evidence; larger is stronger',
+        score_meaning='uncalibrated current stem4 kernel evidence; larger is stronger' if a.kernel_only else 'uncalibrated fixed-reference rule evidence; larger is stronger',
         calculation='fresh raw reference and scores; no intermediate reuse or resume',
         software={name: version(name) for name in ('vdjmatch', 'seqtree', 'vdjtools', 'polars', 'numpy', 'scipy')},
         tables=outputs, seconds=time.monotonic()-started), indent=2)+'\n')
