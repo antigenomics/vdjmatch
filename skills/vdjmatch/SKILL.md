@@ -364,3 +364,16 @@ model features only. Defaults200mocks/seed0/threads4; both P-values and central9
 mock intervals are descriptive outputs, with no automatic call threshold or
 between-sample test. Use a new output prefix and the research process-tree RAM
 monitor. See CLI docs for the exact source/control/metadata contract.
+
+## Gene-conditioned fixed/graded scope evidence
+
+`match --match-v --control TRB=raw.tsv` (optionally `--match-j`) uses supplied
+V/J-labelled controls for the same gene predicate in target and control counts.
+Fixed and five-radius ball modes retain full populations under exact hit filtering.
+Control units are distinct full junctions within each allele-pooled predicate, not
+reads; one native histogram batch per conditioned population supplies all counts.
+Original calls and modal-imputation flags remain in candidates and complete call
+outputs, including no-hits. Control population metadata is applied before imputation.
+Sequence-only Index controls cannot calibrate these predicates. In Python pass a
+canonical `cdr3,v,j` control frame or locus-to-frame mapping. The fixed-ball E
+counts expected neighbours; it does not calibrate winning-label selection.

@@ -96,6 +96,10 @@ def annotate_sample(
         sequence_convention=sequence_convention,
         return_report=True,
     )
+    if match_v or match_j:
+        queries = ann._matching_queries(queries, match_v=match_v, match_j=match_j, species=species)
+        for kind,flag in [('v',match_v),('j',match_j)]:
+            if flag:report[kind+'_imputed_rows']=int(queries[kind+'_imputed'].sum())
     if search_mode == "unified":
         hits, c = ann.unified_candidates(queries, threads=threads, control=control,
             species=species, exclude_exact=exclude_exact, return_hits=True, distance=unified_distance)

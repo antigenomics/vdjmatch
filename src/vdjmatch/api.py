@@ -78,7 +78,7 @@ def _prepare(data, cdr3="cdr3", v=None, j=None, locus=None, sequence_convention=
             raise ValueError("query_id must be unique and non-null")
     else:
         q = q.with_row_index("query_id")
-    for extra in ("sequence_id", "pair_id"):
+    for extra in ("sequence_id", "pair_id", "original_v", "v_imputed", "original_j", "j_imputed"):
         if extra in data.columns:
             q = q.with_columns(data[extra])
     q = normalize_query(q, source="legacy", sequence_convention=sequence_convention)
@@ -172,6 +172,22 @@ class Annotator:
             )
         return next(iter(known))
 
+    def _matching_queries(self, q, *, match_v=False, match_j=False, species=None):
+        """Retain a complete per-query gene-imputation lookup, including no-hits."""
+        if not (match_v or match_j) or not q.height:return q
+        from .evalue.control import impute_gene_calls
+        parts=[]
+        for (gene,),part in q.partition_by('locus',as_dict=True,maintain_order=True).items():
+            kinds=tuple(k for k,flag in [('v',match_v),('j',match_j)] if flag)
+            if gene not in {'TRA','TRB'}:
+                parts.append(part.with_columns(*[pl.col(kind).alias('original_'+kind) for kind in kinds if 'original_'+kind not in part.columns],
+                    *[pl.lit(False).alias(kind+'_imputed') for kind in kinds if kind+'_imputed' not in part.columns]))
+                continue
+            ref=self._index.records_for(gene)
+            organism=species or next(iter(ref['species'].drop_nulls().unique()),'human')
+            parts.append(impute_gene_calls(part,species=organism,locus=gene,kinds=kinds,reference=ref))
+        return pl.concat(parts,how='diagonal_relaxed').join(q.select('query_id').with_row_index('_query_order'),on='query_id',validate='1:1').sort('_query_order').drop('_query_order')
+
     def _evidence(
         self,
         q,
@@ -192,10 +208,6 @@ class Annotator:
         background_mass=False,
         exclude_epitopes=None,
     ):
-        if match_v and q.height and q["v"].null_count():
-            raise ValueError("match_v requires a V call on every retained query")
-        if match_j and q.height and q["j"].null_count():
-            raise ValueError("match_j requires a J call on every retained query")
         import math
 
         if not math.isfinite(score_scale) or score_scale <= 0:
@@ -204,7 +216,10 @@ class Annotator:
             if (exclude_epitopes["query_id"].n_unique() != exclude_epitopes.height
                 or exclude_epitopes.select(pl.any_horizontal(pl.all().is_null()).any()).item()):
                 raise ValueError("epitope exclusions require one non-null peptide per query")
-        if (calibrate or control is not None) and (match_v or match_j):
+        if (calibrate or control is not None) and (match_v or match_j) and not (
+            isinstance(control, pl.DataFrame) or isinstance(control, dict) and
+            all(isinstance(value, pl.DataFrame) for value in control.values())
+        ):
             raise ValueError(
                 "V/J-restricted calibration requires V/J-labelled controls; sequence-only controls cannot apply that predicate"
             )
@@ -222,6 +237,12 @@ class Annotator:
             gq = q.filter(pl.col("locus") == gene)
             if not gq.height:
                 continue
+            gene_flags = None
+            if match_v or match_j:
+                gq = self._matching_queries(gq, match_v=match_v, match_j=match_j, species=species)
+                kinds = tuple(k for k, enabled in [('v', match_v), ('j', match_j)] if enabled)
+                gene_flags = gq.select('query_id', *[pl.col(k).alias('query_'+k)
+                    for kind in kinds for k in ('original_'+kind, kind+'_imputed')])
             h = self._index.annotate(
                 gq,
                 sp,
@@ -242,10 +263,21 @@ class Annotator:
                 ctrl = background(gene, species)
             ctrl_hits = None
             control_cdf = None
+            control_totals = control_sizes = None
             if ctrl is not None:
                 if len(ctrl) == 0:
                     raise ValueError("control index is empty")
-                if radii is not None:
+                if isinstance(ctrl, pl.DataFrame):
+                    from .evalue.control import conditioned_counts, impute_gene_calls, control_population
+                    if not (match_v or match_j):
+                        raise ValueError('gene-labelled controls require match_v or match_j')
+                    ctrl = control_population(ctrl, species=self._control_species([gene], species), locus=gene)
+                    if not ctrl.height:raise ValueError('control has no rows matching requested species/locus')
+                    labelled = impute_gene_calls(ctrl, species=self._control_species([gene], species),
+                        locus=gene, kinds=kinds)
+                    control_cdf, control_totals, control_sizes = conditioned_counts(gq, labelled, sp,
+                        match_v=match_v, match_j=match_j, threads=threads, exclude_exact=exclude_exact)
+                elif radii is not None:
                     import numpy as np
 
                     sequences = gq['cdr3'].unique(maintain_order=True).to_list()
@@ -278,17 +310,18 @@ class Annotator:
                 selected_controls = ctrl_hits
                 if radius is not None and ctrl_hits is not None:
                     selected_controls = ctrl_hits.filter(pl.col("edits") <= radius)
-                control_totals = None
-                if control_cdf is not None:
+                if control_cdf is not None and radius is not None:
                     control_totals = control_cdf.filter(pl.col('edits') == radius).select('query_id', pl.col('_nc').alias('n_control'))
                 c = reduce_candidates(
                     selected, self._index.records_for(gene), selected_controls,
                     control_size=len(ctrl) if ctrl is not None else None,
-                    control_counts=control_cdf, control_totals=control_totals,
+                    control_counts=control_cdf, control_totals=control_totals, control_sizes=control_sizes,
                     score_scale=score_scale, soft_v=soft_v,
                     match_v=match_v, match_j=match_j, background_mass=background_mass,
                     exclude_exact=exclude_exact,
                 )
+                if gene_flags is not None:
+                    c = c.join(gene_flags, on='query_id', how='left', validate='m:1')
                 if radius is not None:
                     c = c.with_columns(pl.lit(radius, dtype=pl.UInt16).alias("radius"))
                 cs.append(c)
@@ -311,8 +344,10 @@ class Annotator:
         Unit-cost balls share one minimum-edit search. Weighted search may choose
         a cheaper alignment with more edits, so each weighted radius is searched
         in one complete query batch. No best-radius P-value is selected.
-        Hard V/J predicates are supported for uncalibrated ranking; sequence-only
-        controls cannot calibrate these predicates and are rejected.
+        Hard V/J calibration accepts canonical cdr3/v/j labelled control frames
+        (or a locus-to-frame mapping), counting distinct junctions per predicate.
+        Sequence-only controls cannot calibrate these predicates and are rejected.
+        Missing genes use flagged, label-independent modal imputation.
         """
         _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
         gap = DEFAULT_SCALE if matrix is not None else 1
@@ -495,6 +530,7 @@ class Annotator:
             if isinstance(scope, str)
             else scope
         )
+        q = self._matching_queries(q, match_v=match_v, match_j=match_j, species=species)
         c = self._evidence(
             q,
             sp,
@@ -839,13 +875,15 @@ def _append_calls(data, q, c, loci, prefix, paired=False):
         if "query_id" in data.columns
         else pl.DataFrame({"query_id": pl.Series(range(data.height), dtype=pl.UInt32)})
     )
-    valid = q.select("query_id", pl.col("locus").alias("_locus"))
+    gene_flags=[name for kind in ('v','j') for name in ('original_'+kind,kind+'_imputed') if name in q.columns]
+    valid = q.select("query_id", pl.col("locus").alias("_locus"), *gene_flags)
     base = (
         base.with_row_index("_order")
         .join(valid, on="query_id", how="left")
         .join(top.select("query_id", *names), on="query_id", how="left")
         .sort("_order")
     )
+    names += gene_flags
     base = base.with_columns(
         pl.when(pl.col("_locus").is_null())
         .then(pl.lit("invalid_query"))

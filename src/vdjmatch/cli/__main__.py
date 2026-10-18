@@ -229,7 +229,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
         controls = {}
         for locus, path in raw_paths.items():
             controls[locus], control_provenance[locus] = raw_background(
-                locus, control_species, path
+                locus, control_species, path, labelled=p.match_v or p.match_j
             )
         if getattr(a, "fresh_control", False) and "TRB" not in controls and "TRB" in index.genes:
             controls["TRB"], control_provenance["TRB"] = raw_background(

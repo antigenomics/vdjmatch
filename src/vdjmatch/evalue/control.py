@@ -46,7 +46,7 @@ def background(
     return load_control(name, size=size, cache_dir=cache_dir)
 
 
-def raw_background(locus="TRB", species="human", path=None):
+def raw_background(locus="TRB", species="human", path=None, *, labelled=False):
     """Build a fresh control index from a raw table or bundled human TRB junctions.
 
     Returns the index and raw-source provenance; never reads/writes a persisted index.
@@ -81,8 +81,10 @@ def raw_background(locus="TRB", species="human", path=None):
             raise ValueError(
                 "AIRR control requires junction_aa; bare CDR3 cannot be calibrated"
             )
+        genes = {kind: next((c for c in aliases if c in headers), None) for kind, aliases in
+            [('v', ('v_call', 'v_gene', 'v.segm', 'v')), ('j', ('j_call', 'j_gene', 'j.segm', 'j'))]}
         frame = pl.read_csv(
-            path, separator=separator, columns=[column], infer_schema_length=0
+            path, separator=separator, columns=list(dict.fromkeys([column, *[c for c in genes.values() if c], *[c for c in ('species','organism','locus') if c in headers]])) if labelled else [column], infer_schema_length=0
         )
         frame = frame.with_columns(pl.col(column).str.strip_chars().str.to_uppercase())
         valid = frame.filter(pl.col(column).str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$"))
@@ -118,6 +120,18 @@ def raw_background(locus="TRB", species="human", path=None):
     if not sequences:
         raise ValueError("control has no valid junctions for the requested locus")
     provenance["unique_junctions"] = len(sequences)
+    if labelled:
+        if not path:
+            raise ValueError('gene-labelled calibration requires an explicit raw table')
+        labelled_frame = valid.select(pl.col(column).alias('cdr3'),
+            *[pl.col(c).alias(kind) if c else pl.lit(None,dtype=pl.String).alias(kind) for kind,c in genes.items()], *[c for c in ('species','organism','locus') if c in valid.columns])
+        labelled_frame = control_population(labelled_frame,species=species,locus=locus)
+        provenance['population_rows']=labelled_frame.height
+        labelled_frame = impute_gene_calls(labelled_frame, species=species, locus=locus)
+        provenance.update(observation_unit='distinct full junction within each allele-pooled V/J predicate; abundance ignored',
+            gene_columns=genes, gene_imputation='label-independent observed mode; bundled model mode if no supplied calls',
+            v_imputed_rows=int(labelled_frame['v_imputed'].sum()), j_imputed_rows=int(labelled_frame['j_imputed'].sum()))
+        return labelled_frame, provenance
     return Index.build(sequences, "aa"), provenance
 
 
@@ -195,3 +209,81 @@ def raw_gene_background(path, locus="TRB", species="human", *, deduplicate=True,
         **({"j_column":j,"j_annotation_policy":"retained for boundary consensus; conflicts never select a first call"} if include_j else {}),
         "v_annotation_policy": "source-supplied calls; ambiguous/unmodeled excluded, no first-call choice",
     }
+
+
+def impute_gene_calls(frame, *, species, locus, kinds=('v', 'j'), reference=None):
+    """Retain source rows/calls and flag label-independent modal gene imputation."""
+    import polars as pl
+    from .mock_reference import _modal_gene
+
+    for kind in kinds:
+        if kind not in frame.columns:
+            frame=frame.with_columns(pl.lit(None,dtype=pl.String).alias(kind))
+        genes=pl.col(kind).cast(pl.String).str.to_uppercase().str.split(',').list.eval(pl.element().str.split('*').list.first().str.strip_chars()).list.unique()
+        value=genes.list.first()
+        valid=((genes.list.len()==1)&value.str.contains('^'+locus+kind.upper()+r'[A-Z0-9/.-]+$')).fill_null(False)
+        prior=pl.col(kind+'_imputed') if kind+'_imputed' in frame.columns else pl.lit(False)
+        original=pl.col('original_'+kind) if 'original_'+kind in frame.columns else pl.col(kind)
+        frame=frame.with_columns(original.alias('original_'+kind), (prior|~valid).alias(kind+'_imputed'))
+        if frame[kind+'_imputed'].any():
+            population=frame if reference is None else reference
+            pool=population.select(genes.alias('_genes')).filter(pl.col('_genes').list.len()==1).select(pl.col('_genes').list.first().alias(kind)).filter(pl.col(kind).str.contains('^'+locus+kind.upper()+r'[A-Z0-9/.-]+$').fill_null(False))
+            replacement=_modal_gene(pool,kind,species=species,locus=locus,kind=kind)
+            frame=frame.with_columns(pl.when(valid).then(value).otherwise(pl.lit(replacement)).alias(kind))
+        else:
+            frame=frame.with_columns(value.alias(kind))
+    return frame
+
+
+def conditioned_counts(queries, controls, params, *, match_v=False, match_j=False, threads=1, exclude_exact=False):
+    """One native histogram batch per fixed gene-conditioned control population.
+
+    Count distinct full junctions within each allele-pooled V/J predicate. Model
+    sizes remain fixed under exact hit exclusion; read abundance is ignored.
+    Returns query/distance CDF, full-scope counts and per-query model sizes.
+    """
+    import numpy as np
+    import polars as pl
+    from seqtree import Index
+
+    kinds=[k for k,flag in [('v',match_v),('j',match_j)] if flag]
+    if not kinds or not {'cdr3',*kinds} <= set(controls.columns):
+        raise ValueError('gene-conditioned controls require junction and requested gene columns')
+    parts=[];sizes=[]
+    controls=controls.select('cdr3',*kinds).unique()
+    for key,q in queries.partition_by(kinds,as_dict=True,maintain_order=True).items():
+        population=controls.filter(pl.all_horizontal([pl.col(k).eq(value) for k,value in zip(kinds,key)]))['cdr3'].unique().to_list()
+        sequences=q['cdr3'].unique(maintain_order=True).to_list()
+        if population and params.max_total_edits:
+            histogram=np.asarray(Index.build(population,'aa').edit_histogram_batch(sequences,params,threads,False),dtype=np.uint64)
+        else:
+            histogram=np.zeros((len(sequences),params.max_total_edits+1),dtype=np.uint64)
+            present=set(population)
+            histogram[:,0]=[sequence in present for sequence in sequences]
+        if exclude_exact:histogram[:,0]=0
+        cumulative=histogram.cumsum(axis=1,dtype=np.uint64)
+        parts.append(pl.DataFrame({'cdr3':np.repeat(sequences,cumulative.shape[1]),'edits':np.tile(np.arange(cumulative.shape[1],dtype=np.uint32),len(sequences)),'_nc':cumulative.ravel()}).join(q.select('query_id','cdr3'),on='cdr3',validate='m:m').drop('cdr3'))
+        sizes.append(q.select('query_id').with_columns(pl.lit(len(population),dtype=pl.UInt64).alias('_control_size')))
+    cdf=pl.concat(parts)
+    totals=cdf.filter(pl.col('edits')==params.max_total_edits).select('query_id',pl.col('_nc').alias('n_control'))
+    return cdf,totals,pl.concat(sizes)
+
+
+def control_population(frame, *, species, locus):
+    """Select supplied population metadata before imputing genuinely missing calls."""
+    import polars as pl
+    organism=_organism(species)
+    for column in ('species','organism'):
+        if column in frame.columns:
+            aliases={value:_organism(value) for value in frame[column].drop_nulls().unique() if str(value).strip()}
+            frame=frame.filter(pl.col(column).replace_strict(aliases,default=None,return_dtype=pl.String).fill_null(organism)==organism)
+    gene_cols=[c for c in ('v','j') if c in frame.columns]
+    alpha=pl.any_horizontal([pl.col(c).cast(pl.String).str.to_uppercase().str.contains(r'TRA[VJ]').fill_null(False) for c in gene_cols]) if gene_cols else pl.lit(False)
+    beta=pl.any_horizontal([pl.col(c).cast(pl.String).str.to_uppercase().str.contains(r'TRB[VJ]').fill_null(False) for c in gene_cols]) if gene_cols else pl.lit(False)
+    if frame.filter(alpha&beta).height:raise ValueError('control has conflicting V/J locus annotations')
+    inferred=pl.when(alpha).then(pl.lit('TRA')).when(beta).then(pl.lit('TRB')).otherwise(None)
+    declared=pl.col('locus').cast(pl.String).str.strip_chars().str.to_uppercase().replace({'ALPHA':'TRA','BETA':'TRB'}) if 'locus' in frame.columns else pl.lit(None,dtype=pl.String)
+    declared=pl.when(declared=='').then(None).otherwise(declared)
+    if frame.filter(inferred.is_not_null()&declared.is_not_null()&(inferred!=declared)).height:
+        raise ValueError('control V/J locus conflicts with explicit locus metadata')
+    return frame.filter(pl.coalesce(declared,inferred,pl.lit(locus))==locus)
