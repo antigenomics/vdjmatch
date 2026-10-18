@@ -2325,3 +2325,26 @@ unique columnar ``.features.parquet`` bank and manifest while omitting the large
 row-wise TSV. Existing probability columns are ignored. ``--mismatches 0`` and
 ``--mismatches 1`` produce separate, explicitly defined probability banks using
 vdjtools; the normal row-wise output remains the default.
+
+Streaming complete kernel evidence
+----------------------------------
+
+``evidence INPUT --vdjdb REFERENCE --locus paired --all-targets
+--evidence-only --stream-evidence --gzip-evidence --output-prefix fresh``
+uses the existing native batch consumer. Every detailed evidence field and
+full pMHC row is retained. Selection, ties, competing scores, exact-hit policy
+and radius-based query dispositions match the retained-table workflow. Rows
+follow native execution order; compare or join by query/full-pMHC keys.
+
+Paired streaming emits the linked ``.enrichment.tsv.gz`` and independent
+``.TRA.enrichment.tsv.gz`` / ``.TRB.enrichment.tsv.gz`` tables, plus unchanged
+compact selection and query tables. It omits the eagerly merged
+``.paired-evidence`` table; all three complete axes remain available.
+Marginal-only targets remain present. This changes storage, not scoring,
+model populations or zero-background semantics. The retained detailed path
+fails at8GB of accumulated table buffers and directs large jobs to streaming.
+
+``examples/profile_cli.py`` retains summed RSS measurements and enforces its
+memory cap against the larger of RSS and macOS physical footprint per process.
+The latter includes compressed/swapped allocations; RSS alone can miss an
+overflow. Resource reports expose both totals.

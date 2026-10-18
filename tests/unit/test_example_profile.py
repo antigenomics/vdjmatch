@@ -18,6 +18,7 @@ def test_example_profile(tmp_path):
                             tmp_path/'success.log', timeout=5)
     assert result['seconds'] >= .2
     assert result['peak_tree_rss_GB'] > 0
+    assert result['peak_tree_accounted_GB'] >= result['peak_tree_rss_GB']
     assert result['peak_live_threads'] >= 1
     assert result['completed'] is True and result['exit_code']==0
     assert result['cpu_peak_window_seconds']==1.0 and result['peak_sampled_cpu_cores'] is None
@@ -38,3 +39,13 @@ def test_example_profile(tmp_path):
     observed=module.profile([sys.executable,'-c','import time; time.sleep(1.2)'],
                             tmp_path/'cpu-window.log',timeout=5)
     assert observed['peak_sampled_cpu_cores'] is not None
+
+
+def test_memory_cap_charges_compressed_footprint(tmp_path,monkeypatch):
+    spec=importlib.util.spec_from_file_location('example_profile',Path(__file__).parents[2]/'examples/profile_cli.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    monkeypatch.setattr(module,'_accounted_memory',lambda pid,rss:max(rss,10**12))
+    with pytest.raises(MemoryError,match='accounted memory'):
+        module.profile([sys.executable,'-c','import time; time.sleep(10)'],tmp_path/'compressed.log',timeout=5,max_rss_bytes=32000000000)
+    report=json.loads((tmp_path/'compressed.resources.json').read_text())
+    assert report['peak_tree_accounted_GB']>=1000 and report['failure_kind']=='MemoryError'

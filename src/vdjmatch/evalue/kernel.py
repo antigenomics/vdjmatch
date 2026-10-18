@@ -1,6 +1,8 @@
 """Uncalibrated kernel-ladder evidence over cumulative distance-ball counts."""
 from __future__ import annotations
 
+_MAX_RETAINED_DETAIL_BYTES = 8_000_000_000
+
 import numpy as np
 
 KERNEL_SCORERS = ('v-bounded', 'all-bounded', 'vonly-bounded',
@@ -223,6 +225,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     bytes_per_query=channels*len(native_cuts)*np.dtype(np.uint32).itemsize
     if bytes_per_query>256*1024**2:
         raise ValueError('one grouped query exceeds the 256 MiB native count-buffer budget; restrict requested targets')
+    retained_bytes=0
     iterator=grouped_total_distance_count_batch(axes(unique),axes(whole,True),native_cuts,
         paired=paired,position_weighting=position_weighting,geometry_preset=geometry_preset,reference_target_offsets=offsets,
         reference_target_ids=members['_target'].to_numpy(),target_peptide_ids=target_peptides,
@@ -370,8 +373,11 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
                 if _return_hits:
                     hit_ids.update(expanded.filter(pl.col('_radius_hit'))['query_id'])
                 if _consume is None:
-                    states.append(expanded.select('query_id',*PMHC,'kernel_score','_target','_query_order')
-                        if _scores_only else expanded.drop('_row','_radius_hit'))
+                    retained=expanded.select('query_id',*PMHC,'kernel_score','_target','_query_order') if _scores_only else expanded.drop('_row','_radius_hit')
+                    retained_bytes += retained.estimated_size()
+                    if retained_bytes > _MAX_RETAINED_DETAIL_BYTES:
+                        raise MemoryError('retained kernel detail exceeds8GB; use --stream-evidence or a batch consumer')
+                    states.append(retained)
                 else:
                     _consume(expanded.select(*detail_columns,'_target','_query_order'))
             continue
