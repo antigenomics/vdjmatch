@@ -6,12 +6,13 @@ from scipy.special import digamma
 
 
 def stream_reference_rules(queries, reference, *, paired=False, species='human', threads=1,
-                           radius=90, consume):
+                           radius=90, consume, identity_keys=()):
     """Emit the scalar rule scores without retaining a detailed case grid.
 
     Inputs use resolved ``seq0/v0 [seq1/v1]`` and reference epitope. Query IDs
     retain their source identity. Full models, priors and motif counts are fixed;
     only exact hits are filtered. MHC pooling is the caller's explicit choice.
+    Optional complete identity columns preserve original keys that share geometry.
     Three query-by-label numeric arrays retain spatial masses/ranks in memory;
     one motif mode is prepared at a time. Nothing is persisted or resumed.
     """
@@ -22,7 +23,7 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
 
     axes = range(2 if paired else 1)
     seq, v = [f'seq{i}' for i in axes], [f'v{i}' for i in axes]
-    keys = [*seq, *v]
+    keys = [*seq, *v, *identity_keys]
     if (type(threads) is not int or threads < 1 or not callable(consume)
             or not 0 < radius < 2**28/200 or not distance_cutoff(radius)):
         raise ValueError('positive threads/radius and a score consumer required')
@@ -41,7 +42,7 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
     exclusive = membership.with_columns(pl.len().over('_ref').alias('_labels')).filter(pl.col('_labels') == 1).drop('_labels')
     Q, R, T = queries.height, whole.height, labels.height
     if not Q:
-        return dict(queries=0, targets=T, cases=0, numeric_state_bytes=0,
+        return dict(queries=0, reference_keys=R, targets=T, cases=0, numeric_state_bytes=0,
                     native_batches=0, native_chunk_size=0)
     gene_keys = lambda f: f.select(*[pl.col(c).str.replace(r'\*.*$', '') for c in v])
     genes = gene_keys(whole).unique().sort(v).with_row_index('_gene')
@@ -160,7 +161,10 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
         emit('rule_v', rows, vscore)
         emit('rule_spatial', rows, kernel(vscore, n, m, masses[rows, :, 0], masses[rows, :, 1], er, eb, np.ones(len(rows), dtype=bool)))
         emit('rule_rank', rows, vscore*rank[rows])
-    prepared_r = _prepare_rule_frame(whole.select(keys), axes)
+    # Geometry may coincide after imputation while original source keys differ.
+    # Preserve the already indexed reference axis through motif preparation too.
+    prepared_r = (_prepare_rule_frame(whole.rename({'_ref': 'query_id'}), axes, True)
+        if identity_keys else _prepare_rule_frame(whole.select(keys), axes))
     prepared_q = _prepare_rule_frame(queries, axes, True)
     for mode in MOTIFS:
         tokens = _tokens(prepared_r, axes, mode)
@@ -206,11 +210,11 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
             emit('rule_mixed_'+mode, rows, mixed)
             emit('rule_enriched_'+mode, rows, enriched)
         del tokens, vocabulary, X, A, B, QT, D
-    return dict(queries=Q, targets=T, cases=Q*T, numeric_state_bytes=required,
+    return dict(queries=Q, reference_keys=R, targets=T, cases=Q*T, numeric_state_bytes=required,
                 native_batches=batches, native_chunk_size=chunk_size)
 
 
-def stream_reference_kernels(queries,reference,*,species='human',threads=1,paired=False,consume):
+def stream_reference_kernels(queries,reference,*,species='human',threads=1,paired=False,consume,identity_keys=()):
     """Emit the six unchanged stem4 kernel alternatives from one native traversal.
 
     MHC is explicitly pooled by peptide by the owning reference classifier.
@@ -221,7 +225,7 @@ def stream_reference_kernels(queries,reference,*,species='human',threads=1,paire
     query_names=({'seq0':'cdr3a','v0':'_allelea','seq1':'cdr3b','v1':'_alleleb'} if paired else {'seq0':'cdr3','v0':'_allele'})
     reference_names=({'seq0':'alpha','v0':'_allele_alpha','seq1':'beta','v1':'_allele_beta'} if paired else {'seq0':'cdr3','v0':'_allele'})
     q=queries.rename(query_names);r=reference.rename(reference_names)
-    query_keys=list(query_names.values());search_keys=list(reference_names.values())
+    query_keys=[*query_names.values(),*identity_keys];search_keys=[*reference_names.values(),*identity_keys]
     context=precompute_v_loop_distances(species=species,matrix='blosum62')
     scale=context['distance_units'][0]
     groups=[(dict(epitope=epitope,mhc_a=None,mhc_b=None,mhc_class=None),q,r.filter(pl.col('epitope')==epitope)) for epitope in sorted(r['epitope'].unique())]

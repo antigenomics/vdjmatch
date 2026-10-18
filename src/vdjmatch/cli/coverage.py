@@ -232,7 +232,7 @@ def _main(a, *, inputs, scratch):
         v_model_sha256=sha256(Path(load_v_loops.__code__.co_filename).parents[1]/'resources/vloops'/f'{organism}_v_loops.tsv'),
         sw_distance='sum_loop [SW(s,s)+SW(t,t)-2*SW(s,t)]; raw BLOSUM62; full junction including anchors; selected V loops stripped of alignment dots; no trim/weights/kernel',
         clonotype_key='full junction + supplied normalized V call + supplied normalized J call; alleles retained; missing calls remain explicit',
-        v_model_policy='existing source-aware allele resolver; explicit supplied alleles retained, omitted allele resolves by existing *01 convention; unresolved SW loops retain exact counts and unavailable community membership; community abundance explicitly uses modeled records',
+        v_model_policy='existing source-aware allele resolver, then flagged fixed first complete co-locus V-loop template for unresolved geometry; raw junction/V/J keys and occurrence counts retained; lexical template order; no target labels',
         leiden=dict(objective='RBConfiguration modularity', resolution=a.leiden_resolution, iterations='until stable', edges='unweighted; undirected; isolates retained'),
         sampling_unit='VDJdb source-record occurrence; community abundance sums member-clonotype occurrences; control draws use matched event slots',
         estimator='vdjtools iNEXT finite-sample Chao1; f2>0: S+(n-1)/n*f1^2/(2*f2); f2=0: S+(n-1)/n*f1*(f1-1)/2',

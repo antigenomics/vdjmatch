@@ -39,8 +39,8 @@ def test_raw_cli_complete_cases_fixed_models_and_sparse_candidates(tmp_path, mon
     original = reference_rule_bank.stream_reference_rules
     comparisons, expected_winners = [], []
     def checked(queries, reference, **kwargs):
-        assert set(reference['epitope']) == {'A', 'B', 'S'}
-        assert reference.height == 46
+        assert set(reference['epitope']) == {'A', 'B', 'S', 'Z'}
+        assert reference.height == 62
         expected = []
         for epitope in sorted(reference['epitope'].unique()):
             expected.append(reference_epitope_rules(queries,
@@ -67,7 +67,8 @@ def test_raw_cli_complete_cases_fixed_models_and_sparse_candidates(tmp_path, mon
     continuous = pl.read_parquet(str(prefix)+'.continuous/*.parquet')
     support = pl.read_csv(str(prefix)+'.target-support.tsv', separator='\t')
     manifest = json.loads((tmp_path/'scores.manifest.json').read_text())
-    assert queries.height == 4 and queries['model_available'].sum() == 3
+    assert queries.height == 4 and queries['model_available'].all()
+    assert queries.filter(pl.col('v').is_null())['v_geometry_imputed'].all()
     assert truth.height == 5 and truth.filter(pl.col('epitope') == 'S').height == 1
     assert set(support['epitope']) == {'A', 'B', 'S', 'Z'}
     assert support.filter(pl.col('classification_eligible'))['valid_source_records'].to_list() == [30, 30]
@@ -75,11 +76,7 @@ def test_raw_cli_complete_cases_fixed_models_and_sparse_candidates(tmp_path, mon
     assert continuous.select('query_id', 'epitope', 'scorer').unique().height == continuous.height
     assert set(continuous['epitope']) == {'A', 'B'}
     assert continuous.group_by('scorer').len()['len'].to_list() == [8]*15
-    missing = queries.filter(~pl.col('model_available'))['query_id'][0]
-    assert continuous.filter(pl.col('query_id') == missing)['score'].null_count() == 30
-    nohits = scores.filter(pl.col('query_id') == missing)
-    assert nohits.height == nohits['epitope'].null_count() == 15
-    assert not nohits['supported'].any()
+    assert continuous['score'].null_count() == 0
     assert scores['query_id'].n_unique() == 4
     winner_columns = ['query_id', 'epitope', 'scorer', 'score', 'supported']
     assert scores.filter(pl.col('supported')).with_columns(pl.col('query_id').cast(pl.UInt32)).select(winner_columns).sort('scorer', 'query_id', 'epitope').equals(
@@ -92,7 +89,7 @@ def test_raw_cli_complete_cases_fixed_models_and_sparse_candidates(tmp_path, mon
         _run(source, prefix)
 
 
-def test_all_unavailable_reference_keeps_complete_null_outputs(tmp_path):
+def test_all_unresolved_reference_is_imputed_and_keeps_complete_outputs(tmp_path):
     raw = pl.DataFrame({'cdr3': ['CASSLGQAYEQYF', 'CASSLGRAYEQYF'], 'v': ['UNKNOWN', None],
         'j': ['TRBJ2-7']*2, 'gene': ['TRB']*2, 'species': ['HomoSapiens']*2,
         'epitope': ['A', 'B']})
@@ -100,9 +97,29 @@ def test_all_unavailable_reference_keeps_complete_null_outputs(tmp_path):
     raw.write_csv(source, separator='\t')
     assert _run(source, prefix, '--min-records', '1') == 0
     continuous = pl.read_parquet(str(prefix)+'.continuous/*.parquet')
-    assert continuous.height == 60 and continuous['score'].null_count() == 60
+    assert continuous.height == 60 and continuous['score'].null_count() == 0
+    queries = pl.read_csv(str(prefix)+'.queries.tsv', separator='\t')
+    assert queries['v_geometry_imputed'].all() and queries['model_available'].all()
+    assert queries['v'].to_list() == ['UNKNOWN', None]
     scores = pl.read_csv(str(prefix)+'.scores.tsv', separator='\t')
-    assert scores.height == scores['epitope'].null_count() == 30
+    assert scores.select('query_id', 'scorer').unique().height == 30
+    assert scores['epitope'].null_count() == 0
+
+
+@pytest.mark.parametrize('kernel', [False, True])
+def test_imputed_reference_key_does_not_collapse_into_template_key(tmp_path, kernel):
+    source, prefix = tmp_path/'raw.tsv', tmp_path/'scores'
+    pl.DataFrame(dict(cdr3=['CASSLGQAYEQYF']*2+['CASSLGRAYEQYF'],
+        v=['TRBV1', None, 'TRBV1'], j=['TRBJ2-7']*3, gene=['TRB']*3,
+        species=['HomoSapiens']*3, epitope=['A', 'A', 'B'])).write_csv(source, separator='\t')
+    assert _run(source, prefix, '--min-records', '1', *(['--kernel-only'] if kernel else [])) == 0
+    queries = pl.read_csv(str(prefix)+'.queries.tsv', separator='\t')
+    assert queries.height == 3 and queries['model_available'].all()
+    assert queries['v_geometry_imputed'].sum() == 1
+    support = pl.read_csv(str(prefix)+'.target-support.tsv', separator='\t')
+    assert support.filter(pl.col('epitope') == 'A')['modeled_search_keys'].item() == 2
+    manifest = json.loads(Path(str(prefix)+'.manifest.json').read_text())
+    assert manifest['backend']['reference_keys'] == 3
 
 
 def test_missing_target_short_query_and_curated_population(tmp_path):
@@ -115,12 +132,14 @@ def test_missing_target_short_query_and_curated_population(tmp_path):
     rows.write_csv(source, separator='\t')
     assert _run(source, prefix, '--min-records', '1') == 0
     queries = pl.read_csv(str(prefix)+'.queries.tsv', separator='\t')
-    assert queries.height == 4 and queries['model_available'].sum() == 2
+    assert queries.height == 4 and queries['model_available'].sum() == 3
     assert queries.filter(pl.col('j').is_null())['model_available'].all()
     continuous = pl.read_parquet(str(prefix)+'.continuous/*.parquet')
     assert continuous.height == 4*3*15
-    absent = continuous.filter(pl.col('epitope').is_in(['B', 'C']))
-    assert absent.height == absent['score'].null_count() == 120
+    absent = continuous.filter(pl.col('epitope') == 'C')
+    assert absent.height == absent['score'].null_count() == 60
+    short = queries.filter(pl.col('cdr3') == 'CASF')['query_id'].item()
+    assert continuous.filter(pl.col('query_id') == short)['score'].null_count() == 45
     override = tmp_path/'allvalid'
     assert _run(source, override, '--min-records', '1', '--reference-population', 'all-valid') == 0
     targets = pl.read_csv(str(override)+'.target-support.tsv', separator='\t')
@@ -178,9 +197,10 @@ def test_component_completion_and_raw_input_freeze(tmp_path, monkeypatch, mutati
     component_names = ['accepted_original', 'current_original', 'current_original_log', 'gapblock', 'stem4', 'motif']
     def stream(queries, reference, context, *, consume, **kwargs):
         assert queries['query_id'].to_list() == [0, 1, 2]
-        assert queries.height == 3 and set(queries.columns) == {'query_id', 'cdr3', 'v', 'j', 'locus'}
+        assert queries.height == 3 and set(queries.columns) == {'query_id', 'cdr3', 'v', 'j', 'locus', 'original_v', 'v_geometry_imputed'}
         assert reference.height == 5 and set(reference['epitope']) == {'A', 'B', 'S'}
-        assert reference.filter(pl.col('v').is_null()).height == 1
+        assert reference['v'].null_count() == 0
+        assert reference.filter(pl.col('original_v').is_null())['v_geometry_imputed'].to_list() == [True]
         assert context['density_index'] is density_index and context['prior_background'].height == 1
         # Explicit finite zero survives the continuous export despite unsupported.
         frame = queries.head(1).select('query_id').with_columns(pl.lit('B').alias('epitope'),
@@ -272,8 +292,9 @@ def test_kernel_only_exports_current_six_scores_without_rule_or_control_rebuild(
     assert set(data['scorer'])=={'kernel_'+x+'_'+y for x in ['v','all','vonly'] for y in ['bounded','rare']}
     assert data.select('query_id','epitope','scorer').unique().height==data.height
     queries=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
-    unknown=queries.filter(~pl.col('model_available'))['query_id'].item()
-    assert data.filter(pl.col('query_id')==unknown)['score'].null_count()==12
+    unknown=queries.filter(pl.col('v_geometry_imputed'))['query_id'].item()
+    assert queries['model_available'].all()
+    assert data.filter(pl.col('query_id')==unknown)['score'].null_count()==0
     from vdjmatch.cli.neighbours import register
     parser=argparse.ArgumentParser();register(parser.add_subparsers())
     query_path=tmp_path/'queries.tsv'
@@ -283,7 +304,7 @@ def test_kernel_only_exports_current_six_scores_without_rule_or_control_rebuild(
     assert args.func(args)==0
     native=pl.read_csv(str(native_prefix)+'.enrichment.tsv',separator='\t')
     for scorer in data['scorer'].unique():
-        observed=data.filter((pl.col('scorer')==scorer)&(pl.col('query_id')!=unknown)).sort('query_id','epitope')
+        observed=data.filter(pl.col('scorer')==scorer).sort('query_id','epitope')
         expected=native.select('query_id','epitope',pl.col(scorer).alias('score')).sort('query_id','epitope')
         assert observed.select('query_id','epitope','score').equals(expected)
 
@@ -304,7 +325,8 @@ def test_genuine_paired_reference_exports_use_max_chain_eligibility(tmp_path,ker
     options=['--locus','paired']+(['--kernel-only'] if kernel else [])
     assert _run(source,prefix,*options)==0
     q=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t');support=pl.read_csv(str(prefix)+'.target-support.tsv',separator='\t')
-    assert q.height==2 and q['model_available'].sum()==1
+    assert q.height==2 and q['model_available'].all()
+    assert q['v_geometry_imputed1'].sum()==1
     assert support.filter(pl.col('classification_eligible'))['epitope'].to_list()==['A','C']
     assert support.filter(pl.col('epitope')=='A')['paired_source_records'].item()==2
     assert support.filter(pl.col('epitope')=='A')['valid_source_records'].item()==32
@@ -312,7 +334,7 @@ def test_genuine_paired_reference_exports_use_max_chain_eligibility(tmp_path,ker
     assert support.filter(pl.col('epitope')=='C')['paired_source_records'].item()==0
     assert data.height==4*(6 if kernel else 15) and set(data['locus'])=={'PAIRED'}
     assert data.filter(pl.col('epitope')=='C')['score'].null_count()==2*(6 if kernel else 15)
-    assert data.filter(pl.col('query_id')==q.filter(~pl.col('model_available'))['query_id'].item())['score'].null_count()==2*(6 if kernel else 15)
+    assert data.filter(pl.col('epitope')=='A')['score'].null_count()==0
     manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
     assert manifest['source_frozen'] and manifest['reference_frozen'] and manifest['paired']
     assert manifest['paired_eligibility']=='maximum qualifying chain source-record count before exact-hit filtering'

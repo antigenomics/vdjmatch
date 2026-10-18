@@ -158,7 +158,7 @@ def test_combined_diagnostics_loads_control_and_pgen_once(tmp_path, monkeypatch,
     assert manifest['shared_invocation_inputs'] is True
 
 
-def test_sw_knee_uses_reference_nearest_within_pmhc_and_keeps_missing_models(monkeypatch):
+def test_sw_knee_keeps_raw_keys_and_imputes_missing_loop_templates(monkeypatch):
     from Bio.Align import PairwiseAligner, substitution_matrices
     from vdjmatch.aggregate.reference_coverage import sw_knee, reference_graph
     from vdjmatch.match import geometry
@@ -174,14 +174,16 @@ def test_sw_knee_uses_reference_nearest_within_pmhc_and_keeps_missing_models(mon
         cdr_loops=('cdr1', 'cdr2', 'cdr25'))
     aligner = PairwiseAligner(mode='local', substitution_matrix=substitution_matrices.load('BLOSUM62'),
         open_gap_score=-11, extend_gap_score=-1)
-    seqs = records['cdr3'][:3].to_list()
+    seqs = records.filter(pl.col('group_id') == 0)['cdr3'].to_list()
     expected = sorted(min(aligner.score(a, a)+aligner.score(b, b)-2*aligner.score(a, b)
         for j, b in enumerate(seqs) if i != j) for i, a in enumerate(seqs))
     assert captured == expected and radius == min(expected)
-    assert curve['nearest_distance'].null_count() == 2  # singleton pMHC and unresolved V
+    assert curve['nearest_distance'].null_count() == 1  # singleton pMHC only
     nodes, edges = reference_graph(records, geometry='sw', radius=radius, species='human', locus='TRB')
     missing = nodes.filter(~pl.col('geometry_available'))
-    assert missing.height == 1 and missing['occurrences'].sum() == 1
+    assert missing.is_empty()
+    assert nodes.filter(pl.col('v_geometry_imputed'))['v'].to_list() == ['TRBV999']
+    assert nodes['occurrences'].sum() == records.height
     assert not edges.filter(pl.col('a').is_in(missing['node'].implode()) | pl.col('b').is_in(missing['node'].implode())).height
 
 

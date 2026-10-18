@@ -63,10 +63,11 @@ def test_stem4_eligible_source_records_and_identity_restoration(tmp_path):
     assert calls.height==4
     shared=calls.filter(pl.col('cdr3')=='CASSLAAAYEQYF')
     assert shared['j'].n_unique()==2 and shared['kernel_score'].n_unique()==1
-    assert calls.filter(~pl.col('available'))['status'].to_list()==['invalid_query_or_gene']
+    assert calls['available'].all()
+    assert calls.filter(pl.col('v')=='UNKNOWN')['v_geometry_imputed'].to_list()==[True]
     m=json.loads((tmp_path/'out.manifest.json').read_text())
     assert m['eligible_benchmark_records']==62 and m['ineligible_benchmark_records']==1
-    assert m['all_reference_peptides']==3 and m['searchable_reference_keys']==3
+    assert m['all_reference_peptides']==3 and m['searchable_reference_keys']==4
     assert m['geometry']['matrix_scale']==26
     assert m['geometry']['radius']==m['geometry']['kernel_scale']==585
     assert 'fixed reference/control model populations' in m['self_exclusion']
@@ -77,6 +78,20 @@ def require_folds():
     import seqtree.gapblock as gapblock
     if 'query_withheld_peptide_ids' not in inspect.signature(gapblock.grouped_count_batch).parameters:
         pytest.skip('new native fold capability is tested with the isolated candidate wheel')
+
+
+def test_imputed_source_keys_do_not_merge_with_template_calls(tmp_path):
+    pl.DataFrame(dict(cdr3=['CASSLGQAYEQYF']*3, v=['TRBV1', None, 'UNKNOWN'],
+        j=['TRBJ1-1']*3, epitope=['A']*3, gene=['TRB']*3,
+        species=['HomoSapiens']*3)).write_csv(tmp_path/'ref.tsv', separator='\t')
+    assert reference_calls.main(args(tmp_path, '--scorer', 'stem4', '--min-target-records', '1',
+        '--exact-policy', 'retain')) == 0
+    calls = pl.read_csv(tmp_path/'out.calls.tsv', separator='\t')
+    assert calls.height == 3 and calls['available'].all()
+    assert calls['v_geometry_imputed'].sum() == 2
+    assert calls['v'].null_count() == 1 and 'UNKNOWN' in calls['v']
+    manifest = json.loads((tmp_path/'out.manifest.json').read_text())
+    assert manifest['searchable_reference_keys'] == 3
 
 
 def test_grouped_folds_equal_physically_filtered_models():

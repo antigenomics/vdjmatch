@@ -204,6 +204,27 @@ def resolve_v_alleles(calls, model, *, locus=None):
     return values.replace_strict(unique,pl.Series(resolved,dtype=pl.String),default=None,return_dtype=pl.String)
 
 
+
+def impute_reference_v_alleles(calls, model, *, locus, cdr_loops=('cdr1', 'cdr2', 'cdr25')):
+    """Fixed-population loop templates; preserve raw keys and flag every fallback.
+
+    Use the first complete co-locus template in lexical order for unresolved
+    calls. This fixed model choice cannot change when queries or mocks change.
+    No target labels enter.
+    """
+    import polars as pl
+    complete = {a: row for a, row in model.items() if row['locus'] == locus and all(
+        row[loop].replace('.', '') and set(row[loop].replace('.', '')) <= set('ACDEFGHIKLMNPQRSTVWY')
+        for loop in cdr_loops)}
+    alleles = resolve_v_alleles(calls, complete, locus=locus)
+    missing = alleles.is_null().rename('v_geometry_imputed')
+    if missing.any():
+        if not complete:
+            raise ValueError('no complete co-locus V-loop template for reference imputation')
+        alleles = alleles.fill_null(min(complete))
+    return alleles, missing
+
+
 def _v_allele_aliases(model):
     """Model-proven spelling map; independent of query/reference populations."""
     aliases={};exact_targets={}

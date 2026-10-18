@@ -80,11 +80,27 @@ def test_reference_radius_cli_keeps_unresolved_and_no_knee_dispositions(tmp_path
                  '--matrix', matrix, '--output-prefix', str(prefix)]) == 0
     out = pl.read_csv(str(prefix)+'.radii.tsv', separator='\t')
     assert out['source_observations'].to_list() == [3]
-    assert out['unavailable_observations'].to_list() == [1]
-    assert out['reference_keys'].to_list() == [2]
-    assert out['nearest_keys'].to_list() == [2]
-    assert out['radius'].null_count() == 1
-    assert out['radius_status'].to_list() == ['no_knee']
+    assert out['unavailable_observations'].to_list() == [0]
+    assert out['reference_keys'].to_list() == [3]
+    assert out['nearest_keys'].to_list() == [3]
+    nearest = pl.read_csv(str(prefix)+'.nearest.tsv', separator='\t')
+    assert nearest.filter(pl.col('v_geometry_imputed0'))['original_v0'].to_list() == ['unknown']
+    assert nearest['v0'].null_count() == 0
+
+
+def test_reference_radius_retains_distinct_imputed_raw_keys(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    source, prefix = tmp_path/'reference.tsv', tmp_path/'radius'
+    pl.DataFrame(dict(cdr3=['CASSLGQAYEQYF']*3, v=['TRBV1', None, 'UNKNOWN'],
+        gene=['TRB']*3, species=['HomoSapiens']*3, epitope=['E']*3)).write_csv(source, separator='\t')
+    assert main(['reference-radius','--vdjdb',str(source),'--locus','TRB',
+        '--output-prefix',str(prefix)])==0
+    radii=pl.read_csv(str(prefix)+'.radii.tsv',separator='\t')
+    assert radii['reference_keys'].to_list()==[3]
+    assert radii['v_geometry_imputed_observations'].to_list()==[2]
+    nearest=pl.read_csv(str(prefix)+'.nearest.tsv',separator='\t')
+    assert nearest.height==3 and nearest['v0'].n_unique()==1
+    assert nearest['original_v0'].null_count()==1 and 'UNKNOWN' in nearest['original_v0']
 
 
 def test_reference_structure_cli_profiles_compatible_union(tmp_path):

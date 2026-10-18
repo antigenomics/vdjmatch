@@ -119,7 +119,7 @@ def _paired_input(path, raw, model, organism):
     """Preserve raw pair/chain identities, including rows dropped during ingestion."""
     import polars as pl
     from .. import io
-    from ..match.geometry import resolve_v_alleles
+    from ..match.geometry import impute_reference_v_alleles
     from ..aggregate.candidates import PMHC
     if 'clone_id' not in raw.columns:
         raise ValueError('paired AIRR input requires clone_id linkage')
@@ -156,7 +156,10 @@ def _paired_input(path, raw, model, organism):
     pairs=pairs.join(cells,on='pair_id',how='left',validate='1:1',maintain_order='left')
     for suffix,locus,name in [('a','TRA','alpha'),('b','TRB','beta')]:
         allele='_allele'+suffix
-        pairs=pairs.with_columns(resolve_v_alleles(pairs['v_call_'+name],model,locus=locus).alias(allele))
+        alleles, imputed = impute_reference_v_alleles(pairs['v_call_'+name], model, locus=locus)
+        pairs=pairs.with_columns(alleles.alias(allele), imputed.alias('v_geometry_imputed_'+name)).with_columns(
+            pl.when(pl.col('v_geometry_imputed_'+name)).then(pl.struct(pl.col('v_call_'+name).alias('v')).struct.json_encode())
+                .otherwise(pl.col(allele)).alias('_v_key'+suffix))
         allowed=[v for v,m in model.items() if m['locus']==locus]
         pairs=pairs.with_columns(
             pl.col('cdr3'+suffix).str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$').fill_null(False).alias('_sequence_valid'+suffix),
@@ -191,7 +194,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     from ..io.airr import _read_table
     from ..db.cache import sha256
     from seqtree import _core,gapblock
-    from ..match.geometry import distance_matrix,paired_distance_matrix,load_v_loops,resolve_v_alleles,distance_units,distance_cutoff,_substitution_costs
+    from ..match.geometry import distance_matrix,paired_distance_matrix,load_v_loops,impute_reference_v_alleles,distance_units,distance_cutoff,_substitution_costs
     from ..evalue.control import _organism
     start=time.perf_counter()
     _apply_geometry_extra(a)
@@ -321,6 +324,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
         metadata=pair_rows.select('query_id',*[c for c in ['species',*PMHC] if c in pair_rows.columns])
     else:
         data,ingestion=io.read_rearrangement(a.sample,source='airr',valid_aa=False,return_report=True)
+        data=data.with_columns(pl.when(pl.col('locus').is_null() | (pl.col('locus').str.strip_chars()==''))
+            .then(pl.lit(a.locus)).otherwise(pl.col('locus')).alias('locus'))
         _,q=_prepare(data)
         metadata=raw
     reference_species={'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
@@ -334,7 +339,11 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     withheld_records=r.filter(pl.col('epitope').is_in(a.withhold_epitope or [])).height
     allowed=[v for v,m in model.items() if m['locus']==a.locus]
     def prepare(frame):
-        return frame.with_columns(resolve_v_alleles(frame['v'],model,locus=a.locus).alias('_allele')).filter(
+        alleles, imputed = impute_reference_v_alleles(frame['v'], model, locus=a.locus)
+        # Imputation shares geometry, but must not merge distinct original keys.
+        return frame.with_columns(alleles.alias('_allele'), imputed).with_columns(
+            pl.when(pl.col('v_geometry_imputed')).then(pl.struct('v').struct.json_encode())
+                .otherwise(pl.col('_allele')).alias('_v_key')).filter(
                 pl.col('_allele').is_in(allowed)&(pl.col('cdr3').str.len_chars()>=8))
     if paired:
         from ..evalue.paired import build_paired_ref
@@ -342,9 +351,12 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
         paired_observations=r.height
         for suffix,locus in [('alpha','TRA'),('beta','TRB')]:
             allowed_chain=[v for v,m in model.items() if m['locus']==locus]
-            r=r.with_columns(resolve_v_alleles(r['v_'+suffix],model,locus=locus).alias('_allele_'+suffix)).filter(
+            alleles, imputed = impute_reference_v_alleles(r['v_'+suffix], model, locus=locus)
+            r=r.with_columns(alleles.alias('_allele_'+suffix), imputed.alias('v_geometry_imputed_'+suffix)).with_columns(
+                pl.when(pl.col('v_geometry_imputed_'+suffix)).then(pl.struct(pl.col('v_'+suffix).alias('v')).struct.json_encode())
+                    .otherwise(pl.col('_allele_'+suffix)).alias('_v_key_'+suffix)).filter(
                     pl.col('_allele_'+suffix).is_in(allowed_chain) & (pl.col(suffix).str.len_chars()>=8))
-        search_keys=['alpha','beta','_allele_alpha','_allele_beta']
+        search_keys=['alpha','beta','_allele_alpha','_allele_beta','_v_key_alpha','_v_key_beta']
         if j_geometry:
             for column in ('j_alpha','j_beta'):
                 r=r.with_columns(pl.col(column).fill_null('').str.split('*').list.first())
@@ -355,7 +367,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     else:
         q=prepare(q.filter(pl.col('locus')==a.locus))
         r=prepare(r.filter(pl.col('reference_valid')))
-        search_keys=['cdr3','_allele']
+        search_keys=['cdr3','_allele','_v_key']
         if j_geometry:
             q=q.with_columns(pl.col('j').fill_null('').str.split('*').list.first())
             r=r.with_columns(pl.col('j').fill_null('').str.split('*').list.first())
@@ -468,7 +480,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
         if kernel:
             from ..evalue.kernel import ladder_cutoffs,kernel_ladder
             kernel_cutoffs=ladder_cutoffs(matrix_scale,radius_factor=a.radius/matrix_scale)
-        query_keys=['cdr3a','cdr3b','_allelea','_alleleb'] if paired else ['cdr3','_allele']
+        query_keys=['cdr3a','cdr3b','_allelea','_alleleb','_v_keya','_v_keyb'] if paired else ['cdr3','_allele','_v_key']
         if j_geometry:
             query_keys += ['ja','jb'] if paired else ['j']
         options=dict(species=organism,threads=a.threads,ctrim=ctrim,
@@ -891,6 +903,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
         status=pair_rows.select(*[c for c in ['query_id','pair_id','clone_id','query_ida','query_idb',
             'sequence_ida','sequence_idb','species',*PMHC] if c in pair_rows.columns],'available','status',
             'v_call_alpha','v_call_beta',
+            'v_geometry_imputed_alpha','v_geometry_imputed_beta',
             pl.col('_allelea').alias('resolved_v_allele_alpha'),pl.col('_alleleb').alias('resolved_v_allele_beta'))
         hit_ids=selection_hit_ids if selection_only or evidence_only else rules_hit_ids if rules_only else set(out['query_id'])
         status=status.with_columns(pl.Series('status',[
@@ -902,8 +915,9 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
     if not paired:
         v_column=io.columns._resolve(raw).get('v')
         raw_calls=raw[v_column] if v_column else pl.Series([None]*raw.height,dtype=pl.String)
+        alleles, imputed = impute_reference_v_alleles(raw_calls, model, locus=a.locus)
         status=status.with_columns(raw_calls.alias('v_call'),
-            resolve_v_alleles(raw_calls,model,locus=a.locus).alias('resolved_v_allele'))
+            alleles.alias('resolved_v_allele'), imputed)
     status=status.with_columns(pl.col('available').fill_null(False))
     if (a.targets_from_sample or a.all_targets) and not paired:
         valid_target_ids=set(dispositions)
@@ -1066,7 +1080,9 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                     'cli_source_sha256':sha256(Path(__file__))},
         'reference':db.provenance(a.vdjdb),'reference_population':a.reference_population,'ingestion':ingestion,'reference_observations':original,'withheld_reference_chain_records':withheld_records,
         'v_loop_model':{'sha256':sha256(Path(str(files('vdjmatch.resources')/'vloops'/f'{organism}_v_loops.tsv'))),
-                        'precomputation':'one exact aligned-loop table per locus and invocation; reused across population batches'},
+                        'precomputation':'one exact aligned-loop table per locus and invocation; reused across population batches',
+                        'missing_v_policy':'fixed first complete co-locus template; original raw calls retained with geometry imputation flags',
+                        'imputed_reference_keys':{c:int(r[c].sum()) for c in r.columns if c.startswith('v_geometry_imputed')}},
         'reference_usable_keys':r.height,'query_rows':raw.height,'query_usable_rows':2*q.height if paired else q.height,
         'withholding':'candidate hits only; full background populations and geometry parameters retained',
         **({'query_pairs':pair_rows.height,'query_usable_pairs':q.height,'reference_complete_pairs':paired_observations,

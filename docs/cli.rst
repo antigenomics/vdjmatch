@@ -959,11 +959,19 @@ TRA/TRB roles. It sums alpha and beta distances against the same linked database
 receptor; ``--radius`` applies to that sum. Exact exclusion removes a reference
 only when both full junctions match. Original independent marginal minima must
 be computed from separate full single-chain reference pools; they are a distinct
-baseline. Paired output retains missing partners and unavailable gene calls.
+baseline. Paired output retains missing partners and original gene calls.
+
+Unresolved V calls use the lexically first complete co-locus loop template
+from the fixed species model. The template does not depend on queries, mocks
+or target labels. Original calls remain in the output with
+``v_geometry_imputed`` flags (one flag per chain for paired inputs).
+Distinct unresolved source keys remain distinct when their geometry coincides
+with a supplied template allele. Invalid junctions and missing paired partners
+retain their existing unavailable dispositions.
 
 ``--targets-from-sample`` selects compatible declared restrictions and counts
 unique junction/V search keys within their union. Query status distinguishes
-missing references, unavailable sequence/gene inputs, and searches without
+missing references, unavailable sequence inputs, and searches without
 neighbours. Explicit ``--epitope``, ``--mhc-a`` and ``--mhc-b`` selectors support
 ``--mhc-match compatible``; exact selection remains the default.
 
@@ -1185,6 +1193,8 @@ Only ``--calibration-score score`` is compatible; component E/P values cannot
 calibrate this final scalar. Its outputs are calls, calibration cases, truth,
 source-record target support and a geometry/model/source-hashed manifest.
 Calibration must bind this scorer, selection and reference policy.
+Unresolved V calls use the same fixed co-locus template as ``neighbours``;
+calls retain original V identities and geometry-imputation flags.
 
 Paired reference nulls require both ``--locus paired`` and
 ``--leave-epitope-out`` with ``--scorer stem4``. Queries retain genuine TRA/TRB
@@ -1286,6 +1296,9 @@ The strongest confirmed normalized Kneedle bend wins. Outputs ``.radii.tsv``,
 junction/resolved-V keys define the search population; paired mode uses genuine
 linked receptors and the summed distance to the same reference pair. Source
 observation counts and unavailable keys remain explicit.
+Unresolved V calls receive the fixed co-locus template used by ``neighbours``.
+The nearest-distance table retains ``original_v0`` (and ``original_v1`` for
+pairs) and geometry-imputation flags; imputation does not merge original keys.
 
 Use ``--matrix blosum62`` for full BLOSUM62 costs; the default remains
 ``clipped``. The selected matrix supplies junction and V-loop costs, gaps,
@@ -2186,7 +2199,9 @@ Rebuild all 15 retained fixed-rule scores from raw VDJdb for one species and
 chain (or genuine paired receptors with ``--locus paired``), pooling MHC by
 epitope. Eligibility uses valid source records before
 exact-hit filtering; sparse labels remain search candidates. Models remain
-fixed, and missing model support retains explicit query dispositions.
+fixed. Unresolved V calls receive the fixed co-locus template used by
+``neighbours``, with original V/J query identities and imputation flags retained.
+Unavailable junctions and absent linked target populations remain explicit.
 
 .. code-block:: sh
 

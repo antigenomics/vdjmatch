@@ -10,7 +10,7 @@ from polars.testing import assert_frame_equal
 from vdjmatch.cli import calibration,reference_calls,neighbours as geometry
 from vdjmatch.evalue.kernel import grouped_kernel_selection,finish_kernel_selection,ladder_cutoffs
 from vdjmatch.evalue.paired import build_paired_ref
-from vdjmatch.match.geometry import precompute_v_loop_distances,resolve_v_alleles
+from vdjmatch.match.geometry import precompute_v_loop_distances,impute_reference_v_alleles
 
 
 def reference(path):
@@ -47,7 +47,8 @@ def test_pair_source_eligibility_truth_and_physical_fold_oracle(tmp_path,exact,p
     truth=pl.read_csv(tmp_path/'out.truth.tsv',separator='\t')
     assert set(truth['complex_id'])=={'p1','p2','p3'}
     assert manifest['native_population_batches']==3
-    assert calls.filter(pl.col('v_alpha')=='UNKNOWN')['linked_available'].to_list()==[False]
+    assert calls.filter(pl.col('v_alpha')=='UNKNOWN')['linked_available'].to_list()==[True]
+    assert calls.filter(pl.col('v_alpha')=='UNKNOWN')['v_geometry_imputed_alpha'].to_list()==[True]
     assert calls.filter(pl.col('v_alpha')=='UNKNOWN')['beta_available'].to_list()==[True]
     for axis in ['linked','alpha','beta']:
         assert not calls.filter(pl.col('selected_'+axis+'_epitope')==pl.col('epitope')).height
@@ -57,7 +58,7 @@ def test_pair_source_eligibility_truth_and_physical_fold_oracle(tmp_path,exact,p
     r=db.load(tmp_path/'ref.tsv',species='HomoSapiens').filter(pl.col('reference_valid'))
     context=precompute_v_loop_distances(matrix='blosum62')
     def resolve(frame,seq,v,locus,column):
-        return frame.with_columns(resolve_v_alleles(frame[v],context['model'],locus=locus).alias(column)).filter(
+        return frame.with_columns(impute_reference_v_alleles(frame[v],context['model'],locus=locus)[0].alias(column)).filter(
             pl.col(column).is_not_null() & pl.col(seq).str.len_chars().ge(8))
     # Physical removal is independent of native withholding memberships.
     for row in calls.iter_rows(named=True):
