@@ -29,7 +29,7 @@ def main(a):
     from ..db.cache import sha256
     from ..evalue.epitope_rules import MOTIFS
     from ..evalue.reference_rule_bank import stream_reference_rules
-    from ..match.geometry import precompute_v_loop_distances, resolve_v_alleles
+    from ..match.geometry import precompute_v_loop_distances, impute_reference_v_alleles
     from ..runner.annotation import _validate_output_paths
     from ..runner.retrieval_winners import WinnerAccumulator
     from .epitope import pool_epitopes
@@ -97,12 +97,21 @@ def main(a):
     context=precompute_v_loop_distances(species=organism)
     resolved=['resolved_v'+str(i) for i in range(len(axes))] if paired else ['resolved_v']
     def resolve(frame):
-        return frame.with_columns(*[resolve_v_alleles(frame[v],context['model'],locus=locus).alias(resolved[i]) for i,(_,v,locus) in enumerate(axes)]).with_columns(pl.all_horizontal(*[(pl.col(resolved[i]).is_not_null()&(pl.col(seq).str.len_chars()>=8)) for i,(seq,_,_) in enumerate(axes)]).alias('model_available'))
+        # Retain original unresolved keys even when their modeled loops coincide.
+        for i, (_, v, locus) in enumerate(axes):
+            alleles, imputed = impute_reference_v_alleles(frame[v], context['model'], locus=locus)
+            flag = 'v_geometry_imputed'+str(i) if paired else 'v_geometry_imputed'
+            frame = frame.with_columns(alleles.alias(resolved[i]), imputed.alias(flag)).with_columns(
+                pl.when(pl.col(flag)).then(pl.struct(pl.col(v).alias('v')).struct.json_encode())
+                    .otherwise(pl.col(resolved[i])).alias('_v_key'+str(i)))
+        return frame.with_columns(pl.all_horizontal(*[(pl.col(seq).str.len_chars()>=8) for seq,_,_ in axes]).alias('model_available'))
     reference=resolve(selected);queries=resolve(queries)
     feature_columns=[column for i,(seq,_,_) in enumerate(axes) for column in [pl.col(seq).alias('seq'+str(i)),pl.col(resolved[i]).alias('v'+str(i))]]
-    modeled_reference=reference.filter(pl.col('model_available')).select(*feature_columns,'epitope')
-    modeled_queries=queries.filter(pl.col('model_available')).select('query_id',*feature_columns)
-    modeled_counts=reference.filter(pl.col('model_available')).group_by('epitope').agg(pl.len().alias('modeled_source_records'),pl.struct([*[x[0] for x in axes],*resolved]).n_unique().alias('modeled_search_keys'))
+    identity_keys=['_v_key'+str(i) for i in range(len(axes))]
+    flags=['v_geometry_imputed'+str(i) for i in range(len(axes))] if paired else ['v_geometry_imputed']
+    modeled_reference=reference.filter(pl.col('model_available')).select(*feature_columns,*identity_keys,'epitope')
+    modeled_queries=queries.filter(pl.col('model_available')).select('query_id',*feature_columns,*identity_keys)
+    modeled_counts=reference.filter(pl.col('model_available')).group_by('epitope').agg(pl.len().alias('modeled_source_records'),pl.struct([*[x[0] for x in axes],*resolved,*identity_keys]).n_unique().alias('modeled_search_keys'),*[pl.col(c).sum().alias(c+'_source_records') for c in flags])
     support=support.join(modeled_counts,on='epitope',how='left',validate='1:1').with_columns(pl.col('modeled_source_records','modeled_search_keys').fill_null(0)).with_columns((pl.col('modeled_search_keys')>0).alias('model_available'))
     truth = selected.join(queries.select('query_id', *keys), on=keys, how='inner', nulls_equal=True, validate='m:1').select(
         'query_id', 'epitope', 'mhc_a', 'mhc_b', 'mhc_class').unique().sort('query_id', 'epitope')
@@ -152,7 +161,7 @@ def main(a):
         stream_backend=stream_reference_kernels
     else:stream_backend=stream_reference_rules
     backend = (stream_backend(modeled_queries, modeled_reference, species=organism,
-        threads=a.threads, paired=paired, consume=consume) if modeled_reference.height and modeled_queries.height else {})
+        threads=a.threads, paired=paired, consume=consume, identity_keys=identity_keys) if modeled_reference.height and modeled_queries.height else {})
     # Fill only coordinates the backend cannot emit. Existing continuous parts
     # are final deliverables and are never reopened to calculate predictions.
     available_targets = support.filter(pl.col('model_available')).select('epitope')
@@ -189,9 +198,15 @@ def main(a):
                 raise ValueError('duplicate component query/target score coordinate')
             np.bitwise_or.at(emitted[component], (q, t//8), flags)
             consume(scorer, frame)
-        component_reference = (selected.with_columns(pl.lit(True).alias('reference_valid'))
-            if a.reference_population == 'all-valid' else selected)
-        stream_components(queries.select('query_id', *keys).with_columns(pl.lit(a.locus).alias('locus')),
+        component_reference = reference.with_columns(pl.col('v').alias('original_v'),
+            pl.when(pl.col('v_geometry_imputed')).then(pl.col('resolved_v')).otherwise(pl.col('v')).alias('v'))
+        if a.reference_population == 'all-valid':
+            component_reference = component_reference.with_columns(pl.lit(True).alias('reference_valid'))
+        component_queries = queries.select('query_id', *keys, 'resolved_v', 'v_geometry_imputed').with_columns(
+            pl.col('v').alias('original_v'),
+            pl.when(pl.col('v_geometry_imputed')).then(pl.col('resolved_v')).otherwise(pl.col('v')).alias('v'),
+            pl.lit(a.locus).alias('locus')).drop('resolved_v')
+        stream_components(component_queries,
             component_reference, {'density_index': density_index, 'prior_background': prior},
             species=organism, locus=a.locus, threads=a.threads, consume=component_consume)
         chunk = max(1, 65536//len(targets))
@@ -232,7 +247,7 @@ def main(a):
         winner_rows=winner_rows, continuous_rows=continuous_rows, expected_continuous_rows=expected_rows,
         backend=backend, components=a.components, kernel_only=a.kernel_only, paired=paired,
         paired_eligibility="maximum qualifying chain source-record count before exact-hit filtering" if paired else None, component_inputs_before=component_before,
-        model_availability='query/target model_available fields require resolved V and length>=8 on every present scoring axis; source units are genuine complete complexes for paired mode, chain observations for singles; component availability remains explicit',
+        model_availability='length>=8 on every present scoring axis; unresolved V receives a flagged fixed first complete co-locus loop template; original keys retained separately from geometry; source units are genuine complete complexes for paired mode, chain observations for singles; component availability remains explicit',
         component_inputs_after=component_after, component_inputs_frozen=True, control_info=control_info,
         **info, exact_exclusion='hit-list only; full fixed reference models retained',
         score_meaning='uncalibrated current stem4 kernel evidence; larger is stronger' if a.kernel_only else 'uncalibrated fixed-reference rule evidence; larger is stronger',

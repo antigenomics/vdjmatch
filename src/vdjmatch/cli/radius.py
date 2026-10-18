@@ -29,7 +29,7 @@ def main(a):
     from ..aggregate.candidates import PMHC
     from ..evalue.control import _organism
     from ..evalue.paired import build_paired_ref
-    from ..match.geometry import (load_v_loops, resolve_v_alleles, reference_nearest_distances,
+    from ..match.geometry import (load_v_loops, impute_reference_v_alleles, reference_nearest_distances,
                                 kneedle_radius, regularize_reference_radii, reference_structure,
                                 distance_units, _substitution_costs)
 
@@ -65,8 +65,12 @@ def main(a):
                 pl.col('v_'+suffix if paired else 'v').alias(f'v{i}')])
         frame = observations.select(fields)
         for i in range(2 if paired else 1):
-            frame = frame.with_columns(resolve_v_alleles(frame[f'v{i}'], model,
-                locus=('TRA', 'TRB')[i] if paired else a.locus).alias(f'v{i}'))
+            alleles, imputed = impute_reference_v_alleles(frame[f'v{i}'], model,
+                locus=('TRA', 'TRB')[i] if paired else a.locus)
+            frame = frame.with_columns(pl.col(f'v{i}').alias(f'original_v{i}'),
+                alleles.alias(f'v{i}'), imputed.alias(f'v_geometry_imputed{i}')).with_columns(
+                pl.when(pl.col(f'v_geometry_imputed{i}')).then(pl.struct(pl.col(f'original_v{i}').alias('v')).struct.json_encode())
+                    .otherwise(pl.col(f'v{i}')).alias(f'_v_key{i}'))
         available = pl.all_horizontal([pl.col(f'v{i}').is_not_null() &
             pl.col(f'seq{i}').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$').fill_null(False)
             for i in range(2 if paired else 1)])
@@ -74,7 +78,7 @@ def main(a):
             frame = frame.with_columns(observations['reference_valid'].alias('_valid'))
             available &= pl.col('_valid')
         retained = frame.filter(available).drop('_valid', strict=False)
-        frame = retained.unique(maintain_order=True)
+        frame = retained.unique(subset=[c for i in range(2 if paired else 1) for c in (f'seq{i}', f'v{i}', f'_v_key{i}')], maintain_order=True)
         distances = reference_nearest_distances(frame, paired=paired, species=organism,
             threads=a.threads, ctrim=2 if a.junction_ends == 'trim32' else 3, matrix=a.matrix)
         finite = np.isfinite(distances)
@@ -82,6 +86,7 @@ def main(a):
         coverage, shape = reference_structure(distances, radius_factor=a.coverage_radius_factor, costs=costs)
         context = {'species': reference_species, 'locus': a.locus, **dict(zip(PMHC, key))}
         radii.append({**context, 'source_observations': observations.height,
+            'v_geometry_imputed_observations': int(retained.select(pl.any_horizontal(*[pl.col(f'v_geometry_imputed{i}') for i in range(2 if paired else 1)]).sum()).item()),
             'source_unit': 'linked_pair_observation' if paired else 'chain_record',
             'unavailable_observations': observations.height-retained.height,
             'reference_keys': frame.height, 'nearest_keys': int(finite.sum()),
@@ -108,7 +113,7 @@ def main(a):
     prefix.parent.mkdir(parents=True, exist_ok=True)
     context_schema = {c: pl.String for c in ['species', 'locus', *PMHC]}
     radius_schema = {**context_schema, 'source_observations': pl.UInt64, 'source_unit': pl.String,
-        **{c: pl.UInt64 for c in ['unavailable_observations', 'reference_keys', 'nearest_keys',
+        **{c: pl.UInt64 for c in ['v_geometry_imputed_observations', 'unavailable_observations', 'reference_keys', 'nearest_keys',
                                   'no_nonexact_neighbour_keys']},
         **{c: pl.Float64 for c in ['raw_radius', 'radius', 'radius_floor',
                                   'reference_coverage', 'knee_shape', 'knee_radius_ratio']},
@@ -121,7 +126,7 @@ def main(a):
         'radius_selection': 'reference-only nonexact nearest distances; strongest confirmed offline Kneedle S=1 bend, convex sorted curve, no smoothing',
         'structure_features': {'coverage_radius_factor': a.coverage_radius_factor,
             'matrix_scale': matrix_scale,
-            'coverage_denominator': 'all distinct full-junction/resolved-V reference keys',
+            'coverage_denominator': 'all distinct full-junction/resolved-V keys, with original unresolved V keys retained',
             'knee_shape': 'maximum normalized convex bend; zero for flat/short curves',
             'knee_radius_ratio': 'regularized epsilon/(epsilon+matrix-relative coverage radius); zero when no knee, with radius_status retained'},
         'degenerate_knee_guard': {'factor': a.knee_floor_factor, 'floor': floor,
@@ -129,6 +134,7 @@ def main(a):
             'raised_knees': sum(r['radius_status'] == 'knee_floored' for r in radii)},
         'reference_unit': 'distinct full junctions and resolved V alleles; same linked pair for paired mode',
         'geometry': f'uniform {a.matrix} CDR3 plus V loops; paired alpha+beta sum',
+        'missing_v_policy': 'fixed first complete co-locus template; original V keys retained with geometry imputation flags',
         'no_knee': 'no radius is selected; reference keys remain available',
         'probability_interpretation': 'none; selected radii carry no transferred calibration',
         'seconds': time.perf_counter()-start}

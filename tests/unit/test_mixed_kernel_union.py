@@ -80,7 +80,8 @@ def test_union_equals_separate_fresh_services_and_searches_three_populations(tmp
     nohit=out['selection'].filter(pl.col('source_query_id')=='nohit')
     assert nohit['kernel_score'].null_count()==2 and nohit['status'].unique().to_list()==['no_neighbours']
     partial=out['selection'].filter((pl.col('locus')=='paired') & (pl.col('clone_id')=='partial'))
-    assert partial.height==1 and not partial['available'][0]
+    assert partial.height==1 and partial['available'][0]
+    assert partial['v_geometry_imputed_alpha'][0]
     assert partial['has_support'][0]
 
 

@@ -64,7 +64,7 @@ def main(a, *, return_inputs=False):
     from ..cluster import overlap
     from ..db.cache import sha256
     from ..evalue.control import _organism
-    from ..match.geometry import load_v_loops, resolve_v_alleles
+    from ..match.geometry import load_v_loops, impute_reference_v_alleles
     from ..match.motifs import masked_motif_presence_counts
     from ..evalue.epitope_rules import _tokens
     from ..runner.annotation import _validate_output_paths
@@ -155,7 +155,8 @@ def main(a, *, return_inputs=False):
         del document_rows
         mark('epitope_motif_documents')
     model = load_v_loops(organism)
-    raw = raw.with_columns(resolve_v_alleles(raw['v'],model,locus=a.locus).alias('_allele'))
+    alleles, imputed = impute_reference_v_alleles(raw['v'], model, locus=a.locus)
+    raw = raw.with_columns(alleles.alias('_allele'), imputed)
     available = pl.col('reference_valid') & pl.col('_allele').is_not_null() & (pl.col('cdr3').str.len_chars() >= 8)
     groups = reference_groups(raw, a)
     # One batched native search for the whole reference population, then subset its
@@ -233,7 +234,8 @@ def main(a, *, return_inputs=False):
         full, _ = graph_profiles(junctions.height,local_edges,include_punctures=False)
         v_full, _ = composition(retained,junctions,include_punctures=False)
         context = dict(_mixture_group=group_id,species=species,locus=a.locus,**task,source_observations=source.height,
-                       unavailable_records=source.height-retained.height)
+                       unavailable_records=source.height-retained.height,
+                       v_geometry_imputed_records=int(source['v_geometry_imputed'].sum()))
         gene_context = {k: v for k, v in context.items() if k != '_mixture_group'}
         if spectratype_control is not None:
             histogram, counts = length_histogram(source.filter(pl.col('reference_valid')), locus=a.locus)

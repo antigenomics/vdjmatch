@@ -60,7 +60,10 @@ def test_evidence_only_exact_exports_without_distance_matrices(tmp_path, monkeyp
         assert Path(str(full)+'.paired-evidence.tsv').read_bytes() == Path(str(compact)+'.paired-evidence.tsv').read_bytes()
     status = pl.read_csv(str(compact)+'.queries.tsv', separator='\t')
     assert 'no_neighbours' in status['status']
-    assert any('invalid' in s or 'unknown' in s for s in status['status'])
+    if paired:
+        assert status.select(pl.any_horizontal('v_geometry_imputed_alpha','v_geometry_imputed_beta').any()).item()
+    else:
+        assert status['v_geometry_imputed'].any()
     if assayed:
         assert 'invalid_target' in status['status'] and 'no_reference' in status['status']
     if not assayed:
