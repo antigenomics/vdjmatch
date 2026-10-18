@@ -96,14 +96,14 @@ def iter_germline_information(usage, control, mapping):
             .otherwise(pl.lit('available')).alias('lower_bound_status'))
         renames = {'gene':'residue', 'junction_gene_keys':'reference_v_keys', 'total_junction_gene_keys':'reference_stratum_v_keys',
             'control_junction_gene_keys':'control_v_keys', 'total_control_junction_gene_keys':'control_stratum_v_keys',
-            'key_fraction':'reference_fraction', 'control_key_fraction':'control_fraction', 'gene_bits':'consensus_bits',
+            'key_fraction':'reference_fraction', 'control_key_fraction':'control_fraction', 'gene_bits':'consensus_bits', 'gene_bits_imputed':'consensus_bits_imputed',
             'control_status':'consensus_control_status'}
         points = points.rename(renames).with_columns(pl.col('consensus_control_status').replace(
             {'unresolved_reference_gene':'unresolved_reference_residue', 'gene_not_observed':'residue_not_observed'}))
         columns = [*_CONTEXT, *_AXES, 'length_scope', 'junction_length', 'residue', 'reference_records',
             'reference_v_keys', 'reference_stratum_v_keys', 'control_v_keys', 'control_stratum_v_keys',
             'reference_fraction', 'control_fraction', 'consensus_bits', 'control_possible_v_keys', 'control_possible_fraction',
-            'residue_bits_lower', 'length_bits', 'joint_bits', 'consensus_control_status', 'lower_bound_status']
+            'residue_bits_lower', 'length_bits', 'joint_bits', 'consensus_control_status', 'lower_bound_status', 'consensus_bits_imputed', 'length_bits_imputed']
         yield points.select(columns).sort(*_CONTEXT, 'length_scope', 'junction_length', 'residue', nulls_last=True), info.rename({
             'gene_information_bits':'consensus_information_bits', 'reference_keys':'reference_v_keys', 'control_keys':'control_v_keys',
             'unresolved_comparison_keys':'unavailable_comparison_v_keys', 'unavailable_length_keys':'unavailable_length_v_keys'})

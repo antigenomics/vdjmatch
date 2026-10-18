@@ -110,7 +110,7 @@ def _main(a, *, inputs, scratch):
                 events, _, _, control_info = load_control_model(a.control_model, a.control,
                     species=organism, locus=a.locus, modes=())
             else:
-                control_raw, control_info = _raw_control(a.control)
+                control_raw, control_info = _raw_control(a.control, retain_missing_genes=True)
                 events = control_events(control_raw, species=organism, locus=a.locus)
                 del control_raw
             if a.pgen_features:

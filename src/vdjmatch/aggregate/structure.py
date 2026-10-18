@@ -273,8 +273,9 @@ def gene_selection_information(comparison):
     gene information; ``exact_length`` decomposes joint information into length
     and target-weighted conditional gene information. Null restrictions remain
     valid grouping keys. Zero/missing control support or unresolved reference
-    genes retain their original mass and make affected information unavailable;
-    no pseudocount, renormalization, score selection or confidence is introduced.
+    genes retain their original mass. Missing pointwise contributions use neutral
+    zero-bit imputation, with per-row flags and original affected-key counts;
+    no source-count renormalization or confidence claim is introduced.
     """
     from .candidates import PMHC
     context = ['species', 'locus', *PMHC, 'segment']
@@ -311,20 +312,18 @@ def _selection_information(comparison, context):
         pl.when((pl.col('control_key_fraction') > 0) & pl.col('gene').is_not_null()).then(
             (pl.col('key_fraction') / pl.col('control_key_fraction')).log(2)).otherwise(None).alias('gene_bits'),
         (pl.col('key_fraction') * pl.col('reference_length_fraction')).alias('joint_reference_fraction'))
+    rows=rows.with_columns(*[(~pl.col(name).is_finite().fill_null(False)).alias(name+'_imputed') for name in ('length_bits','gene_bits')])
+    rows=rows.with_columns(*[pl.when(pl.col(name+'_imputed')).then(0.).otherwise(pl.col(name)).alias(name) for name in ('length_bits','gene_bits')])
     rows = rows.with_columns((pl.col('length_bits') + pl.col('gene_bits')).alias('joint_bits'))
     summary = rows.group_by(*context, 'length_scope').agg(
         pl.col('reference_records').sum(), pl.col('junction_gene_keys').sum().alias('reference_keys'),
         pl.col('control_total').first().alias('control_keys'),
-        pl.col('junction_gene_keys').filter(pl.col('gene_bits').is_null()).sum().alias('unresolved_comparison_keys'),
-        pl.col('junction_gene_keys').filter(pl.col('length_bits').is_null()).sum().alias('unavailable_length_keys'),
+        pl.col('junction_gene_keys').filter(pl.col('gene_bits_imputed')).sum().alias('unresolved_comparison_keys'),
+        pl.col('junction_gene_keys').filter(pl.col('length_bits_imputed')).sum().alias('unavailable_length_keys'),
         (pl.col('joint_reference_fraction') * pl.col('length_bits')).sum().alias('length_information_bits'),
         (pl.col('joint_reference_fraction') * pl.col('gene_bits')).sum().alias('gene_information_bits'),
         (pl.col('joint_reference_fraction') * pl.col('joint_bits')).sum().alias('joint_information_bits'))
     complete_gene = pl.col('unresolved_comparison_keys') == 0
     complete_length = pl.col('unavailable_length_keys') == 0
-    summary = summary.with_columns(
-        pl.when(complete_length).then(pl.col('length_information_bits')).otherwise(None).alias('length_information_bits'),
-        pl.when(complete_gene).then(pl.col('gene_information_bits')).otherwise(None).alias('gene_information_bits'),
-        pl.when(complete_gene & complete_length).then(pl.col('joint_information_bits')).otherwise(None).alias('joint_information_bits'),
-        pl.when(complete_gene & complete_length).then(pl.lit('available')).otherwise(pl.lit('incomplete_support')).alias('information_status'))
+    summary=summary.with_columns(pl.when(complete_gene & complete_length).then(pl.lit('available')).otherwise(pl.lit('available_neutral_imputation')).alias('information_status'))
     return rows.sort('_selection_row').drop('_selection_row'), summary.sort(*context, 'length_scope', nulls_last=True)
