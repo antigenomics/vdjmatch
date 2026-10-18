@@ -50,8 +50,6 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
     rg = gene_keys(whole).join(genes, on=v, validate='m:1', maintain_order='left')['_gene'].to_numpy()
     qg = gene_keys(queries).join(genes, on=v, how='left', validate='m:1', maintain_order='left')['_gene'].fill_null(G).to_numpy()
     required = 3*Q*T*8+2*(G+1)*T*8+256*1024**2
-    if required > 12*1024**3:
-        raise ValueError(f'rule numeric array budget exceeded: {required} bytes')
     def incidence(frame):
         return sparse.coo_matrix((np.ones(frame.height, dtype=np.int64),
             (frame['_ref'].to_numpy(), frame['_target'].to_numpy())), shape=(R, T)).tocsr()

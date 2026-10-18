@@ -27,9 +27,7 @@ def abundance_coverage(counts, *, nboot=200, seed=0, threads=1):
     estimate = float(asymptotic_diversity(x, q=0, se=False)['estimator'].item())
     working_bytes = (len(x) + total) * 32 + nboot * 41 * 16
     # Include retained draws, float coercion, Python lists, native copies and sample scratch.
-    batch_size = min(nboot, (256 * 1024**2 - working_bytes) // (96 * total))
-    if batch_size < 1:
-        raise ValueError('abundance bootstrap working memory exceeds 256 MiB')
+    batch_size = max(1, min(nboot, (256 * 1024**2 - working_bytes) // (96 * total)))
     curve = rarefaction_batch([x], q=0, nboot=nboot, seed=seed, threads=threads).drop('sample')
     depths = curve['m'].to_list()
     coverage_draws = np.empty((nboot, len(depths)))
@@ -292,10 +290,6 @@ def reference_graph(records, *, geometry, radius=None, species='human', locus='T
     del hits
     left = mapping.select(pl.col('_search').cast(pl.Int64).alias('_a'), 'group_id', pl.col('node').cast(pl.Int64).alias('a'))
     right = mapping.select(pl.col('_search').cast(pl.Int64).alias('_b'), 'group_id', pl.col('node').cast(pl.Int64).alias('b'))
-    multiplicity = max(1, int(mapping.group_by('_search').len()['len'].max() or 1))
-    local = max(1, int(mapping.group_by('_search', 'group_id').len()['len'].max() or 1))
-    if multiplicity*local*64 > 256*1024**2:
-        raise ValueError('one edit edge membership expansion exceeds 256 MiB budget')
     expanded_edges = global_edges.lazy().join(left.lazy(), on='_a', validate='m:m').join(
         right.lazy(), on=['_b', 'group_id'], validate='m:m').filter(pl.col('a') < pl.col('b')).select(
             'a', 'b', pl.lit(radius, dtype=pl.Int64).alias('distance_ceiling'), 'group_id')
