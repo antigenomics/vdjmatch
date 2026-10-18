@@ -2352,7 +2352,7 @@ counts and their summed read counts are compared with the mock distributions.
 
 Every mock has the source repertoire's record count, the same rounded-log2-Pgen
 histogram and the same read-count multiset within every bin. Bins follow the
-original vdjbet rule ``round(log2(Pgen + 2**-60))``, with ties to even, applied
+floored rule ``round(log2(Pgen + 2**-60))``, with ties to even, applied
 identically to real and control probabilities. The existing
 control-event slot sampler draws without replacement, then randomly assigns the
 source count roles. An absent or undersized bin fails explicitly; it cannot be
