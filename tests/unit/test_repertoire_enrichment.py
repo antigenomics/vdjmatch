@@ -27,12 +27,14 @@ def test_exact_bin_count_matching_and_both_endpoints():
         matched_enrichment(observations,control.filter(pl.col("query_id")!=4),hits,targets,replicates=200)
 
 
-@pytest.mark.parametrize("mismatches",[0,1])
-def test_repertoire_enrichment_cli_end_to_end(tmp_path,mismatches):
+@pytest.mark.parametrize("mismatches,missing_metadata",[(0,False),(1,False),(0,True)])
+def test_repertoire_enrichment_cli_end_to_end(tmp_path,mismatches,missing_metadata):
     import os,subprocess,sys,json
     from pathlib import Path
     sample=tmp_path/"sample.tsv"
     sample.write_text("junction_aa\tv_call\tj_call\tlocus\tduplicate_count\nCASSF\tTRBV2\tTRBJ1-1\tTRB\t3\nCASSF\tTRBV2\tTRBJ1-1\tTRB\t4\n")
+    if missing_metadata:
+        sample.write_text(sample.read_text().replace('CASSF\tTRBV2\tTRBJ1-1\tTRB\t4','CASSF\t\tTRBJ1-1\t\t4'))
     metadata=tmp_path/"samples.tsv";metadata.write_text("sample_id\tpath\nS0\tsample.tsv\n")
     control=tmp_path/"control.tsv";control.write_text("junction_aa\tv\tj\toccurrences\nCASSF\tTRBV2\tTRBJ1-1\t100\n")
     reference=tmp_path/"reference.tsv";reference.write_text("cdr3\tgene\tv\tj\tspecies\tepitope\tmhc_a\tmhc_b\tmhc_class\nCASSF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tLLWNGPMAV\tHLA-A*02:01\tB2M\tMHCI\n")
@@ -47,6 +49,8 @@ def test_repertoire_enrichment_cli_end_to_end(tmp_path,mismatches):
     assert manifest["source_frozen"] and manifest["inputs_frozen"] and manifest["native_search_batches"]==201
     assert manifest["automatic_detection_threshold"] is None
     assert manifest["pgen_mismatches"]==mismatches
+    ingestion=pl.read_csv(str(prefix)+".ingestion.tsv",separator="\t")
+    assert ingestion["selected_records"].item()==2 and ingestion["imputed_v_records"].item()==int(missing_metadata)
 
 
 def test_tcr_source_counts_are_exact(tmp_path):
@@ -75,10 +79,14 @@ def test_pgen_batch_respects_requested_mass(monkeypatch):
 
 def test_v_ambiguity_policy():
     from vdjmatch.cli.repertoire_enrichment import _single_v
-    assert _single_v(pl.DataFrame({"v":["TRBV2*01,TRBV2*02"]}),"v")["v"].item()=="TRBV2"
-    for value in ["TRBV2,TRBV3","TRBV2*01,TRBV3*01"]:
-        with pytest.raises(ValueError,match="unresolved multi-gene V"):
-            _single_v(pl.DataFrame({"v":[value]}),"v")
+    frame=pl.DataFrame({'v':['TRBV2*01,TRBV2*02','TRBV2,TRBV3',None,''], 'count':[1,2,3,4]})
+    result=_single_v(frame,'v')
+    assert result['v'].to_list()==['TRBV2']*4
+    assert result['original_v'].to_list()==frame['v'].to_list()
+    assert result['count'].to_list()==[1,2,3,4]
+    assert result['v_imputed'].to_list()==[False,True,True,True]
+    all_missing=_single_v(pl.DataFrame({'v':[None,'']}),'v')
+    assert all_missing['v'].str.starts_with('TRBV').all() and all_missing['v_imputed'].all()
 
 
 def test_streamed_mock_measurements_equal_precomputed_memberships():
@@ -102,3 +110,25 @@ def test_original_vdjbet_pgen_binning_includes_zero_and_extreme_tail():
     x=pl.DataFrame(dict(junction_aa=['CASSF','CATSF','CARTF','CASRF'],pgen=[0.,2.**-112,2.**-61,2.**-20]))
     result=_repertoire_strata(x)
     assert dict(zip(result['junction_aa'],result['pgen_bin']))==dict(CASSF=-60,CATSF=-60,CARTF=-59,CASRF=-20)
+
+
+def test_control_allele_pooling_preserves_complete_baseline_and_missing_keys():
+    from vdjmatch.cli.repertoire_enrichment import _single_v
+    from vdjmatch.evalue.mock_reference import control_events
+    frame=pl.DataFrame({'junction_aa':['CASSF']*2,'junction':['TGTGCCAGCAGCTTT']*2,
+        'v':['TRBV19*01','TRBV19*02'],'j':['TRBJ1-1']*2})
+    complete=control_events(_single_v(frame,'v'))
+    assert complete['event_weight'].sum()==1
+    missing=control_events(_single_v(frame.with_columns(pl.Series('v',['TRBV19',None])),'v'))
+    assert missing['event_weight'].sum()==2 and missing['v_imputed'].all()
+
+
+def test_mixed_control_population_selected_before_imputation():
+    from vdjmatch.cli.repertoire_enrichment import _single_v
+    from vdjmatch.evalue.mock_reference import control_events
+    raw=pl.DataFrame({'junction_aa':['CASSF']*3,'v':['TRAV1-1*01','TRBV19*01',None],
+        'j':['TRAJ1','TRBJ1-1','TRBJ1-1'],'occurrences':[10,2,3]})
+    pooled=_single_v(raw,'v',impute=False)
+    events=_single_v(control_events(pooled,locus='TRB'),'v',impute=False)
+    assert events['event_weight'].sum()==5 and events['v'].to_list()==['TRBV19']
+    assert events['v_imputed'].all()
