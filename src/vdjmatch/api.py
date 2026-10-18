@@ -270,7 +270,7 @@ class Annotator:
                         locus=gene, kinds=kinds)
                     control_cdf, control_totals, control_sizes = conditioned_counts(gq, labelled, sp,
                         match_v=match_v, match_j=match_j, threads=threads, exclude_exact=exclude_exact)
-                elif radii is not None:
+                elif (radii is not None or 0 < sp.max_total_edits <= 5) and sp.engine in {'auto','seqtm'} and sp.mode == 'all' and sp.gap_open > 0 and sp.gap_extend > 0:
                     import numpy as np
 
                     sequences = gq['cdr3'].unique(maintain_order=True).to_list()
@@ -283,6 +283,7 @@ class Annotator:
                         'edits': np.tile(np.arange(cumulative.shape[1], dtype=np.uint32), len(sequences)),
                         '_nc': cumulative.ravel(),
                     }).join(gq.select('query_id', 'cdr3'), on='cdr3', validate='m:m').drop('cdr3')
+                    control_totals = control_cdf.filter(pl.col('edits') == sp.max_total_edits).select('query_id', pl.col('_nc').alias('n_control'))
                 else:
                     results = _search_unique_junctions(ctrl, gq["cdr3"].to_list(), sp, threads)
                     rows = [
