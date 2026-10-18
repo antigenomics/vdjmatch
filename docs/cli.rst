@@ -589,8 +589,10 @@ hashes, counts, software versions and separate build/search/rescoring times.
 Graded neighbourhood annotation
 -------------------------------
 
-``--search-mode ball`` reports five fixed edit balls (radii 1–5). Unit-cost
-balls share one radius-5 native batch per locus and control. Weighted scoring
+``--search-mode ball`` reports fixed edit balls through ``--max-radius``
+(default 5, permitted values 1–5). ``--max-radius 3`` limits substitutions,
+insertions and deletions together to three per chain and reports radii 1–3.
+Unit-cost balls share one native batch at the declared maximum. Weighted scoring
 uses one complete query batch per radius: its best alignment can use more edits
 than the minimum-edit alignment, so a broad weighted hit cannot simply be
 filtered into smaller balls. Each ball permits at most two insertions/deletions
@@ -602,7 +604,7 @@ P-value. Ball output can be large and does not include fixed-mode CIGAR strings.
 .. code-block:: bash
 
    vdjmatch match queries.tsv --vdjdb reference.zip --search-mode ball \
-     --threads 4 --output-prefix results/balls
+     --max-radius 3 --threads 4 --output-prefix results/balls
    vdjmatch match cells.tsv --vdjdb reference.zip --paired --scope 3,1,1,3 \
      --threads 4 --output-prefix results/paired
 
@@ -630,7 +632,7 @@ control adapters and other geometries can retain materialized control hits.
 .. code-block:: bash
 
    vdjmatch match cells.tsv --vdjdb reference.zip --paired --paired-marginals \
-     --search-mode ball --matrix none --match-v --no-evalue --no-hit-table \
+     --search-mode ball --max-radius 3 --matrix none --match-v --no-evalue --no-hit-table \
      --output-prefix results/paired-v-unit
 
 Both fixed and graded single-chain modes accept ``--match-v`` and ``--match-j``

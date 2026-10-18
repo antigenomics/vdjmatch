@@ -33,6 +33,7 @@ def annotate_sample(
     unified_distance="edit",
     retain_hits=True,
     paired_marginals=False,
+    max_radius=5,
 ):
     """Return hit/candidate/call/count tables plus explicit ingestion diagnostics.
 
@@ -41,6 +42,8 @@ def annotate_sample(
     """
     if search_mode not in {"fixed", "ball", "unified"}:
         raise ValueError("search_mode must be fixed, ball or unified")
+    if search_mode != 'ball' and max_radius != 5:
+        raise ValueError('max_radius applies only to ball mode')
     if paired_marginals and (not paired or search_mode == 'unified'):
         raise ValueError('paired marginal scopes require paired fixed or ball mode')
     if search_mode == "ball" and paired and not paired_marginals:
@@ -58,8 +61,8 @@ def annotate_sample(
         axes,prepared = ann.paired_scope_candidates(queries,scope=params,
             ball=search_mode=='ball',matrix=matrix,match_v=match_v,match_j=match_j,
             control=control,calibrate=with_evalue,species=species,threads=threads,
-            progress=progress,exclude_exact=exclude_exact)
-        calls = _paired_scope_calls(queries,axes,species=species,radii=range(1,6) if search_mode=='ball' else [None])
+            progress=progress,exclude_exact=exclude_exact,max_radius=max_radius)
+        calls = _paired_scope_calls(queries,axes,species=species,radii=range(1,max_radius+1) if search_mode=='ball' else [None])
         for name,q in zip(('alpha','beta'),prepared):
             flags = q.select('query_id',
                 (pl.col('cdr3').is_not_null() & pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$')).fill_null(False).alias(name+'_query_valid'),
@@ -139,12 +142,13 @@ def annotate_sample(
             queries, threads=threads, matrix=matrix, control=control,
             calibrate=with_evalue, species=species, exclude_exact=exclude_exact,
             return_hits=retain_hits, match_v=match_v, match_j=match_j, progress=progress,
+            max_radius=max_radius,
         )
         hits, c = result if retain_hits else (index.empty_hits(queries.schema['query_id']), result)
         calls = pl.concat([
             _append_calls(queries, queries, c.filter(pl.col("radius") == radius),
                           index.genes, "vdjmatch_").with_columns(pl.lit(radius).alias("radius"))
-            for radius in range(1, 6)
+            for radius in range(1, max_radius+1)
         ], how="diagonal_relaxed")
         return {"hits": hits, "candidates": c, "calls": calls,
                 "summary": c.group_by("radius", *PMHC).agg(pl.col("query_id").n_unique().alias("n_queries")),

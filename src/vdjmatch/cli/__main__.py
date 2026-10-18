@@ -145,6 +145,9 @@ def _cmd_match(a: argparse.Namespace) -> int:
     annotate_sample = __getattr__("annotate_sample")
     p = _resolve_params(a)
     search_mode = getattr(a, "search_mode", "fixed")
+    max_radius = getattr(a, 'max_radius', 5)
+    if search_mode != 'ball' and max_radius != 5:
+        raise ValueError('--max-radius requires --search-mode ball')
     if search_mode == "unified":
         requested_matrix = getattr(a, "matrix", None)
         if requested_matrix is None and a.config:
@@ -273,6 +276,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
             unified_distance=(getattr(a, "unified_distance", None) or "edit"),
             retain_hits=not getattr(a, 'no_hit_table', False),
             paired_marginals=paired_marginals,
+            max_radius=max_radius,
         )
         for kind, frame in res.items():
             if kind == "hits" and getattr(a, "no_hit_table", False):
@@ -298,12 +302,12 @@ def _cmd_match(a: argparse.Namespace) -> int:
                 "short_scope": "5,2,2,5", "long_matrix": "blosum62", "long_cutoff_scales": 5,
                 "gap_open_scales": 2, "gap_extend_scales": 1, "gap_positions": [3, 4, -4, -3],
                 "routing": "none; selected component evaluated over all lengths", "experimental": True} if search_mode == "unified" else None,
-            "radii": list(range(1, 6)) if search_mode == "ball" else None,
+            "radii": list(range(1, max_radius+1)) if search_mode == "ball" else None,
             "ball_model": {
-                "max_radius": 5,
-                "max_insertions": 2,
-                "max_deletions": 2,
-                "weighted_search_batches_per_locus": 5 if matrix else 1,
+                "max_radius": max_radius,
+                "max_insertions": min(max_radius,2),
+                "max_deletions": min(max_radius,2),
+                "weighted_search_batches_per_locus": max_radius if matrix else 1,
                 "adaptive_radius_selection": False,
             } if search_mode == "ball" else None,
             "exclude_exact": getattr(a, "exclude_exact", False),
@@ -631,6 +635,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     m.add_argument('--paired-marginals',action='store_true',
                    help='opt-in paired scope/ball axes and linked-first marginal fallback; final selection is uncalibrated')
+    m.add_argument('--max-radius',type=int,choices=range(1,6),default=5,
+                   help='ball mode: maximum total substitutions/insertions/deletions per chain (default: 5)')
     m.add_argument("--control", action="append", metavar="LOCUS=TABLE",
                    help="fresh raw junction control per active locus (repeatable)")
     m.add_argument("--fresh-control", action="store_true",

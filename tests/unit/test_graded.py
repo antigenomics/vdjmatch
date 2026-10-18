@@ -7,6 +7,27 @@ from seqtree import Index
 from vdjmatch.api import Annotator
 
 
+@pytest.mark.parametrize('weighted', [False, True])
+def test_explicit_three_edit_cap_preserves_inner_balls(monkeypatch, weighted):
+    from vdjmatch.match.scoring import load_vdjam
+    from polars.testing import assert_frame_equal
+    ann=Annotator.from_frame(pl.DataFrame({'gene':['TRB']*3,
+        'cdr3':['CAAAAAAF','CAAAACCF','CACCCCCF'],'epitope':['A','A','B']}))
+    matrix=load_vdjam() if weighted else None
+    expected=ann.graded_candidates(['CAAAAAAF'],matrix=matrix).filter(pl.col('radius')<=3)
+    original=Index.search_batch_consume;calls=[]
+    def consume(self, queries, params, callback, **options):
+        calls.append(params.max_total_edits)
+        return original(self,queries,params,callback,**options)
+    monkeypatch.setattr(Index,'search_batch_consume',consume)
+    actual=ann.graded_candidates(['CAAAAAAF'],matrix=matrix,max_radius=3)
+    assert_frame_equal(actual,expected,check_exact=True)
+    assert calls==([1,2,3] if weighted else [3])
+    for invalid in [0,6,True,3.5]:
+        with pytest.raises(ValueError,match='max_radius'):
+            ann.graded_candidates(['CAAAAAAF'],max_radius=invalid)
+
+
 @pytest.mark.parametrize("weighted", [False, True])
 @pytest.mark.parametrize("match_v,match_j,expected", [(True, False, 2), (False, True, 2), (True, True, 1)])
 def test_graded_gene_predicates_equal_fixed_and_reject_sequence_only_calibration(weighted, match_v, match_j, expected):

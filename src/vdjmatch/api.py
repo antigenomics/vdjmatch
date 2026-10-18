@@ -359,8 +359,9 @@ class Annotator:
     def graded_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
                           threads=1, control=None, calibrate=False, species=None,
                           matrix=None, sequence_convention=None, exclude_exact=False,
-                          return_hits=False, match_v=False, match_j=False, progress=False):
-        """Five fixed edit balls with radius-constrained weighted rankings.
+                          return_hits=False, match_v=False, match_j=False, progress=False,
+                          max_radius=5):
+        """Fixed edit balls through max_radius, with constrained weighted rankings.
 
         Unit-cost balls share one minimum-edit search. Weighted search may choose
         a cheaper alignment with more edits, so each weighted radius is searched
@@ -370,19 +371,21 @@ class Annotator:
         Sequence-only controls cannot calibrate these predicates and are rejected.
         Missing genes use flagged, label-independent modal imputation.
         """
+        if isinstance(max_radius, bool) or not isinstance(max_radius, int) or not 1 <= max_radius <= 5:
+            raise ValueError('max_radius must be an integer from 1 through 5')
         _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
         gap = DEFAULT_SCALE if matrix is not None else 1
         if matrix is None:
-            sp = search_params("5,2,2,5", gap_open=gap, gap_extend=gap)
+            sp = search_params(f"{max_radius},{min(max_radius,2)},{min(max_radius,2)},{max_radius}", gap_open=gap, gap_extend=gap)
             h, c = self._evidence(q, sp, threads=threads, control=control,
                                   calibrate=calibrate, species=species,
                                   score_scale=1.0, exclude_exact=exclude_exact,
-                                  radii=range(1, 6), match_v=match_v, match_j=match_j, retain_hits=return_hits, progress=progress)
+                                  radii=range(1, max_radius+1), match_v=match_v, match_j=match_j, retain_hits=return_hits, progress=progress)
             h = h.with_columns((pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") +
                                 pl.col("n_dels")).alias("minimum_radius"))
         else:
             hs, cs = [], []
-            for radius in range(1, 6):
+            for radius in range(1, max_radius+1):
                 sp = search_params(f"{radius},{min(radius,2)},{min(radius,2)},{radius}",
                                    matrix=matrix, gap_open=gap, gap_extend=gap)
                 rh, rc = self._evidence(q, sp, threads=threads, control=control,
@@ -948,7 +951,8 @@ class Annotator:
                                 scope=DEFAULT_SCOPE, ball=False, matrix=None,
                                 va='va',vb='vb',ja='ja',jb='jb',
                                 match_v=False, match_j=False, control=None, calibrate=False,
-                                species=None, threads=1, progress=False, exclude_exact=False):
+                                species=None, threads=1, progress=False, exclude_exact=False,
+                                max_radius=5):
         """Separate linked and full-reference marginal scope evidence.
 
         Each chain uses the declared edit budget; paired radius is the bottleneck
@@ -958,6 +962,10 @@ class Annotator:
         Empty/invalid partners retain valid marginal evidence. No detailed hit table
         is retained. Native coordinated consumption with ``skip_empty`` is required.
         """
+        if isinstance(max_radius, bool) or not isinstance(max_radius, int) or not 1 <= max_radius <= 5:
+            raise ValueError('max_radius must be an integer from 1 through 5')
+        if not ball and max_radius != 5:
+            raise ValueError('max_radius applies only to paired ball mode')
         if any(not callable(getattr(self._index.index_for(chain),'search_paired_batch_consume',None))
                for chain in self.loci if chain in {'TRA','TRB'}):
             raise RuntimeError('paired scope axes require seqtree Index.search_paired_batch_consume with skip_empty; install the compatible native build')
@@ -982,11 +990,11 @@ class Annotator:
             if match_v or match_j else q for q in (qa,qb)]
         parts = {'linked':[],'TRA':[],'TRB':[]}
         gap = DEFAULT_SCALE if matrix is not None else 1
-        radii = range(1,6) if ball and matrix is not None else [None]
+        radii = range(1,max_radius+1) if ball and matrix is not None else [None]
         for radius in radii:
             params = search_params(f'{radius},{min(radius,2)},{min(radius,2)},{radius}',
                 matrix=matrix,gap_open=gap,gap_extend=gap) if radius is not None else (
-                search_params('5,2,2,5',gap_open=1,gap_extend=1) if ball else
+                search_params(f'{max_radius},{min(max_radius,2)},{min(max_radius,2)},{max_radius}',gap_open=1,gap_extend=1) if ball else
                 (search_params(scope,matrix=matrix or '',gap_open=gap,gap_extend=gap) if isinstance(scope,str) else scope))
             callbacks=[];marginals=[];references=[]
             for chain,q in zip(('TRA','TRB'),queries):
@@ -995,7 +1003,7 @@ class Annotator:
                     callback,rows,reference = self._evidence(valid_q,params,threads=threads,
                         match_v=match_v,match_j=match_j,control=control,calibrate=calibrate,
                         species=species,score_scale=400. if matrix is not None else 1.,
-                        exclude_exact=exclude_exact,radii=range(1,6) if ball and matrix is None else None,
+                        exclude_exact=exclude_exact,radii=range(1,max_radius+1) if ball and matrix is None else None,
                         retain_hits=False,_prepare_consumer=True)
                 else:
                     callback,rows,reference = lambda h:None,[],self._index.records_for(chain)
@@ -1004,7 +1012,7 @@ class Annotator:
                 threads=threads,progress=progress,exclude_exact=exclude_exact,
                 score_scale=400. if matrix is not None else 1.,_axis_consumers=callbacks,
                 _prepared_queries=queries,_reference_views=references,
-                _linked_radii=range(1,6) if ball and matrix is None else None,
+                _linked_radii=range(1,max_radius+1) if ball and matrix is None else None,
                 _match_v=match_v,_match_j=match_j)
             frames = [linked,*[pl.concat(rows,how='diagonal_relaxed') if rows else
                 pl.DataFrame(schema=candidate_schema(qa.schema['query_id'])) for rows in marginals]]

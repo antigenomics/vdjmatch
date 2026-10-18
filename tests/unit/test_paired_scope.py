@@ -29,6 +29,21 @@ def queries():
         'ja':['TRAJ1']*6,'jb':['TRBJ1']*6})
 
 
+@pytest.mark.parametrize('weighted',[False,True])
+def test_paired_three_edit_cap_preserves_inner_balls(monkeypatch,weighted):
+    ann=Annotator.from_frame(reference());matrix=load_vdjam() if weighted else None
+    expected,_=ann.paired_scope_candidates(queries(),ball=True,matrix=matrix)
+    original=Index.search_paired_batch_consume;calls=[]
+    def consume(self,other,qa,qb,params,callback,**options):
+        calls.append(params.max_total_edits)
+        return original(self,other,qa,qb,params,callback,**options)
+    monkeypatch.setattr(Index,'search_paired_batch_consume',consume)
+    actual,_=ann.paired_scope_candidates(queries(),ball=True,matrix=matrix,max_radius=3)
+    for axis in actual:
+        assert_frame_equal(actual[axis],expected[axis].filter(pl.col('radius')<=3),check_exact=True)
+    assert calls==([1,2,3] if weighted else [3])
+
+
 def controls(labelled):
     out={}
     for chain,sequences in [('TRA',['CAVVF','CAVAF','CAVTF']),('TRB',['CASSF','CASRF','CASTF'])]:
@@ -125,7 +140,7 @@ def test_shipping_cli_exports_opt_in_axes_and_explicit_uncalibrated_manifest(tmp
     queries().select('query_id',pl.col('cdr3a').alias('junction_aa_alpha'),pl.col('cdr3b').alias('junction_aa_beta'),
         pl.col('va').alias('v_alpha'),pl.col('vb').alias('v_beta')).write_csv(source,separator='\t')
     assert main(['match',str(source),'--vdjdb',str(ref),'--fresh-reference','--paired','--paired-marginals',
-        '--search-mode','ball','--matrix','none','--match-v','--no-evalue','--no-hit-table',
+        '--search-mode','ball','--max-radius','3','--matrix','none','--match-v','--no-evalue','--no-hit-table',
         '--output-prefix',str(prefix)])==0
     for axis in ('candidates','TRA.candidates','TRB.candidates','calls'):
         assert (tmp_path/f'out.cells.{axis}.txt').is_file()
@@ -133,7 +148,8 @@ def test_shipping_cli_exports_opt_in_axes_and_explicit_uncalibrated_manifest(tmp
     assert manifest['paired_marginals'] and manifest['paired_calibration_model'] is None
     assert manifest['paired_scope_model']['selection_calibration'].startswith('unavailable')
     calls=pl.read_csv(tmp_path/'out.cells.calls.txt',separator='\t')
-    assert set(calls['radius'])==set(range(1,6)) and calls['E'].null_count()==calls.height
+    assert manifest['radii']==[1,2,3] and manifest['ball_model']['max_radius']==3
+    assert set(calls['radius'])=={1,2,3} and calls['E'].null_count()==calls.height
 
 
 def test_missing_reference_axis_does_not_veto_supported_unlinked_marginal():
