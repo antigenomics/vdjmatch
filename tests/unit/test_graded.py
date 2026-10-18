@@ -43,7 +43,7 @@ def test_graded_balls_equal_five_fixed_searches(monkeypatch):
     control = Index.build(["CAAAAAAF", "CAAAACCF", "CYYYYYYF"])
     expected = [ann.candidates(["CAAAAAAF"], scope=f"{r},{min(r,2)},{min(r,2)},{r}",
                                control=control, soft_v=False) for r in range(1, 6)]
-    # The native batch is invoked once for target and once for control.
+    # One target hit batch and one bounded control histogram batch.
     original = Index.search_batch
     calls = []
     def batch(self, queries, params, threads=0):
@@ -51,7 +51,7 @@ def test_graded_balls_equal_five_fixed_searches(monkeypatch):
         return original(self, queries, params, threads)
     monkeypatch.setattr(Index, "search_batch", batch)
     got = ann.graded_candidates(["CAAAAAAF"], control=control)
-    assert calls == [(1, 5), (1, 5)]
+    assert calls == [(1, 5)]
     for r, fixed in enumerate(expected, 1):
         row = got.filter(pl.col("radius") == r)
         assert row["n_target"].to_list() == fixed["n_target"].to_list()
@@ -67,3 +67,21 @@ def test_weighted_radius_keeps_substitution_hidden_by_cheaper_wide_gap():
     assert one.height == 1 and one["n_subs"][0] == 1
     assert c.filter(pl.col("radius") == 1)["n_target"][0] == 1
     assert hits.filter(pl.col("radius") == 5)["n_ins"][0] == 1
+
+
+@pytest.mark.parametrize("exclude_exact", [False, True])
+def test_graded_histogram_preserves_all_fixed_control_fields(exclude_exact):
+    from polars.testing import assert_frame_equal
+    from vdjmatch.match.scope import search_params
+    ref = pl.DataFrame({'gene': ['TRB']*4, 'cdr3': ['CASSF','CASRF','CASTF','CARRF'],
+                        'epitope': ['A','A','B','B']})
+    ann = Annotator.from_frame(ref)
+    # Repeated model memberships and repeated query junctions retain their roles.
+    control = Index.build(['CASSF','CASSF','CASRF','CYYYYF'])
+    query = pl.DataFrame({'query_id':['a','b','c'], 'cdr3':['CASSF','CASSF','CARRF']})
+    graded = ann.graded_candidates(query, control=control, exclude_exact=exclude_exact)
+    for radius in range(1,6):
+        fixed = ann.candidates(query, scope=search_params(f'{radius},{min(radius,2)},{min(radius,2)},{radius}', gap_open=1, gap_extend=1),
+            control=control, exclude_exact=exclude_exact, score_scale=1.0)
+        got = graded.filter(pl.col('radius')==radius).drop('radius')
+        assert_frame_equal(got.sort('query_id','epitope'),fixed.sort('query_id','epitope'))
