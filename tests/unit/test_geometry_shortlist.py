@@ -45,11 +45,11 @@ def test_cli_audit_preserves_exhaustive_output_and_unavailable_rows(tmp_path):
     for suffix in ['queries','candidates']:
         assert pl.read_csv(tmp_path/f'False.{suffix}.tsv',separator='\t').equals(pl.read_csv(tmp_path/f'True.{suffix}.tsv',separator='\t'))
     diagnostic=pl.read_csv(tmp_path/'True.shortlist.tsv',separator='\t');assert diagnostic.height==3
-    assert diagnostic['cdr3_shortlist_keys'].to_list()==[1,None,1]
-    assert diagnostic['status'].to_list()==['matched','invalid_query_or_gene','matched']
+    assert diagnostic['cdr3_shortlist_keys'].to_list()==[1,1,1]
+    assert diagnostic['status'].to_list()==['matched']*3
     manifest=json.loads((tmp_path/'True.manifest.json').read_text())
-    assert manifest['shortlist_audit']['stages'][0]['query_appearances']==2
-    assert manifest['shortlist_audit']['stages'][0]['unique_computations']==1
+    assert manifest['shortlist_audit']['stages'][0]['query_appearances']==3
+    assert manifest['shortlist_audit']['stages'][0]['unique_computations']==2
 
 def test_sparse_budget_fails_before_retrieval_and_parallel_results_equal(monkeypatch):
     import pytest

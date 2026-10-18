@@ -87,6 +87,7 @@ def test_reference_coverage_cli_uses_one_batch_for_real_and_control_graphs(tmp_p
         'j_call': ['TRBJ1-1'] * 3, 'occurrences': [10] * 3}).write_csv(control, separator='\t')
     calls = []
     def pgen(ref, pool, **options):
+        assert options['mismatches'] == 1
         calls.append('pgen')
         return pool.select('junction_aa').with_columns(pl.lit(.25).alias('pgen'))
     monkeypatch.setattr(mocks, 'compute_pgen', pgen)
@@ -137,6 +138,7 @@ def test_combined_diagnostics_loads_control_and_pgen_once(tmp_path, monkeypatch,
         'occurrences': [10]*3}).write_csv(control, separator='\t')
     calls = []
     def pgen(ref, pool, **options):
+        assert options['mismatches'] == 1
         calls.append('pgen')
         return pool.select('junction_aa').with_columns(pl.lit(.25).alias('pgen'))
     monkeypatch.setattr(mocks, 'compute_pgen', pgen)

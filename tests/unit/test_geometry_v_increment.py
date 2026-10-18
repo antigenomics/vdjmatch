@@ -48,8 +48,10 @@ def test_cli_v_increment_exports_same_population_and_explicit_geometry(tmp_path)
         assert manifest['parameters']['v_loop_weight']==weight
         assert manifest['background_enrichment']['v_loop_weight']==weight
         assert ('CDR3-only' in manifest['distance'])==(weight==0)
-        assert pl.read_csv(str(prefix)+'.queries.tsv',separator='\t').height==2
+        queries=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
+        assert queries.height==2 and queries['available'].all()
+        assert queries['v_geometry_imputed'].to_list()==[False,True]
         frames.append(pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t'))
-    assert frames[0]['n_reference'].to_list()==[1] and frames[1]['n_reference'].to_list()==[0]
+    assert frames[0]['n_reference'].to_list()==[1,1] and frames[1]['n_reference'].to_list()==[0,0]
     assert frames[0]['reference_population'].to_list()==frames[1]['reference_population'].to_list()
     assert frames[0]['control_population'].to_list()==frames[1]['control_population'].to_list()

@@ -170,7 +170,7 @@ def main(a, *, return_inputs=False):
             pgen, feature_identity = load_pgen_features(a.pgen_features, reference, events,
                 species=organism, locus=a.locus)
         else:
-            pgen = compute_pgen(reference, events, species=organism, locus=a.locus, threads=a.threads)
+            pgen = compute_pgen(reference, events, species=organism, locus=a.locus, threads=a.threads, mismatches=1)
         prepared_control = _prepare_mock_control(reference, events,
             pgen=pgen, species=organism, locus=a.locus, threads=a.threads)
     mark('reference_and_pgen')

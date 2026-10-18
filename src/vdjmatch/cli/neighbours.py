@@ -570,8 +570,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
                 background_provenance['population_size']=controls.height
         if a.background!='vdjdb-other':
             # One native control batch, shared transiently across declared targets.
-            parts=[part.select('cdr3','_allele') for _,part,_ in groups if part.height]
-            usable=pl.concat(parts).unique(maintain_order=True) if parts else q.select('cdr3','_allele').head(0)
+            parts=[part.select(query_keys) for _,part,_ in groups if part.height]
+            usable=pl.concat(parts).unique(maintain_order=True) if parts else q.select(query_keys).head(0)
             m,w,mc=counts(usable,controls)
             shared=usable.with_columns(pl.Series('_m',m,dtype=pl.UInt64),pl.Series('control_weight',w,dtype=pl.Float64),
                                        pl.Series('_M',populations(usable,controls),dtype=pl.UInt64))

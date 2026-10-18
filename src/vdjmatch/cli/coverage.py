@@ -118,7 +118,7 @@ def _main(a, *, inputs, scratch):
                     reference.rename({'cdr3': 'junction_aa'}), events, species=organism, locus=a.locus)
             else:
                 pgen = compute_pgen(reference.rename({'cdr3': 'junction_aa'}), events,
-                    species=organism, locus=a.locus, threads=a.threads)
+                    species=organism, locus=a.locus, threads=a.threads, mismatches=1)
             prepared_control = _prepare_mock_control(reference.rename({'cdr3': 'junction_aa'}), events,
                 pgen=pgen, species=organism, locus=a.locus, threads=a.threads)
         else:
