@@ -290,3 +290,43 @@ def test_kernel_only_exports_current_six_scores_without_rule_or_control_rebuild(
     manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
     assert manifest['source_frozen'] and manifest['reference_frozen'] and manifest['kernel_only']
     assert manifest['backend']['native_batches']==1 and manifest['expected_continuous_rows']==48
+
+
+@pytest.mark.parametrize('kernel',[False,True])
+def test_genuine_paired_reference_exports_use_max_chain_eligibility(tmp_path,kernel):
+    rows=[]
+    for complex_id,epitope,alpha,beta,vbeta in [(1,'A','CAVRLGQAGKSTF','CASSLGQAYEQYF','TRBV19'),(2,'A','CAVRLGQGGKSTF','CASSLGRAYEQYF',None),(3,'B','CAVRLGQSGKSTF','CASSWGRAYEQYF','TRBV19')]:
+        for locus,seq,v,j in [('TRA',alpha,'TRAV1-1','TRAJ1'),('TRB',beta,vbeta,'TRBJ2-7')]:
+            rows.append(dict(complex_id=complex_id,epitope=epitope,gene=locus,cdr3=seq,v=v,j=j,species='HomoSapiens',mhc_a='HLA-A*02:01',mhc_b='B2M',mhc_class='MHCI'))
+    rows.extend([dict(rows[0],complex_id=0)]*30)
+    rows.extend([dict(rows[0],complex_id=0,epitope='C')]*30)
+    source=tmp_path/'raw-paired.tsv';prefix=tmp_path/'paired';pl.DataFrame(rows).write_csv(source,separator='\t')
+    options=['--locus','paired']+(['--kernel-only'] if kernel else [])
+    assert _run(source,prefix,*options)==0
+    q=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t');support=pl.read_csv(str(prefix)+'.target-support.tsv',separator='\t')
+    assert q.height==2 and q['model_available'].sum()==1
+    assert support.filter(pl.col('classification_eligible'))['epitope'].to_list()==['A','C']
+    assert support.filter(pl.col('epitope')=='A')['paired_source_records'].item()==2
+    assert support.filter(pl.col('epitope')=='A')['valid_source_records'].item()==32
+    data=pl.read_parquet(str(prefix)+'.continuous/*.parquet')
+    assert support.filter(pl.col('epitope')=='C')['paired_source_records'].item()==0
+    assert data.height==4*(6 if kernel else 15) and set(data['locus'])=={'PAIRED'}
+    assert data.filter(pl.col('epitope')=='C')['score'].null_count()==2*(6 if kernel else 15)
+    assert data.filter(pl.col('query_id')==q.filter(~pl.col('model_available'))['query_id'].item())['score'].null_count()==2*(6 if kernel else 15)
+    manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
+    assert manifest['source_frozen'] and manifest['reference_frozen'] and manifest['paired']
+    assert manifest['paired_eligibility']=='maximum qualifying chain source-record count before exact-hit filtering'
+    if kernel:
+        from vdjmatch.cli.neighbours import register
+        chains=[]
+        for side,locus in [('alpha','TRA'),('beta','TRB')]:
+            chains.append(q.select(pl.col('query_id').cast(pl.String).alias('clone_id'),pl.lit(locus).alias('locus'),pl.col(side).alias('junction_aa'),pl.col('v_'+side).alias('v_call'),pl.col('j_'+side).alias('j_call')))
+        raw=pl.concat(chains).sort('clone_id','locus').with_row_index('sequence_id');query_path=tmp_path/'paired-queries.tsv';raw.write_csv(query_path,separator='\t')
+        parser=argparse.ArgumentParser();register(parser.add_subparsers());native_prefix=tmp_path/'native-paired'
+        args=parser.parse_args(['neighbours',str(query_path),'--vdjdb',str(source),'--locus','paired','--species','human','--reference-population','curated-benchmark','--all-targets','--exclude-exact','--background','vdjdb-other','--neighbour-weighting','kernel','--distance-matrix','blosum62','--junction-ends','trim3','--stem-depth','4','--evidence-only','--stream-evidence','--output-prefix',str(native_prefix)])
+        assert args.func(args)==0
+        native=pl.read_csv(str(native_prefix)+'.enrichment.tsv',separator='\t').filter(pl.col('epitope')=='A')
+        for scorer in data['scorer'].unique():
+            observed=data.filter((pl.col('scorer')==scorer)&(pl.col('epitope')=='A')&pl.col('score').is_not_null()).sort('query_id','epitope')
+            expected=native.filter(pl.col(scorer).is_not_null()).select('query_id','epitope',pl.col(scorer).alias('score')).sort('query_id','epitope')
+            assert observed.select('query_id','epitope','score').equals(expected)

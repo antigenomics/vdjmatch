@@ -2164,7 +2164,8 @@ vdjmatch reference-rule-scores
 ------------------------------
 
 Rebuild all 15 retained fixed-rule scores from raw VDJdb for one species and
-chain, pooling MHC by epitope. Eligibility uses valid source records before
+chain (or genuine paired receptors with ``--locus paired``), pooling MHC by
+epitope. Eligibility uses valid source records before
 exact-hit filtering; sparse labels remain search candidates. Models remain
 fixed, and missing model support retains explicit query dispositions.
 
@@ -2190,8 +2191,14 @@ These are continuous relative evidence scores; they have no transferred
 P-value or E-value calibration. All six exports exactly match the detailed
 ``neighbours`` CLI under the same MHC-pooled population.
 
-This command covers single chains; it does not establish paired
-fusion, final-call calibration or the complete manuscript resource gate.
+In paired mode, eligibility uses the maximum valid chain source-record count;
+``paired_source_records`` reports genuine complete complex observations
+separately. Eligible labels without linked references remain explicit null
+coordinates. Pair query identities retain both junctions and supplied V/J calls.
+The fixed-rule and current-kernel exports score the complete-pair component;
+native marginal evidence and label fusion remain separate. Historical
+``--components`` supports single chains only. These exports do not establish
+final-call calibration or the complete manuscript resource gate.
 
 vdjmatch score-confusion
 ------------------------

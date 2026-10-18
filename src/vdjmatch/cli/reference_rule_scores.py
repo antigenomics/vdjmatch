@@ -6,7 +6,7 @@ def register(subparsers):
     parser = subparsers.add_parser('reference-rule-scores', help=__doc__)
     parser.add_argument('--vdjdb', required=True)
     parser.add_argument('--species', choices=['human', 'mouse'], default='human')
-    parser.add_argument('--locus', choices=['TRA', 'TRB'], required=True)
+    parser.add_argument('--locus', choices=['TRA', 'TRB', 'paired'], required=True)
     parser.add_argument('--threads', type=int, default=1)
     parser.add_argument('--min-records', type=int, default=30)
     parser.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
@@ -37,6 +37,9 @@ def main(a):
     started = time.monotonic()
     if a.threads < 1 or a.min_records < 1:
         raise ValueError('positive threads and min-records required')
+    paired=a.locus=='paired'
+    if paired and a.components:
+        raise ValueError('historical --components supports single chains only')
     if a.kernel_only and a.components:
         raise ValueError('--kernel-only and historical --components are separate calculations')
     if a.components and not a.germline_background:
@@ -74,36 +77,37 @@ def main(a):
     valid = pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
     if a.reference_population == 'curated-benchmark':
         valid &= pl.col('reference_valid').fill_null(False)
-    selected = pooled.filter((pl.col('gene') == a.locus) & valid)
-    if selected.is_empty():
-        raise ValueError('no valid reference records for the requested species/locus')
-    support = selected.group_by('epitope').len(name='valid_source_records').sort('epitope').with_columns(
-        (pl.col('valid_source_records') >= a.min_records).alias('classification_eligible'))
-    eligible = support.filter(pl.col('classification_eligible')).select('epitope')
-    if eligible.is_empty():
-        raise ValueError('no reference epitopes meet min-records')
-    keys = ['cdr3', 'v', 'j']
-    queries = selected.join(eligible, on='epitope', how='semi').select(keys).unique().sort(
-        keys, nulls_last=True).with_row_index('query_id')
-    context = precompute_v_loop_distances(species=organism)
+    if paired:
+        from ..evalue.paired import build_paired_ref
+        chains=pooled.filter(valid)
+        selected=build_paired_ref(chains.with_columns(pl.lit(True).alias('reference_valid')))
+        keys=['alpha','beta','v_alpha','v_beta','j_alpha','j_beta']
+        support=chains.group_by('epitope','gene').len().group_by('epitope').agg(pl.col('len').max().alias('valid_source_records')).join(selected.group_by('epitope').len(name='paired_source_records'),on='epitope',how='left',validate='1:1').with_columns(pl.col('paired_source_records').fill_null(0)).sort('epitope')
+        axes=[('alpha','v_alpha','TRA'),('beta','v_beta','TRB')]
+    else:
+        selected=pooled.filter((pl.col('gene')==a.locus)&valid)
+        keys=['cdr3','v','j']
+        support=selected.group_by('epitope').len(name='valid_source_records').sort('epitope')
+        axes=[('cdr3','v',a.locus)]
+    if selected.is_empty():raise ValueError('no valid reference records for the requested species/locus')
+    support=support.with_columns((pl.col('valid_source_records')>=a.min_records).alias('classification_eligible'))
+    eligible=support.filter(pl.col('classification_eligible')).select('epitope')
+    if eligible.is_empty():raise ValueError('no reference epitopes meet min-records')
+    queries=selected.join(eligible,on='epitope',how='semi').select(keys).unique().sort(keys,nulls_last=True).with_row_index('query_id')
+    context=precompute_v_loop_distances(species=organism)
+    resolved=['resolved_v'+str(i) for i in range(len(axes))] if paired else ['resolved_v']
     def resolve(frame):
-        return frame.with_columns(resolve_v_alleles(frame['v'], context['model'], locus=a.locus).alias('resolved_v')).with_columns(
-            (pl.col('resolved_v').is_not_null() & (pl.col('cdr3').str.len_chars() >= 8)).alias('model_available'))
-    reference = resolve(selected)
-    queries = resolve(queries)
-    modeled_reference = reference.filter(pl.col('model_available')).select(
-        pl.col('cdr3').alias('seq0'), pl.col('resolved_v').alias('v0'), 'epitope')
-    modeled_queries = queries.filter(pl.col('model_available')).select(
-        'query_id', pl.col('cdr3').alias('seq0'), pl.col('resolved_v').alias('v0'))
-    modeled_counts = reference.filter(pl.col('model_available')).group_by('epitope').agg(
-        pl.len().alias('modeled_source_records'), pl.struct('cdr3', 'resolved_v').n_unique().alias('modeled_search_keys'))
-    support = support.join(modeled_counts, on='epitope', how='left', validate='1:1').with_columns(
-        pl.col('modeled_source_records', 'modeled_search_keys').fill_null(0)).with_columns(
-        (pl.col('modeled_search_keys') > 0).alias('model_available'))
+        return frame.with_columns(*[resolve_v_alleles(frame[v],context['model'],locus=locus).alias(resolved[i]) for i,(_,v,locus) in enumerate(axes)]).with_columns(pl.all_horizontal(*[(pl.col(resolved[i]).is_not_null()&(pl.col(seq).str.len_chars()>=8)) for i,(seq,_,_) in enumerate(axes)]).alias('model_available'))
+    reference=resolve(selected);queries=resolve(queries)
+    feature_columns=[column for i,(seq,_,_) in enumerate(axes) for column in [pl.col(seq).alias('seq'+str(i)),pl.col(resolved[i]).alias('v'+str(i))]]
+    modeled_reference=reference.filter(pl.col('model_available')).select(*feature_columns,'epitope')
+    modeled_queries=queries.filter(pl.col('model_available')).select('query_id',*feature_columns)
+    modeled_counts=reference.filter(pl.col('model_available')).group_by('epitope').agg(pl.len().alias('modeled_source_records'),pl.struct([*[x[0] for x in axes],*resolved]).n_unique().alias('modeled_search_keys'))
+    support=support.join(modeled_counts,on='epitope',how='left',validate='1:1').with_columns(pl.col('modeled_source_records','modeled_search_keys').fill_null(0)).with_columns((pl.col('modeled_search_keys')>0).alias('model_available'))
     truth = selected.join(queries.select('query_id', *keys), on=keys, how='inner', nulls_equal=True, validate='m:1').select(
         'query_id', 'epitope', 'mhc_a', 'mhc_b', 'mhc_class').unique().sort('query_id', 'epitope')
     def metadata(frame):
-        return frame.with_columns(pl.lit(species).alias('species'), pl.lit(a.locus).alias('locus'))
+        return frame.with_columns(pl.lit(species).alias('species'), pl.lit('PAIRED' if paired else a.locus).alias('locus'))
     scorers = ['rule_v', 'rule_spatial', 'rule_rank', *[
         'rule_'+prefix+mode for mode in MOTIFS for prefix in ('', 'mixed_', 'enriched_')]]
     if a.kernel_only:
@@ -148,7 +152,7 @@ def main(a):
         stream_backend=stream_reference_kernels
     else:stream_backend=stream_reference_rules
     backend = (stream_backend(modeled_queries, modeled_reference, species=organism,
-        threads=a.threads, consume=consume) if modeled_reference.height and modeled_queries.height else {})
+        threads=a.threads, paired=paired, consume=consume) if modeled_reference.height and modeled_queries.height else {})
     # Fill only coordinates the backend cannot emit. Existing continuous parts
     # are final deliverables and are never reopened to calculate predictions.
     available_targets = support.filter(pl.col('model_available')).select('epitope')
@@ -226,8 +230,9 @@ def main(a):
         raw_records=raw.height, valid_source_records=selected.height, queries=queries.height,
         modeled_queries=modeled_queries.height, candidate_targets=len(targets), eligible_targets=eligible.height,
         winner_rows=winner_rows, continuous_rows=continuous_rows, expected_continuous_rows=expected_rows,
-        backend=backend, components=a.components, kernel_only=a.kernel_only, component_inputs_before=component_before,
-        model_availability='query/target model_available fields describe resolved-V, length>=8 rule geometry; component availability is scorer-specific in continuous supported/score fields',
+        backend=backend, components=a.components, kernel_only=a.kernel_only, paired=paired,
+        paired_eligibility="maximum qualifying chain source-record count before exact-hit filtering" if paired else None, component_inputs_before=component_before,
+        model_availability='query/target model_available fields require resolved V and length>=8 on every present scoring axis; source units are genuine complete complexes for paired mode, chain observations for singles; component availability remains explicit',
         component_inputs_after=component_after, component_inputs_frozen=True, control_info=control_info,
         **info, exact_exclusion='hit-list only; full fixed reference models retained',
         score_meaning='uncalibrated current stem4 kernel evidence; larger is stronger' if a.kernel_only else 'uncalibrated fixed-reference rule evidence; larger is stronger',
