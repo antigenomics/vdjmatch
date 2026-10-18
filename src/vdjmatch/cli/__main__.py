@@ -155,6 +155,9 @@ def _cmd_match(a: argparse.Namespace) -> int:
     if getattr(a, "unified_distance", None) is not None and search_mode != "unified":
         raise ValueError("--unified-distance requires --search-mode unified")
     paired = getattr(a, "paired", False)
+    paired_marginals = getattr(a, 'paired_marginals', False)
+    if paired_marginals and (not paired or search_mode not in {'fixed','ball'}):
+        raise ValueError('--paired-marginals requires --paired and fixed or ball mode')
     if search_mode != "fixed":
         if p.scope != "1,0,0,1":
             raise ValueError("--scope applies to fixed mode; ball mode defines its own search")
@@ -269,6 +272,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
             search_mode=search_mode,
             unified_distance=(getattr(a, "unified_distance", None) or "edit"),
             retain_hits=not getattr(a, 'no_hit_table', False),
+            paired_marginals=paired_marginals,
         )
         for kind, frame in res.items():
             if kind == "hits" and getattr(a, "no_hit_table", False):
@@ -307,13 +311,26 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "sequence_convention": getattr(a, "sequence_convention", None)
             or "producer-defined junction",
             "paired": getattr(a, "paired", False),
+            "paired_marginals": paired_marginals,
+            "paired_scope_model": {
+                "axes": ["linked", "TRA", "TRB"],
+                "linked_radius": "maximum of per-chain edit counts; separate per-chain budgets",
+                "linked_ranking": "existing unique-junction-pair exponential mass",
+                "marginal_ranking": "existing per-chain NED over full reference including unlinked records",
+                "label_assignment": "linked positive maxima first; otherwise union of supported marginal maxima",
+                "linked_calibration": "unavailable; E/p_enrichment remain null",
+                "selection_calibration": "unavailable; final independent-pair empirical calibration remains required",
+                "native_capability": "Index.search_paired_batch_consume with skip_empty",
+                "control_memory": "existing compatible finite-cap histograms; custom/other geometries may materialize control hits",
+                "detailed_hits": False,
+            } if paired_marginals else None,
             "paired_calibration_model": {
                 "method": "four_category_cp_upper_bound_plus_binomial_tail",
                 "delta": 1e-6,
                 "assumptions": "fixed predicate; IID marginal categories and target pairs; independent background chains; target/control independence",
                 "deduplicated_controls_establish_iid": False,
                 "unconditional_calibration_claim": False,
-            } if getattr(a, "paired", False) and getattr(a, "exclude_exact", False) and p.evalue and search_mode == "fixed" else None,
+            } if getattr(a, "paired", False) and not paired_marginals and getattr(a, "exclude_exact", False) and p.evalue and search_mode == "fixed" else None,
             "link": getattr(a, "link", None),
             "resources": {
                 "native_threads": p.threads,
@@ -345,7 +362,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         print(
-            f"[{name}] {res['hits'].height} hit rows -> {a.output_prefix}.{name}.*",
+            f"[{name}] {res.get('hits', pl.DataFrame()).height} hit rows -> {a.output_prefix}.{name}.*",
             file=sys.stderr,
         )
     return 0
@@ -612,6 +629,8 @@ def main(argv: list[str] | None = None) -> int:
         choices=["human", "mouse"],
         help="background organism; required with --species any and calibration",
     )
+    m.add_argument('--paired-marginals',action='store_true',
+                   help='opt-in paired scope/ball axes and linked-first marginal fallback; final selection is uncalibrated')
     m.add_argument("--control", action="append", metavar="LOCUS=TABLE",
                    help="fresh raw junction control per active locus (repeatable)")
     m.add_argument("--fresh-control", action="store_true",
