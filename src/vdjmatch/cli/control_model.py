@@ -120,8 +120,13 @@ def load_control_model(directory, raw_path, *, species, locus, modes):
                 {c: str(t) for c, t in frame.schema.items()} != entry.get('schema')):
             raise ValueError('control model table schema/count mismatch: '+name)
         return frame
-    events = table('events.parquet', dict(junction_aa=pl.String, v=pl.String, j=pl.String,
-        event_weight=pl.Int64, species=pl.String, locus=pl.String))
+    event_schema = dict(junction_aa=pl.String, v=pl.String, j=pl.String,
+        event_weight=pl.Int64, species=pl.String, locus=pl.String)
+    entry = files.get('events.parquet')
+    if (isinstance(entry, dict) and isinstance(entry.get('schema'), dict)
+            and {'v_imputed', 'j_imputed'} <= entry['schema'].keys()):
+        event_schema.update(v_imputed=pl.Boolean, j_imputed=pl.Boolean)
+    events = table('events.parquet', event_schema)
     if (not events.height or not events.schema['event_weight'].is_integer() or
             any(events[c].null_count() for c in events.columns) or
             events.filter((pl.col('event_weight') <= 0) | (pl.col('species') != _organism(species)) |

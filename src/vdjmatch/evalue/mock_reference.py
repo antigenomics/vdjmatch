@@ -195,9 +195,9 @@ def _normalize_control(frame, *, species, locus, gene_keys):
     if gene_columns:
         alpha = pl.any_horizontal(*[pl.col(c).str.contains(r'TRA[VJ]').fill_null(False) for c in gene_columns])
         beta = pl.any_horizontal(*[pl.col(c).str.contains(r'TRB[VJ]').fill_null(False) for c in gene_columns])
-        if frame.filter(alpha & beta).height:
+        if not gene_keys and frame.filter(alpha & beta).height:
             raise ValueError('control has conflicting V/J locus annotations')
-        inferred = pl.when(alpha).then(pl.lit('TRA')).when(beta).then(pl.lit('TRB')).otherwise(None)
+        inferred = pl.when(alpha & beta).then(None).when(alpha).then(pl.lit('TRA')).when(beta).then(pl.lit('TRB')).otherwise(None)
     else:
         inferred = pl.lit(None, dtype=pl.String)
     if 'locus' in fields:

@@ -186,6 +186,20 @@ def test_control_locus_inference_and_conflicting_gene_metadata():
         normalize_control(raw.with_columns(pl.lit('TRBJ1').alias('j_call')))
 
 
+def test_joint_control_imputes_conflicting_v_for_the_requested_locus():
+    from vdjmatch.evalue.mock_reference import control_events
+    raw = pl.DataFrame({'junction_aa': ['CASSF']*2, 'junction': ['AAA']*2,
+        'v_call': ['TRBV19', 'TRAV9D-1'], 'j_call': ['TRBJ1-1']*2})
+    original = raw.clone()
+    events = control_events(raw, species='mouse', locus='TRB')
+    assert raw.equals(original)
+    assert events['event_weight'].sum() == 2
+    assert events['v'].to_list() == ['TRBV19']
+    assert events['v_imputed'].all() and not events['j_imputed'].any()
+    assert events.equals(control_events(raw.with_columns(pl.lit('TRB').alias('locus')),
+        species='mouse', locus='TRB'))
+
+
 def test_control_nt_keys_canonicalized_and_incomplete_events_fail():
     raw = pl.DataFrame({'junction_aa': ['CASSF'] * 3, 'junction': ['AAA', ' aaa ', 'CCC'],
         'v_call': ['TRBV1', ' trbv1 ', 'TRBV1'], 'j_call': ['TRBJ1', ' trbj1 ', 'TRBJ1'],
