@@ -19,8 +19,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "seqtree>=1.2.0",
-    "vdjtools>=5.2.0",    # format ingestion, allocated CPU-budget validation and native Pgen
+    "seqtree>=1.3.0",
+    "vdjtools>=5.2.1",    # format ingestion, allocated CPU-budget validation and native Pgen
     "polars>=1.41.2,<2",
     "scipy>=1.9",       # exact finite-control bounds and binomial tails for paired punctures
     "threadpoolctl",    # enforce BLAS limits for evidence combination
