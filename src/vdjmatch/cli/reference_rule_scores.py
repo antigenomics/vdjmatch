@@ -12,6 +12,8 @@ def register(subparsers):
     parser.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
     parser.add_argument('--class-policy',help='frozen reference-policy.tsv and sibling manifest; export only the experimental class-policy scorer')
     parser.add_argument('--kernel-only',action='store_true',help='export only the six current real-control-free stem4 kernel alternatives; do not rerun fixed rules')
+    parser.add_argument('--v-model-policy', choices=['extended', 'resolved-first'], default='extended',
+        help='kernel-only: preserve the original resolved-V model for resolved queries; extended remains the default')
     parser.add_argument('--components', action='store_true', help='also score the six retained single-chain components')
     parser.add_argument('--control', help='matching raw density control; default is bundled human TRB')
     parser.add_argument('--germline-background', help='explicit raw germline prior background; required with --components')
@@ -30,7 +32,7 @@ def main(a):
     from ..db.cache import sha256
     from ..evalue.epitope_rules import MOTIFS
     from ..evalue.reference_rule_bank import stream_reference_rules
-    from ..match.geometry import precompute_v_loop_distances, impute_reference_v_alleles
+    from ..match.geometry import precompute_v_loop_distances, impute_reference_v_alleles, resolve_v_alleles
     from ..runner.annotation import _validate_output_paths
     from ..runner.retrieval_winners import WinnerAccumulator
     from .epitope import pool_epitopes
@@ -39,6 +41,9 @@ def main(a):
     if a.threads < 1 or a.min_records < 1:
         raise ValueError('positive threads and min-records required')
     class_policy = getattr(a,'class_policy',None)
+    v_model_policy = getattr(a, 'v_model_policy', 'extended')
+    if v_model_policy != 'extended' and not a.kernel_only:
+        raise ValueError('--v-model-policy resolved-first requires --kernel-only')
     if class_policy and (a.components or a.kernel_only):
         raise ValueError('--class-policy, --kernel-only and --components are separate calculations')
     policy_paths = {}
@@ -126,6 +131,9 @@ def main(a):
     def resolve(frame):
         # Retain original unresolved keys even when their modeled loops coincide.
         for i, (_, v, locus) in enumerate(axes):
+            if v_model_policy == 'resolved-first':
+                frame = frame.with_columns(resolve_v_alleles(frame[v], context['model'], locus=locus)
+                    .alias('baseline_v'+str(i)))
             alleles, imputed = impute_reference_v_alleles(frame[v], context['model'], locus=locus)
             flag = 'v_geometry_imputed'+str(i) if paired else 'v_geometry_imputed'
             frame = frame.with_columns(alleles.alias(resolved[i]), imputed.alias(flag)).with_columns(
@@ -136,8 +144,9 @@ def main(a):
     feature_columns=[column for i,(seq,_,_) in enumerate(axes) for column in [pl.col(seq).alias('seq'+str(i)),pl.col(resolved[i]).alias('v'+str(i))]]
     identity_keys=['_v_key'+str(i) for i in range(len(axes))]
     flags=['v_geometry_imputed'+str(i) for i in range(len(axes))] if paired else ['v_geometry_imputed']
-    modeled_reference=reference.filter(pl.col('model_available')).select(*feature_columns,*identity_keys,'epitope')
-    modeled_queries=queries.filter(pl.col('model_available')).select('query_id',*feature_columns,*identity_keys)
+    baseline_columns = ['baseline_v'+str(i) for i in range(len(axes))] if v_model_policy == 'resolved-first' else []
+    modeled_reference=reference.filter(pl.col('model_available')).select(*feature_columns,*identity_keys,*baseline_columns,'epitope')
+    modeled_queries=queries.filter(pl.col('model_available')).select('query_id',*feature_columns,*identity_keys,*baseline_columns)
     modeled_counts=reference.filter(pl.col('model_available')).group_by('epitope').agg(pl.len().alias('modeled_source_records'),pl.struct([*[x[0] for x in axes],*resolved,*identity_keys]).n_unique().alias('modeled_search_keys'),*[pl.col(c).sum().alias(c+'_source_records') for c in flags])
     support=support.join(modeled_counts,on='epitope',how='left',validate='1:1').with_columns(pl.col('modeled_source_records','modeled_search_keys').fill_null(0)).with_columns((pl.col('modeled_search_keys')>0).alias('model_available'))
     truth = selected.join(queries.select('query_id', *keys), on=keys, how='inner', nulls_equal=True, validate='m:1').select(
@@ -198,7 +207,8 @@ def main(a):
         stream_backend=stream_reference_kernels
     else:stream_backend=stream_reference_rules
     backend = (stream_backend(modeled_queries, modeled_reference, species=organism,
-        threads=a.threads, paired=paired, consume=consume, identity_keys=identity_keys) if modeled_reference.height and modeled_queries.height else {})
+        threads=a.threads, paired=paired, consume=consume, identity_keys=identity_keys,
+        **({'v_model_policy': v_model_policy} if a.kernel_only else {})) if modeled_reference.height and modeled_queries.height else {})
     # Fill only coordinates the backend cannot emit. Existing continuous parts
     # are final deliverables and are never reopened to calculate predictions.
     available_targets = support.filter(pl.col('model_available')).select('epitope')
@@ -300,6 +310,10 @@ def main(a):
         modeled_queries=modeled_queries.height, candidate_targets=len(targets), eligible_targets=eligible.height,
         winner_rows=winner_rows, continuous_rows=continuous_rows, expected_continuous_rows=expected_rows,
         backend=backend, components=a.components, kernel_only=a.kernel_only, paired=paired,
+        v_model_policy=v_model_policy,
+        kernel_model_binding=('resolved-first candidate; resolved queries use fixed original resolved-allele references; '
+            'unresolved queries use fixed extended references; existing extended calibration does not transfer'
+            if v_model_policy == 'resolved-first' else 'unchanged extended reference model'),
         class_policy=dict(inputs_before=policy_before,inputs_after=policy_freeze(),inputs_frozen=True,
             routes=policy_info['routes'],original_column='kernel_v_bounded',experimental=True,
             default_changed=False,labels_used=False,calibration_status='OPEN; component P/E/posteriors do not transfer',

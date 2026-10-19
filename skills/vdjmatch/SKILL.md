@@ -347,6 +347,13 @@ scorers; use the accepted matching `--control` (bundled default humanTRB only).
 Both raw model inputs are frozen before/after; component missing scores remain
 explicit, and model_available metadata describes the rule geometry only.
 
+`--kernel-only --v-model-policy resolved-first` is an explicit baseline-preserving
+candidate: original resolvable-V queries use the fixed original resolved-allele
+reference model; unresolved queries use the fixed extended imputed model. Paired
+mode requires both original V calls to resolve. It retains every query/target
+coordinate, original identities and unsupported models. The default is unchanged
+(`extended`); its fitted call calibration does not transfer to this candidate.
+
 For explicit linked-first paired label decisions, use `paired-labels` with
 native all-target stem4 VDJdb-other paired evidence, selection and manifest.
 Keep all linked maximum peptides when linked support exists; otherwise retain

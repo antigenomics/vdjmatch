@@ -2257,6 +2257,18 @@ These are continuous relative evidence scores; they have no transferred
 P-value or E-value calibration. All six exports exactly match the detailed
 ``neighbours`` CLI under the same MHC-pooled population.
 
+For a baseline-preserving candidate, add ``--v-model-policy resolved-first``
+with ``--kernel-only``. Queries whose original V calls resolve use the fixed
+original resolved-allele reference population; queries with unresolved V calls
+use the fixed extended imputed population. Paired queries require both original
+V calls to resolve for the first model. Original query identities, every eligible
+case and explicit unsupported target models remain in the exports. Synthetic
+fallback alleles therefore cannot alter established resolved-query rankings.
+This deliberately forgoes unresolved-reference support for resolved queries.
+Each population uses one native batch; neither model is refitted per query.
+The default remains ``extended``. The manifest records the policy; existing
+extended-model final-call calibration does not apply to ``resolved-first``.
+
 ``--class-policy MODEL/reference-policy.tsv`` exports only the experimental
 ``reference_class_policy`` scorer. It is exclusive with ``--components`` and
 ``--kernel-only``. The sibling ``manifest.json`` must bind the policy table hash,

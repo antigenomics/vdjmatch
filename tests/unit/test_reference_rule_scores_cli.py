@@ -352,3 +352,26 @@ def test_genuine_paired_reference_exports_use_max_chain_eligibility(tmp_path,ker
             observed=data.filter((pl.col('scorer')==scorer)&(pl.col('epitope')=='A')&pl.col('score').is_not_null()).sort('query_id','epitope')
             expected=native.filter(pl.col(scorer).is_not_null()).select('query_id','epitope',pl.col(scorer).alias('score')).sort('query_id','epitope')
             assert observed.select('query_id','epitope','score').equals(expected)
+
+
+def test_resolved_first_cli_retains_cases_and_records_policy(tmp_path):
+    raw = pl.DataFrame(dict(cdr3=['CASSLGQAYEQYF', 'CASSLGRAYEQYF', 'CASSLGQAYEQWF'],
+        v=['TRBV19', 'TRBV19', None], j=['TRBJ2-7']*3, gene=['TRB']*3,
+        species=['HomoSapiens']*3, epitope=['A', 'B', 'C']))
+    source, prefix = tmp_path/'raw.tsv', tmp_path/'scores'
+    raw.write_csv(source, separator='\t')
+    assert _run(source, prefix, '--min-records', '1', '--kernel-only',
+        '--v-model-policy', 'resolved-first') == 0
+    manifest = json.loads(Path(str(prefix)+'.manifest.json').read_text())
+    assert manifest['v_model_policy'] == 'resolved-first'
+    assert manifest['backend']['native_batches'] == 2
+    assert manifest['source_frozen'] and manifest['reference_frozen']
+    assert manifest['continuous_rows'] == manifest['expected_continuous_rows'] == 54
+    queries = pl.read_csv(str(prefix)+'.queries.tsv', separator='\t')
+    scores = pl.read_parquet(str(prefix)+'.continuous/*.parquet')
+    known = queries.filter(pl.col('baseline_v0').is_not_null())['query_id']
+    absent = scores.filter(pl.col('query_id').is_in(known.implode()) & (pl.col('epitope') == 'C'))
+    assert absent.height == 12 and absent['score'].null_count() == 12
+    assert not absent['supported'].any()
+    with pytest.raises(ValueError, match='requires --kernel-only'):
+        _run(source, tmp_path/'invalid', '--v-model-policy', 'resolved-first')

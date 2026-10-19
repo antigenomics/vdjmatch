@@ -212,14 +212,53 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
                 native_batches=batches, native_chunk_size=chunk_size)
 
 
-def stream_reference_kernels(queries,reference,*,species='human',threads=1,paired=False,consume,identity_keys=()):
+def stream_reference_kernels(queries,reference,*,species='human',threads=1,paired=False,consume,identity_keys=(),
+                             v_model_policy='extended'):
     """Emit the six unchanged stem4 kernel alternatives from one native traversal.
 
     MHC is explicitly pooled by peptide by the owning reference classifier.
     Full reference populations remain fixed; only exact junction hits are masked.
+    ``resolved-first`` keeps the original resolved-allele model for queries whose
+    ``baseline_v0 [baseline_v1]`` resolve; other queries use the extended model.
+    Both models are fixed independently of query identities and target labels.
     """
     from .kernel import grouped_kernel_selection,ladder_cutoffs,KERNEL_SCORERS
     from ..match.geometry import precompute_v_loop_distances
+    if v_model_policy not in ('extended', 'resolved-first'):
+        raise ValueError('unknown kernel V-model policy')
+    if v_model_policy == 'resolved-first':
+        baseline = ['baseline_v'+str(i) for i in range(2 if paired else 1)]
+        if any(not set(baseline) <= set(frame.columns) for frame in (queries, reference)):
+            raise ValueError('resolved-first requires original resolved allele columns')
+        resolved = pl.all_horizontal(pl.col(c).is_not_null() for c in baseline)
+        labels = reference.select('epitope').unique().sort('epitope')
+        models = {}
+        def restore(frame):
+            return frame.with_columns(pl.col(c).alias('v'+str(i)) for i,c in enumerate(baseline))
+        for name, qpart, rpart in (
+            ('resolved', restore(queries.filter(resolved)), restore(reference.filter(resolved))),
+            ('extended', queries.filter(~resolved), reference),
+        ):
+            if qpart.is_empty():
+                continue
+            # Original search keys deduplicate resolved aliases; imputed raw keys
+            # remain separate only in the extended model, as before.
+            keys = () if name == 'resolved' else identity_keys
+            if not rpart.is_empty():
+                models[name] = stream_reference_kernels(qpart, rpart, species=species, threads=threads,
+                    paired=paired, consume=consume, identity_keys=keys)
+            missing = labels.join(rpart.select('epitope').unique(), on='epitope', how='anti')
+            for part in qpart.select('query_id').iter_slices(max(1, 65536//max(1, missing.height))):
+                if missing.is_empty():
+                    break
+                absent = part.join(missing, how='cross').with_columns(
+                    pl.lit(None, dtype=pl.Float64).alias('score'), pl.lit(False).alias('supported'))
+                for scorer in KERNEL_SCORERS:
+                    consume('kernel_'+scorer.replace('-','_'), absent)
+        return dict(v_model_policy=v_model_policy, models=models,
+            native_batches=sum(info['native_batches'] for info in models.values()),
+            reference_keys=reference.select('seq0', 'v0', *(['seq1', 'v1'] if paired else []), *identity_keys).unique().height,
+            query_target_rows=queries.height*labels.height)
     query_names=({'seq0':'cdr3a','v0':'_allelea','seq1':'cdr3b','v1':'_alleleb'} if paired else {'seq0':'cdr3','v0':'_allele'})
     reference_names=({'seq0':'alpha','v0':'_allele_alpha','seq1':'beta','v1':'_allele_beta'} if paired else {'seq0':'cdr3','v0':'_allele'})
     q=queries.rename(query_names);r=reference.rename(reference_names)
