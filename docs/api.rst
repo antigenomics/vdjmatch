@@ -59,6 +59,20 @@ raises an error, and missing metadata requires ``species="human"`` or
    :undoc-members:
    :show-inheritance:
 
+Bounded native dependency
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Candidate-only single-chain reduction requires the native
+``seqtree.Index.search_batch_consume`` method, supplied by the declared
+``seqtree>=1.3.1`` dependency. The API also checks the installed native method
+and raises an explicit error when it is absent. Requests that retain full hit
+tables continue to use the existing batch API.
+
+Released-dependency CI verifies the native single/paired consumers, empty-axis
+support and hit-list-only exact exclusion in the installed environment.
+The bounded candidate remains an explicit experimental scoring path; the
+dependency release does not promote it to the default.
+
 Detailed paired output
 ~~~~~~~~~~~~~~~~~~~~~~
 

@@ -5,10 +5,10 @@ Current annotation CLI
 ----------------------
 
 ``vdjmatch annotate`` is the current cohort entry point. Its default
-``--reference-population all-valid`` uses every valid source observation, retains
-exact evidence and combines linked paired references with unlinked marginal
-support. Choose ``--reference-population curated-benchmark`` explicitly for the
-source-curated benchmark population. See :doc:`tutorial` and :doc:`examples` for
+``--reference-population curated-benchmark`` matches the manuscript primary
+reference population, retains exact evidence and combines linked paired references
+with unlinked marginal support. Choose ``--reference-population all-valid`` to
+reproduce the accepted all-valid baseline. See :doc:`tutorial` and :doc:`examples` for
 raw inputs and reproducible offline commands.
 
 To compute complete-score tails from one raw control, run:
@@ -58,8 +58,7 @@ The legacy ``Annotator`` API reference curation excludes KLGGALQAK and the engin
 PMID 40498839 from search and background populations. Source rows remain available
 with ``reference_exclusion_reason``; natural SLLMWITQV observations from other
 studies remain searchable. This legacy policy uses peptide/study identity, never a
-sequence-frequency or motif filter on natural receptors. It is not the current
-``annotate`` CLI all-valid default.
+sequence-frequency or motif filter on natural receptors. The current ``annotate`` CLI uses the same source-curation policy by default.
 
 An HF mirror is selected explicitly with ``source="hf"``; it is distinct from the
 GitHub latest/pinned release source. Reuse an ``Annotator`` to keep one explicit

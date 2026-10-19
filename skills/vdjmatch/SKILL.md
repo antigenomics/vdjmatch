@@ -49,7 +49,13 @@ Permutation/matched-control envelopes are not Efron bootstrap CIs.
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)
 for advanced scorers. Run `vdjmatch annotate --help` to verify installed options.
-Use `vdjtools>=5.2.0` for ingestion and allocation-aware native thread validation.
+Use released `seqtree>=1.3.1` and `vdjtools>=5.2.2` for native search and ingestion.
+Version 0.6.0 defaults to `--reference-population curated-benchmark`, the manuscript
+primary population. Preserve `--reference-population all-valid` for the accepted
+all-valid baseline. Curation excludes KLGGALQAK and PMID 40498839 source records;
+exact hits remain included unless benchmark exclusion is explicitly requested.
+The stem4 scoring formula is unchanged; neither the resolved-first repair nor
+paired-score diagnostic is promoted by this reference-population change.
 
 ```sh
 vdjmatch annotate airr_directory/ --threads 4 -o annotation
@@ -347,6 +353,13 @@ scorers; use the accepted matching `--control` (bundled default humanTRB only).
 Both raw model inputs are frozen before/after; component missing scores remain
 explicit, and model_available metadata describes the rule geometry only.
 
+`--kernel-only --v-model-policy resolved-first` is an explicit baseline-preserving
+candidate: original resolvable-V queries use the fixed original resolved-allele
+reference model; unresolved queries use the fixed extended imputed model. Paired
+mode requires both original V calls to resolve. It retains every query/target
+coordinate, original identities and unsupported models. The default is unchanged
+(`extended`); its fitted call calibration does not transfer to this candidate.
+
 For explicit linked-first paired label decisions, use `paired-labels` with
 native all-target stem4 VDJdb-other paired evidence, selection and manifest.
 Keep all linked maximum peptides when linked support exists; otherwise retain
@@ -354,3 +367,33 @@ all alpha/beta maximum peptides, including disagreements. No supported axis
 emits a no-support row. This separate reducer preserves native evidence and the
 any-call scalar. Its `.scores.tsv` contains selected-label indicators only for
 `score-confusion`, never continuous AP/ROC evidence or calibrated confidence.
+
+`paired-score native.selection.tsv --input-manifest native.manifest.json --output-prefix NEW`
+exports the uncalibrated continuous linked-first candidate: positive linked score,
+otherwise native any-axis score for marginal rescue. It keeps original columns,
+IDs and explicit no-score rows, validates the native maxima and freezes file
+hashes. It changes neither labels nor defaults; existing any-axis calibration
+does not transfer. Default table budget is one thread.
+
+
+`repertoire-enrichment metadata.tsv --vdjdb RAW --control RAW_CONTROL` runs fresh
+per-repertoire Pgen/count-matched mocks and one V+Hamming1 native search. Preserve
+source-record/read units, exact bins (including zero), event counts and full pMHC;
+missing/undersized bins fail. Optional validated `--pgen-features` reuses durable
+model features only. Defaults200mocks/seed0/threads4; both P-values and central95%
+mock intervals are descriptive outputs, with no automatic call threshold or
+between-sample test. Use a new output prefix and the research process-tree RAM
+monitor. See CLI docs for the exact source/control/metadata contract.
+
+## Gene-conditioned fixed/graded scope evidence
+
+`match --match-v --control TRB=raw.tsv` (optionally `--match-j`) uses supplied
+V/J-labelled controls for the same gene predicate in target and control counts.
+Fixed and five-radius ball modes retain full populations under exact hit filtering.
+Control units are distinct full junctions within each allele-pooled predicate, not
+reads; one native histogram batch per conditioned population supplies all counts.
+Original calls and modal-imputation flags remain in candidates and complete call
+outputs, including no-hits. Control population metadata is applied before imputation.
+Sequence-only Index controls cannot calibrate these predicates. In Python pass a
+canonical `cdr3,v,j` control frame or locus-to-frame mapping. The fixed-ball E
+counts expected neighbours; it does not calibrate winning-label selection.

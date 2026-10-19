@@ -62,6 +62,21 @@ def test_events_only_does_not_read_unused_motif_or_gene_files(tmp_path):
     assert events.height == 3 and usage is None and populations == {}
 
 
+def test_prepared_control_retains_imputed_gene_flags_and_event_weights(tmp_path):
+    from vdjmatch.cli.__main__ import main
+    raw, directory = tmp_path/'raw.tsv', tmp_path/'model'
+    pl.DataFrame({'junction_aa': ['CAAAAAAF']*2,
+        'v_call': ['TRBV1*01', None], 'j_call': ['TRBJ1-1', None],
+        'occurrences': [2, 3]}).write_csv(raw, separator='\t')
+    assert main(['prepare-control', '--control', str(raw), '--species', 'human',
+        '--locus', 'TRB', '--output-dir', str(directory)]) == 0
+    events, _, _, _ = load_control_model(directory, raw, species='human', locus='TRB',
+        modes=('exact3', 'imgt3', 'wild4', 'imgt_wild4'))
+    assert events['event_weight'].sum() == 5
+    assert events['v_imputed'].all() and events['j_imputed'].all()
+    assert not any(events[c].null_count() for c in events.columns)
+
+
 @pytest.mark.parametrize('mismatch', ['raw', 'species', 'locus', 'mode', 'tamper', 'path'])
 def test_prepared_control_rejects_mismatched_inputs(tmp_path, mismatch):
     raw, directory = _prepare(tmp_path)

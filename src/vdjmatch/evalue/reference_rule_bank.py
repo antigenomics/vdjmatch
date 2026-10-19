@@ -6,12 +6,13 @@ from scipy.special import digamma
 
 
 def stream_reference_rules(queries, reference, *, paired=False, species='human', threads=1,
-                           radius=90, consume):
+                           radius=90, consume, identity_keys=()):
     """Emit the scalar rule scores without retaining a detailed case grid.
 
     Inputs use resolved ``seq0/v0 [seq1/v1]`` and reference epitope. Query IDs
     retain their source identity. Full models, priors and motif counts are fixed;
     only exact hits are filtered. MHC pooling is the caller's explicit choice.
+    Optional complete identity columns preserve original keys that share geometry.
     Three query-by-label numeric arrays retain spatial masses/ranks in memory;
     one motif mode is prepared at a time. Nothing is persisted or resumed.
     """
@@ -22,7 +23,7 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
 
     axes = range(2 if paired else 1)
     seq, v = [f'seq{i}' for i in axes], [f'v{i}' for i in axes]
-    keys = [*seq, *v]
+    keys = [*seq, *v, *identity_keys]
     if (type(threads) is not int or threads < 1 or not callable(consume)
             or not 0 < radius < 2**28/200 or not distance_cutoff(radius)):
         raise ValueError('positive threads/radius and a score consumer required')
@@ -41,7 +42,7 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
     exclusive = membership.with_columns(pl.len().over('_ref').alias('_labels')).filter(pl.col('_labels') == 1).drop('_labels')
     Q, R, T = queries.height, whole.height, labels.height
     if not Q:
-        return dict(queries=0, targets=T, cases=0, numeric_state_bytes=0,
+        return dict(queries=0, reference_keys=R, targets=T, cases=0, numeric_state_bytes=0,
                     native_batches=0, native_chunk_size=0)
     gene_keys = lambda f: f.select(*[pl.col(c).str.replace(r'\*.*$', '') for c in v])
     genes = gene_keys(whole).unique().sort(v).with_row_index('_gene')
@@ -49,8 +50,6 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
     rg = gene_keys(whole).join(genes, on=v, validate='m:1', maintain_order='left')['_gene'].to_numpy()
     qg = gene_keys(queries).join(genes, on=v, how='left', validate='m:1', maintain_order='left')['_gene'].fill_null(G).to_numpy()
     required = 3*Q*T*8+2*(G+1)*T*8+256*1024**2
-    if required > 12*1024**3:
-        raise ValueError(f'rule numeric array budget exceeded: {required} bytes')
     def incidence(frame):
         return sparse.coo_matrix((np.ones(frame.height, dtype=np.int64),
             (frame['_ref'].to_numpy(), frame['_target'].to_numpy())), shape=(R, T)).tocsr()
@@ -160,7 +159,10 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
         emit('rule_v', rows, vscore)
         emit('rule_spatial', rows, kernel(vscore, n, m, masses[rows, :, 0], masses[rows, :, 1], er, eb, np.ones(len(rows), dtype=bool)))
         emit('rule_rank', rows, vscore*rank[rows])
-    prepared_r = _prepare_rule_frame(whole.select(keys), axes)
+    # Geometry may coincide after imputation while original source keys differ.
+    # Preserve the already indexed reference axis through motif preparation too.
+    prepared_r = (_prepare_rule_frame(whole.rename({'_ref': 'query_id'}), axes, True)
+        if identity_keys else _prepare_rule_frame(whole.select(keys), axes))
     prepared_q = _prepare_rule_frame(queries, axes, True)
     for mode in MOTIFS:
         tokens = _tokens(prepared_r, axes, mode)
@@ -206,5 +208,163 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
             emit('rule_mixed_'+mode, rows, mixed)
             emit('rule_enriched_'+mode, rows, enriched)
         del tokens, vocabulary, X, A, B, QT, D
-    return dict(queries=Q, targets=T, cases=Q*T, numeric_state_bytes=required,
+    return dict(queries=Q, reference_keys=R, targets=T, cases=Q*T, numeric_state_bytes=required,
                 native_batches=batches, native_chunk_size=chunk_size)
+
+
+def stream_reference_kernels(queries,reference,*,species='human',threads=1,paired=False,consume,identity_keys=(),
+                             v_model_policy='extended'):
+    """Emit the six unchanged stem4 kernel alternatives from one native traversal.
+
+    MHC is explicitly pooled by peptide by the owning reference classifier.
+    Full reference populations remain fixed; only exact junction hits are masked.
+    ``resolved-first`` keeps the original resolved-allele model for queries whose
+    ``baseline_v0 [baseline_v1]`` resolve; other queries use the extended model.
+    Both models are fixed independently of query identities and target labels.
+    """
+    from .kernel import grouped_kernel_selection,ladder_cutoffs,KERNEL_SCORERS
+    from ..match.geometry import precompute_v_loop_distances
+    if v_model_policy not in ('extended', 'resolved-first'):
+        raise ValueError('unknown kernel V-model policy')
+    if v_model_policy == 'resolved-first':
+        baseline = ['baseline_v'+str(i) for i in range(2 if paired else 1)]
+        if any(not set(baseline) <= set(frame.columns) for frame in (queries, reference)):
+            raise ValueError('resolved-first requires original resolved allele columns')
+        resolved = pl.all_horizontal(pl.col(c).is_not_null() for c in baseline)
+        labels = reference.select('epitope').unique().sort('epitope')
+        models = {}
+        def restore(frame):
+            return frame.with_columns(pl.col(c).alias('v'+str(i)) for i,c in enumerate(baseline))
+        for name, qpart, rpart in (
+            ('resolved', restore(queries.filter(resolved)), restore(reference.filter(resolved))),
+            ('extended', queries.filter(~resolved), reference),
+        ):
+            if qpart.is_empty():
+                continue
+            # Original search keys deduplicate resolved aliases; imputed raw keys
+            # remain separate only in the extended model, as before.
+            keys = () if name == 'resolved' else identity_keys
+            if not rpart.is_empty():
+                models[name] = stream_reference_kernels(qpart, rpart, species=species, threads=threads,
+                    paired=paired, consume=consume, identity_keys=keys)
+            missing = labels.join(rpart.select('epitope').unique(), on='epitope', how='anti')
+            for part in qpart.select('query_id').iter_slices(max(1, 65536//max(1, missing.height))):
+                if missing.is_empty():
+                    break
+                absent = part.join(missing, how='cross').with_columns(
+                    pl.lit(None, dtype=pl.Float64).alias('score'), pl.lit(False).alias('supported'))
+                for scorer in KERNEL_SCORERS:
+                    consume('kernel_'+scorer.replace('-','_'), absent)
+        return dict(v_model_policy=v_model_policy, models=models,
+            native_batches=sum(info['native_batches'] for info in models.values()),
+            reference_keys=reference.select('seq0', 'v0', *(['seq1', 'v1'] if paired else []), *identity_keys).unique().height,
+            query_target_rows=queries.height*labels.height)
+    query_names=({'seq0':'cdr3a','v0':'_allelea','seq1':'cdr3b','v1':'_alleleb'} if paired else {'seq0':'cdr3','v0':'_allele'})
+    reference_names=({'seq0':'alpha','v0':'_allele_alpha','seq1':'beta','v1':'_allele_beta'} if paired else {'seq0':'cdr3','v0':'_allele'})
+    q=queries.rename(query_names);r=reference.rename(reference_names)
+    query_keys=[*query_names.values(),*identity_keys];search_keys=[*reference_names.values(),*identity_keys]
+    context=precompute_v_loop_distances(species=species,matrix='blosum62')
+    scale=context['distance_units'][0]
+    groups=[(dict(epitope=epitope,mhc_a=None,mhc_b=None,mhc_class=None),q,r.filter(pl.col('epitope')==epitope)) for epitope in sorted(r['epitope'].unique())]
+    rows=0
+    def emit(frame):
+        nonlocal rows
+        rows+=frame.height
+        for scorer in KERNEL_SCORERS:
+            name='kernel_'+scorer.replace('-','_')
+            consume(name,frame.select('query_id','epitope',pl.col(name).alias('score'),(pl.col(name).is_finite()&(pl.col(name)>0)).fill_null(False).alias('supported')))
+    grouped_kernel_selection(q,r,groups,query_keys=query_keys,search_keys=search_keys,paired=paired,
+        cutoffs=ladder_cutoffs(scale),radius=22.5*scale,kernel_scale=22.5*scale,scorer='v-bounded',
+        _detailed=True,_consume=emit,progress=True,species=species,threads=threads,ctrim=3,matrix='blosum62',
+        stem_depth=4,stem_weight=1.,v_loop_weight=1,exclude_exact=True,v_loop_distances=context)
+    return dict(native_batches=1,query_keys=q.select(query_keys).unique().height,
+        reference_keys=r.select(search_keys).unique().height,query_target_rows=rows,
+        geometry='current stem4 BLOSUM62 trim3; fixed VDJdb-other background; six native kernel alternatives',MHC='pooled by peptide')
+
+
+def stream_reference_policy(queries, reference, policy, *, species='human', locus='TRB',
+                            threads=1, paired=False, consume, identity_keys=()):
+    """Route fresh full-population rules/kernel scores through the frozen policy.
+
+    Only routed V/exact3 columns are retained, indexed by original query identity.
+    Every target, including missing-profile tails, reaches the policy and winner
+    consumer. Default routes preserve the kernel's original support flag: finite
+    zero kernel scores remain unsupported. No component probability is transferred.
+    """
+    from ..cli.score_policy import apply_reference_policy, FAST_ROUTES
+    if not callable(consume) or not set(policy['reference_class']) <= set(FAST_ROUTES):
+        raise ValueError('a consumer and frozen FAST_ROUTES policy classes required')
+    organism = {'human':'HomoSapiens','mouse':'MusMusculus'}.get(species,species)
+    lane = 'PAIRED' if paired else locus
+    labels = reference.select('epitope').unique().sort('epitope')
+    default = 'kernel_v_bounded'
+    # The existing selector, rather than a second routing implementation, defines
+    # which raw component columns are needed for this reference population.
+    probe = labels.with_columns(pl.lit(organism).alias('species'),pl.lit(lane).alias('locus'),
+        pl.lit(0.).alias(default),pl.lit(1.).alias('rule_v_score'),
+        pl.lit(1.).alias('rule_exact3_score'),pl.lit(None,dtype=pl.Float64).alias('rule_rank_score'))
+    plan = apply_reference_policy(probe,policy,original_column=default)
+    query_rows = queries.select('query_id').with_row_index('_policy_row')
+    target_index = dict(zip(labels['epitope'],range(labels.height)))
+    arrays,seen,columns = {},{},{}
+    for scorer,column in [('rule_v','rule_v_score'),('rule_exact3','rule_exact3_score')]:
+        needed = plan.filter(pl.col('selected_score_column').is_in([column,'rule_exact3_score / rule_v_score']))['epitope']
+        mapping = dict(zip(needed,range(len(needed))))
+        columns[scorer] = np.array([mapping.get(label,-1) for label in labels['epitope']],dtype=np.int64)
+        arrays[scorer] = np.full((queries.height,len(needed)),np.nan)
+        seen[scorer] = np.zeros((queries.height,len(needed)),dtype=bool)
+    def coordinates(frame):
+        if frame.select('query_id','epitope').is_duplicated().any():
+            raise ValueError('duplicate class-policy query/target component coordinates')
+        frame = frame.join(query_rows,on='query_id',how='left',validate='m:1',maintain_order='left')
+        if frame['_policy_row'].null_count():raise ValueError('unknown class-policy query identity')
+        target = frame['epitope'].replace_strict(target_index,return_dtype=pl.UInt32).to_numpy()
+        return frame['_policy_row'].to_numpy(),target
+    def retain(scorer,frame):
+        if scorer not in arrays or arrays[scorer].shape[1]==0:return
+        row,target = coordinates(frame)
+        col = columns[scorer][target];needed = col>=0
+        row,col = row[needed],col[needed]
+        if seen[scorer][row,col].any():raise ValueError('repeated class-policy component coordinates')
+        values = frame['score'].to_numpy()
+        arrays[scorer][row,col] = np.where(frame['supported'].to_numpy(),values,np.nan)[needed]
+        seen[scorer][row,col] = True
+    rule_info = (stream_reference_rules(queries,reference,species=species,paired=paired,
+        threads=threads,consume=retain,identity_keys=identity_keys) if any(a.size for a in arrays.values()) else
+        dict(native_batches=0,reason='all policy routes retain configured native default'))
+    if any(not present.all() for present in seen.values()):
+        raise ValueError('incomplete class-policy rule component coordinates')
+    count = 0
+    kernel_seen = np.zeros((queries.height,(labels.height+7)//8),dtype=np.uint8)
+    def select(scorer,frame):
+        nonlocal count
+        if scorer!=default:return
+        row,target = coordinates(frame)
+        flags = np.left_shift(np.uint8(1),(target%8).astype(np.uint8))
+        if np.any(kernel_seen[row,target//8]&flags):
+            raise ValueError('repeated class-policy kernel coordinates')
+        np.bitwise_or.at(kernel_seen,(row,target//8),flags)
+        values = {}
+        for name,column in [('rule_v','rule_v_score'),('rule_exact3','rule_exact3_score')]:
+            col = columns[name][target];needed = col>=0
+            value = np.full(frame.height,np.nan)
+            value[needed] = arrays[name][row[needed],col[needed]]
+            values[column] = pl.Series(column,value,nan_to_null=True)
+        source = frame.rename({'score':default,'supported':'_native_supported'}).with_columns(
+            pl.lit(organism).alias('species'),pl.lit(lane).alias('locus'),
+            *values.values(),pl.lit(None,dtype=pl.Float64).alias('rule_rank_score'))
+        selected = apply_reference_policy(source,policy,original_column=default)
+        count += frame.height
+        consume('reference_class_policy',selected.select('query_id','epitope',
+            pl.col('policy_score').alias('score'),
+            (pl.col('policy_score').is_finite() & pl.when(pl.col('selected_score_column')==default)
+                .then(pl.col('_native_supported')).otherwise(pl.lit(True))).fill_null(False).alias('supported'),
+            'reference_class','selected_score_column','policy_status'))
+    kernel_info = stream_reference_kernels(queries,reference,species=species,paired=paired,
+        threads=threads,consume=select,identity_keys=identity_keys)
+    if count!=queries.height*labels.height:
+        raise ValueError('incomplete class-policy kernel coordinates')
+    return dict(rules=rule_info,kernel=kernel_info,query_target_rows=count,
+        retained_component_bytes=sum(a.nbytes for a in arrays.values())+sum(a.nbytes for a in seen.values())+kernel_seen.nbytes,
+        original_column=default,policy='unchanged FAST_ROUTES/apply_reference_policy',
+        candidate_models='all valid fixed reference labels including tails',calibration='unavailable')

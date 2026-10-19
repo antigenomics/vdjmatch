@@ -17,6 +17,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
         "clonecount",
         "clone count",
         "readcount",
+        "read.count",
         "uniquetagcountmolecule",
     ),
     "pair_id": ("pair_id", "cell_id", "clone_id", "cloneid", "complex.id", "clonotype_id"),
@@ -113,7 +114,7 @@ def normalize_query(
     n_input = df.height
     # Select aliases instead of renaming: both junction_aa and legacy cdr3 may coexist.
     identity = [c for c in ("query_id", "sequence_id", "clone_id", "cloneid", "clonotype_id",
-                            "source_query_id", "source_sequence_id") if c in df.columns]
+                            "source_query_id", "source_sequence_id", "original_v", "v_imputed", "original_j", "j_imputed") if c in df.columns]
     df = df.select(
         [pl.col(src).alias(canon) for canon, src in found.items()] + identity
     )
@@ -126,7 +127,8 @@ def normalize_query(
         else:
             df = df.with_columns(pl.col(col).cast(pl.String))
     if "locus" not in df.columns:
-        df = df.with_columns(pl.col("v").str.slice(0, 3).alias("locus"))
+        prefix = pl.col('v').str.to_uppercase().str.slice(0, 3)
+        df = df.with_columns(pl.when(prefix.is_in(['TRA','TRB','TRG','TRD','IGH','IGK','IGL'])).then(prefix).otherwise(None).alias('locus'))
     else:
         df = df.with_columns(pl.col("locus").cast(pl.String).str.to_uppercase())
     if "count" not in df.columns:

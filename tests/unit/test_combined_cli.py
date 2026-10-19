@@ -38,7 +38,8 @@ def inputs(tmp_path):
 
 @pytest.mark.parametrize('missing_reference_chain', [False, True])
 @pytest.mark.parametrize('details', [False, True])
-def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypatch, missing_reference_chain, details):
+@pytest.mark.parametrize('population', [None, 'all-valid'])
+def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypatch, missing_reference_chain, details, population):
     from vdjmatch.evalue import combined
     from vdjmatch.cli.__main__ import main
     sample, reference, control = inputs(tmp_path)
@@ -58,7 +59,8 @@ def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypat
     prefix = tmp_path / 'result'
     assert main(['annotate', str(sample), '--vdjdb', str(reference), '--control', str(control),
         '--locus', 'auto' if missing_reference_chain else 'TRB', '--mock-replicates', '2', '--seed', '7',
-        '-o', str(prefix)] + (['--details'] if details else [])) == 0
+        '-o', str(prefix)] + (['--details'] if details else []) +
+        (['--reference-population', population] if population else [])) == 0
     queries = pl.read_csv(str(prefix) + '.queries.tsv', separator='\t')
     assert queries.height == 4
     assert queries['query_id'].to_list() == ['near', 'far', 'invalid', 'other-species']
@@ -67,8 +69,9 @@ def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypat
     database = pl.read_csv(str(prefix) + '.database.tsv', separator='\t')
     epitopes = pl.read_csv(str(prefix) + '.epitopes.tsv', separator='\t')
     calibration = pl.read_csv(str(prefix) + '.calibration.tsv', separator='\t')
-    assert database.height == 4 and epitopes.height == (4 if details else 2)
-    assert set(epitopes['epitope']) == ({'A', 'KLGGALQAK'} if details else {'A'})
+    all_valid_details = details and population == 'all-valid'
+    assert database.height == 4 and epitopes.height == (4 if all_valid_details else 2)
+    assert set(epitopes['epitope']) == ({'A', 'KLGGALQAK'} if all_valid_details else {'A'})
     if not details:
         assert epitopes['declared_target'].all() and not epitopes['reported_specificity'].any()
         assert epitopes['p_any'].min() >= 1/3
@@ -200,7 +203,7 @@ def test_control_filter_counts_and_reference_species_aliases(tmp_path):
     assert not list(tmp_path.glob('real-pgen*.json'))
 
 
-def test_invalid_queries_survive_and_valid_control_requires_genes(tmp_path):
+def test_invalid_queries_survive_and_missing_control_genes_are_imputed(tmp_path):
     from vdjmatch.cli.__main__ import main
     sample, reference, control = inputs(tmp_path)
     pl.read_csv(sample, separator='\t').with_columns(pl.lit('CA*F').alias('junction_aa')).write_csv(sample, separator='\t')
@@ -213,6 +216,6 @@ def test_invalid_queries_survive_and_valid_control_requires_genes(tmp_path):
     assert pl.read_csv(str(prefix) + '.database.tsv', separator='\t')['p_both'].null_count() == 4
     assert pl.read_csv(str(prefix) + '.epitopes.tsv', separator='\t').height == 0
     pl.read_csv(control, separator='\t').drop('j_call').write_csv(control, separator='\t')
-    with pytest.raises(SystemExit):
-        main(args[:-1] + [str(tmp_path / 'missing-gene')])
-    assert not list(tmp_path.glob('missing-gene.*'))
+    assert main(args[:-1] + [str(tmp_path / 'missing-gene')]) == 0
+    retained = pl.read_csv(str(tmp_path / 'missing-gene') + '.queries.tsv', separator='\t')
+    assert retained.height == 4 and retained['calibration_status'].to_list() == ['invalid_sequence'] * 4

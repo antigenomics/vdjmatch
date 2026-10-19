@@ -298,6 +298,12 @@ def provenance(source: str | os.PathLike) -> dict:
             for p in sorted(path.rglob("*"))
             if p.is_file()
         }
+        import hashlib
+        digest=hashlib.sha256()
+        for name,value in sorted(out['files'].items()):
+            digest.update(name.encode()+b'\0'+bytes.fromhex(value))
+        out['input_sha256']=digest.hexdigest()
+        out['input_hash_kind']='relative_name_and_file_sha256_digest'
     return out
 
 

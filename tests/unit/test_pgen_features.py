@@ -1,6 +1,7 @@
 """Synthetic identity/coverage checks for explicitly supplied durable Pgen features."""
 import hashlib
 import json
+from pathlib import Path
 
 import polars as pl
 import pytest
@@ -24,7 +25,9 @@ def _bank(tmp_path, monkeypatch):
     manifest = dict(features=dict(path=path.name, sha256=sha256(path)),
         options=dict(species='human', locus='TRB', mismatches=1),
         model=dict(files=files, sha256=model_hash, collapse_alleles=False,
-            metadata=metadata))
+            metadata=metadata, anchor_repair='vdjtools load_model'))
+    from vdjtools.model import io as model_io, native as native_bridge
+    manifest['software']={'model_io_sha256':sha256(Path(model_io.__file__)), 'native_bridge_sha256':sha256(Path(native_bridge.__file__))}
     manifest_path = tmp_path/'bank.manifest.json'
     manifest_path.write_text(json.dumps(manifest))
     return path, manifest_path, frame, manifest
@@ -48,6 +51,8 @@ def test_feature_bank_checks_identity_and_complete_union(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('section,key,value', [
+    ('software','model_io_sha256','0'*64), ('software','native_bridge_sha256','0'*64),
+    ('model','anchor_repair','unrepaired'),
     ('options', 'mismatches', 0), ('options', 'mismatches', True),
     ('options', 'species', 'mouse'), ('options', 'locus', 'TRA'),
     ('model', 'collapse_alleles', True), ('model', 'sha256', '0'*64),

@@ -137,9 +137,21 @@ def test_membership_budget_rejects_before_mock_or_graph_allocation(tmp_path, cov
     with pytest.raises(ValueError, match='membership estimate .* explicit budget'):
         coverage._main(options, inputs=inputs, scratch=tmp_path/'scratch')
     assert state['graph_calls'] == 0
-    for budget in (0, -1, 8*1024**3+1):
+    for budget in (-1,):
         options.membership_budget_bytes = budget
         with pytest.raises(ValueError, match='membership budget'):
             coverage.validate_options(options)
-    options.membership_budget_bytes = 8*1024**3
-    coverage.validate_options(options)
+    for budget in (0, 8*1024**3+1):
+        options.membership_budget_bytes = budget
+        coverage.validate_options(options)
+
+
+def test_zero_membership_budget_runs_without_the_estimate_abort(tmp_path, coverage_fixture):
+    coverage, options, inputs, state = coverage_fixture
+    options.membership_budget_bytes = 0
+    options.mock_replicates = 2
+    options.control = str(tmp_path/'control')
+    assert coverage._main(options, inputs=inputs, scratch=tmp_path/'scratch') == 0
+    manifest = json.loads((tmp_path/'tables.manifest.json').read_text())
+    assert manifest['membership_budget_bytes'] == 0
+    assert manifest['actual_membership_rows'] == 21 and state['graph_calls'] == 1

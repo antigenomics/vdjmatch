@@ -49,10 +49,20 @@ def test_directory_batches_once_per_population_and_restores_ids(tmp_path, core):
     assert out["queries"]["source_sequence_id"].to_list() == ["seq-a", "seq-a"]
     assert out["queries"]["clonotype_id"].to_list() == ["type-a", "type-a"]
     assert all(a.selection_only and a.stem_depth == 4 and a.threads == 2 for a, _ in core)
+    assert all(a.reference_population == 'curated-benchmark' for a, _ in core)
     assert Path(str(tmp_path / "out") + ".queries.tsv").exists()
     assert Path(str(tmp_path / "out") + ".selection.tsv").exists()
     assert out["manifest"]["native_threads"] == 2
     assert all(not Path(a.sample).exists() for a, _ in core)
+
+
+def test_all_valid_baseline_remains_explicit(tmp_path, core):
+    source = table(tmp_path / 'input.tsv')
+    annotate_repertoires(source, reference='unused', output_prefix=tmp_path / 'baseline',
+                         reference_population='all-valid')
+    assert core[0][0].reference_population == 'all-valid'
+    assert core[0][0].kernel_scorer == 'v-bounded'
+    assert not core[0][0].exclude_exact
 
 
 def test_pairs_are_scoped_to_samples_and_keep_both_ids(tmp_path, core):

@@ -1,6 +1,24 @@
 Release notes
 =============
 
+0.6.0
+-----
+
+``annotate`` and ``annotate_repertoires`` now default to the source-curated
+``curated-benchmark`` reference population used by the manuscript primary view.
+``--reference-population all-valid`` retains the accepted all-valid baseline.
+Exact hits remain available in ordinary annotation; ``--exclude-exact`` filters
+hits only, with fixed reference models. The stem4 formula and kernel parameters
+are unchanged. Existing all-valid curves and intervals retain their source labels.
+
+Requires released ``seqtree>=1.3.1`` and ``vdjtools>=5.2.2``. Adds the explicit
+``reference-rule-scores --kernel-only --v-model-policy resolved-first`` repair
+for the mouse TRA model-extension regression, plus a separate ``paired-score``
+continuous-score diagnostic. Neither experimental scoring policy replaces the
+annotation scorer or inherits another selection procedure's calibration.
+CLI help, README, agent skill and offline notebook examples describe the same
+reference choices. Mismatch-based search remains available for large datasets.
+
 0.5.0
 -----
 

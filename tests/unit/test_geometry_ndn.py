@@ -83,6 +83,8 @@ def test_ndn_cli_exports_boundaries_and_retains_unavailable_queries(tmp_path):
         '--neighbour-weighting','local-rank','--exclude-exact','--output-prefix',str(prefix)])==0
     manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
     assert manifest['background_enrichment']['boundaries']['weights']=={'V_J':0.1,'NDN':1.0}
-    assert sum(manifest['background_enrichment']['boundaries']['status_counts'].values())==3
-    assert pl.read_csv(str(prefix)+'.queries.tsv',separator='\t').height==2
-    assert pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t').height==1
+    assert sum(manifest['background_enrichment']['boundaries']['status_counts'].values())==4
+    queries=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
+    assert queries.height==2 and queries['available'].all()
+    assert queries['v_geometry_imputed'].to_list()==[False,True]
+    assert pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t').height==2

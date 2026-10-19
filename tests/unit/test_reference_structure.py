@@ -97,9 +97,9 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     assert set(manifest['tables'])=={'profile.structures.tsv','profile.degrees.tsv','profile.lengths.tsv','profile.genes.tsv','profile.graph-acquisition.tsv','profile.clonotype-degrees.tsv'}
     assert all(len(manifest[key])==64 for key in ('native_sha256','v_model_sha256','loader_sha256','search_source_sha256'))
     control = tmp_path/'control.tsv'
-    pl.DataFrame({'junction_aa':['CASSLAAAYEQYF','CASSLACAYEQYF','CASSLADAYEQYF'],
-        'v_call':['TRBV19','TRBV20-1',None], 'j_call':['TRBJ2-7']*3,
-        'occurrences':[1,3,10]}).write_csv(control,separator='\t')
+    pl.DataFrame({'junction_aa':['CASSLAAAYEQYF','CASSLACAYEQYF'],
+        'v_call':['TRBV19','TRBV20-1'], 'j_call':['TRBJ2-7']*2,
+        'occurrences':[1,3]}).write_csv(control,separator='\t')
     controlled = tmp_path/'controlled'
     calls.clear()
     assert main(['reference-structure','--vdjdb',str(reference),'--locus','TRB',
@@ -111,7 +111,7 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     v=compared.filter((pl.col('segment')=='V')&(pl.col('length_scope')=='all_lengths'))
     assert v['key_to_control_event_ratio'].to_list()==[4.,4.]
     m=json.loads((tmp_path/'controlled.manifest.json').read_text())
-    assert m['control']['control_source_rows']==3 and m['control']['control_valid_rows']==2
+    assert m['control']['control_source_rows']==2 and m['control']['control_valid_rows']==2
     assert m['control']['event_keys']==2 and m['control']['total_events']==4
     assert 'controlled.control-genes.tsv' in m['tables']
     assert 'controlled.information.tsv' in m['tables']
@@ -145,7 +145,7 @@ def test_cli_uses_one_batch_for_shared_target_junctions(tmp_path,monkeypatch):
     assert germline.height==m['germline_information']['information_rows']
     assert set(germline['reference_v_keys'])=={2}
     assert set(germline['control_v_keys'])=={2}
-    assert germline.filter((pl.col('loop')=='cdr2')&(pl.col('alignment_column')==2))['consensus_information_bits'].null_count()==8
+    assert germline.filter((pl.col('loop')=='cdr2')&(pl.col('alignment_column')==2))['consensus_information_bits'].to_list()==[0.]*8
     assert {str(controlled.name)+s for s in ('.germline-map.tsv','.germline.tsv','.germline-information.tsv')}<=set(m['tables'])
     targets=tmp_path/'targets.tsv'
     pl.DataFrame({'query_id':[0,1],'epitope':['A','B'],'species':['human']*2,
@@ -233,10 +233,11 @@ def test_length_coverage_keeps_short_unknown_v_and_duplicate_records(tmp_path, m
     assert calls == [6]
     assert lengths.select('junction_length', 'valid_reference_records', 'modeled_reference_records',
                           'junctions', 'graph_edges', 'isolated_junctions').rows() == [
-        (4, 3, 0, 2, 1, 0), (13, 3, 2, 3, 2, 0), (14, 1, 1, 1, 0, 1)]
+        (4, 3, 0, 2, 1, 0), (13, 3, 3, 3, 2, 0), (14, 1, 1, 1, 0, 1)]
     assert lengths['mean_degree'].to_list() == [1., 4/3, 0.]
     assert lengths['isolated_fraction'].to_list() == [0., 0., 1.]
     full = pl.read_csv(str(prefix) + '.structures.tsv', separator='\t')
+    assert full['v_geometry_imputed_records'].item() == 1
     assert lengths['junctions'].sum() == full['hamming_junctions'].item()
     assert lengths['graph_edges'].sum() == full['hamming_graph_edges'].item()
 
@@ -307,9 +308,11 @@ def test_gene_usage_control_preserves_event_weights_unknowns_and_missing_lengths
     assert v['reference_keys'].to_list() == [4, 4]
     assert v['unresolved_comparison_keys'].to_list() == [2, 3]
     assert v['unavailable_length_keys'].to_list() == [0, 1]
-    assert v['gene_information_bits'].null_count() == 2
-    assert v['joint_information_bits'].null_count() == 2
-    assert v['information_status'].to_list() == ['incomplete_support'] * 2
+    assert v['gene_information_bits'].null_count()==0 and v['gene_information_bits'].is_finite().all()
+    assert v['joint_information_bits'].null_count()==0 and v['joint_information_bits'].is_finite().all()
+    assert v['information_status'].to_list() == ['available_neutral_imputation'] * 2
+    assert factors['gene_bits_imputed'].any()
+    assert factors.filter(pl.col('gene_bits_imputed'))['gene_bits'].to_list()==[0.]*int(factors['gene_bits_imputed'].sum())
 
 
 def test_selection_information_matches_count_likelihood_and_conditional_chain_rule():

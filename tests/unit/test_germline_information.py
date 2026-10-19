@@ -40,7 +40,9 @@ def test_germline_projection_matches_hand_bits_without_merging_v_keys():
     assert info.select((pl.col('joint_information_bits')==pl.col('length_information_bits')+pl.col('consensus_information_bits')).all()).item()
     ambiguous = next(i for p,i in projections if p['loop'][0]=='cdr2' and p['alphabet'][0]=='full')
     assert ambiguous['unavailable_comparison_v_keys'].to_list()==[1,1]
-    assert ambiguous['consensus_information_bits'].null_count()==2
+    assert ambiguous['consensus_information_bits'].null_count()==0
+    assert ambiguous['consensus_information_bits'].is_finite().all()
+    assert ambiguous['information_status'].to_list()==['available_neutral_imputation']*2
     uncertain = next(p for p,i in projections if p['loop'][0]=='cdr2' and p['alphabet'][0]=='full')
     q = uncertain.filter((pl.col('length_scope')=='all_lengths')&(pl.col('residue')=='Q')).row(0,named=True)
     assert q['control_v_keys']==3 and q['control_possible_v_keys']==4
