@@ -128,3 +128,16 @@ def test_missing_reference_genes_remain_in_the_fixed_conditioned_population():
     assert hits.height==2 and int(hits['v_imputed'].sum())==1
     assert c['n_reference'].to_list()==[2]
     assert before.equals(ann._index.reference)
+
+
+def test_declared_control_population_retains_conflicting_calls_for_imputation():
+    from vdjmatch.evalue.control import control_population
+    raw=pl.DataFrame({'cdr3':['CASSF','CASRF','CAVRF'],
+        'v':['TRBV19','TRAV9D-1','TRAV1'],'j':['TRBJ1-1','TRBJ1-1','TRAJ1']})
+    selected=control_population(raw,species='mouse',locus='TRB')
+    got=impute_gene_calls(selected,species='mouse',locus='TRB')
+    assert got['cdr3'].to_list()==['CASSF','CASRF']
+    assert got['original_v'].to_list()==['TRBV19','TRAV9D-1']
+    assert got['v'].to_list()==['TRBV19','TRBV19']
+    assert got['v_imputed'].to_list()==[False,True]
+    assert got['j_imputed'].to_list()==[False,False]

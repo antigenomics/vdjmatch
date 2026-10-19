@@ -282,8 +282,9 @@ def control_population(frame, *, species, locus):
     gene_cols=[c for c in ('v','j') if c in frame.columns]
     alpha=pl.any_horizontal([pl.col(c).cast(pl.String).str.to_uppercase().str.contains(r'TRA[VJ]').fill_null(False) for c in gene_cols]) if gene_cols else pl.lit(False)
     beta=pl.any_horizontal([pl.col(c).cast(pl.String).str.to_uppercase().str.contains(r'TRB[VJ]').fill_null(False) for c in gene_cols]) if gene_cols else pl.lit(False)
-    if frame.filter(alpha&beta).height:raise ValueError('control has conflicting V/J locus annotations')
-    inferred=pl.when(alpha).then(pl.lit('TRA')).when(beta).then(pl.lit('TRB')).otherwise(None)
+    # Contradictory segment calls cannot infer a locus. Keep the explicitly
+    # supplied population; impute_gene_calls retains/flags the original calls.
+    inferred=pl.when(alpha&beta).then(None).when(alpha).then(pl.lit('TRA')).when(beta).then(pl.lit('TRB')).otherwise(None)
     declared=pl.col('locus').cast(pl.String).str.strip_chars().str.to_uppercase().replace({'ALPHA':'TRA','BETA':'TRB'}) if 'locus' in frame.columns else pl.lit(None,dtype=pl.String)
     declared=pl.when(declared=='').then(None).otherwise(declared)
     if frame.filter(inferred.is_not_null()&declared.is_not_null()&(inferred!=declared)).height:
