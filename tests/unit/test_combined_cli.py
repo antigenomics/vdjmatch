@@ -38,7 +38,8 @@ def inputs(tmp_path):
 
 @pytest.mark.parametrize('missing_reference_chain', [False, True])
 @pytest.mark.parametrize('details', [False, True])
-def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypatch, missing_reference_chain, details):
+@pytest.mark.parametrize('population', [None, 'all-valid'])
+def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypatch, missing_reference_chain, details, population):
     from vdjmatch.evalue import combined
     from vdjmatch.cli.__main__ import main
     sample, reference, control = inputs(tmp_path)
@@ -58,7 +59,8 @@ def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypat
     prefix = tmp_path / 'result'
     assert main(['annotate', str(sample), '--vdjdb', str(reference), '--control', str(control),
         '--locus', 'auto' if missing_reference_chain else 'TRB', '--mock-replicates', '2', '--seed', '7',
-        '-o', str(prefix)] + (['--details'] if details else [])) == 0
+        '-o', str(prefix)] + (['--details'] if details else []) +
+        (['--reference-population', population] if population else [])) == 0
     queries = pl.read_csv(str(prefix) + '.queries.tsv', separator='\t')
     assert queries.height == 4
     assert queries['query_id'].to_list() == ['near', 'far', 'invalid', 'other-species']
@@ -67,8 +69,9 @@ def test_one_raw_control_runs_actual_native_sum_without_json(tmp_path, monkeypat
     database = pl.read_csv(str(prefix) + '.database.tsv', separator='\t')
     epitopes = pl.read_csv(str(prefix) + '.epitopes.tsv', separator='\t')
     calibration = pl.read_csv(str(prefix) + '.calibration.tsv', separator='\t')
-    assert database.height == 4 and epitopes.height == (4 if details else 2)
-    assert set(epitopes['epitope']) == ({'A', 'KLGGALQAK'} if details else {'A'})
+    all_valid_details = details and population == 'all-valid'
+    assert database.height == 4 and epitopes.height == (4 if all_valid_details else 2)
+    assert set(epitopes['epitope']) == ({'A', 'KLGGALQAK'} if all_valid_details else {'A'})
     if not details:
         assert epitopes['declared_target'].all() and not epitopes['reported_specificity'].any()
         assert epitopes['p_any'].min() >= 1/3

@@ -21,6 +21,11 @@ themselves, use the offline reference, default to four native threads and fail i
 the output directory exists. Every invocation calculates fresh CLI tables;
 there are no feature caches, predictions as inputs, skip or resume paths.
 
+Annotation defaults to the curated manuscript reference population in 0.6.0.
+Pass `--reference-population all-valid` for the accepted all-valid baseline;
+keep that population label with every output, curve and interval. The stem4
+formula is unchanged, and these tiny fixtures do not establish manuscript accuracy.
+
 The annotation notebook covers a four-row metadata cohort and two wide pairs,
 including an incomplete pair. The comparison notebook calls the CLI with exact
 exclusion and detailed default stem4 / advanced vcdr12 settings, then joins its

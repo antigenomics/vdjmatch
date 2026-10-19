@@ -24,8 +24,8 @@
 reporting peptide–MHC candidates, competing evidence and optional background calibration.
 Native sequence search uses [`seqtree`](https://github.com/antigenomics/seqtree);
 repertoire ingestion reuses published `vdjtools` readers.
-The minimum `vdjtools` version is 5.2.0, which validates explicit native thread
-requests against the process CPU allocation.
+Requires released `seqtree>=1.3.1` and `vdjtools>=5.2.2`, including allocation-aware
+native thread validation.
 
 The Python implementation follows the legacy Java/Groovy package, preserved on the
 `legacy-java` branch. See the [tutorial](https://docs.isalgo.dev/vdjmatch/tutorial.html),
@@ -113,7 +113,12 @@ or archive. A metadata TSV has `path` and optional `sample_id` columns; relative
 paths resolve beside the metadata file. Directory discovery accepts TSV, CSV,
 text, gzip and Parquet tables. Sample names must be unique.
 
-AIRR input uses anchor-inclusive `junction_aa` and V calls. The default scores all
+AIRR input uses anchor-inclusive `junction_aa` and V calls. Version 0.6.0 defaults
+to `--reference-population curated-benchmark`, matching the manuscript primary
+reference view. Use `--reference-population all-valid` to reproduce the accepted
+all-valid baseline. Curation excludes KLGGALQAK and records sourced to PMID
+40498839; natural observations from other sources remain eligible. Exact hits
+remain included unless `--exclude-exact` is supplied. The default scores all
 peptide–MHC targets with the stem4 BLOSUM62 kernel ladder. `--locus paired` also
 retains independent TRA/TRB evidence from unlinked references. Scores are relative
 evidence; whole-selection null calibration is required for false-call recommendations.
@@ -143,6 +148,11 @@ sample and source identities, competing scores, ties and no-support rows.
 grows with queries × targets. `--epitope PEPTIDE` restricts the requested targets.
 `--exclude-exact` is for honest benchmarks; ordinary annotation retains exact hits.
 Advanced scorer and geometry recipes remain in the [CLI reference](https://docs.isalgo.dev/vdjmatch/cli.html).
+The manuscript's curated primary comparison has higher equal-task mean average
+precision than each of seven available rivals on that rival's fixed matched task
+set. This is a matched-mean result, not a claim of winning every individual task.
+The accepted all-valid baseline and its curves and intervals remain separate;
+changing the reference population does not transfer calibration between views.
 Calibration is specific to the complete score and selection procedure.
 `--threads N` budgets native compute threads; searches batch queries by population
 and do not create a worker process per receptor or input file.
@@ -172,7 +182,7 @@ With the default `--background vdjdb-other`, supplying one raw control selects t
 opt-in combined score and computes both conditional randomization tails on demand.
 It writes `.queries.tsv`, `.database.tsv`, `.epitopes.tsv` and `.calibration.tsv`;
 no fitted calibration file or JSON input is needed. `--mock-replicates` defaults
-to 199 and `--seed` to 0. Reference selectors (`--epitope`, MHC,
+to 200 and `--seed` to 0. Reference selectors (`--epitope`, MHC,
 `--evidence-type`, `--min-score`) apply before calibration.
 
 Benchmark `--exclude-exact` filters exact hits only; reference models, counts,

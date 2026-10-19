@@ -110,6 +110,7 @@ def test_native_paired_annotation_binding_and_linked_score_rejection(tmp_path):
         j_call=row['j_'+axis],locus=locus) for i,(axis,locus) in enumerate([('alpha','TRA'),('beta','TRB')])]).write_csv(sample,separator='\t')
     p=argparse.ArgumentParser();geometry.register(p.add_subparsers(),name='annotate')
     args=p.parse_args(['annotate',str(sample),'--vdjdb',str(tmp_path/'ref.tsv'),'--locus','paired',
+        '--reference-population','all-valid',
         '--distance-matrix','blosum62','--junction-ends','trim3','--stem-depth','4','--kernel-scorer','v-bounded',
         '--selection-only','--all-targets','--output-prefix',str(tmp_path/'generated')])
     assert geometry.main(args)==0
