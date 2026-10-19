@@ -475,7 +475,7 @@ def main(a, *, return_inputs=False):
         global_hamming_edges=edges.height if edges is not None else 0, targets=len(summaries),
         mixture_weights='gap=1-sum_L p_L^2; stem4=sum_LV p_LV^2-sum_LVC p_LVC^2; original=remainder',
         mixture_population='all valid full AA junction/V-gene keys; unknown or ambiguous V is explicit category; source records counted separately',
-        modeled_population='existing resolved V and junction length >=8; unchanged modeled feature columns',
+        modeled_population='resolved or flagged fixed co-locus V-loop template and junction length >=8; original receptor keys retained',
         mixture_source_sha256=sha256(Path(graph_mixture_weights.__code__.co_filename)),
         graph_scope='full-junction Hamming<=1; no indels',
         graph_node_unit='unique full junction', v_usage_unit='unique full junction/resolved V allele keys; gene-level categories',

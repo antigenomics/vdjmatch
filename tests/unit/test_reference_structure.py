@@ -233,10 +233,11 @@ def test_length_coverage_keeps_short_unknown_v_and_duplicate_records(tmp_path, m
     assert calls == [6]
     assert lengths.select('junction_length', 'valid_reference_records', 'modeled_reference_records',
                           'junctions', 'graph_edges', 'isolated_junctions').rows() == [
-        (4, 3, 0, 2, 1, 0), (13, 3, 2, 3, 2, 0), (14, 1, 1, 1, 0, 1)]
+        (4, 3, 0, 2, 1, 0), (13, 3, 3, 3, 2, 0), (14, 1, 1, 1, 0, 1)]
     assert lengths['mean_degree'].to_list() == [1., 4/3, 0.]
     assert lengths['isolated_fraction'].to_list() == [0., 0., 1.]
     full = pl.read_csv(str(prefix) + '.structures.tsv', separator='\t')
+    assert full['v_geometry_imputed_records'].item() == 1
     assert lengths['junctions'].sum() == full['hamming_junctions'].item()
     assert lengths['graph_edges'].sum() == full['hamming_graph_edges'].item()
 
