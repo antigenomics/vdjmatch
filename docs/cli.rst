@@ -1251,6 +1251,22 @@ use a flat ``score`` column projected from that statistic with its matching
 Reference population, exact policy, geometry, sources and model must match;
 the command provides null inputs and does not supply a precomputed cutoff.
 
+``paired-score`` exports a separate continuous linked-first candidate from a
+native paired selection, with no new search or fit:
+
+.. code-block:: bash
+
+   vdjmatch paired-score native.selection.tsv --input-manifest native.manifest.json \
+     --output-prefix linked-first
+
+Positive linked evidence supplies ``score``; otherwise the existing any-axis
+score retains marginal support. No supported axis gives an explicit no-score
+row. All original identities, component values and metadata remain unchanged.
+The reducer validates the native any-axis maximum and records input/output
+hashes. Its ``.scores.tsv`` is continuous ranking evidence, unlike the decision
+indicators from ``paired-labels``. It changes no default or label assignment;
+the existing any-axis call calibration does not apply to this candidate.
+
 The original scorer requires a matching raw ``--control`` repertoire for nonbundled
 species/loci. Its output
 includes continuous candidates, calls, full truth labels, calibration input and a

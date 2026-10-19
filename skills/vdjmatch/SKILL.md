@@ -362,6 +362,13 @@ emits a no-support row. This separate reducer preserves native evidence and the
 any-call scalar. Its `.scores.tsv` contains selected-label indicators only for
 `score-confusion`, never continuous AP/ROC evidence or calibrated confidence.
 
+`paired-score native.selection.tsv --input-manifest native.manifest.json --output-prefix NEW`
+exports the uncalibrated continuous linked-first candidate: positive linked score,
+otherwise native any-axis score for marginal rescue. It keeps original columns,
+IDs and explicit no-score rows, validates the native maxima and freezes file
+hashes. It changes neither labels nor defaults; existing any-axis calibration
+does not transfer. Default table budget is one thread.
+
 
 `repertoire-enrichment metadata.tsv --vdjdb RAW --control RAW_CONTROL` runs fresh
 per-repertoire Pgen/count-matched mocks and one V+Hamming1 native search. Preserve
