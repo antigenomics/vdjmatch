@@ -169,8 +169,9 @@ retained and ambiguous multiple chains require resolution before scoring.
 ``--locus auto`` infers populations; ``TRA``, ``TRB`` and ``paired`` select explicitly.
 The command retains exact evidence in ordinary annotation. ``--exclude-exact``
 filters exact hits for benchmarking; model populations, priors and graph weights stay fixed. Combine it
-with ``--reference-population curated-benchmark`` to reproduce the source-curated
-benchmark reference; ordinary annotation defaults to all valid observations.
+with the default ``--reference-population curated-benchmark`` for the manuscript
+primary reference view. Use ``--reference-population all-valid`` to reproduce the
+accepted all-valid baseline; the stem4 formula is unchanged.
 
 One-control complete-score mode
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

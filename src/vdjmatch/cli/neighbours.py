@@ -42,8 +42,8 @@ def register(subparsers, name='neighbours'):
     p.add_argument('--locus',choices=['TRA','TRB','paired'],required=True)
     p.add_argument('--species',default='HomoSapiens')
     p.add_argument('--reference-population',choices=['all-valid','curated-benchmark'],
-                   default='all-valid' if name=='annotate' else 'curated-benchmark',
-                   help='ordinary valid observations or the source-curated benchmark population')
+                   default='curated-benchmark',
+                   help='reference population (default: curated-benchmark); all-valid reproduces the accepted uncurated baseline')
     p.add_argument('--epitope',action='append')
     p.add_argument('--mhc-a')
     p.add_argument('--mhc-b')

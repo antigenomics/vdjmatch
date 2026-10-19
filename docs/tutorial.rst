@@ -5,6 +5,10 @@ Run one command, then rank candidate antigens with ``kernel_score``.
 A larger score means stronger reference evidence. A match decision additionally
 needs the matching calibration described in :doc:`explanation`.
 
+Version 0.6.0 uses the curated manuscript reference population by default.
+Pass ``--reference-population all-valid`` for the preserved all-valid baseline.
+Exact evidence remains included in ordinary annotation.
+
 Single-chain input
 ------------------
 

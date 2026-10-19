@@ -49,7 +49,13 @@ Permutation/matched-control envelopes are not Efron bootstrap CIs.
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)
 for advanced scorers. Run `vdjmatch annotate --help` to verify installed options.
-Use `vdjtools>=5.2.0` for ingestion and allocation-aware native thread validation.
+Use released `seqtree>=1.3.1` and `vdjtools>=5.2.2` for native search and ingestion.
+Version 0.6.0 defaults to `--reference-population curated-benchmark`, the manuscript
+primary population. Preserve `--reference-population all-valid` for the accepted
+all-valid baseline. Curation excludes KLGGALQAK and PMID 40498839 source records;
+exact hits remain included unless benchmark exclusion is explicitly requested.
+The stem4 scoring formula is unchanged; neither the resolved-first repair nor
+paired-score diagnostic is promoted by this reference-population change.
 
 ```sh
 vdjmatch annotate airr_directory/ --threads 4 -o annotation
