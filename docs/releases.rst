@@ -1,6 +1,15 @@
 Release notes
 =============
 
+0.6.1
+-----
+
+Fix the public Python annotation API's import order so a fresh process can set
+its Polars thread budget before importing the table runtime. The legacy
+``runner.annotate_sample`` export remains available through a lazy import.
+No environment-variable workaround is required for a fresh API call.
+The curated reference default, scoring formula and manuscript results are unchanged.
+
 0.6.0
 -----
 
