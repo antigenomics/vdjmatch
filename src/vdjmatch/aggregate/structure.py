@@ -106,7 +106,9 @@ def composition(records, junctions, *, include_punctures=True):
 
     seqs = junctions['cdr3'].to_list()
     lengths = np.array([len(s) for s in seqs], dtype=np.float64)
-    keys = records.select('cdr3','_allele').unique().with_columns(
+    identity = ([pl.when(pl.col('v_geometry_imputed')).then(pl.struct('v').struct.json_encode())
+        .otherwise(pl.col('_allele')).alias('_v_key')] if {'v', 'v_geometry_imputed'} <= set(records.columns) else [])
+    keys = records.select('cdr3','_allele',*identity).unique().with_columns(
         pl.col('_allele').str.split('*').list.first().alias('_gene'))
     counts = keys.group_by('_gene').len().sort('_gene')
     sizes = counts['len'].to_numpy().astype(float)

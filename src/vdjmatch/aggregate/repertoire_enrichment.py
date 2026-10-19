@@ -46,7 +46,10 @@ def matched_enrichment(observations, control, matches, targets, *, replicates=20
     if ctrl['event_weight'].max()>=10**9:raise ValueError('control event bin exceeds supported slot budget')
     obs=obs.with_columns(pl.col('query_id').cast(pl.Int64),pl.col('pgen_bin').cast(pl.Int64))
     ctrl=ctrl.with_columns(pl.col('query_id','pgen_bin').cast(pl.Int64)).sort('pgen_bin','query_id')
-    inventory=targets.unique().sort(columns,nulls_last=True).with_row_index('_target')
+    inventory=targets.unique(maintain_order=True)
+    if measure is None:
+        inventory=inventory.sort(columns,nulls_last=True)
+    inventory=inventory.with_row_index('_target')
     if measure is None:
         q=pl.concat([obs.select('query_id'),ctrl.select('query_id')]).unique().sort('query_id').with_row_index('_row')
         obs=obs.join(q,on='query_id',validate='m:1')

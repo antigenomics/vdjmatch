@@ -220,6 +220,8 @@ def _read_query(path, *, valid_aa, source, sequence_convention, raw=None):
         # Link aliases were removed above to select the canonical pair ID; retain
         # their original spellings and values as source identities too.
         frame = frame.with_columns(raw[c] for c in extras)
+    if 'locus' not in columns._resolve(raw) and 'locus' in frame.columns:
+        frame = frame.drop('locus')  # Infer only recognised chains, not UNKNOWN -> UNK.
     return columns.normalize_query(
         frame,
         valid_aa=valid_aa,

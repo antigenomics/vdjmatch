@@ -617,6 +617,8 @@ TRA/TRB axes retain existing NED ranking over all references, including unlinked
 observations. Label assignment retains every positive linked maximum peptide,
 falling back to the union of supported chain maxima only without linked support.
 Missing/invalid partners retain their valid marginal and explicit validity flags.
+Paired marginal selection requires explicit human or mouse species, even without
+calibration; ``--species any`` is rejected before input loading or search.
 
 This opt-in exports linked ``candidates``, ``TRA.candidates``, ``TRB.candidates``
 and ``calls`` tables with separate continuous axes and radius labels. It retains

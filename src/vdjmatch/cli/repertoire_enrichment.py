@@ -98,7 +98,7 @@ def main(a):
     valid=pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
     reference=reference.filter(valid & (pl.col('reference_valid') if a.reference_population=='curated-benchmark' else pl.lit(True))).with_columns(pl.lit(True).alias('reference_valid'))
     inventory=reference.select(PMHC).unique().sort(PMHC,nulls_last=True)
-    index=VdjdbIndex.build(reference);del reference
+    index=VdjdbIndex.build(reference,reference_population=a.reference_population);del reference
     stages['reference_seconds']=time.monotonic()-t
     target_index=inventory.with_row_index('_target')
     reports=[];summaries=[];mock_tables=[];audits=[];search_batches=0;search_keys=0;source_records=0

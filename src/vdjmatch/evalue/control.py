@@ -228,7 +228,7 @@ def impute_gene_calls(frame, *, species, locus, kinds=('v', 'j'), reference=None
         if frame[kind+'_imputed'].any():
             population=frame if reference is None else reference
             pool=population.select(genes.alias('_genes')).filter(pl.col('_genes').list.len()==1).select(pl.col('_genes').list.first().alias(kind)).filter(pl.col(kind).str.contains('^'+locus+kind.upper()+r'[A-Z0-9/.-]+$').fill_null(False))
-            replacement=_modal_gene(pool,kind,species=species,locus=locus,kind=kind)
+            replacement=_modal_gene(pool,kind,species=species,locus=locus,kind=kind).split('*')[0]
             frame=frame.with_columns(pl.when(valid).then(value).otherwise(pl.lit(replacement)).alias(kind))
         else:
             frame=frame.with_columns(value.alias(kind))

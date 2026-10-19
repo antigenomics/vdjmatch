@@ -44,6 +44,8 @@ def annotate_sample(
         raise ValueError("search_mode must be fixed, ball or unified")
     if search_mode != 'ball' and max_radius != 5:
         raise ValueError('max_radius applies only to ball mode')
+    if paired_marginals and species not in ('human','mouse','HomoSapiens','MusMusculus'):
+        raise ValueError('paired marginal scopes require explicit human or mouse species')
     if paired_marginals and (not paired or search_mode == 'unified'):
         raise ValueError('paired marginal scopes require paired fixed or ball mode')
     if search_mode == "ball" and paired and not paired_marginals:
@@ -153,6 +155,12 @@ def annotate_sample(
         return {"hits": hits, "candidates": c, "calls": calls,
                 "summary": c.group_by("radius", *PMHC).agg(pl.col("query_id").n_unique().alias("n_queries")),
                 "ingestion": pl.DataFrame([report])}
+    summary_parts = []
+    def summarize(hits):
+        if hits.height:
+            keys = [*PMHC, 'antigen_species', 'query_id', 'count',
+                'query_cdr3', 'query_v', 'query_j', 'query_locus']
+            summary_parts.append(hits.group_by(keys).agg(pl.col('score').min()))
     hits, c = ann._evidence(
         queries,
         params,
@@ -166,13 +174,15 @@ def annotate_sample(
         control=control,
         score_scale=400.0 if matrix is not None else 1.0,
         exclude_exact=exclude_exact,
+        retain_hits=retain_hits,
+        _hit_consumer=None if retain_hits else summarize,
     )
     calls = _append_calls(queries, queries, c, index.genes, "vdjmatch_")
     return {
         "hits": hits,
         "candidates": c,
         "calls": calls,
-        "summary": aggregate.epitope_summary(hits),
+        "summary": aggregate.epitope_summary(hits if retain_hits or not summary_parts else pl.concat(summary_parts)),
         "ingestion": pl.DataFrame([report]),
     }
 

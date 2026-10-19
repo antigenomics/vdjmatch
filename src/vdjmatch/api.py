@@ -209,6 +209,7 @@ class Annotator:
         exclude_epitopes=None,
         retain_hits=True,
         _prepare_consumer=False,
+        _hit_consumer=None,
     ):
         import math
 
@@ -305,6 +306,8 @@ class Annotator:
             def consume(h):
                 if exclude_epitopes is not None:
                     h = h.join(exclude_epitopes, on=['query_id', 'epitope'], how='anti')
+                if _hit_consumer is not None:
+                    _hit_consumer(h)
                 for radius in radii if radii is not None else [None]:
                     distance = pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") + pl.col("n_dels")
                     selected = h if radius is None else h.filter(distance <= radius)

@@ -127,7 +127,8 @@ def normalize_query(
         else:
             df = df.with_columns(pl.col(col).cast(pl.String))
     if "locus" not in df.columns:
-        df = df.with_columns(pl.col("v").str.slice(0, 3).alias("locus"))
+        prefix = pl.col('v').str.to_uppercase().str.slice(0, 3)
+        df = df.with_columns(pl.when(prefix.is_in(['TRA','TRB','TRG','TRD','IGH','IGK','IGL'])).then(prefix).otherwise(None).alias('locus'))
     else:
         df = df.with_columns(pl.col("locus").cast(pl.String).str.to_uppercase())
     if "count" not in df.columns:

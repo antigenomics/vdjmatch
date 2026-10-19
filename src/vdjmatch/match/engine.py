@@ -42,7 +42,8 @@ class VdjdbIndex:
         self.reference = reference
 
     @classmethod
-    def build(cls, df: pl.DataFrame, species: str | None = None) -> "VdjdbIndex":
+    def build(cls, df: pl.DataFrame, species: str | None = None, *, reference_population='curated-benchmark') -> "VdjdbIndex":
+        """Build the declared fixed population; all-valid bypasses source curation only."""
         df = schema.normalize(df).with_columns(
             pl.col("vdjdb_score").cast(pl.Int64, strict=False).fill_null(0)
         )
@@ -52,6 +53,10 @@ class VdjdbIndex:
                     "reference has no species metadata; use species=None explicitly"
                 )
             df = df.filter(pl.col("species") == species)
+        if reference_population not in ('curated-benchmark', 'all-valid'):
+            raise ValueError('unknown reference population')
+        if reference_population == 'all-valid':
+            df = df.with_columns(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('reference_valid'))
         all_records = df
         df = df.filter(pl.col("reference_valid"))
         # Observation IDs stay distinct from sequence search keys, including custom frames.
@@ -190,7 +195,7 @@ class VdjdbIndex:
             # Keep every source row, including duplicates; only unused metadata
             # columns are omitted before the many-observation hit expansion.
             records = records.select('cdr3', 'v', 'j', 'epitope', 'mhc_a', 'mhc_b',
-                'mhc_class', 'reference_id', 'vdjdb_score')
+                'mhc_class', 'reference_id', 'vdjdb_score', 'antigen_species')
         q = q.filter(
             pl.col("cdr3").is_not_null()
             & pl.col("cdr3").str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$")

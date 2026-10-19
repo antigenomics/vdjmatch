@@ -27,17 +27,20 @@ def test_exact_bin_count_matching_and_both_endpoints():
         matched_enrichment(observations,control.filter(pl.col("query_id")!=4),hits,targets,replicates=200)
 
 
-@pytest.mark.parametrize("mismatches,missing_metadata",[(0,False),(1,False),(0,True)])
+@pytest.mark.parametrize("mismatches,missing_metadata",[(0,False),(1,False),(0,True),(0,"unknown")])
 def test_repertoire_enrichment_cli_end_to_end(tmp_path,mismatches,missing_metadata):
     import os,subprocess,sys,json
     from pathlib import Path
     sample=tmp_path/"sample.tsv"
     sample.write_text("junction_aa\tv_call\tj_call\tlocus\tduplicate_count\nCASSF\tTRBV2\tTRBJ1-1\tTRB\t3\nCASSF\tTRBV2\tTRBJ1-1\tTRB\t4\n")
     if missing_metadata:
-        sample.write_text(sample.read_text().replace('CASSF\tTRBV2\tTRBJ1-1\tTRB\t4','CASSF\t\tTRBJ1-1\t\t4'))
+        replacement='UNKNOWN' if missing_metadata=='unknown' else ''
+        sample.write_text(sample.read_text().replace('CASSF\tTRBV2\tTRBJ1-1\tTRB\t4',f'CASSF\t{replacement}\tTRBJ1-1\t\t4'))
     metadata=tmp_path/"samples.tsv";metadata.write_text("sample_id\tpath\nS0\tsample.tsv\n")
     control=tmp_path/"control.tsv";control.write_text("junction_aa\tv\tj\toccurrences\nCASSF\tTRBV2\tTRBJ1-1\t100\n")
     reference=tmp_path/"reference.tsv";reference.write_text("cdr3\tgene\tv\tj\tspecies\tepitope\tmhc_a\tmhc_b\tmhc_class\nCASSF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tLLWNGPMAV\tHLA-A*02:01\tB2M\tMHCI\n")
+    if missing_metadata=='unknown':
+        reference.write_text(reference.read_text().replace('LLWNGPMAV','KLGGALQAK'))
     prefix=tmp_path/"fresh"
     command=[sys.executable,"-m","vdjmatch.cli","repertoire-enrichment",str(metadata),"--vdjdb",str(reference),"--control",str(control),"--threads","1","--pgen-mismatches",str(mismatches),"--output-prefix",str(prefix)]
     r=subprocess.run(command,text=True,capture_output=True,timeout=60)
@@ -50,7 +53,7 @@ def test_repertoire_enrichment_cli_end_to_end(tmp_path,mismatches,missing_metada
     assert manifest["automatic_detection_threshold"] is None
     assert manifest["pgen_mismatches"]==mismatches
     ingestion=pl.read_csv(str(prefix)+".ingestion.tsv",separator="\t")
-    assert ingestion["selected_records"].item()==2 and ingestion["imputed_v_records"].item()==int(missing_metadata)
+    assert ingestion["selected_records"].item()==2 and ingestion["imputed_v_records"].item()==int(bool(missing_metadata))
 
 
 def test_tcr_source_counts_are_exact(tmp_path):
