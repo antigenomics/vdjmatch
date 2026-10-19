@@ -1,11 +1,36 @@
 """Synthetic cohort collection and identity restoration; no scientific computation."""
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import polars as pl
 import pytest
 
 from vdjmatch.runner.annotation import annotate_repertoires
+
+
+def test_public_api_starts_without_thread_environment(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    code = """
+import sys
+from vdjmatch import annotate_repertoires
+assert 'polars' not in sys.modules
+result = annotate_repertoires(sys.argv[1], reference=sys.argv[2], output_prefix=sys.argv[3])
+assert result['queries'].height == 2
+assert result['manifest']['reference_population'] == 'curated-benchmark'
+from vdjmatch.runner import annotate_sample
+assert callable(annotate_sample)
+"""
+    env = {k: v for k, v in os.environ.items() if k not in {
+        'POLARS_MAX_THREADS', 'OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS',
+        'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'}}
+    result = subprocess.run([sys.executable, '-c', code,
+        str(root / 'examples/inputs/cohort/sample_a.tsv'),
+        str(root / 'examples/inputs/reference.tsv'), str(tmp_path / 'fresh')],
+        env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
 
 
 def table(path, *, locus="TRB", paired=False):
