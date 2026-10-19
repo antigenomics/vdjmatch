@@ -131,7 +131,7 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
     from ..api import _prepare
     from ..aggregate.candidates import PMHC
     from ..evalue.kernel import grouped_kernel_selection, finish_kernel_selection, ladder_cutoffs
-    from ..match.geometry import precompute_v_loop_distances, resolve_v_alleles
+    from ..match.geometry import precompute_v_loop_distances, impute_reference_v_alleles
 
     species = {'HomoSapiens': 'human', 'MusMusculus': 'mouse'}.get(args.species)
     if species is None:
@@ -140,26 +140,31 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
     matrix_scale = context['distance_units'][0]
     radius = 22.5 * matrix_scale
     model = context['model']
+    raw = raw.with_columns(impute_reference_v_alleles(raw['v'], model, locus=args.locus)[1])
     allowed = [v for v, m in model.items() if m['locus'] == args.locus]
     def prepare(frame):
-        return frame.with_columns(resolve_v_alleles(frame['v'], model, locus=args.locus).alias('_allele')).filter(
+        alleles, imputed = impute_reference_v_alleles(frame['v'], model, locus=args.locus)
+        return frame.with_columns(alleles.alias('_allele'), imputed).with_columns(
+            pl.when(pl.col('v_geometry_imputed')).then(pl.struct('v').struct.json_encode())
+                .otherwise(pl.col('_allele')).alias('_v_key')).filter(
             pl.col('_allele').is_in(allowed) & (pl.col('cdr3').str.len_chars() >= 8))
     _, q = _prepare(raw)
     q = prepare(q)
-    query_keys = ['cdr3', '_allele']
+    search_keys = ['cdr3', '_allele', '_v_key']
+    query_keys = search_keys.copy()
     withheld = None
     if args.leave_epitope_out:
         withheld = '_withheld_epitope'
         q = q.join(raw.select('query_id', pl.col('epitope').alias(withheld)), on='query_id', validate='1:1')
         query_keys.append(withheld)
-    r = prepare(valid).unique(['cdr3', '_allele', *PMHC], maintain_order=True)
+    r = prepare(valid).unique([*search_keys, *PMHC], maintain_order=True)
     groups = [(dict(zip(PMHC, task)), q, part) for task, part in r.group_by(PMHC, maintain_order=True)]
     geometry = dict(species=species, threads=args.threads, ctrim=3, v_loop_weight=1,
         alphabet='full', stem_depth=4, stem_weight=1.0, matrix='blosum62',
         exclude_exact=getattr(args, 'exact_policy', 'exclude') == 'exclude',
         v_regions='cdr12plus', position_weighting='uniform')
     state, hit_ids = grouped_kernel_selection(q, r, groups, query_keys=query_keys,
-        search_keys=['cdr3', '_allele'], paired=False, cutoffs=ladder_cutoffs(matrix_scale),
+        search_keys=search_keys, paired=False, cutoffs=ladder_cutoffs(matrix_scale),
         radius=radius, kernel_scale=radius, scorer='v-bounded', withheld_column=withheld,
         v_loop_distances=context, **geometry)
     selection = finish_kernel_selection(q.select('query_id'), state)
@@ -167,9 +172,9 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
         pl.col('query_id').is_in(q['query_id'].implode()).alias('available'))
     empty_fold_ids = []
     if withheld and r.height:
-        exclusive = r.group_by('cdr3', '_allele').agg(pl.col('epitope').n_unique().alias('_labels'),
+        exclusive = r.group_by(search_keys).agg(pl.col('epitope').n_unique().alias('_labels'),
             pl.col('epitope').first()).filter(pl.col('_labels') == 1).group_by('epitope').len()
-        empty_peptides = exclusive.filter(pl.col('len') == r.unique(['cdr3', '_allele']).height)['epitope']
+        empty_peptides = exclusive.filter(pl.col('len') == r.unique(search_keys).height)['epitope']
         empty_fold_ids = raw.filter(pl.col('epitope').is_in(empty_peptides.implode()))['query_id'].to_list()
     calls = calls.with_columns(
         pl.when(~pl.col('available')).then(pl.lit('invalid_query_or_gene'))
@@ -205,11 +210,13 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
         source_sha256=source_hashes, model_sha256=hashlib.sha256(json.dumps(model, sort_keys=True, default=str).encode()).hexdigest(),
         options=vars(args) | {'func': 'reference-calls'}, source_records=reference.height,
         valid_reference_records=valid.height, excluded_reference_records=reference.height-valid.height,
-        searchable_reference_records=r.height, searchable_reference_keys=r.unique(['cdr3','_allele']).height,
+        searchable_reference_records=r.height, searchable_reference_keys=r.unique(search_keys).height,
         eligible_benchmark_records=benchmark.height, ineligible_benchmark_records=valid.height-benchmark.height,
         eligible_benchmark_peptides=eligible.height, all_reference_peptides=support.height, queries=raw.height,
         available_queries=q.height, geometry=geometry | {'radius':radius, 'kernel_scale':radius, 'cutoffs':ladder_cutoffs(matrix_scale),
             'cross_v':.25, 'floor':.01, 'scorer':'v-bounded', 'matrix_scale':matrix_scale},
+        v_geometry_imputed_reference_keys=int(r['v_geometry_imputed'].sum()),
+        missing_v_policy='fixed first complete co-locus template; original V keys retained with geometry imputation flags',
         selection='maximum restriction per peptide, then maximum peptide; exact score ties remain ambiguous',
         reference_population=args.reference_population,
         target_support_rule='valid source records per species/locus/peptide before exclusion; MHC pooled only for eligibility',
@@ -237,7 +244,7 @@ def _stem4_paired(args,reference,valid,started):
     from ..aggregate.candidates import PMHC
     from ..evalue.paired import build_paired_ref
     from ..evalue.kernel import grouped_kernel_selection,finish_kernel_selection,ladder_cutoffs
-    from ..match.geometry import precompute_v_loop_distances,resolve_v_alleles
+    from ..match.geometry import precompute_v_loop_distances,impute_reference_v_alleles
     from .calibration import PAIRED_STATISTIC,paired_call_event,paired_pipeline_sources
 
     valid=valid.filter(pl.col('gene').is_in(['TRA','TRB']))
@@ -250,13 +257,19 @@ def _stem4_paired(args,reference,valid,started):
     truth=raw.join(benchmark,on=keys,nulls_equal=True,validate='1:m').select('query_id','complex_id',*PMHC).unique()
     species={'HomoSapiens':'human','MusMusculus':'mouse'}[args.species]
     context=precompute_v_loop_distances(species=species,matrix='blosum62');model=context['model']
+    for name, locus in [('alpha', 'TRA'), ('beta', 'TRB')]:
+        raw=raw.with_columns(impute_reference_v_alleles(raw['v_'+name], model, locus=locus)[1].alias('v_geometry_imputed_'+name))
     matrix_scale=context['distance_units'][0]
     radius=22.5*matrix_scale
     geometry=dict(species=species,threads=args.threads,ctrim=3,v_loop_weight=1,alphabet='full',
         stem_depth=4,stem_weight=1.,matrix='blosum62',exclude_exact=args.exact_policy=='exclude',
         v_regions='cdr12plus',position_weighting='uniform')
     def resolve(frame,seq,v,locus,allele):
-        return frame.with_columns(resolve_v_alleles(frame[v],model,locus=locus).alias(allele)).filter(
+        alleles, imputed = impute_reference_v_alleles(frame[v], model, locus=locus)
+        flag = 'v_geometry_imputed_'+('alpha' if locus=='TRA' else 'beta')
+        return frame.with_columns(alleles.alias(allele), imputed.alias(flag)).with_columns(
+            pl.when(pl.col(flag)).then(pl.struct(pl.col(v).alias('v')).struct.json_encode())
+                .otherwise(pl.col(allele)).alias(allele+'_key')).filter(
             pl.col(allele).is_not_null() & pl.col(seq).str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$').fill_null(False))
     def score(q,r,query_keys,search_keys,paired):
         groups=[(dict(zip(PMHC,task)),q,part) for task,part in r.group_by(PMHC,maintain_order=True)]
@@ -280,9 +293,9 @@ def _stem4_paired(args,reference,valid,started):
     q=raw.rename({'alpha':'cdr3a','beta':'cdr3b'}).with_columns(pl.col('epitope').alias('_withheld_epitope'))
     linked_q=resolve(resolve(q,'cdr3a','v_alpha','TRA','_allelea'),'cdr3b','v_beta','TRB','_alleleb')
     linked_r=resolve(resolve(pairs,'alpha','v_alpha','TRA','_allele_alpha'),'beta','v_beta','TRB','_allele_beta')
-    linked_keys=['alpha','beta','_allele_alpha','_allele_beta']
+    linked_keys=['alpha','beta','_allele_alpha','_allele_beta','_allele_alpha_key','_allele_beta_key']
     linked_r=linked_r.unique([*linked_keys,*PMHC],maintain_order=True)
-    calls=raw.join(score(linked_q,linked_r,['cdr3a','cdr3b','_allelea','_alleleb'],linked_keys,True),
+    calls=raw.join(score(linked_q,linked_r,['cdr3a','cdr3b','_allelea','_alleleb','_allelea_key','_alleleb_key'],linked_keys,True),
         on='query_id',validate='1:1',maintain_order='left').rename({'selected_epitope':'selected_linked_epitope',
             'selection_status':'linked_selection_status','available':'linked_available','status':'linked_status'})
     axis_counts=dict(linked=dict(reference_keys=linked_r.unique(linked_keys).height,available_queries=linked_q.height))
@@ -290,14 +303,14 @@ def _stem4_paired(args,reference,valid,started):
         chain_q=q.select('query_id',pl.col('cdr3'+suffix).alias('cdr3'),pl.col('v_'+name).alias('v'),'_withheld_epitope')
         chain_q=resolve(chain_q,'cdr3','v',locus,'_allele')
         chain_r=resolve(valid.filter(pl.col('gene')==locus),'cdr3','v',locus,'_allele').unique(
-            ['cdr3','_allele',*PMHC],maintain_order=True)
-        lane=score(chain_q,chain_r,['cdr3','_allele'],['cdr3','_allele'],False)
+            ['cdr3','_allele','_allele_key',*PMHC],maintain_order=True)
+        lane=score(chain_q,chain_r,['cdr3','_allele','_allele_key'],['cdr3','_allele','_allele_key'],False)
         lane=lane.rename({c:('kernel_'+name+'_score' if c=='kernel_score' else
             'kernel_'+name+'_competing_score' if c=='kernel_competing_score' else
             'selected_'+name+'_epitope' if c=='selected_epitope' else name+'_'+c)
             for c in lane.columns if c!='query_id'})
         calls=calls.join(lane,on='query_id',validate='1:1',maintain_order='left')
-        axis_counts[name]=dict(reference_keys=chain_r.unique(['cdr3','_allele']).height,available_queries=chain_q.height)
+        axis_counts[name]=dict(reference_keys=chain_r.unique(['cdr3','_allele','_allele_key']).height,available_queries=chain_q.height)
     calls=calls.with_columns(pl.max_horizontal('kernel_score','kernel_alpha_score','kernel_beta_score').alias('kernel_any_axis_score'),
         pl.any_horizontal('linked_available','alpha_available','beta_available').alias('available'))
     cases=calls.select('query_id',pl.col('kernel_any_axis_score').alias('score'),'kernel_any_axis_score',
@@ -322,6 +335,7 @@ def _stem4_paired(args,reference,valid,started):
         excluded_reference_records=reference.height-valid.height,query_pairs=raw.height,axis_populations=axis_counts,
         eligible_benchmark_peptides=eligible.height,genuine_reference_pairs=pairs.height,
         native_population_batches=sum(x['reference_keys']>0 and x['available_queries']>0 for x in axis_counts.values()),
+        missing_v_policy='fixed first complete co-locus template; original V keys retained with geometry imputation flags',
         geometry=geometry|dict(radius=radius,kernel_scale=radius,cutoffs=ladder_cutoffs(matrix_scale),cross_v=.25,floor=.01,
             scorer='v-bounded',matrix_scale=matrix_scale),reference_population=args.reference_population,
         selection='maximum restriction per peptide, then maximum peptide; exact score ties remain ambiguous',

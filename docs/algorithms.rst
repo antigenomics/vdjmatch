@@ -73,8 +73,11 @@ profile, remove study/ascertainment bias or calibrate selected query calls.
 Effects and null maxima are shown even when support is absent.
 
 The two support flags define V-and-motif, V-only, motif-only and no-supported-axis
-leaves. Missing background, unresolved V and inadequate distinct support remain
-unclassified. A small effect measured precisely can pass its noise test while
+leaves. Missing V is assigned reproducibly from the same population's resolved
+gene frequencies before label shuffling, independently of target membership;
+original key identities and missingness counts remain fixed. With no resolved
+V, one neutral missing category carries no V-usage signal. Missing background
+and inadequate distinct support remain unclassified. A small effect measured precisely can pass its noise test while
 remaining weak for prediction. Neighbour coverage and edit-one pair-density
 enrichment are separate structural descriptors; pair counts share vertices and
 are not independent binomial observations.

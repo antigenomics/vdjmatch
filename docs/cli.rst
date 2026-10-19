@@ -88,8 +88,14 @@ respective exchangeability nulls. This is not a database-wide guarantee or
 binding-score calibration. See :doc:`algorithms` for definitions.
 
 The decision leaves are ``v_and_motif``, ``v_only``, ``motif_only`` and
-``no_supported_axis``. Insufficient source records, unresolved V calls, fewer
-than two distinct keys or missing other-peptide background remain explicit.
+``no_supported_axis``. Missing V calls are imputed once per original distinct
+junction/V key from resolved-gene frequencies within the same species/locus,
+using a fixed seed0 stream independent of epitope labels. Original calls, key
+identities and unresolved-key counts/fractions are retained; imputation never
+merges original keys. A wholly unresolved population uses one neutral missing
+category, providing no invented V-usage signal. Missing V does not veto classes.
+Insufficient source records, fewer than two distinct keys or missing
+other-peptide background remain explicit.
 The selected motif's observed counts, raw/excess bits, null mean/maximum and
 Monte Carlo tail are included alongside each decision. V concentration and
 neighbour density remain descriptive, without a binary concentration/enrichment
@@ -319,8 +325,9 @@ ranking. Reference and background loading errors propagate.
    * - ``--link``
      - Source linkage column for paired rows, such as ``cell_id``.
    * - ``--match-v`` / ``--match-j``
-     - Require matching V/J calls; sequence-only control calibration cannot support
-       these predicates, so combine with ``--no-evalue``. Paired matching rejects
+     - Require matching V/J genes. Supply gene-labelled raw ``--control`` tables
+       for calibration, or use ``--no-evalue``. Sequence-only controls cannot
+       calibrate these predicates. Paired matching rejects
        both flags until chain-specific V/J predicates are supported.
    * - ``--no-evalue``
      - Use explicitly uncalibrated ranking without requesting a background.
@@ -582,8 +589,10 @@ hashes, counts, software versions and separate build/search/rescoring times.
 Graded neighbourhood annotation
 -------------------------------
 
-``--search-mode ball`` reports five fixed edit balls (radii 1–5). Unit-cost
-balls share one radius-5 native batch per locus and control. Weighted scoring
+``--search-mode ball`` reports fixed edit balls through ``--max-radius``
+(default 5, permitted values 1–5). ``--max-radius 3`` limits substitutions,
+insertions and deletions together to three per chain and reports radii 1–3.
+Unit-cost balls share one native batch at the declared maximum. Weighted scoring
 uses one complete query batch per radius: its best alignment can use more edits
 than the minimum-edit alignment, so a broad weighted hit cannot simply be
 filtered into smaller balls. Each ball permits at most two insertions/deletions
@@ -595,17 +604,55 @@ P-value. Ball output can be large and does not include fixed-mode CIGAR strings.
 .. code-block:: bash
 
    vdjmatch match queries.tsv --vdjdb reference.zip --search-mode ball \
-     --threads 4 --output-prefix results/balls
+     --max-radius 3 --threads 4 --output-prefix results/balls
    vdjmatch match cells.tsv --vdjdb reference.zip --paired --scope 3,1,1,3 \
      --threads 4 --output-prefix results/paired
 
-Paired receptors currently use fixed mode with an explicit edit scope. Graded
-paired balls require a separately validated joint calibration before use.
+Paired matching retains its linked-only fixed-mode default. The explicit
+``--paired-marginals`` opt-in adds fixed scopes and graded balls for unit,
+hard-V unit, weighted and hard-V weighted families. Each chain receives the
+same declared budget; paired ball radius is ``max(edits_alpha, edits_beta)``.
+The linked axis retains the existing unique-junction-pair exponential mass;
+TRA/TRB axes retain existing NED ranking over all references, including unlinked
+observations. Label assignment retains every positive linked maximum peptide,
+falling back to the union of supported chain maxima only without linked support.
+Missing/invalid partners retain their valid marginal and explicit validity flags.
+Paired marginal selection requires explicit human or mouse species, even without
+calibration; ``--species any`` is rejected before input loading or search.
+
+This opt-in exports linked ``candidates``, ``TRA.candidates``, ``TRB.candidates``
+and ``calls`` tables with separate continuous axes and radius labels. It retains
+no detailed hit table. Linked E-values and final selection E/P fields remain null;
+``uncalibrated_paired_scope_selection`` identifies the final event. Marginal
+fixed-predicate calibration is reported only on its own axis and never transferred
+to linked or selected evidence. Final independent-pair empirical calibration
+remains required; these outputs do not establish a calibrated paired detector.
+The native build must provide ``Index.search_paired_batch_consume`` with
+``skip_empty``. Compatible finite-cap controls use existing histograms; custom
+control adapters and other geometries can retain materialized control hits.
+
+.. code-block:: bash
+
+   vdjmatch match cells.tsv --vdjdb reference.zip --paired --paired-marginals \
+     --search-mode ball --max-radius 3 --matrix none --match-v --no-evalue --no-hit-table \
+     --output-prefix results/paired-v-unit
+
 Both fixed and graded single-chain modes accept ``--match-v`` and ``--match-j``
-with ``--no-evalue``. Gene matching strips allele suffixes and preserves IMGT
-slash-containing gene names. Reference sizes follow the same gene predicates.
-Sequence-only controls cannot calibrate these restrictions; calibrated requests
-fail explicitly. Repertoire-level statistical inference remains future work.
+with an explicitly gene-labelled raw ``--control`` table or ``--no-evalue``.
+Gene matching pools allele suffixes and preserves IMGT slash-containing names;
+ambiguous genes are not reduced to the first call. Missing/ambiguous genes use
+label-independent observed modes (bundled model modes when no calls exist),
+with original calls and imputation flags retained for every query, including no-hits.
+Supplied control species/locus and known gene locus select the population before
+imputation. Distinct full junctions within each gene predicate define fixed control
+sizes; abundance is ignored, and exact-hit filtering does not decrement model sizes.
+One native histogram batch per gene-conditioned population supplies control counts.
+Reference sizes follow the identical gene predicates. Sequence-only controls remain
+rejected for this calibration. Paired hard-gene predicates require the explicit
+``--paired-marginals`` opt-in; their linked and selected-event calibration remains
+unavailable.
+These fixed-ball E-values describe expected neighbour counts, not final selected-label
+false-call probabilities; final-call calibration is a separate procedure.
 
 The experimental fixed-K annotation mode and ``--top-k`` option have been
 removed from the CLI and sample runner. The lower-level
@@ -943,11 +990,19 @@ TRA/TRB roles. It sums alpha and beta distances against the same linked database
 receptor; ``--radius`` applies to that sum. Exact exclusion removes a reference
 only when both full junctions match. Original independent marginal minima must
 be computed from separate full single-chain reference pools; they are a distinct
-baseline. Paired output retains missing partners and unavailable gene calls.
+baseline. Paired output retains missing partners and original gene calls.
+
+Unresolved V calls use the lexically first complete co-locus loop template
+from the fixed species model. The template does not depend on queries, mocks
+or target labels. Original calls remain in the output with
+``v_geometry_imputed`` flags (one flag per chain for paired inputs).
+Distinct unresolved source keys remain distinct when their geometry coincides
+with a supplied template allele. Invalid junctions and missing paired partners
+retain their existing unavailable dispositions.
 
 ``--targets-from-sample`` selects compatible declared restrictions and counts
 unique junction/V search keys within their union. Query status distinguishes
-missing references, unavailable sequence/gene inputs, and searches without
+missing references, unavailable sequence inputs, and searches without
 neighbours. Explicit ``--epitope``, ``--mhc-a`` and ``--mhc-b`` selectors support
 ``--mhc-match compatible``; exact selection remains the default.
 
@@ -1169,6 +1224,8 @@ Only ``--calibration-score score`` is compatible; component E/P values cannot
 calibrate this final scalar. Its outputs are calls, calibration cases, truth,
 source-record target support and a geometry/model/source-hashed manifest.
 Calibration must bind this scorer, selection and reference policy.
+Unresolved V calls use the same fixed co-locus template as ``neighbours``;
+calls retain original V identities and geometry-imputation flags.
 
 Paired reference nulls require both ``--locus paired`` and
 ``--leave-epitope-out`` with ``--scorer stem4``. Queries retain genuine TRA/TRB
@@ -1195,6 +1252,22 @@ use a flat ``score`` column projected from that statistic with its matching
 ``--input-manifest``. A paired recipe rejects the linked ``kernel_score``.
 Reference population, exact policy, geometry, sources and model must match;
 the command provides null inputs and does not supply a precomputed cutoff.
+
+``paired-score`` exports a separate continuous linked-first candidate from a
+native paired selection, with no new search or fit:
+
+.. code-block:: bash
+
+   vdjmatch paired-score native.selection.tsv --input-manifest native.manifest.json \
+     --output-prefix linked-first
+
+Positive linked evidence supplies ``score``; otherwise the existing any-axis
+score retains marginal support. No supported axis gives an explicit no-score
+row. All original identities, component values and metadata remain unchanged.
+The reducer validates the native any-axis maximum and records input/output
+hashes. Its ``.scores.tsv`` is continuous ranking evidence, unlike the decision
+indicators from ``paired-labels``. It changes no default or label assignment;
+the existing any-axis call calibration does not apply to this candidate.
 
 The original scorer requires a matching raw ``--control`` repertoire for nonbundled
 species/loci. Its output
@@ -1270,6 +1343,9 @@ The strongest confirmed normalized Kneedle bend wins. Outputs ``.radii.tsv``,
 junction/resolved-V keys define the search population; paired mode uses genuine
 linked receptors and the summed distance to the same reference pair. Source
 observation counts and unavailable keys remain explicit.
+Unresolved V calls receive the fixed co-locus template used by ``neighbours``.
+The nearest-distance table retains ``original_v0`` (and ``original_v1`` for
+pairs) and geometry-imputation flags; imputation does not merge original keys.
 
 Use ``--matrix blosum62`` for full BLOSUM62 costs; the default remains
 ``clipped``. The selected matrix supplies junction and V-loop costs, gaps,
@@ -1799,10 +1875,13 @@ one row per full-pMHC/species/locus/segment and length scope:
 
 Here :math:`G` is V or J, :math:`L` is anchor-inclusive junction length,
 :math:`P_e` is the target distribution and :math:`P_0` the empirical control.
-V and J are separate projections. Counts include all original mass; unresolved
-genes or zero/missing control support leave affected expectations null, with
-``unresolved_comparison_keys``, ``unavailable_length_keys`` and
-``information_status`` explaining coverage. Missing MHC fields remain explicit
+V and J are separate projections. Counts include all original mass. Missing/nonfinite pointwise gene or length
+contributions receive neutral zero-bit imputation, retaining per-row
+``gene_bits_imputed``/``length_bits_imputed`` flags and original
+``unresolved_comparison_keys``/``unavailable_length_keys`` counts. The summary
+status is ``available_neutral_imputation`` when needed; other contributions
+remain usable. The displayed KL identities apply to fully observed estimates;
+imputed summaries are neutral-filled descriptive contributions. Missing MHC fields remain explicit
 context values. Reference/key/control counts and the sampling units are retained.
 These descriptive information estimates do not select a score or supply a
 P-value. See :doc:`selection-information` for the likelihood and chain-rule
@@ -1971,6 +2050,9 @@ occurrence coverage at exact-clonotype and Leiden-community resolution:
 
 ``DEMO`` and radius 40 illustrate syntax; the command does not select a
 scientific radius or a sufficiency cutoff. Supply the intended graph scale.
+``--membership-budget-bytes 0`` disables the optional estimated raw/mock
+membership abort; its default is 2 GiB. This budget does not change graph
+membership, mock draws or reported statistics.
 The edit graph uses the declared substitution/insertion/deletion/total budgets;
 insertion and deletion budgets must be symmetric for an undirected graph.
 SW uses full local BLOSUM62 alignment independently for the full junction and
@@ -1978,8 +2060,8 @@ the selected germline CDR1/CDR2/CDR2.5 loops, summing
 ``SW(a,a)+SW(b,b)-2*SW(a,b)`` across loops. ``--cdr-loops cdr12`` omits CDR2.5;
 ``junction`` explicitly requests junction-only SW. There is no trimming, stem4
 or bounded-kernel substitution. Germline templates reuse the existing allele
-resolver; unresolved/invalid loop templates retain exact-clonotype counts and
-unavailable community memberships, with modeled/unavailable counts reported. Gaps cost
+resolver and flagged complete co-locus V-template imputation. Original V calls
+and clonotype identities remain retained alongside the imputation flags. Gaps cost
 ``gap_open+(length-1)*gap_extend`` in raw BLOSUM62 score units.
 
 Vertices are distinct full-junction/V-call/J-call keys, with supplied alleles
@@ -2164,9 +2246,12 @@ vdjmatch reference-rule-scores
 ------------------------------
 
 Rebuild all 15 retained fixed-rule scores from raw VDJdb for one species and
-chain, pooling MHC by epitope. Eligibility uses valid source records before
+chain (or genuine paired receptors with ``--locus paired``), pooling MHC by
+epitope. Eligibility uses valid source records before
 exact-hit filtering; sparse labels remain search candidates. Models remain
-fixed, and missing model support retains explicit query dispositions.
+fixed. Unresolved V calls receive the fixed co-locus template used by
+``neighbours``, with original V/J query identities and imputation flags retained.
+Unavailable junctions and absent linked target populations remain explicit.
 
 .. code-block:: sh
 
@@ -2182,8 +2267,63 @@ rejected. Add ``--components --germline-background PRIOR`` for the six retained
 single-chain components (21 scorers total). Supply the accepted matching density
 ``--control`` except for the bundled human TRB control; the prior is always
 explicit. These raw model inputs are hashed before and after scoring.
-This command covers single chains; it does not establish paired
-fusion, final-call calibration or the complete manuscript resource gate.
+Add ``--kernel-only`` to export just the six retained current stem4 kernel
+alternatives from one native traversal, using the fixed VDJdb-other background.
+This skips the fixed rules and historical components. The geometry is unchanged:
+BLOSUM62, trim3 junction ends, stem depth4 and the standard kernel ladder.
+These are continuous relative evidence scores; they have no transferred
+P-value or E-value calibration. All six exports exactly match the detailed
+``neighbours`` CLI under the same MHC-pooled population.
+
+For a baseline-preserving candidate, add ``--v-model-policy resolved-first``
+with ``--kernel-only``. Queries whose original V calls resolve use the fixed
+original resolved-allele reference population; queries with unresolved V calls
+use the fixed extended imputed population. Paired queries require both original
+V calls to resolve for the first model. Original query identities, every eligible
+case and explicit unsupported target models remain in the exports. Synthetic
+fallback alleles therefore cannot alter established resolved-query rankings.
+This deliberately forgoes unresolved-reference support for resolved queries.
+Each population uses one native batch; neither model is refitted per query.
+The default remains ``extended``. The manifest records the policy; existing
+extended-model final-call calibration does not apply to ``resolved-first``.
+
+``--class-policy MODEL/reference-policy.tsv`` exports only the experimental
+``reference_class_policy`` scorer. It is exclusive with ``--components`` and
+``--kernel-only``. The sibling ``manifest.json`` must bind the policy table hash,
+its reference-only provenance, the existing ``FAST_ROUTES`` and the same raw
+reference identity. Both model files are hashed before and after fresh scoring.
+The annotation default is unchanged; no query labels fit or tune these routes.
+
+Existing fixed-rule and kernel traversals supply V and core-exact3 scores plus
+``kernel_v_bounded`` as the configured default. The unchanged
+``apply_reference_policy`` selects V for ``v_only``, exact3/V for ``motif_only``,
+exact3 for ``v_and_motif`` and the configured default otherwise. Missing tail
+profiles, unavailable components and paired routes retain the existing finite
+default behavior. Kernel zero/no-hit support stays unchanged. No cross-axis
+fusion or component P/E transfer is introduced; final calibration remains open.
+
+Every valid tail model participates in winner selection. Eligibility restricts
+query sampling and continuous exports, so an unprofiled tail can win or tie
+against primary labels. Continuous parts include ``reference_class``,
+``selected_score_column`` and ``policy_status``; ``.policy-audit.tsv`` counts
+these states over all query/target coordinates, including tails and unavailable
+models. Only routed component columns are retained during traversal; the other
+component scores are not exported as new results.
+
+.. code-block:: sh
+
+   vdjmatch reference-rule-scores --vdjdb reference.zip --species human \
+     --locus TRB --class-policy MODEL/reference-policy.tsv \
+     --threads 4 --output-prefix fresh-class-policy
+
+In paired mode, eligibility uses the maximum valid chain source-record count;
+``paired_source_records`` reports genuine complete complex observations
+separately. Eligible labels without linked references remain explicit null
+coordinates. Pair query identities retain both junctions and supplied V/J calls.
+The fixed-rule and current-kernel exports score the complete-pair component;
+native marginal evidence and label fusion remain separate. Historical
+``--components`` supports single chains only. These exports do not establish
+final-call calibration or the complete manuscript resource gate.
 
 vdjmatch score-confusion
 ------------------------
@@ -2268,3 +2408,130 @@ by ``score-confusion``: its score is a selected-label indicator (1, otherwise
 null), **not continuous evidence for AP/ROC, a probability or calibrated
 confidence**. The manifest pins inputs and sources; existing any-call
 calibration does not establish confidence for this label policy.
+
+
+Strict repertoire enrichment
+----------------------------
+
+``repertoire-enrichment`` evaluates each repertoire independently against fresh
+Pgen-matched real-control draws. The metadata TSV must have unique ``sample_id``
+and ``path`` columns; paths resolve relative to the metadata file. Input counts
+are read counts. Source receptor records and their counts remain distinct even
+when their amino-acid junctions coincide. Invalid amino acids and other loci are
+counted in the ingestion table; noncanonical anchor residues and zero model Pgen
+do not themselves discard records. Same-gene V alleles are pooled. Missing or
+unresolved V uses the label-independent observed V-gene mode, falling back to the
+bundled model mode; missing locus uses the requested locus. Original source calls
+remain in the raw input, and imputed-record counts accompany ingestion. Control
+event identities retain distinct original missing-gene keys while preserving the
+established allele-pooled event law for complete inputs.
+
+.. code-block:: console
+
+   vdjmatch repertoire-enrichment samples.tsv --vdjdb reference.zip \
+     --control control.tsv.gz --species human --locus TRB --threads 4 \
+     --mock-replicates 200 --seed 0 --output-prefix fresh
+
+The reference index is built once. One native batch searches each real repertoire
+or each freshly drawn mock, with full-junction Hamming distance at most one and
+matching V genes (alleles pooled). Only one repertoire is loaded at a time; the
+whole control bank is never searched. Sample seeds are the requested seed plus
+the zero-based metadata row number and are recorded in the manifest. Ordinary
+exact reference evidence remains present. A receptor contributes once per full
+pMHC regardless of repeated reference observations. Both matched receptor-record
+counts and their summed read counts are compared with the mock distributions.
+
+Every mock has the source repertoire's record count, the same rounded-log2-Pgen
+histogram and the same read-count multiset within every bin. Bins follow the
+floored rule ``round(log2(Pgen + 2**-60))``, with ties to even, applied
+identically to real and control probabilities. The existing
+control-event slot sampler draws without replacement, then randomly assigns the
+source count roles. An absent or undersized bin fails explicitly; it cannot be
+remapped or fixed by dropping source observations. Zero Pgen falls in bin -60.
+Pgen bins use inclusive Hamming≤1 full-junction probability by default.
+``--pgen-mismatches 0`` selects exact-sequence probability; the supplied
+feature bank and fresh calculations must use the same definition.
+``--pgen-features`` accepts the validated durable control feature bank with the selected probability definition; only
+additional query masses are computed, in memory, without writing a feature cache.
+
+Outputs are ``.summary.tsv``, ``.mocks.parquet``, ``.matching-audit.tsv``,
+``.ingestion.tsv`` and ``.manifest.json``. Each endpoint's empirical upper-tail
+P-value is ``(1 + number of mocks at least as large as observed)/(B + 1)``, with
+``B`` mocks. At 200 mocks its minimum is 1/201. Lower/upper fields are the central
+95% mock interval, not a confidence interval over biological donors. Enrichment
+ratios are undefined when the mock mean is zero. No detection threshold,
+multiple-testing correction or comparison between samples is imposed.
+
+The manifest pins raw inputs, source/native bytes, model inputs, prepared-feature
+identity, model-preprocessing source hashes, seed, stages and output hashes. Use an external summed-process-tree RAM
+monitor for a large research cohort; this command does not reuse predictions,
+mock samples or fitted nulls from another run. Row-preserving tcR input uses the
+owning vdjtools ``read_mitcr(collapse=False)`` capability when available.
+
+For durable probability preparation, ``pgen INPUT --features-only`` writes the
+unique columnar ``.features.parquet`` bank and manifest while omitting the large
+row-wise TSV. Existing probability columns are ignored. ``--mismatches 0`` and
+``--mismatches 1`` produce separate, explicitly defined probability banks using
+vdjtools; the normal row-wise output remains the default.
+
+Streaming complete kernel evidence
+----------------------------------
+
+``evidence INPUT --vdjdb REFERENCE --locus paired --all-targets
+--evidence-only --stream-evidence --gzip-evidence --output-prefix fresh``
+uses the existing native batch consumer. Every detailed evidence field and
+full pMHC row is retained. Selection, ties, competing scores, exact-hit policy
+and radius-based query dispositions match the retained-table workflow. Rows
+follow native execution order; compare or join by query/full-pMHC keys.
+
+Paired streaming emits the linked ``.enrichment.tsv.gz`` and independent
+``.TRA.enrichment.tsv.gz`` / ``.TRB.enrichment.tsv.gz`` tables, plus unchanged
+compact selection and query tables. It omits the eagerly merged
+``.paired-evidence`` table; all three complete axes remain available.
+Marginal-only targets remain present. This changes storage, not scoring,
+model populations or zero-background semantics. The retained detailed path
+fails at8GB of accumulated table buffers and directs large jobs to streaming.
+
+``examples/profile_cli.py`` retains summed RSS measurements and enforces its
+memory cap against the larger of RSS and macOS physical footprint per process.
+The latter includes compressed/swapped allocations; RSS alone can miss an
+overflow. Resource reports expose both totals.
+
+Missing control gene metadata
+-----------------------------
+
+V-aware control-event preparation imputes a missing V/J call with the selected
+population's modal supplied call (lexical tie-break), or the bundled vdjtools
+model mode when no call is supplied. Original normalized gene annotations remain
+part of event identity before weights are aggregated. Affected outputs carry
+``v_imputed``/``j_imputed`` indicators. Analytic control ingestion retains these
+records for imputation. Input files and source event weights remain unchanged.
+Explicit conflicting locus annotations still fail validation.
+
+Fresh reference matching
+------------------------
+
+``match --fresh-reference`` builds its native index directly from the raw
+reference in memory, bypassing prepared bundles without reading or writing them.
+It supports the existing fixed and graded-ball modes, including exact-hit
+exclusion, and records the fresh-reference policy in each output manifest.
+
+With ``match --search-mode ball --no-hit-table``, reference observations are
+expanded and reduced in bounded blocks of complete queries after the same one
+native full-population search. Candidate values, exact-hit filtering and no-hit
+calls are retained. This avoids retaining the full wide reference-hit table;
+native hit memberships are still held until their blocks are consumed, so actual
+whole-process-tree memory must still be measured for a large cohort.
+
+For epitope-only reference diagnostics, ``match --fresh-reference
+--epitope-profiles`` pools MHC contexts and annotates each species/epitope with
+its modal observed MHC pair across both chains. All valid tail labels remain
+in the fixed model (internal minimum one record); query eligibility is selected
+separately. Original MHC fields remain in source metadata and the manifest
+records the pooling rule and inventory. Ordinary matching keeps full pMHC.
+
+Hard-gene reference diagnostics also impute missing/ambiguous reference calls
+once for the fixed locus population, retaining original calls, flags, source
+identities and junctions. All queries share that same annotation view; neither
+exact-hit exclusion nor query membership changes reference model counts. The
+ordinary source model remains unchanged.

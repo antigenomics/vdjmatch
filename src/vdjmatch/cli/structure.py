@@ -64,7 +64,7 @@ def main(a, *, return_inputs=False):
     from ..cluster import overlap
     from ..db.cache import sha256
     from ..evalue.control import _organism
-    from ..match.geometry import load_v_loops, resolve_v_alleles
+    from ..match.geometry import load_v_loops, impute_reference_v_alleles
     from ..match.motifs import masked_motif_presence_counts
     from ..evalue.epitope_rules import _tokens
     from ..runner.annotation import _validate_output_paths
@@ -115,7 +115,7 @@ def main(a, *, return_inputs=False):
                 a.control_model, a.control, species=organism, locus=a.locus, modes=modes)
             mark('control_model_loading')
         else:
-            control_raw, control_info = _raw_control(a.control)
+            control_raw, control_info = _raw_control(a.control, retain_missing_genes=True)
             events = control_events(control_raw, species=organism, locus=a.locus)
             control_usage = control_gene_usage(events, locus=a.locus)
             mark('raw_control')
@@ -155,7 +155,8 @@ def main(a, *, return_inputs=False):
         del document_rows
         mark('epitope_motif_documents')
     model = load_v_loops(organism)
-    raw = raw.with_columns(resolve_v_alleles(raw['v'],model,locus=a.locus).alias('_allele'))
+    alleles, imputed = impute_reference_v_alleles(raw['v'], model, locus=a.locus)
+    raw = raw.with_columns(alleles.alias('_allele'), imputed)
     available = pl.col('reference_valid') & pl.col('_allele').is_not_null() & (pl.col('cdr3').str.len_chars() >= 8)
     groups = reference_groups(raw, a)
     # One batched native search for the whole reference population, then subset its
@@ -169,7 +170,7 @@ def main(a, *, return_inputs=False):
             pgen, feature_identity = load_pgen_features(a.pgen_features, reference, events,
                 species=organism, locus=a.locus)
         else:
-            pgen = compute_pgen(reference, events, species=organism, locus=a.locus, threads=a.threads)
+            pgen = compute_pgen(reference, events, species=organism, locus=a.locus, threads=a.threads, mismatches=1)
         prepared_control = _prepare_mock_control(reference, events,
             pgen=pgen, species=organism, locus=a.locus, threads=a.threads)
     mark('reference_and_pgen')
@@ -233,7 +234,8 @@ def main(a, *, return_inputs=False):
         full, _ = graph_profiles(junctions.height,local_edges,include_punctures=False)
         v_full, _ = composition(retained,junctions,include_punctures=False)
         context = dict(_mixture_group=group_id,species=species,locus=a.locus,**task,source_observations=source.height,
-                       unavailable_records=source.height-retained.height)
+                       unavailable_records=source.height-retained.height,
+                       v_geometry_imputed_records=int(source['v_geometry_imputed'].sum()))
         gene_context = {k: v for k, v in context.items() if k != '_mixture_group'}
         if spectratype_control is not None:
             histogram, counts = length_histogram(source.filter(pl.col('reference_valid')), locus=a.locus)
@@ -448,7 +450,7 @@ def main(a, *, return_inputs=False):
             sampling_unit='original distinct full-junction/V-gene keys; no deduplication after residue projection',
             projections='one-based aligned cdr1/cdr2/cdr25 columns; full AA and 11 IMGT classes separately',
             allele_policy='all bundled alleles of a gene must agree per column; no default allele or inferred allele frequencies',
-            missing_policy='missing gene/model/loop or allele-dependent column keeps all mass and unavailable comparison; no smoothing',
+            missing_policy='missing gene/model/loop or allele-dependent column keeps all mass; missing consensus/length contributions use flagged neutral zero-bit imputation; residue lower-bound availability remains explicit',
             gap_policy='dot is aligned absence within a populated loop; an entirely empty loop template is unavailable',
             interpretation='consensus bits/KL describe gene-consensus categories; residue_bits_lower allows every compatible or unresolved control allele; correlated positions are not additive',
             reducer_sha256=sha256(Path(iter_germline_information.__code__.co_filename)))
@@ -473,7 +475,7 @@ def main(a, *, return_inputs=False):
         global_hamming_edges=edges.height if edges is not None else 0, targets=len(summaries),
         mixture_weights='gap=1-sum_L p_L^2; stem4=sum_LV p_LV^2-sum_LVC p_LVC^2; original=remainder',
         mixture_population='all valid full AA junction/V-gene keys; unknown or ambiguous V is explicit category; source records counted separately',
-        modeled_population='existing resolved V and junction length >=8; unchanged modeled feature columns',
+        modeled_population='resolved or flagged fixed co-locus V-loop template and junction length >=8; original receptor keys retained',
         mixture_source_sha256=sha256(Path(graph_mixture_weights.__code__.co_filename)),
         graph_scope='full-junction Hamming<=1; no indels',
         graph_node_unit='unique full junction', v_usage_unit='unique full junction/resolved V allele keys; gene-level categories',

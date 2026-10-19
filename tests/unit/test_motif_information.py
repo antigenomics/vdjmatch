@@ -60,14 +60,21 @@ def test_reference_structure_cli_labels_motif_views(tmp_path, monkeypatch, mode)
     assert manifest['motif_information']['masks'] == ([0, 1, 2, 3] if 'wild' in mode else [])
 
 
-def test_motif_modes_validate_before_count_allocation_or_reference_loading(tmp_path):
+def test_motif_modes_validate_before_count_allocation_or_reference_loading(tmp_path, monkeypatch):
     from vdjmatch.match.motifs import masked_motif_presence_counts
     from vdjmatch.cli.__main__ import main
     frame = pl.DataFrame({'_id': [0], 'v0': [10000], 'seq0': ['CAAAAAAAF']})
     with pytest.raises(ValueError, match='unknown motif mode'):
         masked_motif_presence_counts(frame, mode='bad')
-    with pytest.raises(ValueError, match='1 GiB'):
-        masked_motif_presence_counts(frame, mode='wild4')
+    # Exercise allocation dispatch without materializing a multi-GiB matrix.
+    import numpy as np
+    def allocation(shape, dtype):
+        assert shape == (10001, 32000) and dtype == np.int64
+        raise MemoryError('simulated allocator refusal')
+    with monkeypatch.context() as patch:
+        patch.setattr(np, 'zeros', allocation)
+        with pytest.raises(MemoryError, match='simulated allocator refusal'):
+            masked_motif_presence_counts(frame, mode='wild4')
     with pytest.raises(SystemExit) as exc:
         main(['reference-structure', '--vdjdb', str(tmp_path / 'absent.tsv'), '--locus', 'TRB',
             '--motif-mode', 'exact3', '--output-prefix', str(tmp_path / 'out')])

@@ -12,6 +12,7 @@ def register(subparsers):
     p.add_argument('--locus', choices=['TRA', 'TRB'], required=True)
     p.add_argument('--mismatches', type=int, choices=[0, 1], default=0,
                    help='inclusive AA Hamming radius, without indels (default: 0)')
+    p.add_argument('--features-only', action='store_true', help='write unique .features.parquet and manifest without the row-wise score table')
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
@@ -71,6 +72,9 @@ def main(a):
                                pl.col('j').alias('j_call'), pl.col('gene').alias('locus'))
     else:
         raw = _read_table(a.sample)
+    input_pgen_ignored = bool(getattr(a, 'features_only', False) and 'pgen' in raw.columns)
+    if input_pgen_ignored:
+        raw = raw.drop('pgen')
     if 'query_id' not in raw.columns:
         raw = raw.with_row_index('query_id')
     if raw['query_id'].null_count() or raw['query_id'].n_unique() != raw.height:
@@ -145,9 +149,10 @@ def main(a):
         pl.col('pgen').is_not_null().alias('available')).drop('_pgen_locus')
     prefix.parent.mkdir(parents=True, exist_ok=True)
     from .__main__ import _flat_table
-    _flat_table(rows).write_csv(str(prefix) + '.scores.tsv', separator='\t')
+    if not getattr(a, 'features_only', False):
+        _flat_table(rows).write_csv(str(prefix) + '.scores.tsv', separator='\t')
     features = None
-    if a.control:
+    if a.control or getattr(a, 'features_only', False):
         feature_path = Path(str(prefix) + '.features.parquet')
         sequences.rename({'junction_aa_normalized': 'junction_aa'}).with_columns(
             pl.Series('pgen', probabilities), pl.lit(organism).alias('species'),
@@ -159,6 +164,7 @@ def main(a):
                        'same length, no indels; summed over all model V/J and recombination scenarios',
         'sequence_contract': 'full anchor-inclusive junction; AIRR junction_aa or normalized VDJdb cdr3; no anchor fabrication',
         'input_format': 'vdjdb' if a.vdjdb else 'airr',
+        'input_pgen_ignored': input_pgen_ignored,
         'reference': reference,
         'control': control, 'features': features,
         'sample': {'sha256': sha256(Path(a.sample))} if Path(a.sample).is_file() else reference,
@@ -169,7 +175,7 @@ def main(a):
                      'model_io_sha256': sha256(Path(model_io.__file__)), 'native_bridge_sha256': sha256(Path(native.__file__)),
                      'formatter_sha256': sha256(Path(_flat_table.__code__.co_filename))},
         'options': {'species': organism, 'locus': a.locus, 'threads': a.threads,
-                    'mismatches': a.mismatches,
+                    'mismatches': a.mismatches, 'features_only': getattr(a, 'features_only', False),
                     'model_path': str(model_path.resolve()), 'sample': str(Path(a.sample).resolve()), 'vdjdb': a.vdjdb},
         'counts': {'input_rows': raw.height, 'selected_rows': selected.height, 'native_rows': sequences.height,
                    'dispositions': dict(rows.group_by('status').len().iter_rows())},

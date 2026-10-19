@@ -36,7 +36,7 @@ def add_graph_options(p, *, combined=False):
     p.add_argument('--nboot', type=int, default=200, help='vdjtools augmented-assemblage bootstrap replicates')
     p.add_argument('--pair-budget', type=int, default=2_000_000)
     p.add_argument('--membership-budget-bytes', type=int, default=2*1024**3,
-        help='estimated raw reference/mock membership byte ceiling (default: 2 GiB; maximum: 8 GiB)')
+        help='estimated raw reference/mock membership byte ceiling (default: 2 GiB; 0 disables this abort)')
 
 
 def main(a, *, inputs=None):
@@ -93,7 +93,7 @@ def _main(a, *, inputs, scratch):
     reference = pl.concat(records)
     estimated_membership_rows = reference.height * (1+a.mock_replicates)
     estimated_membership_bytes = estimated_membership_rows * 1024
-    if estimated_membership_bytes > membership_budget:
+    if membership_budget and estimated_membership_bytes > membership_budget:
         raise ValueError(f'raw reference/mock membership estimate {estimated_membership_bytes} bytes exceeds explicit budget {membership_budget} bytes')
     loops = () if a.cdr_loops == 'junction' else ('cdr1', 'cdr2') if a.cdr_loops == 'cdr12' else ('cdr1', 'cdr2', 'cdr25')
     knee_curve = None
@@ -110,7 +110,7 @@ def _main(a, *, inputs, scratch):
                 events, _, _, control_info = load_control_model(a.control_model, a.control,
                     species=organism, locus=a.locus, modes=())
             else:
-                control_raw, control_info = _raw_control(a.control)
+                control_raw, control_info = _raw_control(a.control, retain_missing_genes=True)
                 events = control_events(control_raw, species=organism, locus=a.locus)
                 del control_raw
             if a.pgen_features:
@@ -118,7 +118,7 @@ def _main(a, *, inputs, scratch):
                     reference.rename({'cdr3': 'junction_aa'}), events, species=organism, locus=a.locus)
             else:
                 pgen = compute_pgen(reference.rename({'cdr3': 'junction_aa'}), events,
-                    species=organism, locus=a.locus, threads=a.threads)
+                    species=organism, locus=a.locus, threads=a.threads, mismatches=1)
             prepared_control = _prepare_mock_control(reference.rename({'cdr3': 'junction_aa'}), events,
                 pgen=pgen, species=organism, locus=a.locus, threads=a.threads)
         else:
@@ -232,7 +232,7 @@ def _main(a, *, inputs, scratch):
         v_model_sha256=sha256(Path(load_v_loops.__code__.co_filename).parents[1]/'resources/vloops'/f'{organism}_v_loops.tsv'),
         sw_distance='sum_loop [SW(s,s)+SW(t,t)-2*SW(s,t)]; raw BLOSUM62; full junction including anchors; selected V loops stripped of alignment dots; no trim/weights/kernel',
         clonotype_key='full junction + supplied normalized V call + supplied normalized J call; alleles retained; missing calls remain explicit',
-        v_model_policy='existing source-aware allele resolver; explicit supplied alleles retained, omitted allele resolves by existing *01 convention; unresolved SW loops retain exact counts and unavailable community membership; community abundance explicitly uses modeled records',
+        v_model_policy='existing source-aware allele resolver, then flagged fixed first complete co-locus V-loop template for unresolved geometry; raw junction/V/J keys and occurrence counts retained; lexical template order; no target labels',
         leiden=dict(objective='RBConfiguration modularity', resolution=a.leiden_resolution, iterations='until stable', edges='unweighted; undirected; isolates retained'),
         sampling_unit='VDJdb source-record occurrence; community abundance sums member-clonotype occurrences; control draws use matched event slots',
         estimator='vdjtools iNEXT finite-sample Chao1; f2>0: S+(n-1)/n*f1^2/(2*f2); f2=0: S+(n-1)/n*f1*(f1-1)/2',
@@ -257,8 +257,8 @@ def _main(a, *, inputs, scratch):
 def validate_options(a):
     """Reject invalid/unsupported graph requests before any raw computation."""
     membership_budget = getattr(a, 'membership_budget_bytes', 2*1024**3)
-    if not 1 <= membership_budget <= 8*1024**3:
-        raise ValueError('membership budget must be positive and at most 8 GiB')
+    if membership_budget < 0:
+        raise ValueError('membership budget must be nonnegative; 0 disables this abort')
     if a.threads < 1 or a.nboot < 2 or a.seed < 0 or a.mock_replicates < 0 or a.mock_replicates == 1:
         raise ValueError('positive threads, nboot>=2, seed>=0 and mock-replicates zero or >=2 required')
     if getattr(a, 'control_model', None) and not a.control:

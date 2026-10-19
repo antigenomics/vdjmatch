@@ -60,7 +60,10 @@ def test_evidence_only_exact_exports_without_distance_matrices(tmp_path, monkeyp
         assert Path(str(full)+'.paired-evidence.tsv').read_bytes() == Path(str(compact)+'.paired-evidence.tsv').read_bytes()
     status = pl.read_csv(str(compact)+'.queries.tsv', separator='\t')
     assert 'no_neighbours' in status['status']
-    assert any('invalid' in s or 'unknown' in s for s in status['status'])
+    if paired:
+        assert status.select(pl.any_horizontal('v_geometry_imputed_alpha','v_geometry_imputed_beta').any()).item()
+    else:
+        assert status['v_geometry_imputed'].any()
     if assayed:
         assert 'invalid_target' in status['status'] and 'no_reference' in status['status']
     if not assayed:
@@ -133,3 +136,40 @@ def test_gzip_evidence_preserves_plain_paired_exports(tmp_path):
     with pytest.raises(SystemExit):
         main(['evidence', str(sample), '--vdjdb', str(reference), '--locus', 'paired',
               '--gzip-evidence', '--output-prefix', str(tmp_path/'invalid')])
+
+
+@pytest.mark.parametrize('paired',[False,True])
+@pytest.mark.parametrize('assayed',[False,True])
+@pytest.mark.parametrize('compressed',[False,True])
+def test_stream_evidence_preserves_all_fields_and_selections(tmp_path,paired,assayed,compressed):
+    from vdjmatch.cli.__main__ import main
+    from polars.testing import assert_frame_equal
+    sample,reference=fixture(tmp_path,paired)
+    args=['evidence',str(sample),'--vdjdb',str(reference),'--locus','paired' if paired else 'TRB',
+          '--evidence-only','--exclude-exact']
+    args+=['--targets-from-sample'] if assayed else ['--all-targets']
+    full,stream=tmp_path/'full',tmp_path/'stream'
+    assert main(args+['--output-prefix',str(full)])==0
+    assert main(args+['--stream-evidence',*(['--gzip-evidence'] if compressed else []),'--output-prefix',str(stream)])==0
+    for lane in ['','.TRA','.TRB'] if paired else ['']:
+        for kind in ['queries','selection']:
+            assert Path(str(full)+lane+'.'+kind+'.tsv').read_bytes()==Path(str(stream)+lane+'.'+kind+'.tsv').read_bytes()
+        expected=pl.read_csv(str(full)+lane+'.enrichment.tsv',separator='\t')
+        actual=pl.read_csv(str(stream)+lane+'.enrichment.tsv'+('.gz' if compressed else ''),separator='\t')
+        keys=['query_id','epitope','mhc_a','mhc_b','mhc_class']
+        assert_frame_equal(expected.sort(keys),actual.select(expected.columns).sort(keys),check_exact=True,check_dtypes=False)
+        manifest=json.loads(Path(str(stream)+lane+'.manifest.json').read_text())
+        assert manifest['stream_evidence'] and 'paired-evidence' not in manifest['output_tables']
+    assert not Path(str(stream)+'.paired-evidence.tsv').exists()
+    assert not Path(str(stream)+'.paired-evidence.tsv.gz').exists()
+
+
+def test_retained_detail_guard_requires_streaming(tmp_path,monkeypatch):
+    from vdjmatch.cli.__main__ import main
+    from vdjmatch.evalue import kernel
+    sample,reference=fixture(tmp_path,False)
+    args=['evidence',str(sample),'--vdjdb',str(reference),'--locus','TRB','--all-targets','--evidence-only']
+    monkeypatch.setattr(kernel,'_MAX_RETAINED_DETAIL_BYTES',1)
+    with pytest.raises(MemoryError,match='stream-evidence'):
+        main(args+['--output-prefix',str(tmp_path/'retained')])
+    assert main(args+['--stream-evidence','--output-prefix',str(tmp_path/'stream')])==0

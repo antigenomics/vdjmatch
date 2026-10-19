@@ -27,9 +27,7 @@ def abundance_coverage(counts, *, nboot=200, seed=0, threads=1):
     estimate = float(asymptotic_diversity(x, q=0, se=False)['estimator'].item())
     working_bytes = (len(x) + total) * 32 + nboot * 41 * 16
     # Include retained draws, float coercion, Python lists, native copies and sample scratch.
-    batch_size = min(nboot, (256 * 1024**2 - working_bytes) // (96 * total))
-    if batch_size < 1:
-        raise ValueError('abundance bootstrap working memory exceeds 256 MiB')
+    batch_size = max(1, min(nboot, (256 * 1024**2 - working_bytes) // (96 * total)))
     curve = rarefaction_batch([x], q=0, nboot=nboot, seed=seed, threads=threads).drop('sample')
     depths = curve['m'].to_list()
     coverage_draws = np.empty((nboot, len(depths)))
@@ -52,16 +50,16 @@ def abundance_coverage(counts, *, nboot=200, seed=0, threads=1):
 
 
 def _sw_geometry(search, *, species, locus, cdr_loops, gap_open, gap_extend, threads):
-    """Prepare the existing full-loop geometry; unavailable keys stay explicit."""
-    from ..match.geometry import load_v_loops, resolve_v_alleles, require_geometry_capabilities
+    """Prepare full-loop geometry with flagged templates and unchanged raw keys."""
+    from ..match.geometry import load_v_loops, impute_reference_v_alleles, require_geometry_capabilities
     from seqtree import SubstitutionMatrix
     from seqtree.pairwise import dist_matrix
     require_geometry_capabilities('sw')
     matrix = SubstitutionMatrix.blosum62()
     if not cdr_loops:
-        return search.with_columns(pl.lit(0).alias('_vgroup')), [[0]], matrix
+        return search.with_columns(pl.lit(0).alias('_vgroup'), pl.lit(False).alias('v_geometry_imputed')), [[0]], matrix
     model = load_v_loops(species)
-    alleles = resolve_v_alleles(search['v'], model, locus=locus)
+    alleles, imputed = impute_reference_v_alleles(search['v'], model, locus=locus, cdr_loops=cdr_loops)
     usable = {a for a in alleles.drop_nulls().unique() if all(
         model[a][loop].replace('.', '') and
         set(model[a][loop].replace('.', '')) <= set('ACDEFGHIKLMNPQRSTVWY') for loop in cdr_loops)}
@@ -75,7 +73,7 @@ def _sw_geometry(search, *, species, locus, cdr_loops, gap_open, gap_extend, thr
             table += np.asarray(dist_matrix(loops, loops, matrix, mode='local',
                 gap_open=gap_open, gap_extend=gap_extend, threads=threads))
     groups = alleles.replace_strict(dict(zip(unique, range(len(unique)))), default=None).cast(pl.Int64)
-    return search.with_columns(pl.Series('_vgroup', groups, dtype=pl.Int64)), table.tolist(), matrix
+    return search.with_columns(pl.Series('_vgroup', groups, dtype=pl.Int64), imputed), table.tolist(), matrix
 
 
 def _target_csr(mapping, n):
@@ -149,10 +147,10 @@ def sw_neighbor_knees(records, *, species, locus, cdr_loops, gap_open=11, gap_ex
             del hits, other, chunk
     curves, summaries = [], []
     for k in orders:
-        values = modeled.select('node').with_columns(pl.Series('neighbor_distance', nearest[k]),
+        values = modeled.select('node', pl.col('v_geometry_imputed') if 'v_geometry_imputed' in modeled.columns else pl.lit(False).alias('v_geometry_imputed')).with_columns(pl.Series('neighbor_distance', nearest[k]),
             pl.lit(True).alias('geometry_available'))
         curve = nodes.join(values, on='node', how='left', validate='1:1').with_columns(
-            pl.col('geometry_available').fill_null(False),
+            pl.col('geometry_available').fill_null(False), pl.col('v_geometry_imputed').fill_null(False),
             pl.when(pl.col('neighbor_distance') >= 0).then(pl.col('neighbor_distance'))
                 .otherwise(None).alias('neighbor_distance'),
             pl.lit(k, dtype=pl.Int64).alias('neighbor_order'))
@@ -222,7 +220,8 @@ def reference_graph(records, *, geometry, radius=None, species='human', locus='T
             raise ValueError('SW requires an explicit nonnegative integer radius below 2**28, nonnegative gaps and known CDR loops')
         search, distances, matrix = _sw_geometry(search, species=species, locus=locus,
             cdr_loops=cdr_loops, gap_open=gap_open, gap_extend=gap_extend, threads=threads)
-        available = search.select('cdr3', 'v', 'j', pl.col('_vgroup').is_not_null().alias('geometry_available'))
+        available = search.select('cdr3', 'v', 'j', pl.col('_vgroup').is_not_null().alias('geometry_available'),
+            pl.col('v_geometry_imputed') if 'v_geometry_imputed' in search.columns else pl.lit(False).alias('v_geometry_imputed'))
         nodes = nodes.join(available, on=['cdr3', 'v', 'j'], nulls_equal=True, validate='m:1').sort('node')
         search = search.filter(pl.col('_vgroup').is_not_null()).with_row_index('_search')
         mapping = nodes.join(search, on=['cdr3', 'v', 'j'], nulls_equal=True, validate='m:1').sort('node')
@@ -291,10 +290,6 @@ def reference_graph(records, *, geometry, radius=None, species='human', locus='T
     del hits
     left = mapping.select(pl.col('_search').cast(pl.Int64).alias('_a'), 'group_id', pl.col('node').cast(pl.Int64).alias('a'))
     right = mapping.select(pl.col('_search').cast(pl.Int64).alias('_b'), 'group_id', pl.col('node').cast(pl.Int64).alias('b'))
-    multiplicity = max(1, int(mapping.group_by('_search').len()['len'].max() or 1))
-    local = max(1, int(mapping.group_by('_search', 'group_id').len()['len'].max() or 1))
-    if multiplicity*local*64 > 256*1024**2:
-        raise ValueError('one edit edge membership expansion exceeds 256 MiB budget')
     expanded_edges = global_edges.lazy().join(left.lazy(), on='_a', validate='m:m').join(
         right.lazy(), on=['_b', 'group_id'], validate='m:m').filter(pl.col('a') < pl.col('b')).select(
             'a', 'b', pl.lit(radius, dtype=pl.Int64).alias('distance_ceiling'), 'group_id')

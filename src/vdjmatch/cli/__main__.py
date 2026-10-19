@@ -145,6 +145,9 @@ def _cmd_match(a: argparse.Namespace) -> int:
     annotate_sample = __getattr__("annotate_sample")
     p = _resolve_params(a)
     search_mode = getattr(a, "search_mode", "fixed")
+    max_radius = getattr(a, 'max_radius', 5)
+    if search_mode != 'ball' and max_radius != 5:
+        raise ValueError('--max-radius requires --search-mode ball')
     if search_mode == "unified":
         requested_matrix = getattr(a, "matrix", None)
         if requested_matrix is None and a.config:
@@ -155,6 +158,9 @@ def _cmd_match(a: argparse.Namespace) -> int:
     if getattr(a, "unified_distance", None) is not None and search_mode != "unified":
         raise ValueError("--unified-distance requires --search-mode unified")
     paired = getattr(a, "paired", False)
+    paired_marginals = getattr(a, 'paired_marginals', False)
+    if paired_marginals and (not paired or search_mode not in {'fixed','ball'}):
+        raise ValueError('--paired-marginals requires --paired and fixed or ball mode')
     if search_mode != "fixed":
         if p.scope != "1,0,0,1":
             raise ValueError("--scope applies to fixed mode; ball mode defines its own search")
@@ -202,15 +208,28 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "evidence_type",
         )
     }
+    if getattr(a, 'epitope_profiles', False) and not getattr(a, 'fresh_reference', False):
+        raise ValueError('match --epitope-profiles requires --fresh-reference')
     from ..db.index import load_or_build_index
-    index, _, index_manifest = load_or_build_index(
-        reference,
-        asset=a.asset,
-        species=reference_species,
-        threads=p.threads,
-        min_score=p.min_score,
-        **reference_filters,
-    )
+    if getattr(a, 'fresh_reference', False):
+        fresh = db.load(reference, asset=a.asset, species=reference_species,
+            min_score=p.min_score, **reference_filters)
+        pooling = None
+        if getattr(a, 'epitope_profiles', False):
+            from .epitope import pool_epitopes
+            fresh, pooling = pool_epitopes(fresh, min_records=1)
+        index = match.VdjdbIndex.build(fresh)
+        index_manifest = dict(identity=dict(source=db.provenance(reference)), fresh=True,
+            epitope_profiles=pooling)
+    else:
+        index, _, index_manifest = load_or_build_index(
+            reference,
+            asset=a.asset,
+            species=reference_species,
+            threads=p.threads,
+            min_score=p.min_score,
+            **reference_filters,
+        )
     vdj = index.reference
     print(
         f"VDJdb: {vdj.height:,} observations; indexed loci {index.genes}",
@@ -224,7 +243,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
         controls = {}
         for locus, path in raw_paths.items():
             controls[locus], control_provenance[locus] = raw_background(
-                locus, control_species, path
+                locus, control_species, path, labelled=p.match_v or p.match_j
             )
         if getattr(a, "fresh_control", False) and "TRB" not in controls and "TRB" in index.genes:
             controls["TRB"], control_provenance["TRB"] = raw_background(
@@ -255,6 +274,9 @@ def _cmd_match(a: argparse.Namespace) -> int:
             exclude_exact=getattr(a, "exclude_exact", False),
             search_mode=search_mode,
             unified_distance=(getattr(a, "unified_distance", None) or "edit"),
+            retain_hits=not getattr(a, 'no_hit_table', False),
+            paired_marginals=paired_marginals,
+            max_radius=max_radius,
         )
         for kind, frame in res.items():
             if kind == "hits" and getattr(a, "no_hit_table", False):
@@ -264,6 +286,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
             )
         manifest = {
             "reference": reference_provenance,
+            "fresh_reference": getattr(a, "fresh_reference", False),
             "sample": {"sha256": sha256(Path(sample))},
             "software": {
                 pkg: importlib.metadata.version(pkg)
@@ -271,6 +294,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
             },
             "parameters": dataclasses.asdict(p),
             "reference_filters": reference_filters,
+            "epitope_profiles": index_manifest.get('epitope_profiles'),
             "control_species": control_species,
             "controls": control_provenance,
             "search_mode": search_mode,
@@ -278,12 +302,12 @@ def _cmd_match(a: argparse.Namespace) -> int:
                 "short_scope": "5,2,2,5", "long_matrix": "blosum62", "long_cutoff_scales": 5,
                 "gap_open_scales": 2, "gap_extend_scales": 1, "gap_positions": [3, 4, -4, -3],
                 "routing": "none; selected component evaluated over all lengths", "experimental": True} if search_mode == "unified" else None,
-            "radii": list(range(1, 6)) if search_mode == "ball" else None,
+            "radii": list(range(1, max_radius+1)) if search_mode == "ball" else None,
             "ball_model": {
-                "max_radius": 5,
-                "max_insertions": 2,
-                "max_deletions": 2,
-                "weighted_search_batches_per_locus": 5 if matrix else 1,
+                "max_radius": max_radius,
+                "max_insertions": min(max_radius,2),
+                "max_deletions": min(max_radius,2),
+                "weighted_search_batches_per_locus": max_radius if matrix else 1,
                 "adaptive_radius_selection": False,
             } if search_mode == "ball" else None,
             "exclude_exact": getattr(a, "exclude_exact", False),
@@ -291,13 +315,26 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "sequence_convention": getattr(a, "sequence_convention", None)
             or "producer-defined junction",
             "paired": getattr(a, "paired", False),
+            "paired_marginals": paired_marginals,
+            "paired_scope_model": {
+                "axes": ["linked", "TRA", "TRB"],
+                "linked_radius": "maximum of per-chain edit counts; separate per-chain budgets",
+                "linked_ranking": "existing unique-junction-pair exponential mass",
+                "marginal_ranking": "existing per-chain NED over full reference including unlinked records",
+                "label_assignment": "linked positive maxima first; otherwise union of supported marginal maxima",
+                "linked_calibration": "unavailable; E/p_enrichment remain null",
+                "selection_calibration": "unavailable; final independent-pair empirical calibration remains required",
+                "native_capability": "Index.search_paired_batch_consume with skip_empty",
+                "control_memory": "existing compatible finite-cap histograms; custom/other geometries may materialize control hits",
+                "detailed_hits": False,
+            } if paired_marginals else None,
             "paired_calibration_model": {
                 "method": "four_category_cp_upper_bound_plus_binomial_tail",
                 "delta": 1e-6,
                 "assumptions": "fixed predicate; IID marginal categories and target pairs; independent background chains; target/control independence",
                 "deduplicated_controls_establish_iid": False,
                 "unconditional_calibration_claim": False,
-            } if getattr(a, "paired", False) and getattr(a, "exclude_exact", False) and p.evalue and search_mode == "fixed" else None,
+            } if getattr(a, "paired", False) and not paired_marginals and getattr(a, "exclude_exact", False) and p.evalue and search_mode == "fixed" else None,
             "link": getattr(a, "link", None),
             "resources": {
                 "native_threads": p.threads,
@@ -329,7 +366,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         print(
-            f"[{name}] {res['hits'].height} hit rows -> {a.output_prefix}.{name}.*",
+            f"[{name}] {res.get('hits', pl.DataFrame()).height} hit rows -> {a.output_prefix}.{name}.*",
             file=sys.stderr,
         )
     return 0
@@ -555,8 +592,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="fixed scope, five graded balls, or experimental background-mass component scoring")
     m.add_argument("--unified-distance", choices=["edit", "gapblock"], default=None,
                    help="experimental unified-mode component, evaluated at every query length")
+    m.add_argument("--fresh-reference", action="store_true", help="build the reference index from raw input in memory; never read or write a prepared bundle")
     m.add_argument("--no-hit-table", action="store_true", help="omit the expanded observation hit export; retain candidate and call tables")
     m.add_argument("--link", default=None, help="cell linkage column for --paired")
+    m.add_argument('--epitope-profiles', action='store_true',
+        help='with --fresh-reference: pool MHC by epitope with its modal annotation; keep all valid tail labels')
     m.add_argument(
         "--pin", default=None, help="pin a specific VDJdb release tag (default: latest)"
     )
@@ -593,6 +633,10 @@ def main(argv: list[str] | None = None) -> int:
         choices=["human", "mouse"],
         help="background organism; required with --species any and calibration",
     )
+    m.add_argument('--paired-marginals',action='store_true',
+                   help='opt-in paired scope/ball axes and linked-first marginal fallback; final selection is uncalibrated')
+    m.add_argument('--max-radius',type=int,choices=range(1,6),default=5,
+                   help='ball mode: maximum total substitutions/insertions/deletions per chain (default: 5)')
     m.add_argument("--control", action="append", metavar="LOCUS=TABLE",
                    help="fresh raw junction control per active locus (repeatable)")
     m.add_argument("--fresh-control", action="store_true",
@@ -869,6 +913,8 @@ def main(argv: list[str] | None = None) -> int:
     register_reference_rule_scores(sub)
     from .paired_labels import register as register_paired_labels
     register_paired_labels(sub)
+    from .paired_score import register as register_paired_score
+    register_paired_score(sub)
     from .paired_order import register as register_paired_order
     register_paired_order(sub)
     from .radius import register as register_radius
@@ -891,6 +937,8 @@ def main(argv: list[str] | None = None) -> int:
     register_score_policy(sub)
     from .reference_density import register as register_reference_density
     register_reference_density(sub)
+    from .repertoire_enrichment import register as register_repertoire_enrichment
+    register_repertoire_enrichment(sub)
     from .fixed_scope import register as register_fixed_scope
     register_fixed_scope(sub)
     register_fixed_scope(sub, trained=True)
@@ -900,7 +948,8 @@ def main(argv: list[str] | None = None) -> int:
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
     evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
-    evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update'})
+    evidence_commands.add('paired-score')
+    evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment'})
     if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
         evidence_commands.add('annotate')
     kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
@@ -923,7 +972,7 @@ def main(argv: list[str] | None = None) -> int:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
             if table_threads < 1:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
-            if a.cmd == 'database-evidence' or (a.cmd == 'annotate' and a.cmd in evidence_commands):
+            if a.cmd in {'database-evidence', 'repertoire-enrichment'} or (a.cmd == 'annotate' and a.cmd in evidence_commands):
                 table_threads = 1
             os.environ["POLARS_MAX_THREADS"] = str(min(threads, table_threads))
     os.environ.update(dict.fromkeys(previous_kernels, "1"))

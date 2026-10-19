@@ -105,10 +105,28 @@ def test_geometry_cli_preserves_unavailable_queries(tmp_path):
                  '--output-prefix',str(prefix),'--exclude-exact'])==0
     scores=pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t')
     status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
-    assert scores['distance'].to_list()==[9]
+    assert scores['distance'].to_list()==[9,63]
     assert status['query_id'].to_list()==list(range(5))
     assert status['sequence_id'].to_list()==list('abcde')
-    assert status['available'].to_list()==[True,False,False,False,False]
+    assert status['available'].to_list()==[True,False,False,False,True]
+    assert status['v_geometry_imputed'].to_list()==[False,False,False,False,True]
+
+
+def test_geometry_cli_missing_v_and_locus_use_requested_population(tmp_path):
+    import polars as pl
+    from vdjmatch.cli.__main__ import main
+    sample, reference, prefix = [tmp_path/name for name in ['q.tsv', 'r.tsv', 'out']]
+    pl.DataFrame({'junction_aa':['CASSLGQAYEQYF'], 'v_call':[None]}).write_csv(sample, separator='\t')
+    pl.DataFrame({'cdr3':['CASSLGRAYEQYF']*2, 'v':['TRBV1',None],
+        'gene':['TRB']*2, 'species':['HomoSapiens']*2, 'epitope':['E']*2}).write_csv(reference, separator='\t')
+    assert main(['neighbours',str(sample),'--vdjdb',str(reference),'--locus','TRB',
+        '--all-targets','--background','vdjdb-other','--neighbour-weighting','kernel',
+        '--evidence-only','--output-prefix',str(prefix)])==0
+    status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
+    assert status['available'].to_list()==[True] and status['v_geometry_imputed'].to_list()==[True]
+    assert status['v_call'].null_count()==1
+    evidence=pl.read_csv(str(prefix)+'.enrichment.tsv',separator='\t')
+    assert evidence['reference_population'].to_list()==[2]
 
 
 def test_assayed_geometry_union_counts_keys_and_preserves_search_disposition(tmp_path):
@@ -183,9 +201,10 @@ def test_paired_geometry_cli_unavailable_raw_rows_and_assayed_union(tmp_path,cap
     assert main(args)==0
     scores=pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t')
     status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
-    assert scores['distance'].to_list()==[9] and scores['n_neighbours'].to_list()==[1]
-    assert scores['mhc_a'].to_list()==['HLA-A*02']
-    assert status['status'].to_list()==['matched','missing_beta','invalid_beta_query','unknown_alpha_gene','invalid_beta_query']
+    assert scores['distance'].to_list()==[9,9] and scores['n_neighbours'].to_list()==[1,1]
+    assert scores['mhc_a'].to_list()==['HLA-A*02']*2
+    assert status['status'].to_list()==['matched','missing_beta','invalid_beta_query','matched','invalid_beta_query']
+    assert status['v_call_alpha'][3]=='unknown' and status['v_geometry_imputed_alpha'][3]
     assert status['query_ida'].to_list()==['a','c','d','f','h']
     assert status['query_idb'].to_list()==['b',None,'e','g','i']
     raw=pl.read_csv(q,separator='\t').with_columns(pl.when(pl.col('query_id')=='b')
@@ -239,14 +258,15 @@ def test_geometry_unbounded_nearest_outside_ball_and_exact_only(tmp_path, capsys
     assert pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t').height==0
     assert main(args+['--unbounded-nearest'])==0
     scores=pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t')
-    assert scores['distance'].to_list()==[9] and scores['n_neighbours'].to_list()==[0]
-    assert scores['mhc_a'].to_list()==['HLA-A*02']
+    assert scores['distance'].to_list()==([9] if locus=='paired' else [9,63])
+    assert scores['n_neighbours'].to_list()==([0] if locus=='paired' else [0,0])
+    assert scores['mhc_a'].to_list()==['HLA-A*02']*scores.height
     status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t',infer_schema_length=0)
     if locus=='paired':
         assert status['query_ida'].to_list()==['raw-a'] and status['query_idb'].to_list()==['raw-b']
     else:
         assert status['query_id'].to_list()==['hit','unknown','invalid','other']
-        assert status['status'].to_list()==['matched','invalid_query_or_gene','invalid_query_or_gene','unselected_species']
+        assert status['status'].to_list()==['matched','matched','invalid_query_or_gene','unselected_species']
     # The only reference is now a full junction identity (a full pair in paired mode).
     ref.with_columns(pl.lit(a).alias('cdr3')).write_csv(reference,separator='\t')
     assert main(args+['--unbounded-nearest'])==0
@@ -307,10 +327,11 @@ def test_geometry_cli_alias_filters_keep_raw_calls_and_reject_delta_and_ambiguit
     assert main(args)==0
     status=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t')
     assert status['v_call'].to_list()==calls
-    assert status['resolved_v_allele'].to_list()==['TRAV29/DV5*01',None,None,None,'TRAV14/DV4*02']
-    assert status['status'].to_list()==['matched']+['invalid_query_or_gene']*3+['matched']
+    assert status['resolved_v_allele'].to_list()==['TRAV29/DV5*01']+['TRAV1-1*01']*3+['TRAV14/DV4*02']
+    assert status['v_geometry_imputed'].to_list()==[False,True,True,True,False]
+    assert status['status'].to_list()==['matched']*5
     scores=pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t')
-    assert set(scores['query_id'])=={'alias','explicit'}
+    assert set(scores['query_id'])=={'alias','ambiguous','delta','wrong-role','explicit'}
     # Both paired query and reference filters must use the same resolver.
     pl.DataFrame({'query_id':['a','b'],'clone_id':['pair']*2,'locus':['TRA','TRB'],
         'junction_aa':['CASSLGQAYEQYF']*2,'v_call':['TRAV29','TRBV19'],
@@ -369,3 +390,17 @@ def test_paired_cli_missing_junction_preserves_raw_v_and_resolves_gene_separatel
     assert out['available'].to_list()==[False]
     assert out['status'].to_list()==['invalid_alpha_query' if missing_locus=='TRA' else 'invalid_beta_query']
     assert pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t').height==0
+
+
+def test_reference_loop_imputation_retains_known_templates_and_flags_missing():
+    import polars as pl
+    from vdjmatch.match.geometry import impute_reference_v_alleles, load_v_loops
+    model = load_v_loops('human')
+    calls = pl.Series('v', ['TRBV19', None, 'TRBV999', 'TRBV1', 'TRBV19'])
+    before = calls.clone()
+    alleles, missing = impute_reference_v_alleles(calls, model, locus='TRB')
+    assert alleles.to_list() == ['TRBV19*01', 'TRBV1*01', 'TRBV1*01', 'TRBV1*01', 'TRBV19*01']
+    assert impute_reference_v_alleles(['TRBV20-1'] * 8 + [None], model, locus='TRB')[0][-1] == alleles[1]
+    assert missing.to_list() == [False, True, True, False, False]
+    assert calls.equals(before)
+    assert impute_reference_v_alleles([None], model, locus='TRB')[0].null_count() == 0

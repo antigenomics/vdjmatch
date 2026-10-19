@@ -143,8 +143,6 @@ def graph_mixture_weights(reference: pl.DataFrame, *, threads: int = 1, hamming_
         usage, removed_usage = composition(part, junctions, include_punctures=include_punctures)
         categories = part.select('_allele').unique().sort('_allele').with_row_index('_v')
         keys = part.select('cdr3', '_allele').unique().join(junctions.select('cdr3', '_local'), on='cdr3').join(categories, on='_allele')
-        if junctions.height * categories.height * 8 * 8 > 256 * 1024**2:
-            raise ValueError('colored graph subtree histograms exceed the 256 MiB allocation budget')
         colours = np.zeros((junctions.height, categories.height), dtype=np.int64)
         colours[keys['_local'].to_numpy(), keys['_v'].to_numpy()] = 1
         component_square, removed_component_square = _component_colour_squares(junctions.height, local_edges, colours, include_punctures=include_punctures)

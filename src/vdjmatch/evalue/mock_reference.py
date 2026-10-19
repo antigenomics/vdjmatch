@@ -33,8 +33,8 @@ def _pgen_model_identity(species, locus):
         native_sha256=sha256(Path(native_core.__file__)))
 
 
-def load_pgen_features(path, reference, control, *, species='human', locus='TRB'):
-    """Validate an explicitly supplied Hamming-1 feature bank and its producer identity.
+def load_pgen_features(path, reference, control, *, species='human', locus='TRB', mismatches=1):
+    """Validate a durable feature bank with the requested probability and model preprocessing.
 
     These requested durable model features are distinct from resampled controls.
     Require the complete reference/control junction union; never fill missing mass
@@ -55,9 +55,9 @@ def load_pgen_features(path, reference, control, *, species='human', locus='TRB'
         raise ValueError('Pgen feature manifest requires features, options and model identities')
     feature, options, model = (manifest[key] for key in ('features', 'options', 'model'))
     organism = _organism(species)
-    if (type(options.get('mismatches')) is not int or options['mismatches'] != 1 or
+    if (type(options.get('mismatches')) is not int or options['mismatches'] != mismatches or
             _organism(options.get('species')) != organism or options.get('locus') != locus):
-        raise ValueError('Pgen features must match species/locus and Hamming mismatches=1')
+        raise ValueError(f'Pgen features must match species/locus and Hamming mismatches={mismatches}')
     recorded_path = feature.get('path')
     if not isinstance(recorded_path, str) or Path(recorded_path).name != path.name:
         raise ValueError('Pgen feature manifest basename does not match the requested table')
@@ -88,6 +88,13 @@ def load_pgen_features(path, reference, control, *, species='human', locus='TRB'
     digest = hashlib.sha256(''.join(f'{name}\t{files[name]}\n' for name in sorted(files)).encode()).hexdigest()
     if model.get('sha256') != digest:
         raise ValueError('Pgen feature model SHA256 does not match its consumed files')
+    from vdjtools.model import io as model_io, native as native_bridge
+    software = manifest.get('software', {})
+    implementation = {'model_io_sha256': sha256(Path(model_io.__file__)),
+        'native_bridge_sha256': sha256(Path(native_bridge.__file__))}
+    if model.get('anchor_repair') != 'vdjtools load_model' or any(
+            software.get(name) != digest for name, digest in implementation.items()):
+        raise ValueError('Pgen feature model preprocessing/anchor repair differs from current implementation')
     frame = pl.read_parquet(path)
     required = {'junction_aa', 'pgen', 'species', 'locus'}
     if (not required <= set(frame.columns) or not frame.schema['pgen'].is_numeric() or
@@ -136,11 +143,22 @@ def normalize_control(frame: pl.DataFrame, *, species='human', locus='TRB') -> p
     return _normalize_control(frame, species=species, locus=locus, gene_keys=False)
 
 
+def _modal_gene(frame, column, *, species, locus, kind='v'):
+    """Choose a label-independent observed mode, falling back to the bundled model."""
+    observed=frame.group_by(column).len().sort('len',column,descending=[True,False])
+    if observed.height:return observed[column][0]
+    from vdjtools.model import load_bundled
+    model=load_bundled(locus,'olga' if _organism(species)=='human' else 'arda',organism=_organism(species),collapse=False)
+    prior=model.tables[kind+'_choice'];allele=kind+'_allele'
+    return prior.filter(pl.col(allele).str.contains('^'+locus+kind.upper())).sort('p',allele,descending=[True,False])[allele][0]
+
+
 def control_events(frame: pl.DataFrame, *, species='human', locus='TRB') -> pl.DataFrame:
     """Retain the joint junction/V/J event law for full-score randomization.
 
-    Read counts do not define events. Unlike junction-only scoped searches,
-    V-aware scoring requires supplied unambiguous V/J annotations. Convergence
+    Read counts do not define events. Missing V/J is imputed from the selected population's modal supplied call,
+    or the bundled model mode when absent. Source event identities stay distinct
+    and imputation flags accompany affected outputs. Convergence
     totals shared between conflicting V/J keys cannot reconstruct this law.
     """
     return _normalize_control(frame, species=species, locus=locus, gene_keys=True)
@@ -177,21 +195,23 @@ def _normalize_control(frame, *, species, locus, gene_keys):
     if gene_columns:
         alpha = pl.any_horizontal(*[pl.col(c).str.contains(r'TRA[VJ]').fill_null(False) for c in gene_columns])
         beta = pl.any_horizontal(*[pl.col(c).str.contains(r'TRB[VJ]').fill_null(False) for c in gene_columns])
-        if frame.filter(alpha & beta).height:
+        if not gene_keys and frame.filter(alpha & beta).height:
             raise ValueError('control has conflicting V/J locus annotations')
-        inferred = pl.when(alpha).then(pl.lit('TRA')).when(beta).then(pl.lit('TRB')).otherwise(None)
+        inferred = pl.when(alpha & beta).then(None).when(alpha).then(pl.lit('TRA')).when(beta).then(pl.lit('TRB')).otherwise(None)
     else:
         inferred = pl.lit(None, dtype=pl.String)
     if 'locus' in fields:
         declared = pl.col(fields['locus']).cast(pl.String).str.strip_chars().str.to_uppercase().replace(
             {'ALPHA': 'TRA', 'BETA': 'TRB'})
+        if gene_keys:
+            declared=pl.coalesce(pl.when(declared.eq('')).then(None).otherwise(declared),inferred,pl.lit(locus))
         if frame.filter(inferred.is_not_null() & declared.is_not_null() & (inferred != declared)).height:
             raise ValueError('control V/J locus conflicts with explicit locus metadata')
         frame = frame.filter(declared.eq(locus).fill_null(False))
     elif gene_columns:
-        if nt and 'occurrences' not in lower and 'convergence' not in lower and frame.filter(inferred.is_null()).height:
+        if not gene_keys and nt and 'occurrences' not in lower and 'convergence' not in lower and frame.filter(inferred.is_null()).height:
             raise ValueError('control has incomplete NT event metadata or unresolved V/J locus')
-        frame = frame.filter(inferred.eq(locus).fill_null(False))
+        frame = frame.filter(inferred.fill_null(locus if gene_keys else '').eq(locus))
     if not frame.height:
         raise ValueError('control has no rows matching requested species/locus')
     frame = frame.with_columns(pl.col(sequence).cast(pl.String).str.strip_chars().str.to_uppercase().alias('junction_aa'))
@@ -202,14 +222,25 @@ def _normalize_control(frame, *, species, locus, gene_keys):
         frame = frame.with_columns(pl.col(nt).cast(pl.String).str.strip_chars().str.to_uppercase())
     keys = ['junction_aa']
     if gene_keys:
-        if not {'v', 'j'}.issubset(fields):
-            raise ValueError('combined-score control requires supplied V/J event annotations')
-        frame = frame.with_columns(pl.col(fields['v']).alias('_control_v'),
-                                   pl.col(fields['j']).alias('_control_j'))
-        for column, kind in [('_control_v', 'V'), ('_control_j', 'J')]:
-            if frame.filter(~pl.col(column).str.contains(
-                    '^' + locus + kind + r'[A-Z0-9/.-]+(?:\*[A-Z0-9]+)?$').fill_null(False)).height:
-                raise ValueError('combined-score control requires unambiguous matching V/J event annotations')
+        fields=fields.copy();original_gene_columns=[];imputed=False
+        for kind in ('v','j'):
+            column=fields.get(kind,'_missing_'+kind)
+            if kind not in fields:
+                frame=frame.with_columns(pl.lit(None,dtype=pl.String).alias(column));fields[kind]=column
+            value=pl.col(column).cast(pl.String).str.strip_chars().str.to_uppercase()
+            valid=value.str.contains('^'+locus+kind.upper()+r'[A-Z0-9/.-]+(?:\*[A-Z0-9]+)?$').fill_null(False)
+            missing=frame.select((~valid).any()).item()
+            prior=pl.col(kind+'_imputed') if kind+'_imputed' in frame.columns else pl.lit(False)
+            original=pl.when(prior).then(pl.col('original_'+kind)).otherwise(value) if 'original_'+kind in frame.columns else value
+            imputed=imputed or frame.select(prior.any()).item()
+            frame=frame.with_columns(pl.when(original.is_null()|original.eq('')).then(pl.lit('__MISSING_'+kind.upper()+'__')).otherwise(original).alias('_original_control_'+kind),(prior|~valid).alias(kind+'_imputed'))
+            if missing:
+                imputed=True
+                replacement=_modal_gene(frame.filter(valid),column,species=organism,locus=locus,kind=kind)
+                frame=frame.with_columns(pl.when(valid).then(value).otherwise(pl.lit(replacement)).alias(column))
+            original_gene_columns.append('_original_control_'+kind)
+            frame=frame.with_columns(pl.col(column).alias('_control_'+kind))
+        gene_columns=[fields[k] for k in ('v','j')]
         keys += ['_control_v', '_control_j']
         if not nt and 'occurrences' not in lower and 'convergence' in lower:
             ambiguous = frame.select(*keys, *([sample] if sample else [])).unique().group_by(
@@ -217,6 +248,7 @@ def _normalize_control(frame, *, species, locus, gene_keys):
             if ambiguous.height:
                 raise ValueError('AA convergence totals cannot resolve conflicting V/J event keys')
     event_columns = [c for c in (nt, *gene_columns, sample) if c]
+    if gene_keys and imputed:event_columns += original_gene_columns
     incomplete_events = bool(nt) and any(frame[c].null_count() or
         frame[c].cast(pl.String).str.strip_chars().eq('').any() for c in event_columns)
     if incomplete_events and 'occurrences' not in lower and 'convergence' not in lower:
@@ -244,31 +276,37 @@ def _normalize_control(frame, *, species, locus, gene_keys):
         result = frame.group_by(*keys, *([sample] if sample else [])).agg(
             pl.col('event_weight').max()).group_by(keys).agg(pl.col('event_weight').sum())
     else:
-        result = frame.select(keys).unique().with_columns(pl.lit(1).alias('event_weight'))
+        if gene_keys and imputed:
+            result=frame.select(*keys,*original_gene_columns).unique().group_by(keys).len(name='event_weight')
+        else:result = frame.select(keys).unique().with_columns(pl.lit(1).alias('event_weight'))
     result = result.filter(pl.col('event_weight') > 0).with_columns(
         pl.col('event_weight').cast(pl.Int64), pl.lit(organism).alias('species'), pl.lit(locus).alias('locus'))
     if not result.height:
         raise ValueError('control has no positive-weight junctions')
     if gene_keys:
+        if imputed:
+            flags=frame.group_by(keys).agg(pl.col('v_imputed','j_imputed').any())
+            result=result.join(flags,on=keys,validate='1:1',nulls_equal=True)
         result = result.rename({'_control_v': 'v', '_control_j': 'j'})
     return result.sort(['junction_aa', 'v', 'j'] if gene_keys else 'junction_aa')
 
 
-def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='human', locus='TRB', threads=1) -> pl.DataFrame:
+def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='human', locus='TRB', threads=1, mismatches=0) -> pl.DataFrame:
     """Compute marginal full-junction Pgen once over the reference/control union.
 
     Bundled human OLGA or mouse ARDA models are selected by species/locus.
     Supplied Pgen columns are ignored; no calculated values are persisted.
+    ``mismatches`` selects exact probability (0) or inclusive Hamming<=1 mass (1).
     """
     from vdjtools.model import load_bundled, native
 
     organism = _organism(species)
-    if locus not in {'TRA', 'TRB'} or threads < 1:
-        raise ValueError('Pgen requires TRA/TRB and positive threads')
+    if locus not in {'TRA', 'TRB'} or threads < 1 or type(mismatches) is not int or mismatches not in (0,1):
+        raise ValueError('Pgen requires TRA/TRB, positive threads and mismatches0or1')
     sequences = pl.concat([reference.select('junction_aa'), control.select('junction_aa')]).unique().sort('junction_aa')
     model = load_bundled(locus, 'olga' if organism == 'human' else 'arda', organism=organism, collapse=False)
     probabilities = np.asarray(native.pgen_aa_batch(model, sequences['junction_aa'].to_list(),
-        mismatches=0, threads=threads), dtype=np.float64)
+        mismatches=mismatches, threads=threads), dtype=np.float64)
     if probabilities.shape != (sequences.height,) or not np.all(
             np.isfinite(probabilities) & (probabilities >= 0) & (probabilities <= 1)):
         raise RuntimeError('native Pgen returned invalid probabilities')

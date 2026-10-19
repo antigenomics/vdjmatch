@@ -8,15 +8,40 @@ from pathlib import Path
 import json
 import subprocess
 import time
+import sys
+import ctypes
+import errno
 
 import psutil
+
+
+if sys.platform == 'darwin':
+    # sys/resource.h rusage_info_v2: footprint includes compressed/swapped pages.
+    class _Rusage(ctypes.Structure):
+        _fields_ = [('uuid', ctypes.c_uint8 * 16), ('values', ctypes.c_uint64 * 18)]
+    _libproc = ctypes.CDLL('/usr/lib/libproc.dylib', use_errno=True)
+    _libproc.proc_pid_rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+    _libproc.proc_pid_rusage.restype = ctypes.c_int
+
+
+def _accounted_memory(pid, rss):
+    """Charge at least RSS, including macOS compressed/swapped physical footprint."""
+    if sys.platform != 'darwin':
+        return rss
+    usage = _Rusage()
+    if _libproc.proc_pid_rusage(pid, 2, ctypes.byref(usage)):
+        error = ctypes.get_errno()
+        if error == errno.ESRCH:
+            raise psutil.NoSuchProcess(pid)
+        raise OSError(error, 'proc_pid_rusage failed')
+    return max(rss, usage.values[7])
 
 
 def profile(command, log, *, timeout=300, max_rss_bytes=None):
     """Measure a fresh command; optional RSS ceiling fails and kills its process tree."""
     start = time.perf_counter()
     cpu_by_pid = {}
-    peak_rss = peak_threads = 0
+    peak_rss = peak_accounted = peak_threads = 0
     peak_cores = None
     previous_cpu = 0.0
     previous_time = start
@@ -36,11 +61,13 @@ def profile(command, log, *, timeout=300, max_rss_bytes=None):
                     processes = [parent, *parent.children(recursive=True)]
                 except psutil.NoSuchProcess:
                     break
-                rss = threads = 0
+                rss = accounted = threads = 0
                 for process in processes:
                     try:
                         with process.oneshot():
-                            rss += process.memory_info().rss
+                            resident = process.memory_info().rss
+                            rss += resident
+                            accounted += _accounted_memory(process.pid, resident)
                             threads += process.num_threads()
                             usage = process.cpu_times()
                             cpu_by_pid[process.pid] = usage.user + usage.system
@@ -49,9 +76,10 @@ def profile(command, log, *, timeout=300, max_rss_bytes=None):
                 cpu = sum(cpu_by_pid.values())
                 observed = time.perf_counter()
                 peak_rss = max(peak_rss, rss)
+                peak_accounted = max(peak_accounted, accounted)
                 peak_threads = max(peak_threads, threads)
-                if max_rss_bytes is not None and rss > max_rss_bytes:
-                    raise MemoryError(f'process-tree RSS {rss} exceeds budget {max_rss_bytes} bytes')
+                if max_rss_bytes is not None and accounted > max_rss_bytes:
+                    raise MemoryError(f'process-tree accounted memory {accounted} (RSS {rss}) exceeds budget {max_rss_bytes} bytes')
                 if previous_time == start:
                     previous_cpu, previous_time = cpu, observed
                 elif observed - previous_time >= 1.0:
@@ -74,6 +102,8 @@ def profile(command, log, *, timeout=300, max_rss_bytes=None):
                 child.wait()
             elapsed = time.perf_counter() - start
             result = {'seconds': elapsed, 'peak_tree_rss_GB': peak_rss / 1e9,
+                      'peak_tree_accounted_GB': peak_accounted / 1e9,
+                      'memory_limit_basis': 'sum max(RSS, macOS physical footprint) per process',
                       'cpu_seconds': sum(cpu_by_pid.values()),
                       'mean_cpu_cores': sum(cpu_by_pid.values()) / elapsed,
                       'peak_sampled_cpu_cores': peak_cores,

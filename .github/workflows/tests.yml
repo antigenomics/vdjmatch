@@ -31,9 +31,18 @@ jobs:
         run: python -c "import vdjmatch; print(vdjmatch.__version__)"
       - name: Install the precursor extra (vdjtools carries the recombination model)
         run: pip install -e ".[precursor]"
-      - name: Verify released hit-list-only native exclusion
+      - name: Verify released native and ingestion capabilities
         run: |
-          python -c "from seqtree import Index, _core; assert _core.exact_exclusion_hits_only; assert hasattr(Index, 'alignment_max_batch')"
+          python - <<'PYTHON'
+          from inspect import signature
+          from seqtree import Index, _core
+          from vdjtools.io.convert import read_mitcr
+          assert _core.exact_exclusion_hits_only
+          for name in ('alignment_max_batch', 'search_batch_consume', 'search_paired_batch_consume'):
+              assert callable(getattr(Index, name, None)), name
+          assert 'skip_empty' in Index.search_paired_batch_consume.__doc__
+          assert 'collapse' in signature(read_mitcr).parameters
+          PYTHON
           pytest tests/unit/test_classical.py tests/unit/test_fixed_scope.py -q
       - name: Run unit tests
         run: pytest -m "not slow" -ra
