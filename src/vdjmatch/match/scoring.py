@@ -49,3 +49,45 @@ def load_vdjam(path: str | os.PathLike | None = None, scale: int = DEFAULT_SCALE
             if (a, b) in sim:
                 grid[i][k] = round(scale * sim[(a, b)])
     return SubstitutionMatrix.from_similarity(grid)
+
+
+def load_cost_table(path: str | os.PathLike) -> "list[list[int]]":
+    """Read an explicit integer substitution COST table into an ``amino_acids()``-ordered grid.
+
+    Format: ``aa.1 aa.2 cost`` with a header, one row per unordered pair; costs are non-negative
+    integers, zero on the diagonal, and the table is symmetrised on read. Unlike the VDJAM
+    similarity table this is consumed directly, without the Gram transform -- that transform is
+    lossy (seqtree keeps ``similarity`` and ``penalty`` separately for exactly this reason), so a
+    matrix derived AS costs would not survive a round trip through similarities.
+
+    Non-standard symbols (``B Z X *``) take the table's maximum cost: they are filtered out of
+    real junction input upstream, and a maximal cost keeps them from being scored as near matches.
+    """
+    cost: dict[tuple[str, str], int] = {}
+    with open(path) as fh:
+        header = next(fh).split()
+        if len(header) < 3:
+            raise ValueError("cost table needs an 'aa.1 aa.2 cost' header")
+        for line in fh:
+            if not line.strip():
+                continue
+            a, b, value = line.split()
+            number = float(value)
+            if number < 0 or number != int(number):
+                raise ValueError(f"substitution costs must be non-negative integers, got {value}")
+            cost[(a, b)] = cost[(b, a)] = int(number)
+    if not cost:
+        raise ValueError("cost table is empty")
+    if any(cost.get((a, a), 0) for a, _ in cost):
+        raise ValueError("a substitution cost table must be zero on the diagonal")
+
+    order = amino_acids()
+    top = max(cost.values())
+    grid = [[top for _ in order] for _ in order]
+    for i, a in enumerate(order):
+        for k, b in enumerate(order):
+            if a == b:
+                grid[i][k] = 0
+            elif (a, b) in cost:
+                grid[i][k] = cost[(a, b)]
+    return grid

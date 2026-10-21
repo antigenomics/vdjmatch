@@ -273,6 +273,12 @@ def _prepared_costs(alphabet,matrix,v_loop_distances):
     return _substitution_costs(alphabet,matrix)
 
 
+def _is_cost_table(matrix):
+    """An explicit substitution-cost table, given as a filesystem path."""
+    from pathlib import Path
+    return isinstance(matrix, (str, Path)) and str(matrix) and Path(matrix).is_file()
+
+
 def _substitution_costs(alphabet='full', matrix='clipped'):
     """Original costs or their ordered IMGT-class compatibility projection.
 
@@ -281,11 +287,18 @@ def _substitution_costs(alphabet='full', matrix='clipped'):
     """
     if alphabet not in ('full', 'imgt'):
         raise ValueError('alphabet must be full or imgt')
-    if matrix not in ('clipped', 'blosum62', 'pam250', 'mj', 'vdjam'):
-        raise ValueError('matrix must be geometry, blosum62, pam250, mj or vdjam')
+    named = ('clipped', 'blosum62', 'pam250', 'mj', 'vdjam')
+    explicit = matrix not in named and _is_cost_table(matrix)
+    if not explicit and matrix not in named:
+        raise ValueError('matrix must be geometry, blosum62, pam250, mj, vdjam or a cost-table path')
     if matrix != 'clipped' and alphabet != 'full':
         raise ValueError('unclipped matrix requires the full alphabet')
     symbols=amino_acids()
+    if explicit:
+        # An explicit table is already a cost matrix; it is NOT put through the Gram transform,
+        # which is lossy and would not reproduce the costs it was derived as.
+        from .scoring import load_cost_table
+        return np.asarray(load_cost_table(matrix), dtype=np.int32)
     if matrix == 'vdjam':
         from .scoring import load_vdjam
         b=load_vdjam()

@@ -17,6 +17,9 @@ def register(subparsers):
     parser.add_argument('--components', action='store_true', help='also score the six retained single-chain components')
     parser.add_argument('--control', help='matching raw density control; default is bundled human TRB')
     parser.add_argument('--germline-background', help='explicit raw germline prior background; required with --components')
+    parser.add_argument('--matrix', default='blosum62',
+                        help='kernel substitution matrix: a built-in name (blosum62, clipped, '
+                             'pam250, mj, vdjam) or a path to an explicit integer cost table')
     parser.add_argument('--output-prefix', required=True)
     parser.set_defaults(func=main)
 
@@ -208,7 +211,7 @@ def main(a):
     else:stream_backend=stream_reference_rules
     backend = (stream_backend(modeled_queries, modeled_reference, species=organism,
         threads=a.threads, paired=paired, consume=consume, identity_keys=identity_keys,
-        **({'v_model_policy': v_model_policy} if a.kernel_only else {})) if modeled_reference.height and modeled_queries.height else {})
+        **({'v_model_policy': v_model_policy, 'matrix': a.matrix} if a.kernel_only else {})) if modeled_reference.height and modeled_queries.height else {})
     # Fill only coordinates the backend cannot emit. Existing continuous parts
     # are final deliverables and are never reopened to calculate predictions.
     available_targets = support.filter(pl.col('model_available')).select('epitope')
