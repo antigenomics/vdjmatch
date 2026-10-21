@@ -29,9 +29,9 @@ Scoring formulas, exact-hit behavior and the calibrated annotation default are u
   an all-ones profile reproduces the unweighted scores exactly. Only substitutions are scaled:
   gaps, V-loop offsets and stem offsets are not, and `distance_units` still reports the matrix
   maximum, so the radius and cutoff ladder keep their matrix-relative meaning while the per-column
-  ceiling becomes `max(costs) * max(multiplier)` — a profile with mean multiplier above 1 retrieves
-  fewer neighbours at the same radius, and normalising the file to mean 1 over scored positions is
-  what keeps an arm radius-comparable with the flat geometry. The manifest records the profile hash
+  ceiling becomes `max(costs) * max(multiplier)`. Mean-one normalisation over scored positions
+  preserves average nominal cost scaling, but nonuniform profiles can change neighbour identities
+  even at mean one. The manifest records the profile hash
   and its per-locus multiplier range. The default is unchanged and carries no profile.
 - **`load_compendium()` and `load_estimates()`** — the naive precursor frequencies other
   laboratories measured, and what this library predicts for the same epitopes. 147 published

@@ -222,9 +222,9 @@ def load_position_profile(path) -> dict[tuple[str, str], list[float]]:
 
     Multiplier ``1`` leaves a position's cost unchanged. The multiplier scales substitution costs
     only: not gaps, and not ``geometry.distance_units``, so the search radius, the cutoff ladder
-    and the gap cost stay derived from the matrix maximum. A profile whose mean exceeds 1
-    therefore retrieves fewer neighbours at the same radius; normalise the file itself if an arm
-    must stay radius-comparable.
+    and the gap cost stay derived from the matrix maximum. A nonuniform profile
+    changes nominal scaling at the same radius. Mean-one normalisation preserves average nominal
+    cost scaling, not neighbour identities; only an all-ones profile guarantees equivalence.
     """
     rows: dict[tuple[str, str], dict[int, float]] = {}
     with open(path) as fh:

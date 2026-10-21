@@ -345,7 +345,7 @@ def main(a):
             multipliers=profile_summary, applies_to='CDR3 substitution columns only',
             unweighted_terms='gap open/extend, V-loop offsets, stem offsets',
             distance_units='unchanged; radius and cutoffs stay derived from the matrix maximum, '
-                'so a profile with mean multiplier above 1 retrieves fewer neighbours at the same radius',
+                'position multipliers can change neighbour identities even with mean-one normalisation',
             calibration_status='OPEN; existing kernel calibration does not transfer',
             default_changed=False) if position_profile_path else None,
         v_model_policy=v_model_policy,

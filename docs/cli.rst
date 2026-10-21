@@ -2314,10 +2314,11 @@ enumerate. Pooled anchor offsets cover every length, including unseen ones.
 Multiplier ``1`` leaves a column unchanged, so an all-ones profile reproduces the
 unweighted scores exactly. Only CDR3 substitutions are scaled: gaps, V-loop
 offsets and stem offsets are not, and the search radius and cutoff ladder stay
-derived from the substitution-matrix maximum. A profile whose mean multiplier
-exceeds 1 therefore retrieves fewer neighbours at the same radius, so normalise
-the file to mean 1 over scored positions when an arm must stay radius-comparable
-with the flat geometry. The manifest records the profile hash, its anchor depths
+derived from the substitution-matrix maximum. Normalising the file to mean 1
+over scored positions preserves average nominal cost scaling. It does not
+preserve neighbour identities: substitutions at upweighted positions become
+more costly, while downweighted positions become cheaper. Only an all-ones
+profile guarantees equivalence with the flat geometry. The manifest records the profile hash, its anchor depths
 and its multiplier range. This is an opt-in experimental geometry; the default
 and its calibration are unchanged. Explicit matrix and profile files are both
 hash-bound and checked for changes during scoring.
