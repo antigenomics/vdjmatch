@@ -375,3 +375,86 @@ def test_resolved_first_cli_retains_cases_and_records_policy(tmp_path):
     assert not absent['supported'].any()
     with pytest.raises(ValueError, match='requires --kernel-only'):
         _run(source, tmp_path/'invalid', '--v-model-policy', 'resolved-first')
+
+
+def test_position_profile_cli_is_opt_in_frozen_and_changes_only_the_weighted_arm(tmp_path):
+    raw = pl.DataFrame(dict(cdr3=['CASSLGQAYEQYF', 'CASSLGRAYEQYF', 'CASSLGQAYEQWF'],
+        v=['TRBV19', 'TRBV19', 'TRBV7-9'], j=['TRBJ2-7']*3, gene=['TRB']*3,
+        species=['HomoSapiens']*3, epitope=['A', 'B', 'C']))
+    source = tmp_path/'raw.tsv'
+    raw.write_csv(source, separator='\t')
+    profiles = tmp_path/'profiles'
+    profiles.mkdir()
+    def profile(name, core):
+        path = profiles/name
+        with open(path, 'w') as fh:
+            fh.write('locus\tside\toffset\tmultiplier\n')
+            for side in ('cys', 'fw'):
+                for offset, multiplier in enumerate([1, 1, 1, 1, 1, 1, core]):
+                    fh.write(f'TRB\t{side}\t{offset}\t{multiplier}\n')
+        return str(path)
+    def scores(prefix, *options):
+        assert _run(source, prefix, '--min-records', '1', '--kernel-only', *options) == 0
+        return pl.read_parquet(str(prefix)+'.continuous/*.parquet').sort('query_id', 'epitope', 'scorer')
+    plain = scores(tmp_path/'plain')
+    ones = scores(tmp_path/'ones', '--position-profile', profile('ones.tsv', 1))
+    heavy = scores(tmp_path/'heavy', '--position-profile', profile('heavy.tsv', 8))
+    assert plain.drop('score').equals(ones.drop('score'))
+    assert plain['score'].to_list() == pytest.approx(ones['score'].to_list(), nan_ok=True)
+    assert plain['score'].to_list() != pytest.approx(heavy['score'].to_list(), nan_ok=True)
+
+    manifest = json.loads(Path(str(tmp_path/'heavy')+'.manifest.json').read_text())
+    recorded = manifest['position_profile']
+    assert recorded['path'] == str(profiles/'heavy.tsv') and recorded['default_changed'] is False
+    assert recorded['multipliers']['TRB'] == dict(cys_offsets=7, fw_offsets=7,
+        core=dict(cys=8.0, fw=8.0), min=1.0, max=8.0, mean=pytest.approx((6 + 8)*2/14))
+    assert manifest['component_inputs_frozen'] and 'position_profile' in manifest['component_inputs_before']
+    assert 'per-position cost multipliers' in manifest['backend']['geometry']
+    assert json.loads(Path(str(tmp_path/'plain')+'.manifest.json').read_text())['position_profile'] is None
+
+    with pytest.raises(ValueError, match='requires --kernel-only'):
+        _run(source, tmp_path/'invalid', '--position-profile', profile('again.tsv', 1))
+    (profiles/'tra.tsv').write_text('locus\tside\toffset\tmultiplier\n'
+                                    'TRA\tcys\t0\t1\nTRA\tfw\t0\t1\n')
+    with pytest.raises(ValueError, match='does not declare TRB'):
+        scores(tmp_path/'wrong-locus', '--position-profile', str(profiles/'tra.tsv'))
+
+
+def test_explicit_matrix_is_frozen_and_cannot_change_during_scoring(tmp_path, monkeypatch):
+    from seqtree import amino_acids
+    from vdjmatch.match.geometry import _substitution_costs
+    from vdjmatch.evalue import reference_rule_bank
+    from vdjmatch.db.cache import sha256
+
+    source = tmp_path/'raw.tsv'
+    pl.DataFrame(dict(cdr3=['CASSLGQAYEQYF', 'CASSLGRAYEQYF'],
+        v=['TRBV19']*2, j=['TRBJ2-7']*2, gene=['TRB']*2,
+        species=['HomoSapiens']*2, epitope=['A', 'B'])).write_csv(source, separator='\t')
+    # Built-in names keep precedence over same-named files in the working directory.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path/'blosum62').write_text('not a matrix')
+    assert _run(source, tmp_path/'builtin', '--min-records', '1', '--kernel-only') == 0
+    builtin = json.loads((tmp_path/'builtin.manifest.json').read_text())
+    assert 'matrix' not in builtin['component_inputs_before']
+    matrix = tmp_path/'costs.tsv'
+    symbols, costs = amino_acids(), _substitution_costs('full', 'blosum62')
+    aa = 'ACDEFGHIKLMNPQRSTVWY'
+    matrix.write_text('aa.1\taa.2\tcost\n'+''.join(
+        f'{a}\t{b}\t{costs[symbols.index(a), symbols.index(b)]}\n'
+        for i, a in enumerate(aa) for b in aa[i+1:]))
+    options = ['--min-records', '1', '--kernel-only', '--matrix', str(matrix)]
+    assert _run(source, tmp_path/'fixed', *options) == 0
+    manifest = json.loads((tmp_path/'fixed.manifest.json').read_text())
+    assert manifest['component_inputs_before']['matrix'] == dict(path=str(matrix), sha256=sha256(matrix))
+    assert manifest['component_inputs_before'] == manifest['component_inputs_after']
+    original = reference_rule_bank.stream_reference_kernels
+    def changed(*args, **kwargs):
+        result = original(*args, **kwargs)
+        matrix.write_text(matrix.read_text()+'\n')
+        return result
+    monkeypatch.setattr(reference_rule_bank, 'stream_reference_kernels', changed)
+    with pytest.raises(ValueError, match='changed during fresh scoring'):
+        _run(source, tmp_path/'changed', *options)
+    assert not (tmp_path/'changed.manifest.json').exists()
+    with pytest.raises(ValueError, match='--matrix requires --kernel-only'):
+        _run(source, tmp_path/'ignored', '--matrix', str(matrix))

@@ -11,6 +11,28 @@ Scoring formulas, exact-hit behavior and the calibrated annotation default are u
 ## [Unreleased]
 
 ### Added
+- **`reference-rule-scores --kernel-only --position-profile PROFILE.tsv`** — an opt-in
+  per-position multiplier on CDR3 substitution costs, so a positional hypothesis (structural
+  contact propensity, for instance) can be scored on the real one-vs-all retrieval metric instead
+  of on a frozen candidate tensor. The profile is a TSV of `locus`, `side`, `offset`,
+  `multiplier`, counted from the conserved Cys104 anchor (`cys`) and back from Phe/Trp118
+  (`fw`), with the last declared offset as the pooled core. The two sides combine by `min`,
+  the convention of `significance_weights` (`omega = 1 - max(p_same_V, p_same_J)`): either
+  anchor's germline constraint holds a column down. The two counts converge once the junction
+  is longer than the two declared depths. End-anchoring rather than tabulating `(length, position)` is
+  what makes the file estimable and complete — valid human TRB carries 105,677 source records
+  over 29 junction lengths, 12 of them under 30 records and 6 holding exactly one, so a
+  per-length table would demand numbers no cohort supports and miss any length it did not
+  enumerate. It is applied through the native
+  `position_weights_by_length` table that `seqtree` 1.3.1 already carries, so there is no extra
+  traversal, no rescoring layer and no native change. Multiplier `1` leaves a column unchanged and
+  an all-ones profile reproduces the unweighted scores exactly. Only substitutions are scaled:
+  gaps, V-loop offsets and stem offsets are not, and `distance_units` still reports the matrix
+  maximum, so the radius and cutoff ladder keep their matrix-relative meaning while the per-column
+  ceiling becomes `max(costs) * max(multiplier)` — a profile with mean multiplier above 1 retrieves
+  fewer neighbours at the same radius, and normalising the file to mean 1 over scored positions is
+  what keeps an arm radius-comparable with the flat geometry. The manifest records the profile hash
+  and its per-locus multiplier range. The default is unchanged and carries no profile.
 - **`load_compendium()` and `load_estimates()`** — the naive precursor frequencies other
   laboratories measured, and what this library predicts for the same epitopes. 147 published
   records from 14 studies tracing to **31 originating laboratories**, harmonized to cells per

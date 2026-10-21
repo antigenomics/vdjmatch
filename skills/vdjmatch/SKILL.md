@@ -360,6 +360,15 @@ mode requires both original V calls to resolve. It retains every query/target
 coordinate, original identities and unsupported models. The default is unchanged
 (`extended`); its fitted call calibration does not transfer to this candidate.
 
+For M4 exploration, `--kernel-only --position-profile PROFILE.tsv` applies opt-in
+junction substitution multipliers. The TSV columns are `locus`, `side`, `offset`,
+`multiplier`; both `cys` and `fw` sides run contiguously from offset zero, with
+pooled tails combined by minimum. An all-ones profile preserves flat geometry.
+Gaps, V/stem offsets and matrix-derived radii are unchanged. `--matrix COSTS.tsv`
+accepts an explicit integer cost table. Both files are hash-bound and frozen
+across the run. These experimental inputs do not change defaults or inherit
+existing call calibration; see the CLI documentation for file contracts.
+
 For explicit linked-first paired label decisions, use `paired-labels` with
 native all-target stem4 VDJdb-other paired evidence, selection and manifest.
 Keep all linked maximum peptides when linked support exists; otherwise retain

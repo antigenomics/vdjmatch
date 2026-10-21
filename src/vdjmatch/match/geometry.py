@@ -274,6 +274,12 @@ def _prepared_costs(alphabet,matrix,v_loop_distances):
     return _substitution_costs(alphabet,matrix)
 
 
+def _is_cost_table(matrix):
+    """An explicit substitution-cost table, given as a filesystem path."""
+    from pathlib import Path
+    return isinstance(matrix, (str, Path)) and str(matrix) and Path(matrix).is_file()
+
+
 def _substitution_costs(alphabet='full', matrix='clipped'):
     """Original costs or their ordered IMGT-class compatibility projection.
 
@@ -282,11 +288,18 @@ def _substitution_costs(alphabet='full', matrix='clipped'):
     """
     if alphabet not in ('full', 'imgt'):
         raise ValueError('alphabet must be full or imgt')
-    if matrix not in ('clipped', 'blosum62', 'pam250', 'mj', 'vdjam'):
-        raise ValueError('matrix must be geometry, blosum62, pam250, mj or vdjam')
+    named = ('clipped', 'blosum62', 'pam250', 'mj', 'vdjam')
+    explicit = matrix not in named and _is_cost_table(matrix)
+    if not explicit and matrix not in named:
+        raise ValueError('matrix must be geometry, blosum62, pam250, mj, vdjam or a cost-table path')
     if matrix != 'clipped' and alphabet != 'full':
         raise ValueError('unclipped matrix requires the full alphabet')
     symbols=amino_acids()
+    if explicit:
+        # An explicit table is already a cost matrix; it is NOT put through the Gram transform,
+        # which is lossy and would not reproduce the costs it was derived as.
+        from .scoring import load_cost_table
+        return np.asarray(load_cost_table(matrix), dtype=np.int32)
     if matrix == 'vdjam':
         from .scoring import load_vdjam
         b=load_vdjam()
@@ -902,7 +915,7 @@ def _grouped_preset_options(preset,queries,references,axes,options,context,paire
 def grouped_total_distance_count_batch(queries, references, thresholds, *, paired=False,
         species='human', threads=1, ctrim=2, v_loop_weight=1, alphabet='full',
         stem_depth=0, stem_weight=1.0, matrix='clipped', v_loop_distances=None,
-        exclude_exact=False, chunk_size=64, v_regions=None, position_weighting='uniform', geometry_preset=None, same_v_gene=False, **memberships):
+        exclude_exact=False, chunk_size=64, v_regions=None, position_weighting='uniform', position_profile=None, geometry_preset=None, same_v_gene=False, **memberships):
     """One shared reference traversal with bounded label-count chunks.
 
     Frames use ``seq0/v0`` (TRA for linked pairs) and ``seq1/v1`` (TRB).
@@ -911,6 +924,14 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
     requires cutoffs below the native group barrier, as for ordinary counts.
     Geometry, same-gene auxiliaries and exact-hit filtering retain the established
     count contract; no kernel arithmetic or query-label fitting occurs here.
+
+    ``position_profile`` is an opt-in mapping from :func:`..match.regions.load_position_profile`,
+    ``(locus, anchor side) -> offset-indexed substitution-cost multipliers``. It scales
+    substitution costs per column through the native ``position_weights_by_length`` table; gap
+    costs are unweighted, and :func:`distance_units` still reports the *matrix* maximum, so
+    ``thresholds`` and any radius derived from it keep their matrix-relative meaning while the
+    per-column ceiling becomes ``max(costs)*max(multiplier)``. An all-ones profile reproduces the
+    unweighted scores exactly. Default ``None`` leaves every shipped geometry unchanged.
     """
     if same_v_gene and any(t>=2**28 for t in thresholds):
         raise ValueError('conditional V thresholds must be below the native group barrier')
@@ -936,6 +957,8 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
         raise RuntimeError('grouped kernel counts require updated Python/native seqtree support')
     if position_weighting not in ('uniform','significance-trimmed'):
         raise ValueError('grouped position_weighting must be uniform or significance-trimmed')
+    if position_profile is not None and position_weighting!='uniform':
+        raise ValueError('an explicit position profile replaces the significance weights; use uniform')
     if position_weighting=='significance-trimmed':
         if ctrim!=3:
             raise ValueError('trimmed significance requires trim3 geometry')
@@ -993,6 +1016,12 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
             # Native alignment is3 times the prototype raw score: floor to600
             # before adding V/stem offsets equals200*3*(prototype_raw//200).
             options['score_quantum'+suffix]=600
+    if position_profile is not None:
+        from .regions import profile_weights
+        for i,(q,r,qv,rv) in enumerate(axes):
+            suffix=('_alpha','_beta')[i] if paired else ''
+            options['position_weights_by_length'+suffix]=profile_weights(
+                position_profile,context['model'][(qv+rv)[0]]['locus'],{len(s) for s in q+r},ctrim)
     if geometry_preset is not None:
         _grouped_preset_options(geometry_preset,queries,references,axes,options,context,paired)
     return getattr(gapblock,method)(*native_axes,thresholds,**options,**memberships,
