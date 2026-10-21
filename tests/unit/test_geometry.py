@@ -280,6 +280,9 @@ def test_geometry_unbounded_nearest_outside_ball_and_exact_only(tmp_path, capsys
  ('human','TRAV38-2','TRAV38-2/DV8*01'),('human','TRAV23','TRAV23/DV6*01'),
  ('human','TRAV36','TRAV36/DV7*01'),('human','TRAV14DV4','TRAV14/DV4*01'),
  ('human','TRAV14DV4*02','TRAV14/DV4*02'),
+ ('human','TRAV14_DV4*02','TRAV14/DV4*02'),
+ ('human','TRAV38-2_DV8','TRAV38-2/DV8*01'),
+ ('mouse','TRAV16D_DV11*03','TRAV16D/DV11*03'),
  ('mouse','TRAV16D','TRAV16D/DV11*01'),('mouse','TRAV14D-3','TRAV14D-3/DV8*01'),
  ('mouse','TRAV16D-DV11*03','TRAV16D/DV11*03')])
 def test_native_model_proven_v_aliases_preserve_alleles_and_distances(species,raw,expected):

@@ -397,3 +397,7 @@ outputs, including no-hits. Control population metadata is applied before imputa
 Sequence-only Index controls cannot calibrate these predicates. In Python pass a
 canonical `cdr3,v,j` control frame or locus-to-frame mapping. The fixed-ball E
 counts expected neighbours; it does not calibrate winning-label selection.
+
+Dual-use V-loop aliases: `TRAV14_DV4*02` resolves to the model-backed
+`TRAV14/DV4*02` allele. Preserve submitted calls and explicit allele suffixes;
+do not remove the dual-use suffix or substitute a different allele.
