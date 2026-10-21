@@ -8,9 +8,10 @@
   contact propensity, for instance) can be scored on the real one-vs-all retrieval metric instead
   of on a frozen candidate tensor. The profile is a TSV of `locus`, `side`, `offset`,
   `multiplier`, counted from the conserved Cys104 anchor (`cys`) and back from Phe/Trp118
-  (`fw`), with the last declared offset as the pooled core; each position is owned by its
-  nearer anchor, so the two counts meet in the middle and converge once the junction is longer
-  than the two declared depths. End-anchoring rather than tabulating `(length, position)` is
+  (`fw`), with the last declared offset as the pooled core. The two sides combine by `min`,
+  the convention of `significance_weights` (`omega = 1 - max(p_same_V, p_same_J)`): either
+  anchor's germline constraint holds a column down. The two counts converge once the junction
+  is longer than the two declared depths. End-anchoring rather than tabulating `(length, position)` is
   what makes the file estimable and complete — valid human TRB carries 105,677 source records
   over 29 junction lengths, 12 of them under 30 records and 6 holding exactly one, so a
   per-length table would demand numbers no cohort supports and miss any length it did not

@@ -56,19 +56,24 @@ def test_all_ones_profile_reproduces_the_unweighted_counts_bitwise(tmp_path, pai
     assert baseline.sum()  # the ladder actually admits pairs, so equality is not vacuous
 
 
-def test_anchor_counts_meet_in_the_middle_and_converge_on_a_pooled_core(tmp_path):
+def test_either_anchor_holds_a_column_down_and_the_two_counts_converge(tmp_path):
     profile = load_position_profile(write_profile(tmp_path/'ramp.tsv', [.2, .5, .9, 1.4], [.1, .4, 1.1]))
-    # Short: both ramps still climbing when they meet; the equidistant centre averages the sides.
-    assert profile_multipliers(profile, 'TRB', 9) == [.2, .5, .9, 1.4, 1.25, 1.1, 1.1, .4, .1]
-    # Long: every interior position takes its nearer side's pooled core, so no length is special.
-    assert profile_multipliers(profile, 'TRB', 21) == (
-        [.2, .5, .9] + [1.4]*7 + [1.25] + [1.1]*8 + [.4, .1])
-    # Lengths no cohort can estimate are covered by construction, not enumeration. An even
-    # length has no equidistant centre, so the two pooled cores abut without averaging.
+    # `min`, as in significance_weights: a column is held down by whichever anchor claims it more
+    # strongly, so the near-anchor ramps survive and the far side contributes only its core.
+    assert profile_multipliers(profile, 'TRB', 9) == [.2, .5, .9, 1.1, 1.1, 1.1, 1.1, .4, .1]
+    assert profile_multipliers(profile, 'TRB', 13) == [.2, .5, .9] + [1.1]*8 + [.4, .1]
+    # Converged: past the two declared depths every interior column is min of the two cores,
+    # so no length is special and lengths no cohort can estimate need no rows of their own.
     longest = profile_multipliers(profile, 'TRB', 126)
-    assert len(longest) == 126 and set(longest[4:-4]) == {1.4, 1.1}
-    assert longest[62] == 1.4 and longest[63] == 1.1
-
+    assert len(longest) == 126 and set(longest[3:-3]) == {1.1}
+    # One side's core reaches every column the other side cannot claim more strongly, so a low
+    # core holds the whole interior down and only that side's own shallow ramp escapes it.
+    low = load_position_profile(write_profile(tmp_path/'low.tsv', [1, 1, 1, 1], [1, 1, .25]))
+    assert profile_multipliers(low, 'TRB', 13) == [.25]*11 + [1, 1]
+    # A contact mask is the mirror of that: low at both anchors, high core on both sides, so
+    # `min` keeps the flanks cheap and lifts only the columns both anchors call deep.
+    mask = load_position_profile(write_profile(tmp_path/'mask.tsv', [1, 1, 1, 64], [1, 1, 1, 64]))
+    assert profile_multipliers(mask, 'TRB', 13) == [1, 1, 1] + [64]*7 + [1, 1, 1]
 
 def test_profile_weights_match_the_uniform_table_and_zero_the_trimmed_flanks(tmp_path):
     assert profile_weights(ones(tmp_path/'ones.tsv'), 'TRB', [13], 3) == {13: [0]*3 + [100]*7 + [0]*3}
@@ -91,10 +96,15 @@ def test_a_heavier_column_moves_one_known_pair_away_and_a_lighter_one_moves_it_c
         return int(np.argmax(found > 0))
     baseline = distance()
     assert baseline == 1800  # 3 (CDR3 weight) * 3 (cost) * 200 native units
-    for multiplier in (0, 2, 4):
+    # Cores at offset6 on both sides: under `min` only position6 of a length-13 junction, which
+    # is offset6 from each anchor, sees the core on both sides, so only the mismatch is reweighted.
+    for multiplier in (2, 4):
         core = [1, 1, 1, 1, 1, 1, multiplier]
         profile = load_position_profile(write_profile(tmp_path/f'm{multiplier}.tsv', core, core))
+        assert profile_multipliers(profile, 'TRB', 13).count(multiplier) == 1
         assert distance(position_profile=profile) == multiplier*baseline
+    zeroed = load_position_profile(write_profile(tmp_path/'m0.tsv', [1]*6+[0], [1]*6+[0]))
+    assert distance(position_profile=zeroed) == 0
 
 
 def test_profile_rejects_one_sided_noncontiguous_and_malformed_files(tmp_path):

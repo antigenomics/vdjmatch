@@ -2297,9 +2297,12 @@ each runs contiguously from offset 0. The last declared offset is the pooled
 core, reused by every deeper position, as in the end-anchored
 ``position_significance.tsv``.
 
-Each junction position is owned by its nearer anchor, so the two counts meet in
-the middle and converge on the pooled core once the junction is longer than the
-two declared depths. Anchoring at both ends rather than tabulating
+The two sides combine by **minimum**, the convention of the end-anchored
+``significance_weights`` whose ``omega = 1 - max(p_same_V, p_same_J)`` says the
+same thing about costs rather than proximities: either anchor's germline
+constraint is enough to hold a column down. The two counts therefore converge
+once the junction is longer than the two declared depths, when every interior
+column carries the minimum of the two pooled cores. Anchoring at both ends rather than tabulating
 ``(length, position)`` is what makes the file estimable and complete: valid human
 TRB carries 105,677 source records over 29 junction lengths, 12 of which hold
 fewer than 30 records each and 6 exactly one, so a per-length table would both

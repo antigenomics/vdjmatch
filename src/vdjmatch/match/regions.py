@@ -264,24 +264,21 @@ def load_position_profile(path) -> dict[tuple[str, str], list[float]]:
 def profile_multipliers(profile, locus, length) -> list[float]:
     """Per-position multipliers for one junction length, from the two anchor-counted sides.
 
-    Position ``p`` is owned by its **nearer** anchor -- ``cys`` while ``p < length-1-p``, ``fw``
-    while ``p > length-1-p`` -- and the offset is capped at that side's pooled core. The two
-    counts therefore meet in the middle and never overlap, which is what "they converge" means
-    once ``length-1`` exceeds the two declared depths: every interior position then carries its
-    nearer side's pooled core value. The exact centre of an odd-length junction is equidistant
-    and averages the two sides.
+    Position ``p`` is counted ``p`` from the Cys anchor and ``length-1-p`` from the Phe/Trp
+    anchor, each offset capped at that side's pooled core, and the two sides combine by
+    **minimum** -- the convention of :func:`significance_weights`, whose
+    ``omega = 1 - max(p_same_V, p_same_J)`` is the same statement about costs rather than
+    proximities: either anchor's germline constraint is enough to hold a column down, and
+    neither needs the other's agreement to do it.
+
+    The two counts therefore converge once ``length-1`` exceeds the two declared depths: every
+    interior position carries ``min`` of the two pooled cores, so no length is special and none
+    has to be enumerated. Where exactly one side still has reach -- the ramps near each anchor --
+    the other side contributes its core, so the near anchor governs whenever it is the lower of
+    the two.
     """
     cys, fw = profile[(locus, 'cys')], profile[(locus, 'fw')]
-    out = []
-    for p in range(length):
-        near, far = p, length-1-p
-        if near < far:
-            out.append(cys[min(near, len(cys)-1)])
-        elif far < near:
-            out.append(fw[min(far, len(fw)-1)])
-        else:
-            out.append((cys[min(near, len(cys)-1)] + fw[min(far, len(fw)-1)])/2)
-    return out
+    return [min(cys[min(p, len(cys)-1)], fw[min(length-1-p, len(fw)-1)]) for p in range(length)]
 
 
 def profile_weights(profile, locus, lengths, ctrim, scale=100) -> dict[int, list[int]]:
