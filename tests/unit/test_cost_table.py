@@ -37,11 +37,32 @@ def test_round_trip_reproduces_the_shipped_clipped_geometry(tmp_path):
     assert geometry.distance_units(back) == geometry.distance_units(base)
 
 
-def test_non_standard_symbols_take_the_maximum_cost(tmp_path):
+def test_blosum62_cost_table_round_trips_over_the_whole_alphabet(tmp_path):
+    """A table written from BLOSUM62 must read back as BLOSUM62 across all 24 symbols.
+
+    The padding rows matter: V-loop templates carry characters outside the standard twenty, so a
+    table that guessed those rows would change the V-loop distances feeding the kernel and make two
+    matrices incomparable for reasons that have nothing to do with the 20x20 under study.
+    """
     symbols = amino_acids()
-    base = geometry._substitution_costs()
-    back = geometry._substitution_costs("full", str(write_table(tmp_path / "c.tsv", base, symbols)))
-    assert back[symbols.index("A"), symbols.index("X")] == back.max()
+    base = geometry._substitution_costs("full", "blosum62")
+    back = geometry._substitution_costs(
+        "full", str(write_table(tmp_path / "b62.tsv", base, symbols)))
+    np.testing.assert_array_equal(base, back)
+
+
+def test_padding_rows_are_shared_between_different_tables(tmp_path):
+    """Two different 20x20 tables differ only on the standard residues, never on padding."""
+    symbols = amino_acids()
+    one = geometry._substitution_costs("full", "blosum62")
+    other = geometry._substitution_costs("full", "pam250")
+    a = geometry._substitution_costs("full", str(write_table(tmp_path / "a.tsv", one, symbols)))
+    b = geometry._substitution_costs("full", str(write_table(tmp_path / "b.tsv", other, symbols)))
+    padding = [symbols.index(s) for s in "BZX*"]
+    standard = [symbols.index(s) for s in AA]
+    scale = b[np.ix_(standard, standard)].max() / a[np.ix_(standard, standard)].max()
+    np.testing.assert_allclose(b[np.ix_(padding, standard)],
+                               np.rint(a[np.ix_(padding, standard)] * scale), atol=1)
 
 
 @pytest.mark.parametrize("body,message", [

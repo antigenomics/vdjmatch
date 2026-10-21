@@ -60,8 +60,13 @@ def load_cost_table(path: str | os.PathLike) -> "list[list[int]]":
     lossy (seqtree keeps ``similarity`` and ``penalty`` separately for exactly this reason), so a
     matrix derived AS costs would not survive a round trip through similarities.
 
-    Non-standard symbols (``B Z X *``) take the table's maximum cost: they are filtered out of
-    real junction input upstream, and a maximal cost keeps them from being scored as near matches.
+    Non-standard symbols (``B Z X *``) are NOT inferred from the table. A 190-entry table carries
+    no information about them, and they are not inert: the V-loop templates are padded with
+    characters outside the standard twenty, so whatever those rows contain silently rewrites the
+    V-loop distances that feed the kernel. They are therefore carried over from BLOSUM62's own Gram
+    penalties, rescaled to this table's range, so that every candidate matrix handles padding
+    identically and a comparison between two tables isolates the 20x20 that is actually being
+    varied. A cost table written out from BLOSUM62 reads back as BLOSUM62 exactly.
     """
     cost: dict[tuple[str, str], int] = {}
     with open(path) as fh:
@@ -81,13 +86,25 @@ def load_cost_table(path: str | os.PathLike) -> "list[list[int]]":
     if any(cost.get((a, a), 0) for a, _ in cost):
         raise ValueError("a substitution cost table must be zero on the diagonal")
 
+    standard = "ACDEFGHIKLMNPQRSTVWY"
+    missing = [(a, b) for i, a in enumerate(standard) for b in standard[i + 1:]
+               if (a, b) not in cost]
+    if missing:
+        raise ValueError(f"cost table is missing {len(missing)} standard pairs, e.g. {missing[:3]}")
+
+    from seqtree import SubstitutionMatrix
+    reference = SubstitutionMatrix.blosum62()
+    reference_top = max(reference.penalty(a, b) for a in standard for b in standard)
+    scale = (max(cost.values()) / reference_top) if reference_top else 1.0
+
     order = amino_acids()
-    top = max(cost.values())
-    grid = [[top for _ in order] for _ in order]
+    grid = [[0 for _ in order] for _ in order]
     for i, a in enumerate(order):
         for k, b in enumerate(order):
             if a == b:
-                grid[i][k] = 0
-            elif (a, b) in cost:
+                continue
+            if a in standard and b in standard:
                 grid[i][k] = cost[(a, b)]
+            else:
+                grid[i][k] = int(round(reference.penalty(a, b) * scale))
     return grid
