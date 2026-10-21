@@ -147,6 +147,10 @@ sample and source identities, competing scores, ties and no-support rows.
 `--details` additionally writes candidates and per-target evidence; its memory
 grows with queries × targets. `--epitope PEPTIDE` restricts the requested targets.
 `--exclude-exact` is for honest benchmarks; ordinary annotation retains exact hits.
+V-loop lookup accepts model-backed dual-use gene spellings such as
+`TRAV14_DV4*02` and `TRAV14/DV4*02` as the same allele, while retaining
+the submitted call in outputs. Unknown alleles are not silently renamed.
+
 Advanced scorer and geometry recipes remain in the [CLI reference](https://docs.isalgo.dev/vdjmatch/cli.html).
 The manuscript's curated primary comparison has higher equal-task mean average
 precision than each of seven available rivals on that rival's fixed matched task
