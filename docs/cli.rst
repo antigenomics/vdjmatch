@@ -2290,6 +2290,47 @@ Each population uses one native batch; neither model is refitted per query.
 The default remains ``extended``. The manifest records the policy; existing
 extended-model final-call calibration does not apply to ``resolved-first``.
 
+``--position-profile PROFILE.tsv`` with ``--kernel-only`` scales substitution
+costs per junction column instead of weighting every column equally. The file is
+a TSV of ``locus``, ``side``, ``offset`` and ``multiplier``. ``side`` is ``cys``
+for offsets counted from the conserved Cys104 anchor and ``fw`` for offsets
+counted back from Phe/Trp118; both sides are required for a declared locus and
+each runs contiguously from offset 0. The last declared offset is the pooled
+core, reused by every deeper position, as in the end-anchored
+``position_significance.tsv``.
+
+The two sides combine by **minimum**, the convention of the end-anchored
+``significance_weights`` whose ``omega = 1 - max(p_same_V, p_same_J)`` says the
+same thing about costs rather than proximities: either anchor's germline
+constraint is enough to hold a column down. The two counts therefore converge
+once the junction is longer than the two declared depths, when every interior
+column carries the minimum of the two pooled cores. Anchoring at both ends rather than tabulating
+``(length, position)`` is what makes the file estimable and complete: valid human
+TRB carries 105,677 source records over 29 junction lengths, 12 of which hold
+fewer than 30 records each and 6 exactly one, so a per-length table would both
+demand numbers no cohort supports and silently miss any length it did not
+enumerate. Pooled anchor offsets cover every length, including unseen ones.
+
+Multiplier ``1`` leaves a column unchanged, so an all-ones profile reproduces the
+unweighted scores exactly. Only CDR3 substitutions are scaled: gaps, V-loop
+offsets and stem offsets are not, and the search radius and cutoff ladder stay
+derived from the substitution-matrix maximum. Normalising the file to mean 1
+over scored positions preserves average nominal cost scaling. It does not
+preserve neighbour identities: substitutions at upweighted positions become
+more costly, while downweighted positions become cheaper. Only an all-ones
+profile guarantees equivalence with the flat geometry. The manifest records the profile hash, its anchor depths
+and its multiplier range. This is an opt-in experimental geometry; the default
+and its calibration are unchanged. Explicit matrix and profile files are both
+hash-bound and checked for changes during scoring.
+
+.. code-block:: sh
+
+   vdjmatch reference-rule-scores --vdjdb reference.zip --species human \
+     --locus TRB --kernel-only --matrix blosum62 \
+     --position-profile contact-mask.tsv \
+     --reference-population curated-benchmark --min-records 30 \
+     --threads 8 --output-prefix arm-contact
+
 ``--class-policy MODEL/reference-policy.tsv`` exports only the experimental
 ``reference_class_policy`` scorer. It is exclusive with ``--components`` and
 ``--kernel-only``. The sibling ``manifest.json`` must bind the policy table hash,

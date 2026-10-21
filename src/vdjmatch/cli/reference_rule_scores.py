@@ -17,6 +17,15 @@ def register(subparsers):
     parser.add_argument('--components', action='store_true', help='also score the six retained single-chain components')
     parser.add_argument('--control', help='matching raw density control; default is bundled human TRB')
     parser.add_argument('--germline-background', help='explicit raw germline prior background; required with --components')
+    parser.add_argument('--matrix', default='blosum62',
+                        help='kernel substitution matrix: a built-in name (blosum62, clipped, '
+                             'pam250, mj, vdjam) or a path to an explicit integer cost table')
+    parser.add_argument('--position-profile',
+                        help='kernel-only: TSV of per-position substitution-cost multipliers '
+                             '(locus/side/offset/multiplier) applied to the CDR3 columns. '
+                             'Opt-in; omitting it leaves the shipped flat-by-column geometry. '
+                             'Radius and cutoffs stay matrix-derived, so normalise the file to '
+                             'mean 1 over scored positions to keep an arm radius-comparable')
     parser.add_argument('--output-prefix', required=True)
     parser.set_defaults(func=main)
 
@@ -44,6 +53,22 @@ def main(a):
     v_model_policy = getattr(a, 'v_model_policy', 'extended')
     if v_model_policy != 'extended' and not a.kernel_only:
         raise ValueError('--v-model-policy resolved-first requires --kernel-only')
+    if a.matrix != 'blosum62' and not a.kernel_only:
+        raise ValueError('--matrix requires --kernel-only')
+    matrix_path = Path(a.matrix).expanduser()
+    matrix_path = (matrix_path.resolve() if a.matrix not in
+        ('blosum62', 'clipped', 'pam250', 'mj', 'vdjam') and matrix_path.is_file() else None)
+    if matrix_path is not None:
+        a.matrix = str(matrix_path)
+    position_profile_path = getattr(a, 'position_profile', None)
+    if position_profile_path and not a.kernel_only:
+        raise ValueError('--position-profile requires --kernel-only')
+    position_profile = profile_summary = None
+    if position_profile_path:
+        from ..match.regions import load_position_profile, position_profile_summary
+        position_profile_path = Path(position_profile_path).expanduser().resolve()
+        position_profile = load_position_profile(position_profile_path)
+        profile_summary = position_profile_summary(position_profile)
     if class_policy and (a.components or a.kernel_only):
         raise ValueError('--class-policy, --kernel-only and --components are separate calculations')
     policy_paths = {}
@@ -74,7 +99,8 @@ def main(a):
     if not a.components and (a.control or a.germline_background):
         raise ValueError('--control and --germline-background require --components')
     prefix = _validate_output_paths(a.output_prefix, [a.vdjdb, *[
-        path for path in (a.control, a.germline_background,*policy_paths.values()) if path]])
+        path for path in (a.control, a.germline_background, matrix_path, position_profile_path,
+                          *policy_paths.values()) if path]])
     suffixes = ['queries.tsv', 'truth.tsv', 'scores.tsv', 'target-support.tsv', 'manifest.json', 'continuous'] + (['policy-audit.tsv'] if class_policy else [])
     destinations = [Path(str(prefix)+'.'+suffix) for suffix in suffixes]
     if any(path.exists() or path.is_symlink() for path in destinations):
@@ -85,13 +111,17 @@ def main(a):
             Path(native.__file__), Path(__file__).parents[1]/'resources/vloops'/f'{organism}_v_loops.tsv']
         return {str(path): sha256(path) for path in source_paths}
     component_paths = {}
+    if matrix_path is not None:
+        component_paths['matrix'] = matrix_path
+    if position_profile_path:
+        component_paths['position_profile'] = position_profile_path
     if a.components:
         from importlib.resources import files
         if not a.control and (organism != 'human' or a.locus != 'TRB'):
             raise ValueError('this control is not bundled; supply --control for the matching species/locus')
-        component_paths = {'control': (Path(a.control).expanduser().resolve() if a.control else
+        component_paths.update({'control': (Path(a.control).expanduser().resolve() if a.control else
             Path(str(files('seqtree').joinpath('data/control_human_trb_aa.txt.gz')))),
-            'germline_background': Path(a.germline_background).expanduser().resolve()}
+            'germline_background': Path(a.germline_background).expanduser().resolve()})
     def component_freeze():
         return {name: dict(path=str(path), sha256=sha256(path)) for name, path in component_paths.items()}
     component_before = component_freeze()
@@ -208,7 +238,8 @@ def main(a):
     else:stream_backend=stream_reference_rules
     backend = (stream_backend(modeled_queries, modeled_reference, species=organism,
         threads=a.threads, paired=paired, consume=consume, identity_keys=identity_keys,
-        **({'v_model_policy': v_model_policy} if a.kernel_only else {})) if modeled_reference.height and modeled_queries.height else {})
+        **({'v_model_policy': v_model_policy, 'matrix': a.matrix,
+            'position_profile': position_profile} if a.kernel_only else {})) if modeled_reference.height and modeled_queries.height else {})
     # Fill only coordinates the backend cannot emit. Existing continuous parts
     # are final deliverables and are never reopened to calculate predictions.
     available_targets = support.filter(pl.col('model_available')).select('epitope')
@@ -310,6 +341,13 @@ def main(a):
         modeled_queries=modeled_queries.height, candidate_targets=len(targets), eligible_targets=eligible.height,
         winner_rows=winner_rows, continuous_rows=continuous_rows, expected_continuous_rows=expected_rows,
         backend=backend, components=a.components, kernel_only=a.kernel_only, paired=paired,
+        position_profile=dict(path=str(position_profile_path), sha256=sha256(position_profile_path),
+            multipliers=profile_summary, applies_to='CDR3 substitution columns only',
+            unweighted_terms='gap open/extend, V-loop offsets, stem offsets',
+            distance_units='unchanged; radius and cutoffs stay derived from the matrix maximum, '
+                'position multipliers can change neighbour identities even with mean-one normalisation',
+            calibration_status='OPEN; existing kernel calibration does not transfer',
+            default_changed=False) if position_profile_path else None,
         v_model_policy=v_model_policy,
         kernel_model_binding=('resolved-first candidate; resolved queries use fixed original resolved-allele references; '
             'unresolved queries use fixed extended references; existing extended calibration does not transfer'

@@ -213,7 +213,7 @@ def stream_reference_rules(queries, reference, *, paired=False, species='human',
 
 
 def stream_reference_kernels(queries,reference,*,species='human',threads=1,paired=False,consume,identity_keys=(),
-                             v_model_policy='extended'):
+                             v_model_policy='extended',matrix='blosum62',position_profile=None):
     """Emit the six unchanged stem4 kernel alternatives from one native traversal.
 
     MHC is explicitly pooled by peptide by the owning reference classifier.
@@ -221,6 +221,8 @@ def stream_reference_kernels(queries,reference,*,species='human',threads=1,paire
     ``resolved-first`` keeps the original resolved-allele model for queries whose
     ``baseline_v0 [baseline_v1]`` resolve; other queries use the extended model.
     Both models are fixed independently of query identities and target labels.
+    ``position_profile`` is the optional loaded per-position cost multiplier table; ``None``
+    keeps the shipped flat-by-column geometry.
     """
     from .kernel import grouped_kernel_selection,ladder_cutoffs,KERNEL_SCORERS
     from ..match.geometry import precompute_v_loop_distances
@@ -246,7 +248,8 @@ def stream_reference_kernels(queries,reference,*,species='human',threads=1,paire
             keys = () if name == 'resolved' else identity_keys
             if not rpart.is_empty():
                 models[name] = stream_reference_kernels(qpart, rpart, species=species, threads=threads,
-                    paired=paired, consume=consume, identity_keys=keys)
+                    paired=paired, consume=consume, identity_keys=keys, matrix=matrix,
+                    position_profile=position_profile)
             missing = labels.join(rpart.select('epitope').unique(), on='epitope', how='anti')
             for part in qpart.select('query_id').iter_slices(max(1, 65536//max(1, missing.height))):
                 if missing.is_empty():
@@ -263,7 +266,7 @@ def stream_reference_kernels(queries,reference,*,species='human',threads=1,paire
     reference_names=({'seq0':'alpha','v0':'_allele_alpha','seq1':'beta','v1':'_allele_beta'} if paired else {'seq0':'cdr3','v0':'_allele'})
     q=queries.rename(query_names);r=reference.rename(reference_names)
     query_keys=[*query_names.values(),*identity_keys];search_keys=[*reference_names.values(),*identity_keys]
-    context=precompute_v_loop_distances(species=species,matrix='blosum62')
+    context=precompute_v_loop_distances(species=species,matrix=matrix)
     scale=context['distance_units'][0]
     groups=[(dict(epitope=epitope,mhc_a=None,mhc_b=None,mhc_class=None),q,r.filter(pl.col('epitope')==epitope)) for epitope in sorted(r['epitope'].unique())]
     rows=0
@@ -275,11 +278,14 @@ def stream_reference_kernels(queries,reference,*,species='human',threads=1,paire
             consume(name,frame.select('query_id','epitope',pl.col(name).alias('score'),(pl.col(name).is_finite()&(pl.col(name)>0)).fill_null(False).alias('supported')))
     grouped_kernel_selection(q,r,groups,query_keys=query_keys,search_keys=search_keys,paired=paired,
         cutoffs=ladder_cutoffs(scale),radius=22.5*scale,kernel_scale=22.5*scale,scorer='v-bounded',
-        _detailed=True,_consume=emit,progress=True,species=species,threads=threads,ctrim=3,matrix='blosum62',
-        stem_depth=4,stem_weight=1.,v_loop_weight=1,exclude_exact=True,v_loop_distances=context)
+        _detailed=True,_consume=emit,progress=True,species=species,threads=threads,ctrim=3,matrix=matrix,
+        stem_depth=4,stem_weight=1.,v_loop_weight=1,exclude_exact=True,v_loop_distances=context,
+        position_profile=position_profile)
     return dict(native_batches=1,query_keys=q.select(query_keys).unique().height,
         reference_keys=r.select(search_keys).unique().height,query_target_rows=rows,
-        geometry='current stem4 BLOSUM62 trim3; fixed VDJdb-other background; six native kernel alternatives',MHC='pooled by peptide')
+        geometry=f'current stem4 trim3 matrix={matrix}'
+            +('; explicit per-position cost multipliers' if position_profile is not None else '')
+            +'; fixed VDJdb-other background; six native kernel alternatives',MHC='pooled by peptide')
 
 
 def stream_reference_policy(queries, reference, policy, *, species='human', locus='TRB',
