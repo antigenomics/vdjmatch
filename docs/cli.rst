@@ -2288,6 +2288,29 @@ Each population uses one native batch; neither model is refitted per query.
 The default remains ``extended``. The manifest records the policy; existing
 extended-model final-call calibration does not apply to ``resolved-first``.
 
+``--position-profile PROFILE.tsv`` with ``--kernel-only`` scales substitution
+costs per junction column instead of weighting every column equally. The file is
+a TSV of ``locus``, ``length``, ``position`` and ``multiplier``, where ``length``
+is the full junction length and ``position`` is 0-based in that frame; every
+position of every ``(locus, length)`` present in the search must appear, and the
+run fails naming any gap. Multiplier ``1`` leaves a column unchanged, so an
+all-ones profile reproduces the unweighted scores exactly. Only CDR3
+substitutions are scaled: gaps, V-loop offsets and stem offsets are not, and the
+search radius and cutoff ladder stay derived from the substitution-matrix
+maximum. A profile whose mean multiplier exceeds 1 therefore retrieves fewer
+neighbours at the same radius, so normalise the file to mean 1 over scored
+positions when an arm must stay radius-comparable with the flat geometry. The
+manifest records the profile hash and its per-locus multiplier range. This is an
+opt-in experimental geometry; the default and its calibration are unchanged.
+
+.. code-block:: sh
+
+   vdjmatch reference-rule-scores --vdjdb reference.zip --species human \
+     --locus TRB --kernel-only --matrix blosum62 \
+     --position-profile contact-mask.tsv \
+     --reference-population curated-benchmark --min-records 30 \
+     --threads 8 --output-prefix arm-contact
+
 ``--class-policy MODEL/reference-policy.tsv`` exports only the experimental
 ``reference_class_policy`` scorer. It is exclusive with ``--components`` and
 ``--kernel-only``. The sibling ``manifest.json`` must bind the policy table hash,

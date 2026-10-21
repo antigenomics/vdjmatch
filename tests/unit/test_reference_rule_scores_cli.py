@@ -375,3 +375,44 @@ def test_resolved_first_cli_retains_cases_and_records_policy(tmp_path):
     assert not absent['supported'].any()
     with pytest.raises(ValueError, match='requires --kernel-only'):
         _run(source, tmp_path/'invalid', '--v-model-policy', 'resolved-first')
+
+
+def test_position_profile_cli_is_opt_in_frozen_and_changes_only_the_weighted_arm(tmp_path):
+    raw = pl.DataFrame(dict(cdr3=['CASSLGQAYEQYF', 'CASSLGRAYEQYF', 'CASSLGQAYEQWF'],
+        v=['TRBV19', 'TRBV19', 'TRBV7-9'], j=['TRBJ2-7']*3, gene=['TRB']*3,
+        species=['HomoSapiens']*3, epitope=['A', 'B', 'C']))
+    source = tmp_path/'raw.tsv'
+    raw.write_csv(source, separator='\t')
+    profiles = tmp_path/'profiles'
+    profiles.mkdir()
+    def profile(name, heavy, lengths=(13,)):
+        path = profiles/name
+        with open(path, 'w') as fh:
+            fh.write('locus\tlength\tposition\tmultiplier\n')
+            for length in lengths:
+                for position in range(length):
+                    fh.write(f'TRB\t{length}\t{position}\t{heavy if position == 6 else 1}\n')
+        return str(path)
+    def scores(prefix, *options):
+        assert _run(source, prefix, '--min-records', '1', '--kernel-only', *options) == 0
+        return pl.read_parquet(str(prefix)+'.continuous/*.parquet').sort('query_id', 'epitope', 'scorer')
+    plain = scores(tmp_path/'plain')
+    ones = scores(tmp_path/'ones', '--position-profile', profile('ones.tsv', 1))
+    heavy = scores(tmp_path/'heavy', '--position-profile', profile('heavy.tsv', 8))
+    assert plain.drop('score').equals(ones.drop('score'))
+    assert plain['score'].to_list() == pytest.approx(ones['score'].to_list(), nan_ok=True)
+    assert plain['score'].to_list() != pytest.approx(heavy['score'].to_list(), nan_ok=True)
+
+    manifest = json.loads(Path(str(tmp_path/'heavy')+'.manifest.json').read_text())
+    recorded = manifest['position_profile']
+    assert recorded['path'] == str(profiles/'heavy.tsv') and recorded['default_changed'] is False
+    assert recorded['multipliers']['TRB'] == dict(lengths=[13], positions=13, min=1.0, max=8.0,
+                                                  mean=pytest.approx((12 + 8)/13))
+    assert manifest['component_inputs_frozen'] and 'position_profile' in manifest['component_inputs_before']
+    assert 'per-position cost multipliers' in manifest['backend']['geometry']
+    assert json.loads(Path(str(tmp_path/'plain')+'.manifest.json').read_text())['position_profile'] is None
+
+    with pytest.raises(ValueError, match='requires --kernel-only'):
+        _run(source, tmp_path/'invalid', '--position-profile', profile('again.tsv', 1))
+    with pytest.raises(ValueError, match='does not cover TRB junction lengths'):
+        scores(tmp_path/'gap', '--position-profile', profile('short.tsv', 1, lengths=(12,)))

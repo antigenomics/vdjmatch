@@ -3,6 +3,20 @@
 ## [Unreleased]
 
 ### Added
+- **`reference-rule-scores --kernel-only --position-profile PROFILE.tsv`** — an opt-in
+  per-position multiplier on CDR3 substitution costs, so a positional hypothesis (structural
+  contact propensity, for instance) can be scored on the real one-vs-all retrieval metric instead
+  of on a frozen candidate tensor. The profile is a TSV of `locus`, `length`, `position`,
+  `multiplier` over complete junction frames, applied through the native
+  `position_weights_by_length` table that `seqtree` 1.3.1 already carries, so there is no extra
+  traversal, no rescoring layer and no native change. Multiplier `1` leaves a column unchanged and
+  an all-ones profile reproduces the unweighted scores exactly. Only substitutions are scaled:
+  gaps, V-loop offsets and stem offsets are not, and `distance_units` still reports the matrix
+  maximum, so the radius and cutoff ladder keep their matrix-relative meaning while the per-column
+  ceiling becomes `max(costs) * max(multiplier)` — a profile with mean multiplier above 1 retrieves
+  fewer neighbours at the same radius, and normalising the file to mean 1 over scored positions is
+  what keeps an arm radius-comparable with the flat geometry. The manifest records the profile hash
+  and its per-locus multiplier range. The default is unchanged and carries no profile.
 - **`load_compendium()` and `load_estimates()`** — the naive precursor frequencies other
   laboratories measured, and what this library predicts for the same epitopes. 147 published
   records from 14 studies tracing to **31 originating laboratories**, harmonized to cells per

@@ -203,3 +203,75 @@ def annotate_ndn_boundaries(frame, *, species):
         *(pl.when(pl.col('boundary_status')=='annotated').then(pl.col(c)).otherwise(None).alias(c)
           for c in ('v_end','j_start')))
     return frame.join(result,on=keys,how='left',validate='m:1',maintain_order='left')
+
+
+def load_position_profile(path) -> dict[tuple[str, int], list[float]]:
+    """Explicit per-position substitution-cost multipliers, keyed by ``(locus, junction length)``.
+
+    TSV with header ``locus length position multiplier``. ``length`` is the **full junction**
+    length (conserved anchors included, the frame the search keys use) and ``position`` is 0-based
+    in that frame. Every position of a declared ``(locus, length)`` must appear exactly once;
+    multipliers are finite and nonnegative, and ``1`` leaves a position's cost unchanged.
+
+    The multiplier scales substitution costs only. It does not scale gaps, and it does not change
+    ``geometry.distance_units``, so the search radius, the cutoff ladder and the gap cost stay
+    derived from the matrix maximum: a profile whose mean exceeds 1 retrieves fewer neighbours at
+    the same radius. Normalise the file itself if an arm must stay radius-comparable.
+    """
+    rows: dict[tuple[str, int], dict[int, float]] = {}
+    with open(path) as fh:
+        header = next(fh, '').rstrip('\n').split('\t')
+        if header != ['locus', 'length', 'position', 'multiplier']:
+            raise ValueError('position profile needs a locus/length/position/multiplier header')
+        for line in fh:
+            if not line.strip():
+                continue
+            locus, length, position, multiplier = line.rstrip('\n').split('\t')
+            length, position, multiplier = int(length), int(position), float(multiplier)
+            if locus not in ('TRA', 'TRB'):
+                raise ValueError('position profile locus must be TRA or TRB')
+            if length < 1 or not 0 <= position < length:
+                raise ValueError('position profile coordinates must lie inside their junction length')
+            if not multiplier == multiplier or multiplier in (float('inf'), float('-inf')) or multiplier < 0:
+                raise ValueError('position profile multipliers must be finite and nonnegative')
+            frame = rows.setdefault((locus, length), {})
+            if position in frame:
+                raise ValueError(f'duplicate position profile row for {locus} length {length}')
+            frame[position] = multiplier
+    if not rows:
+        raise ValueError('position profile is empty')
+    profile = {}
+    for (locus, length), frame in rows.items():
+        if len(frame) != length:
+            raise ValueError(f'position profile for {locus} length {length} covers {len(frame)}/{length} positions')
+        profile[(locus, length)] = [frame[i] for i in range(length)]
+    return profile
+
+
+def profile_weights(profile, locus, lengths, ctrim, scale=100) -> dict[int, list[int]]:
+    """Native ``position_weights_by_length`` table for one locus, from a loaded profile.
+
+    The flanks the geometry trims (first 3, last ``ctrim``) carry weight 0 whatever the profile
+    says there, exactly as the uniform table does, so an all-ones profile reproduces the
+    unmodified weights bit-for-bit. Interior weights are ``round(scale*multiplier)``; unlike the
+    significance route they are not floored to 1, so a 0 multiplier genuinely ignores a column.
+    """
+    missing = sorted(length for length in lengths if (locus, length) not in profile)
+    if missing:
+        raise ValueError(f'position profile does not cover {locus} junction lengths {missing}')
+    weights = {}
+    for length in lengths:
+        row = profile[(locus, length)]
+        weights[length] = [0]*3 + [round(scale*m) for m in row[3:length-ctrim]] + [0]*ctrim
+    return weights
+
+
+def position_profile_summary(profile) -> dict:
+    """Per-locus multiplier range and covered lengths, for provenance in a run manifest."""
+    summary = {}
+    for locus in sorted({locus for locus, _ in profile}):
+        values = [m for (l, _), row in profile.items() if l == locus for m in row]
+        summary[locus] = dict(lengths=sorted(length for l, length in profile if l == locus),
+                              positions=len(values), min=min(values), max=max(values),
+                              mean=sum(values)/len(values))
+    return summary
