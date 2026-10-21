@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.2] - 2026-10-21
+
+### Fixed
+- Resolve model-backed `_DV` dual-use V-gene spellings to the corresponding `/DV`
+  allele before V-loop geometry lookup, retaining the submitted call and allele.
+
+Scoring formulas, exact-hit behavior and the calibrated annotation default are unchanged.
+
 ## [Unreleased]
 
 ### Added
@@ -19,8 +27,6 @@
   ball overlap measures, and why a set total is the wrong functional.
 
 ### Fixed
-- Resolve model-backed `_DV` dual-use V-gene spellings to the corresponding `/DV`
-  allele before V-loop geometry lookup, retaining the submitted call and allele.
 - **`--selection auto` help quoted the superseded per-chain factors.** It named TRB 4.42 / TRA 1.05
   while `SELECTION_BY_CHAIN` has shipped **4.62 / 1.07** since 0.3.0, so the one place a user reads
   the constants off disagreed with the one place the code uses them.
