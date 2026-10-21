@@ -966,7 +966,9 @@ distance, plus aligned V-gene CDR1, CDR2 and CDR2.5 distances. The bundled loop
 models and their license/provenance are under ``resources/vloops``. Use
 ``--species human|mouse`` to choose the organism. Missing allele
 suffixes explicitly resolve to ``*01``. Model-proven co-locus aliases resolve
-uniquely without changing raw calls; ambiguous calls remain unavailable. The
+uniquely without changing raw calls, including underscore spellings such as
+``TRAV14_DV4*02`` for ``TRAV14/DV4*02``. The allele is preserved and must
+exist in the selected organism/locus model; ambiguous calls remain unavailable. The
 query table retains raw calls separately from resolved alleles, including chains
 with missing junctions. Unknown alleles and junctions shorter
 than eight residues remain unavailable in the query table. This command reports

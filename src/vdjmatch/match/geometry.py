@@ -186,7 +186,8 @@ def resolve_v_alleles(calls, model, *, locus=None):
     """Resolve exact/model-proven co-locus spellings, preserving callers' raw calls.
 
     Omitted allele means *01. Only a unique modeled co-locus gene can supply an
-    omitted /DV suffix or slash; no gene-family prefix or first comma call is chosen.
+    omitted /DV suffix or slash, or an underscore in place of /DV;
+    no gene-family prefix or first comma call is chosen.
     Unknown alleles, missing inputs, cross-locus calls and ambiguous aliases are null.
     Mouse -DV and /DV spellings merge only when their aligned templates agree.
     """
@@ -237,7 +238,7 @@ def _v_allele_aliases(model):
         forms={gene}
         if '/DV' in canonical:
             full=canonical.split('*')[0]
-            forms.update([full,full.replace('/',''),full.split('/DV')[0]])
+            forms.update([full,full.replace('/DV','_DV'),full.replace('/',''),full.split('/DV')[0]])
         for form in forms:
             tokens=[form+'*'+allele]+([form] if allele=='01' else [])
             for token in tokens:

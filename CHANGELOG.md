@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.2] - 2026-10-21
+
+### Fixed
+- Resolve model-backed `_DV` dual-use V-gene spellings to the corresponding `/DV`
+  allele before V-loop geometry lookup, retaining the submitted call and allele.
+
+Scoring formulas, exact-hit behavior and the calibrated annotation default are unchanged.
+
 ## [Unreleased]
 
 ### Added
