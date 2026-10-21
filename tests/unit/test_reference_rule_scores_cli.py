@@ -385,13 +385,13 @@ def test_position_profile_cli_is_opt_in_frozen_and_changes_only_the_weighted_arm
     raw.write_csv(source, separator='\t')
     profiles = tmp_path/'profiles'
     profiles.mkdir()
-    def profile(name, heavy, lengths=(13,)):
+    def profile(name, core):
         path = profiles/name
         with open(path, 'w') as fh:
-            fh.write('locus\tlength\tposition\tmultiplier\n')
-            for length in lengths:
-                for position in range(length):
-                    fh.write(f'TRB\t{length}\t{position}\t{heavy if position == 6 else 1}\n')
+            fh.write('locus\tside\toffset\tmultiplier\n')
+            for side in ('cys', 'fw'):
+                for offset, multiplier in enumerate([1, 1, 1, 1, 1, 1, core]):
+                    fh.write(f'TRB\t{side}\t{offset}\t{multiplier}\n')
         return str(path)
     def scores(prefix, *options):
         assert _run(source, prefix, '--min-records', '1', '--kernel-only', *options) == 0
@@ -406,13 +406,15 @@ def test_position_profile_cli_is_opt_in_frozen_and_changes_only_the_weighted_arm
     manifest = json.loads(Path(str(tmp_path/'heavy')+'.manifest.json').read_text())
     recorded = manifest['position_profile']
     assert recorded['path'] == str(profiles/'heavy.tsv') and recorded['default_changed'] is False
-    assert recorded['multipliers']['TRB'] == dict(lengths=[13], positions=13, min=1.0, max=8.0,
-                                                  mean=pytest.approx((12 + 8)/13))
+    assert recorded['multipliers']['TRB'] == dict(cys_offsets=7, fw_offsets=7,
+        core=dict(cys=8.0, fw=8.0), min=1.0, max=8.0, mean=pytest.approx((6 + 8)*2/14))
     assert manifest['component_inputs_frozen'] and 'position_profile' in manifest['component_inputs_before']
     assert 'per-position cost multipliers' in manifest['backend']['geometry']
     assert json.loads(Path(str(tmp_path/'plain')+'.manifest.json').read_text())['position_profile'] is None
 
     with pytest.raises(ValueError, match='requires --kernel-only'):
         _run(source, tmp_path/'invalid', '--position-profile', profile('again.tsv', 1))
-    with pytest.raises(ValueError, match='does not cover TRB junction lengths'):
-        scores(tmp_path/'gap', '--position-profile', profile('short.tsv', 1, lengths=(12,)))
+    (profiles/'tra.tsv').write_text('locus\tside\toffset\tmultiplier\n'
+                                    'TRA\tcys\t0\t1\nTRA\tfw\t0\t1\n')
+    with pytest.raises(ValueError, match='does not declare TRB'):
+        scores(tmp_path/'wrong-locus', '--position-profile', str(profiles/'tra.tsv'))

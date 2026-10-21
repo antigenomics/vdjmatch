@@ -6,8 +6,15 @@
 - **`reference-rule-scores --kernel-only --position-profile PROFILE.tsv`** — an opt-in
   per-position multiplier on CDR3 substitution costs, so a positional hypothesis (structural
   contact propensity, for instance) can be scored on the real one-vs-all retrieval metric instead
-  of on a frozen candidate tensor. The profile is a TSV of `locus`, `length`, `position`,
-  `multiplier` over complete junction frames, applied through the native
+  of on a frozen candidate tensor. The profile is a TSV of `locus`, `side`, `offset`,
+  `multiplier`, counted from the conserved Cys104 anchor (`cys`) and back from Phe/Trp118
+  (`fw`), with the last declared offset as the pooled core; each position is owned by its
+  nearer anchor, so the two counts meet in the middle and converge once the junction is longer
+  than the two declared depths. End-anchoring rather than tabulating `(length, position)` is
+  what makes the file estimable and complete — valid human TRB carries 105,677 source records
+  over 29 junction lengths, 12 of them under 30 records and 6 holding exactly one, so a
+  per-length table would demand numbers no cohort supports and miss any length it did not
+  enumerate. It is applied through the native
   `position_weights_by_length` table that `seqtree` 1.3.1 already carries, so there is no extra
   traversal, no rescoring layer and no native change. Multiplier `1` leaves a column unchanged and
   an all-ones profile reproduces the unweighted scores exactly. Only substitutions are scaled:

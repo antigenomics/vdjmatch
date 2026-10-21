@@ -2290,18 +2290,31 @@ extended-model final-call calibration does not apply to ``resolved-first``.
 
 ``--position-profile PROFILE.tsv`` with ``--kernel-only`` scales substitution
 costs per junction column instead of weighting every column equally. The file is
-a TSV of ``locus``, ``length``, ``position`` and ``multiplier``, where ``length``
-is the full junction length and ``position`` is 0-based in that frame; every
-position of every ``(locus, length)`` present in the search must appear, and the
-run fails naming any gap. Multiplier ``1`` leaves a column unchanged, so an
-all-ones profile reproduces the unweighted scores exactly. Only CDR3
-substitutions are scaled: gaps, V-loop offsets and stem offsets are not, and the
-search radius and cutoff ladder stay derived from the substitution-matrix
-maximum. A profile whose mean multiplier exceeds 1 therefore retrieves fewer
-neighbours at the same radius, so normalise the file to mean 1 over scored
-positions when an arm must stay radius-comparable with the flat geometry. The
-manifest records the profile hash and its per-locus multiplier range. This is an
-opt-in experimental geometry; the default and its calibration are unchanged.
+a TSV of ``locus``, ``side``, ``offset`` and ``multiplier``. ``side`` is ``cys``
+for offsets counted from the conserved Cys104 anchor and ``fw`` for offsets
+counted back from Phe/Trp118; both sides are required for a declared locus and
+each runs contiguously from offset 0. The last declared offset is the pooled
+core, reused by every deeper position, as in the end-anchored
+``position_significance.tsv``.
+
+Each junction position is owned by its nearer anchor, so the two counts meet in
+the middle and converge on the pooled core once the junction is longer than the
+two declared depths. Anchoring at both ends rather than tabulating
+``(length, position)`` is what makes the file estimable and complete: valid human
+TRB carries 105,677 source records over 29 junction lengths, 12 of which hold
+fewer than 30 records each and 6 exactly one, so a per-length table would both
+demand numbers no cohort supports and silently miss any length it did not
+enumerate. Pooled anchor offsets cover every length, including unseen ones.
+
+Multiplier ``1`` leaves a column unchanged, so an all-ones profile reproduces the
+unweighted scores exactly. Only CDR3 substitutions are scaled: gaps, V-loop
+offsets and stem offsets are not, and the search radius and cutoff ladder stay
+derived from the substitution-matrix maximum. A profile whose mean multiplier
+exceeds 1 therefore retrieves fewer neighbours at the same radius, so normalise
+the file to mean 1 over scored positions when an arm must stay radius-comparable
+with the flat geometry. The manifest records the profile hash, its anchor depths
+and its multiplier range. This is an opt-in experimental geometry; the default
+and its calibration are unchanged.
 
 .. code-block:: sh
 

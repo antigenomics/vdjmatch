@@ -205,47 +205,83 @@ def annotate_ndn_boundaries(frame, *, species):
     return frame.join(result,on=keys,how='left',validate='m:1',maintain_order='left')
 
 
-def load_position_profile(path) -> dict[tuple[str, int], list[float]]:
-    """Explicit per-position substitution-cost multipliers, keyed by ``(locus, junction length)``.
+def load_position_profile(path) -> dict[tuple[str, str], list[float]]:
+    """End-anchored per-position substitution-cost multipliers, keyed by ``(locus, side)``.
 
-    TSV with header ``locus length position multiplier``. ``length`` is the **full junction**
-    length (conserved anchors included, the frame the search keys use) and ``position`` is 0-based
-    in that frame. Every position of a declared ``(locus, length)`` must appear exactly once;
-    multipliers are finite and nonnegative, and ``1`` leaves a position's cost unchanged.
+    TSV with header ``locus side offset multiplier``. ``side`` is ``cys`` for offsets counted
+    from the conserved Cys104 anchor and ``fw`` for offsets counted back from Phe/Trp118; both
+    sides are required for a declared locus, and each must run contiguously from offset 0. The
+    last declared offset is the **pooled core**: deeper positions reuse it, exactly as
+    :func:`load_significance` pools its tail.
 
-    The multiplier scales substitution costs only. It does not scale gaps, and it does not change
-    ``geometry.distance_units``, so the search radius, the cutoff ladder and the gap cost stay
-    derived from the matrix maximum: a profile whose mean exceeds 1 retrieves fewer neighbours at
-    the same radius. Normalise the file itself if an arm must stay radius-comparable.
+    Anchoring at both ends rather than tabulating ``(length, position)`` is what makes the file
+    estimable. Valid human TRB carries 105,677 source records over 29 junction lengths, of which
+    12 lengths hold fewer than 30 records each and six hold exactly one; a per-length table asks
+    for numbers no cohort can support at the tails, and covers nothing it did not enumerate.
+    Pooled anchor offsets cover every length, including unseen ones.
+
+    Multiplier ``1`` leaves a position's cost unchanged. The multiplier scales substitution costs
+    only: not gaps, and not ``geometry.distance_units``, so the search radius, the cutoff ladder
+    and the gap cost stay derived from the matrix maximum. A profile whose mean exceeds 1
+    therefore retrieves fewer neighbours at the same radius; normalise the file itself if an arm
+    must stay radius-comparable.
     """
-    rows: dict[tuple[str, int], dict[int, float]] = {}
+    rows: dict[tuple[str, str], dict[int, float]] = {}
     with open(path) as fh:
         header = next(fh, '').rstrip('\n').split('\t')
-        if header != ['locus', 'length', 'position', 'multiplier']:
-            raise ValueError('position profile needs a locus/length/position/multiplier header')
+        if header != ['locus', 'side', 'offset', 'multiplier']:
+            raise ValueError('position profile needs a locus/side/offset/multiplier header')
         for line in fh:
             if not line.strip():
                 continue
-            locus, length, position, multiplier = line.rstrip('\n').split('\t')
-            length, position, multiplier = int(length), int(position), float(multiplier)
+            locus, side, offset, multiplier = line.rstrip('\n').split('\t')
+            offset, multiplier = int(offset), float(multiplier)
             if locus not in ('TRA', 'TRB'):
                 raise ValueError('position profile locus must be TRA or TRB')
-            if length < 1 or not 0 <= position < length:
-                raise ValueError('position profile coordinates must lie inside their junction length')
+            if side not in ('cys', 'fw'):
+                raise ValueError('position profile side must be cys or fw')
+            if offset < 0:
+                raise ValueError('position profile offsets must be nonnegative')
             if not multiplier == multiplier or multiplier in (float('inf'), float('-inf')) or multiplier < 0:
                 raise ValueError('position profile multipliers must be finite and nonnegative')
-            frame = rows.setdefault((locus, length), {})
-            if position in frame:
-                raise ValueError(f'duplicate position profile row for {locus} length {length}')
-            frame[position] = multiplier
+            frame = rows.setdefault((locus, side), {})
+            if offset in frame:
+                raise ValueError(f'duplicate position profile row for {locus} {side} offset {offset}')
+            frame[offset] = multiplier
     if not rows:
         raise ValueError('position profile is empty')
     profile = {}
-    for (locus, length), frame in rows.items():
-        if len(frame) != length:
-            raise ValueError(f'position profile for {locus} length {length} covers {len(frame)}/{length} positions')
-        profile[(locus, length)] = [frame[i] for i in range(length)]
+    for (locus, side), frame in sorted(rows.items()):
+        if set(frame) != set(range(len(frame))):
+            raise ValueError(f'position profile for {locus} {side} must run contiguously from offset 0')
+        profile[(locus, side)] = [frame[i] for i in range(len(frame))]
+    for locus in {locus for locus, _ in profile}:
+        if (locus, 'cys') not in profile or (locus, 'fw') not in profile:
+            raise ValueError(f'position profile for {locus} needs both the cys and fw sides')
     return profile
+
+
+def profile_multipliers(profile, locus, length) -> list[float]:
+    """Per-position multipliers for one junction length, from the two anchor-counted sides.
+
+    Position ``p`` is owned by its **nearer** anchor -- ``cys`` while ``p < length-1-p``, ``fw``
+    while ``p > length-1-p`` -- and the offset is capped at that side's pooled core. The two
+    counts therefore meet in the middle and never overlap, which is what "they converge" means
+    once ``length-1`` exceeds the two declared depths: every interior position then carries its
+    nearer side's pooled core value. The exact centre of an odd-length junction is equidistant
+    and averages the two sides.
+    """
+    cys, fw = profile[(locus, 'cys')], profile[(locus, 'fw')]
+    out = []
+    for p in range(length):
+        near, far = p, length-1-p
+        if near < far:
+            out.append(cys[min(near, len(cys)-1)])
+        elif far < near:
+            out.append(fw[min(far, len(fw)-1)])
+        else:
+            out.append((cys[min(near, len(cys)-1)] + fw[min(far, len(fw)-1)])/2)
+    return out
 
 
 def profile_weights(profile, locus, lengths, ctrim, scale=100) -> dict[int, list[int]]:
@@ -255,23 +291,24 @@ def profile_weights(profile, locus, lengths, ctrim, scale=100) -> dict[int, list
     says there, exactly as the uniform table does, so an all-ones profile reproduces the
     unmodified weights bit-for-bit. Interior weights are ``round(scale*multiplier)``; unlike the
     significance route they are not floored to 1, so a 0 multiplier genuinely ignores a column.
+    Every length is covered, so no cohort tail can leave the table short.
     """
-    missing = sorted(length for length in lengths if (locus, length) not in profile)
-    if missing:
-        raise ValueError(f'position profile does not cover {locus} junction lengths {missing}')
+    if (locus, 'cys') not in profile:
+        raise ValueError(f'position profile does not declare {locus}')
     weights = {}
     for length in lengths:
-        row = profile[(locus, length)]
+        row = profile_multipliers(profile, locus, length)
         weights[length] = [0]*3 + [round(scale*m) for m in row[3:length-ctrim]] + [0]*ctrim
     return weights
 
 
 def position_profile_summary(profile) -> dict:
-    """Per-locus multiplier range and covered lengths, for provenance in a run manifest."""
+    """Per-locus anchor depths and multiplier range, for provenance in a run manifest."""
     summary = {}
     for locus in sorted({locus for locus, _ in profile}):
-        values = [m for (l, _), row in profile.items() if l == locus for m in row]
-        summary[locus] = dict(lengths=sorted(length for l, length in profile if l == locus),
-                              positions=len(values), min=min(values), max=max(values),
-                              mean=sum(values)/len(values))
+        sides = {side: profile[(locus, side)] for side in ('cys', 'fw')}
+        values = [m for row in sides.values() for m in row]
+        summary[locus] = dict(cys_offsets=len(sides['cys']), fw_offsets=len(sides['fw']),
+                              core=dict(cys=sides['cys'][-1], fw=sides['fw'][-1]),
+                              min=min(values), max=max(values), mean=sum(values)/len(values))
     return summary
