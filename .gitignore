@@ -38,3 +38,11 @@ tmp/
 
 # obsidian memory sync (machine-local absolute paths)
 .claude/obsidian-sync.json
+
+# Historical internal planning notes (retained locally)
+/roadmap-iter-1.md
+/INTEROP-vdjtools.md
+/plan.md
+/bench/plotting_memo.md
+/bench/comparisons/comparison_01.ipynb
+/bench/comparisons/comparison_02.ipynb
