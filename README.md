@@ -47,6 +47,8 @@ The Python implementation follows the legacy Java/Groovy package, preserved on t
 Browse the [examples gallery](https://docs.isalgo.dev/vdjmatch/examples.html) or
 the [notebooks gallery](https://docs.isalgo.dev/vdjmatch/notebooks.html) for
 rendered previews, source downloads and raw inputs.
+The [versioned Hugging Face asset mirror](https://huggingface.co/datasets/isalgo/airr_benchmark/tree/314b72d2955e9578157c6767845741444d89f540/vdjmatch/releases/0.6.3)
+also provides the synthetic offline examples and bundled static models with a checksum manifest.
 
 The [examples directory](examples/) contains tiny raw synthetic inputs, a pinned
 offline reference, [annotation](examples/annotate.sh) and

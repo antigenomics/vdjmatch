@@ -219,3 +219,18 @@ Use a smaller explicit budget when the process CPU allocation is below four.
 Sequence search is internally batched: samples run sequentially and no outer
 pool wraps the native engine. See :doc:`performance` for one/four-thread equality,
 measured occupied cores and whole-invocation RAM on the worked examples.
+
+Hugging Face input identity
+---------------------------
+
+``vdjmatch.db.fetch_hf`` and the precursor table loaders pin the default mirror
+to a fixed repository commit. A dated VDJdb directory selects the database version;
+``revision=`` selects the HF repository snapshot. Custom mirrors default to
+``main`` unless a revision is supplied explicitly. Downloads and their validated
+copies honor the caller-selected cache directory. For an offline job, pre-stage
+inputs once, then pass the local reference or table paths to downstream jobs.
+
+The `versioned public asset mirror
+<https://huggingface.co/datasets/isalgo/airr_benchmark/tree/314b72d2955e9578157c6767845741444d89f540/vdjmatch/releases/0.6.3>`_
+contains synthetic examples, static model resources and a checksum manifest.
+Recombination models remain owned by ``vdjtools.model.load_bundled``.
