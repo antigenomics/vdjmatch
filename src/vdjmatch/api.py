@@ -121,7 +121,7 @@ class Annotator:
         )
 
     @classmethod
-    def from_path(cls, path, *, species=None, asset="default", threads=4, **filters):
+    def from_path(cls, path, *, species=None, asset="default", threads=0, **filters):
         from .db.index import load_or_build_index
 
         index, profiles, manifest = load_or_build_index(

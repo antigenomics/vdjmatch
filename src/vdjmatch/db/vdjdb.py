@@ -27,6 +27,7 @@ _MEMBER = {
 }
 _HF_REPO = "isalgo/airr_benchmark"
 _HF_TAG = "2026-06-11-ZENODO"
+_HF_REVISION = "ebf0885fbaf76610eca450d361d9ee5499834733"
 
 
 def _json_url(url: str) -> dict:
@@ -233,15 +234,18 @@ def fetch_hf(
     cache: str | os.PathLike | None = None,
     force: bool = False,
     repo: str = _HF_REPO,
+    revision: str | None = None,
 ) -> Path:
-    """Fetch a pinned gzipped legacy table, with cache identity scoped to HF repo/tag/table."""
+    """Fetch a legacy table pinned to an HF revision, with repo/revision/table identity."""
     if asset not in _MEMBER:
         raise ValueError(f"unsupported HF legacy asset: {asset!r}")
+    if revision is None:
+        revision = _HF_REVISION if repo == _HF_REPO else "main"
     import hashlib
 
     member = _MEMBER[asset]
     filename = f"vdjdb/vdjdb-{tag}/{member}.gz"
-    identity = hashlib.sha256(f"{repo}/{filename}".encode()).hexdigest()[:24]
+    identity = hashlib.sha256(f"{repo}/{revision}/{filename}".encode()).hexdigest()[:24]
     folder = cache_dir(cache) / "huggingface" / identity
     folder.mkdir(parents=True, exist_ok=True)
     out = folder / member
@@ -252,6 +256,7 @@ def fetch_hf(
             gz = hf_hub_download(
                 repo_id=repo,
                 repo_type="dataset",
+                revision=revision,
                 filename=filename,
                 cache_dir=str(cache_dir(cache) / "hf_hub"),
                 force_download=force,
@@ -264,6 +269,7 @@ def fetch_hf(
         metadata = {
             "source": "huggingface",
             "repo": repo,
+            "revision": revision,
             "tag": tag,
             "bundle": "legacy",
             "file": filename,
@@ -564,6 +570,19 @@ def load(
     else:
         raw = _read_table(path)
     df = schema.normalize(raw)
+    return _select_reference(df, species=species, gene=gene, mhc_class=mhc_class,
+        epitope=epitope, mhc_a=mhc_a, mhc_b=mhc_b, mhc_match=mhc_match,
+        reference_id=reference_id, exclude_reference_ids=exclude_reference_ids,
+        evidence_type=evidence_type, min_score=min_score, paired_only=paired_only)
+
+
+def _select_reference(df, *, species=None, gene=None, mhc_class=None, epitope=None,
+                      mhc_a=None, mhc_b=None, mhc_match="exact", reference_id=None,
+                      exclude_reference_ids=None, evidence_type=None, min_score=0,
+                      paired_only=False):
+    """Apply loader selectors to an unchanged, run-local normalized reference."""
+    if mhc_match not in {"exact", "compatible"}:
+        raise ValueError("mhc_match must be exact or compatible")
     selectors = [
         ("epitope", epitope),
         ("mhc_a", mhc_a),

@@ -2,11 +2,11 @@ Laptop runtime, RAM and thread budget
 =====================================
 
 The worked examples use four native threads as a practical explicit setting.
-The runtime default remains one: it is conservative for restricted CPU
-allocations and tiny inputs. Choose a budget no larger than the process CPU
-allocation. Samples run sequentially; native search batches the entire query
+Ordinary CLI commands and repertoire annotation default to the job CPU
+allocation (``--threads 0``). Use ``--threads 1`` for serial execution or an
+explicit smaller budget within that allocation. Samples run sequentially; native search batches the entire query
 population, without an outer pool. Numerical helper pools are limited to one
-thread before imports in the notebooks. No runtime/scorer default changed here.
+thread before imports in the notebooks. The measurements below retain their recorded explicit budgets and scorer.
 
 Measured commodity laptop
 -------------------------

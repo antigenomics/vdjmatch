@@ -1,6 +1,23 @@
 Release notes
 =============
 
+0.6.3 (in preparation)
+----------------------
+
+Requires seqtree 1.3.2, vdjtools 5.3.2 and optional arda-mapper 2.37.1.
+Ordinary commands and repertoire annotation resolve their default CPU budget
+from the job allocation; ``--threads 1`` selects serial operation. Reference
+normalization is shared across cohort populations. Precursor downloads use
+validated resource-specific atomic publication. Offline gallery checks exclude
+scientific notebooks unless explicitly requested with ``--scientific``.
+Scoring defaults and accepted scientific results are unchanged.
+
+0.6.2
+-----
+
+Resolve model-backed dual-use ``_DV`` V-gene aliases to their ``/DV`` alleles
+while preserving submitted calls and scoring geometry.
+
 0.6.1
 -----
 

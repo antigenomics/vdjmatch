@@ -17,11 +17,14 @@ the analysis repository.
 from __future__ import annotations
 
 import os
+import hashlib
+import shutil
 from pathlib import Path
 
 import polars as pl
 
-from ..db.cache import cache_dir
+from ..db.cache import cache_dir, locked, publish, staging, valid
+from ..db.vdjdb import _HF_REVISION
 
 #: HuggingFace mirror holding both tables.
 HF_REPO = "isalgo/airr_benchmark"
@@ -36,21 +39,38 @@ _NUMERIC = ("n_junctions", "observed_mass", "union", "retained", "n_ball", "occu
 
 
 def _fetch(which: str, cache: str | os.PathLike | None = None, force: bool = False,
-           repo: str = HF_REPO) -> Path:
+           repo: str = HF_REPO, revision: str | None = None) -> Path:
     """Download (and cache) one of the two tables from the HuggingFace mirror."""
     name = _FILES[which]
-    out = cache_dir(cache) / name
-    if out.exists() and not force:
-        return out
-    from huggingface_hub import hf_hub_download  # optional dep (extras: bench/control)
-    src = hf_hub_download(repo_id=repo, repo_type="dataset", filename=f"{HF_DIR}/{name}")
-    out.write_bytes(Path(src).read_bytes())
+    if revision is None:
+        revision = _HF_REVISION if repo == HF_REPO else "main"
+    filename = f"{HF_DIR}/{name}"
+    identity = hashlib.sha256(f"{repo}/{revision}/{filename}".encode()).hexdigest()[:24]
+    folder = cache_dir(cache) / "precursor" / identity
+    folder.mkdir(parents=True, exist_ok=True)
+    out = folder / name
+    with locked(out):
+        if force or not valid(out):
+            from huggingface_hub import hf_hub_download  # optional dep (extras: bench/control)
+            src = hf_hub_download(repo_id=repo, repo_type="dataset", filename=filename,
+                                  revision=revision, force_download=force,
+                                  cache_dir=str(cache_dir(cache) / "hf_hub"))
+            with staging(out) as stage:
+                shutil.copyfile(src, stage)
+                columns = pl.read_csv(stage, separator="\t", infer_schema_length=0).columns
+                required = ({'freq_per_1e6_naive', 'freq_per_1e6_published', 'naive', 'design',
+                             'species', 'epitope_seq', 'lab', 'source_type'} if which == 'compendium'
+                            else {'species', 'chain', 'source', 'epitope_seq'})
+                if missing := required - set(columns):
+                    raise ValueError(f"precursor {which} table missing columns: {sorted(missing)}")
+                publish(stage, out)
     return out
 
 
 def load_compendium(source: str | os.PathLike | None = None, *, measured_only: bool = True,
                     dedup_retabulations: bool = False, species: str | None = None,
-                    cache: str | os.PathLike | None = None) -> pl.DataFrame:
+                    cache: str | os.PathLike | None = None,
+                    revision: str | None = None) -> pl.DataFrame:
     """Published measurements of naive precursor frequency — **experimental**, not computed.
 
     147 rows from 14 studies tracing to 31 originating laboratories (one is a review, whose rows
@@ -71,6 +91,7 @@ def load_compendium(source: str | os.PathLike | None = None, *, measured_only: b
             donors stand behind a row; turn it on when you are counting *measurements*.
         species: ``"human"`` or ``"mouse"``.
         cache: cache directory (default ``~/.cache/vdjmatch`` or ``$VDJMATCH_CACHE``).
+        revision: HF revision override; the default mirror uses a fixed commit.
 
     Returns:
         One row per published record. See the mirror's ``README.md`` for the full schema.
@@ -80,7 +101,7 @@ def load_compendium(source: str | os.PathLike | None = None, *, measured_only: b
         ~50% naive-phenotype, so a per-total-CD8 figure is doubled to reach the naive scale; cord
         blood is essentially the naive compartment in full and is *not* doubled.
     """
-    path = Path(source) if source is not None else _fetch("compendium", cache)
+    path = Path(source) if source is not None else _fetch("compendium", cache, revision=revision)
     df = pl.read_csv(path, separator="\t", infer_schema_length=0)
     df = df.with_columns(
         pl.col("freq_per_1e6_naive").cast(pl.Float64, strict=False),
@@ -103,7 +124,8 @@ def load_compendium(source: str | os.PathLike | None = None, *, measured_only: b
 
 def load_estimates(source: str | os.PathLike | None = None, *, species: str | None = None,
                    chain: str | None = None, model: str | None = None,
-                   cache: str | os.PathLike | None = None) -> pl.DataFrame:
+                   cache: str | os.PathLike | None = None,
+                   revision: str | None = None) -> pl.DataFrame:
     """What `F(e)` predicts for the epitopes the compendium measured — **derived**, not observed.
 
     One row per (species, model set, chain, epitope), at radius 1 with ``alpha = 0.1``. The
@@ -116,6 +138,7 @@ def load_estimates(source: str | os.PathLike | None = None, *, species: str | No
         chain: ``"TRA"`` or ``"TRB"``.
         model: recombination model set — ``"olga"`` or ``"arda"``.
         cache: cache directory.
+        revision: HF revision override; the default mirror uses a fixed commit.
 
     Note:
         Human is scored under **both** model sets on purpose, because mouse exists only under
@@ -123,7 +146,7 @@ def load_estimates(source: str | os.PathLike | None = None, *, species: str | No
         model family. The sets are not interchangeable: ``olga`` scores 5.7% of human TRA junctions
         at exactly zero, where they contribute nothing to any mass and raise no error.
     """
-    path = Path(source) if source is not None else _fetch("estimates", cache)
+    path = Path(source) if source is not None else _fetch("estimates", cache, revision=revision)
     # Pin the numeric columns rather than trusting inference: `n_ball` and `event_ratio` are empty
     # for whole arms (the ball census is not computed for every model set, and the event ratio only
     # exists where a pooled control repertoire does), so a leading run of blanks makes polars infer

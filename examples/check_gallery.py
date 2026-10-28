@@ -75,18 +75,18 @@ def notebook(path):
         nbformat.write(nb, output / (Path(path).stem + ".ipynb"))
 
 
-for path in ("examples/annotation.ipynb", "examples/comparison.ipynb",
-             "docs/notebooks/precursor.ipynb"):
+for path in ("examples/annotation.ipynb", "examples/comparison.ipynb"):
     run(path, lambda path=path: notebook(path))
 if args.scientific:
     for name in ('accuracy', 'vaccination', 'precursor_estimates'):
         run(f'examples/{name}.ipynb', lambda name=name: notebook(f'examples/{name}.ipynb'))
-# Export a source-identical copy so marimo session files stay with this fresh run.
-compendium = output / "precursor_compendium.py"
-compendium.write_bytes((root / "docs/notebooks/precursor_compendium.py").read_bytes())
-run("precursor_compendium", lambda: subprocess.run(
-    [sys.executable, "-m", "marimo", "export", "html",
-     str(compendium),
-     "-o", str(output / "precursor_compendium.html")],
-    cwd=root, check=True, timeout=300))
+    run("docs/notebooks/precursor.ipynb", lambda: notebook("docs/notebooks/precursor.ipynb"))
+    # Export a source-identical copy so marimo session files stay with this fresh run.
+    compendium = output / "precursor_compendium.py"
+    compendium.write_bytes((root / "docs/notebooks/precursor_compendium.py").read_bytes())
+    run("precursor_compendium", lambda: subprocess.run(
+        [sys.executable, "-m", "marimo", "export", "html",
+         str(compendium),
+         "-o", str(output / "precursor_compendium.html")],
+        cwd=root, check=True, timeout=300))
 sys.exit(any(record["status"] == "failed" for record in results))

@@ -33,8 +33,8 @@ continuous evidence on source identity and complete pMHC keys. Open either
 notebook from the repository root or this directory. No outputs are committed.
 
 `database.sh` checks three synthetic queries against the same offline reference
-and four supplied synthetic null draws. Exact/one-edit/no-hit queries return
-`database_p` values 0.4/0.8/1.0; exact presence is a separate boolean. These
+and one supplied synthetic raw control. Exact/one-edit/no-hit queries return
+`p_both` values 1.0/1.0/1.0; exact presence is a separate boolean. These
 small fixtures explain the calculation, not a biological null law.
 
 All inputs were written specifically as deterministic software fixtures, not
@@ -49,7 +49,7 @@ reference and scoring configuration of each fresh invocation.
 ## Verify the gallery against this checkout
 
 From the repository root, install the matching source in an isolated environment
-and run the offline workflows and precursor tutorials:
+and run the offline shell workflows and annotation/comparison notebooks:
 
 ```sh
 uv venv .venv-gallery
@@ -63,9 +63,9 @@ Use the same Git checkout for source, scripts and documentation. Released
 packages need the examples from their matching release tag.
 Shell examples have a 120-second timeout; ordinary notebook cells and the marimo
 export have a 300-second timeout. The full-cohort vaccination calculation has
-an explicit 1,800-second cell budget. The precursor tutorial downloads the pinned public
-Hugging Face VDJdb snapshot and uses four native threads. The compendium downloads
-its documented public tables and reference. Reference downloads stay in the
+an explicit 1,800-second cell budget. With `--scientific`, the precursor tutorial downloads the pinned public
+Hugging Face VDJdb snapshot and uses four native threads. With `--scientific`, the compendium downloads
+its documented public tables and reference. The default check requires no downloads. Reference downloads stay in the
 output directory; computed results are rebuilt on every invocation.
 
 ## Biological examples

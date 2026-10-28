@@ -1,8 +1,9 @@
 Notebooks
 =========
 
-Read complete notebooks here in the documentation: prose, code and reviewed
-figures appear together. Each page also offers its ``.ipynb`` source.
+Read notebooks here in the documentation: prose, code and available reviewed
+figures appear together. The vaccination workflow is an unexecuted draft; its
+full-cohort calculation and biological results remain deferred. Each page also offers its ``.ipynb`` source.
 Start with the offline examples, then choose a biological question.
 
 Start here
@@ -44,7 +45,7 @@ Biological questions
        true/false-positive counts for 2,670 labelled observations.</p>
      </a>
      <a class="proj-card" href="notebooks/vaccination.html">
-       <span class="proj-card__type">Vaccination repertoires · neighbourhood evidence</span>
+       <span class="proj-card__type">Deferred draft · vaccination repertoires</span>
        <h3>LLW evidence across donors</h3>
        <p>Retain all eligible clonotypes and technical replicates, then rank
        LLW evidence with the declared A*02 restriction.</p>
@@ -135,8 +136,10 @@ The :download:`dependency recipe <../examples/requirements-notebooks.txt>` and
    uv pip install --python .venv-gallery/bin/python -r examples/requirements-notebooks.txt
    .venv-gallery/bin/python examples/check_gallery.py NEW_OUTPUT_DIRECTORY
 
-Add ``--scientific`` to include the three biological lessons once their raw
-mirrors are available. The checker saves executed notebooks and cell timings
+The default check runs only the offline shell workflows and annotation/comparison
+notebooks. Add ``--scientific`` to include the biological lessons, precursor method
+and interactive compendium once their raw mirrors and network access are available.
+This also executes the deferred vaccination draft; omit it during release polishing. The checker saves executed notebooks and cell timings
 in the new directory, and exits nonzero if a workflow fails.
 The full-cohort vaccination cell has an explicit 1,800-second budget; other
 notebooks use 300 seconds per cell. Documentation builds execute no cells.

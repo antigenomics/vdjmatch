@@ -116,7 +116,8 @@ def test_counts_only_exact_exclusion_and_one_batch(tmp_path, monkeypatch):
 
     monkeypatch.setattr(seqtree, "Index", CountedIndex)
     search.main(args)
-    assert calls == [(2, 1)]
+    from vdjtools.cores import kernel_threads
+    assert calls == [(2, kernel_threads(0))]
     assert pl.read_csv(tmp_path / "out.counts.tsv", separator="\t").rows() == [
         (0, 1),
         (1, 0),
@@ -159,6 +160,7 @@ def test_invalid_rows_fail_with_counts(tmp_path, role):
 
 def test_threads_engines_and_supported_matrix_are_explicit(tmp_path):
     args = options(tmp_path)
+    args.threads = 1
     search.main(args)
     serial = pl.read_csv(tmp_path / "out.pairs.tsv", separator="\t").sort(
         "query_row", "reference_row"
@@ -171,8 +173,10 @@ def test_threads_engines_and_supported_matrix_are_explicit(tmp_path):
         )
     )
     args.threads = 0
-    with pytest.raises(ValueError, match="positive integer"):
-        search.main(args)
+    search.main(args)
+    assert args.threads > 0
+    assert serial.equals(pl.read_csv(tmp_path / "out.pairs.tsv", separator="\t").sort(
+        "query_row", "reference_row"))
     args.threads, args.engine, args.matrix = 1, "seqtrie", "vdjam"
     with pytest.raises(ValueError, match="requires --engine seqtm"):
         search.main(args)

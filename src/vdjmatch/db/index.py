@@ -85,7 +85,7 @@ def _restore(directory, identity):
         return None
 
 
-def load_or_build_index(source, *, asset='default', species=None, threads=4, **filters):
+def load_or_build_index(source, *, asset='default', species=None, threads=0, **filters):
     """Return ``(VdjdbIndex, flat_profiles, manifest)`` from a verified prepared bundle.
 
     Bundles live beside the source, including directory sources, so a bundle
@@ -98,8 +98,8 @@ def load_or_build_index(source, *, asset='default', species=None, threads=4, **f
     from ..aggregate.fast_profiles import reference_profiles, joint_reference_profiles
     from ..match.engine import VdjdbIndex
 
-    if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
-        raise ValueError('prepared reference requires positive threads')
+    from vdjtools.cores import kernel_threads
+    threads = kernel_threads(threads)
     source = Path(source).expanduser().resolve()
     if not source.exists():
         raise FileNotFoundError(source)

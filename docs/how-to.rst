@@ -174,10 +174,11 @@ background for an application. The API uses uncalibrated ranking unless
 separate alpha and beta backgrounds. Empty backgrounds and requested background
 loading failures raise errors.
 
-Hard V/J matching can be requested for uncalibrated annotation with
-``match_v=True`` or ``match_j=True``. Calibrated requests with these restrictions
-are rejected because sequence-only control indexes cannot apply the same V/J
-predicate.
+Hard V/J matching uses ``match_v=True`` or ``match_j=True``. Calibration with
+these restrictions requires a gene-labelled control frame (``cdr3``, ``v``,
+``j``), or a locus-to-frame mapping, so target and control counts apply the
+same allele-pooled predicate. Sequence-only control indexes cannot calibrate
+these restrictions.
 
 Legacy matching command line
 ----------------------------
@@ -211,7 +212,9 @@ run; keep raw inputs and requested final tables, never computed feature caches.
 Choose a practical thread budget
 --------------------------------
 
-The examples request ``--threads 4``; the library/CLI default remains one.
+The examples request ``--threads 4``; ordinary CLI commands and repertoire
+annotation default to ``0``, resolved once to the job CPU allocation.
+Use ``--threads 1`` for serial execution.
 Use a smaller explicit budget when the process CPU allocation is below four.
 Sequence search is internally batched: samples run sequentially and no outer
 pool wraps the native engine. See :doc:`performance` for one/four-thread equality,

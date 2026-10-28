@@ -149,18 +149,21 @@ def _restore(frame, mapping):
 
 
 def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_prefix="annotation",
-                         locus="auto", species="HomoSapiens", threads=1, selection_only=True, **options):
+                         locus="auto", species="HomoSapiens", threads=0, selection_only=True, **options):
     """Annotate files, a directory, or path/sample_id metadata as population batches.
 
     Source rows are read once through shared ingestion. Query IDs are global numeric
     offsets; source IDs, metadata and sample-scoped pairing remain available in the
     returned tables. Defaults and advanced scorer options come from the existing
     targeted annotation parser. No per-file search pool or computed cache is used.
+    ``threads=0`` uses allocated cores; positive counts select a smaller budget.
     Outputs are ``<prefix>.queries.tsv``, ``.selection.tsv``, optional detail tables,
     and ``.manifest.json``. The result contains frames, manifest and output paths.
     """
-    if isinstance(threads, bool) or not isinstance(threads, int) or threads <= 0:
-        raise ValueError("threads must be a positive integer")
+    if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
+        raise ValueError("threads must be a nonnegative integer (0 selects allocated cores)")
+    from vdjtools.cores import kernel_threads
+    threads = kernel_threads(threads)
     if locus not in {"auto", "TRA", "TRB", "paired"}:
         raise ValueError("locus must be auto, TRA, TRB or paired")
     table_budget = os.environ.get("POLARS_MAX_THREADS")
@@ -170,8 +173,6 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     import polars as pl
     if pl.thread_pool_size() > threads:
         raise ValueError("initialized Polars pool exceeds threads; set POLARS_MAX_THREADS before import or start a new process")
-    from vdjtools.cores import kernel_threads
-    kernel_threads(threads)
     from .. import db, io
     from ..cli import neighbours
     from ..db.cache import sha256
@@ -249,6 +250,12 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         alphabet=options.get('alphabet',defaults.alphabet),
         matrix=options.get('distance_matrix',defaults.distance_matrix),
         v_regions=options.get('v_regions',defaults.v_regions))
+    normalized_reference = None
+    def reference_loader():
+        nonlocal normalized_reference
+        if normalized_reference is None:
+            normalized_reference = db.load(reference)
+        return normalized_reference
     with TemporaryDirectory(prefix="vdjmatch-annotation-") as temporary:
         for population in ("TRA", "TRB", "paired"):
             part = (cohort.filter(pl.col("_population") == "paired") if population == "paired" else
@@ -272,9 +279,10 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
             args.sample, args.locus, args.species = str(sample), population, species
             args.threads, args.selection_only = threads, selection_only
             if mixed_union and population=='paired':
-                neighbours.main(args,marginal_tables=marginal_tables,v_loop_distances=v_loop_distances)
+                neighbours.main(args,marginal_tables=marginal_tables,v_loop_distances=v_loop_distances,
+                    reference_loader=reference_loader)
             else:
-                neighbours.main(args,v_loop_distances=v_loop_distances)
+                neighbours.main(args,v_loop_distances=v_loop_distances,reference_loader=reference_loader)
             service_batches.append({'locus':population,'service_chain_rows':service_part.height,
                 'standalone_chain_rows':part.height if population!='paired' else 0,
                 'paired_chain_rows':paired_rows.height if mixed_union else part.height if population=='paired' else 0})
