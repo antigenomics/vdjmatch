@@ -134,9 +134,9 @@ Install and reproduce everything above
 
    python -m venv .venv
    . .venv/bin/activate
-   python -m pip install vdjmatch
    git clone --depth 1 https://github.com/antigenomics/vdjmatch.git
    cd vdjmatch
+   python -m pip install .
    sh examples/annotate.sh annotation-demo
 
 The script runs the supplied single-chain cohort and paired inputs from scratch.

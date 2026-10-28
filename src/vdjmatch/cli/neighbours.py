@@ -57,7 +57,7 @@ def register(subparsers, name='neighbours'):
         p.add_argument('--gzip-evidence',action='store_true',help='with --evidence-only: gzip enrichment and paired-evidence TSVs at level1')
     p.add_argument('--all-targets',action='store_true',help='emit separate evidence for every full pMHC; query target labels are ignored')
     p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep the full background model fixed')
-    p.add_argument('--threads',type=int,default=1)
+    p.add_argument('--threads',type=int,default=0,help='native threads (0 = allocated cores)')
     p.add_argument('--verbose',action='store_true',help='report grouped query/reference workload and count progress')
     p.add_argument('--distance-matrix',choices=['clipped','blosum62','pam250','mj','vdjam'],default='clipped',
                    help='clipped BLOSUM62 costs or retained unclipped BLOSUM62/PAM250/MJ/VDJAM Gram penalties')
@@ -181,7 +181,9 @@ def _paired_input(path, raw, model, organism):
     return pairs,ingestion
 
 
-def main(a, *, marginal_tables=None, v_loop_distances=None):
+def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=None):
+    from vdjtools.cores import kernel_threads
+    a.threads = kernel_threads(a.threads)
     from importlib.metadata import version
     from importlib.resources import files
     import json
@@ -329,7 +331,12 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
         _,q=_prepare(data)
         metadata=raw
     reference_species={'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
-    r=db.load(a.vdjdb,species=reference_species,gene=None if paired else a.locus,epitope=None if kernel else a.epitope,
+    def reference_selection(**filters):
+        if reference_loader is None:
+            return db.load(a.vdjdb, **filters)
+        from ..db.vdjdb import _select_reference
+        return _select_reference(reference_loader(), **filters)
+    r=reference_selection(species=reference_species,gene=None if paired else a.locus,epitope=None if kernel else a.epitope,
               mhc_a=None if kernel else a.mhc_a,mhc_b=None if kernel else a.mhc_b,mhc_match=a.mhc_match)
     original=r.height
     if a.reference_population=='all-valid':
@@ -387,7 +394,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             q=q.join(metadata.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases)).select('query_id'),on='query_id',how='semi')
         groups=[(dict(zip(PMHC,key)),q,part) for key,part in r.group_by(PMHC,maintain_order=True)]
     elif kernel:
-        selected=db.load(a.vdjdb,species=reference_species,gene=None if paired else a.locus,
+        selected=reference_selection(species=reference_species,gene=None if paired else a.locus,
                          epitope=a.epitope,mhc_a=a.mhc_a,mhc_b=a.mhc_b,mhc_match=a.mhc_match)
         target_keys=selected.select(PMHC).unique()
         targets=r.join(target_keys,on=PMHC,how='semi',nulls_equal=True)
@@ -1014,7 +1021,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None):
             marginal.locus=locus
             marginal.output_prefix=str(prefix)+'.'+locus
             if marginal_tables is None:
-                main(marginal,v_loop_distances=v_loop_distances)
+                main(marginal,v_loop_distances=v_loop_distances,reference_loader=reference_loader)
             else:
                 lane=marginal_tables[locus]
                 required={'queries','selection'} if selection_only else {'queries','selection','enrichment'}

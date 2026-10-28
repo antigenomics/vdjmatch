@@ -24,7 +24,7 @@
 reporting peptide–MHC candidates, competing evidence and optional background calibration.
 Native sequence search uses [`seqtree`](https://github.com/antigenomics/seqtree);
 repertoire ingestion reuses published `vdjtools` readers.
-Requires released `seqtree>=1.3.1` and `vdjtools>=5.2.2`, including allocation-aware
+Requires released `seqtree>=1.3.2` and `vdjtools>=5.3.2`, including allocation-aware
 native thread validation.
 
 The Python implementation follows the legacy Java/Groovy package, preserved on the
@@ -47,6 +47,8 @@ The Python implementation follows the legacy Java/Groovy package, preserved on t
 Browse the [examples gallery](https://docs.isalgo.dev/vdjmatch/examples.html) or
 the [notebooks gallery](https://docs.isalgo.dev/vdjmatch/notebooks.html) for
 rendered previews, source downloads and raw inputs.
+The [versioned Hugging Face asset mirror](https://huggingface.co/datasets/isalgo/airr_benchmark/tree/314b72d2955e9578157c6767845741444d89f540/vdjmatch/releases/0.6.3)
+also provides the synthetic offline examples and bundled static models with a checksum manifest.
 
 The [examples directory](examples/) contains tiny raw synthetic inputs, a pinned
 offline reference, [annotation](examples/annotate.sh) and
@@ -74,7 +76,7 @@ publication-size figures, with editable PDF/SVG and 300-dpi PNG exports:
 | Question | Notebook |
 | --- | --- |
 | How do common epitopes separate supplied positives and controls? | [ROC/PR, score overlap and TP/FP counts](examples/accuracy.ipynb) |
-| How does LLW neighbourhood evidence rank clonotypes across donors? | [Vaccination dataset walkthrough](examples/vaccination.ipynb) |
+| Draft: LLW neighbourhood evidence across donors (validation deferred) | [Vaccination dataset walkthrough](examples/vaccination.ipynb) |
 | How do model mass, precursor frequency and expected cells differ? | [Precursor estimates](examples/precursor_estimates.ipynb) |
 
 Install the matching checkout from its repository root with
@@ -374,7 +376,7 @@ summaries and ingestion diagnostics as TSV, plus a JSON manifest.
 Use `--input-format custom --sequence-convention junction` for an ambiguous custom
 table. `--scope s,i,d,t` sets substitution/insertion/deletion/total budgets. Hard
 `--match-v` or `--match-j` requests require `--no-evalue` with sequence-only backgrounds.
-Native search defaults to one thread. See `vdjmatch match -h` and the
+Ordinary CLI search defaults to allocated CPUs (`--threads 0`); use `--threads 1` for serial execution. See `vdjmatch match -h` and the
 [CLI reference](https://docs.isalgo.dev/vdjmatch/cli.html).
 
 Ranked mode scans the complete eligible reference with a native restricted gap-block scorer,

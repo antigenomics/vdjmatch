@@ -24,7 +24,7 @@ def register(subparsers):
     parser.add_argument("--same-key-col", help="keep hits with equal non-null keys before output/rescoring")
     parser.add_argument("--scope", default="1,0,0,1")
     parser.add_argument("--engine", choices=["seqtm", "seqtrie"], default="seqtm")
-    parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument("--threads", type=int, default=0, help="native threads (0 = allocated cores)")
     parser.add_argument(
         "--matrix", choices=["none", "vdjam", "blosum62"], default="none"
     )
@@ -114,8 +114,8 @@ def _positional_scores(queries, references, pairs, matrix):
 
 def main(args):
     started = time.perf_counter()
-    if isinstance(args.threads, bool) or args.threads < 1:
-        raise ValueError("threads must be a positive integer")
+    from vdjtools.cores import kernel_threads
+    args.threads = kernel_threads(args.threads)
     if args.engine == "seqtrie" and args.matrix != "none":
         raise ValueError(
             "matrix scoring requires --engine seqtm; seqtrie uses unit edit costs"

@@ -382,6 +382,15 @@ def test_hf_source_isolation_and_local_digest(tmp_path, monkeypatch):
     assert db.load(db.fetch_hf(tag="tag", repo="owner/one", cache=tmp_path)).height == 1
     assert len(calls) == 3
     assert calls[0]["cache_dir"] == str(tmp_path / "hf_hub")
+    assert calls[0]["revision"] == "main"
+    from vdjmatch.db.vdjdb import _HF_REVISION
+    pinned = db.fetch_hf(tag="tag", cache=tmp_path)
+    other = db.fetch_hf(tag="tag", cache=tmp_path, revision="other-revision")
+    assert pinned != other
+    assert calls[-2]["revision"] == _HF_REVISION
+    assert calls[-1]["revision"] == "other-revision"
+    assert db.provenance(pinned)["revision"] == _HF_REVISION
+    assert db.provenance(other)["revision"] == "other-revision"
 
 
 def test_concurrent_fetch_downloads_once(tmp_path, monkeypatch):

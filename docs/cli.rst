@@ -335,8 +335,8 @@ ranking. Reference and background loading errors propagate.
    * - ``--no-align``
      - Omit per-hit alignment and CIGAR computation for single-chain and paired output.
    * - ``--threads``
-     - Native sequence-search threads; default ``1``. ``0`` requests native automatic
-       selection. This does not reconfigure an already initialized Polars thread pool.
+     - Native sequence-search threads; default ``0`` resolves the job allocation
+       before execution. ``1`` selects serial operation. This does not reconfigure an already initialized Polars thread pool.
 
 Output
 ~~~~~~

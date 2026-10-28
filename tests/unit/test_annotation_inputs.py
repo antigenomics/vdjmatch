@@ -47,7 +47,7 @@ def table(path, *, locus="TRB", paired=False):
 def core(monkeypatch):
     from vdjmatch.cli import neighbours as geometry
     calls = []
-    def run(a, *, v_loop_distances, marginal_tables=None):
+    def run(a, *, v_loop_distances, marginal_tables=None, reference_loader=None):
         assert v_loop_distances['species']=='human'
         raw = pl.read_csv(a.sample, separator="\t", infer_schema_length=0)
         calls.append((a, raw))
@@ -122,7 +122,7 @@ def test_single_clone_ids_do_not_invent_pairing(tmp_path, core):
     assert out["queries"]["clone_id"].to_list() == ["007"]
 
 
-@pytest.mark.parametrize("threads", [True, 0, -1, 1.5])
+@pytest.mark.parametrize("threads", [True, -1, 1.5])
 def test_invalid_budget_precedes_scoring(tmp_path, core, threads):
     with pytest.raises(ValueError, match="threads"):
         annotate_repertoires(table(tmp_path / "one.tsv"), reference="unused", threads=threads)
@@ -212,6 +212,27 @@ def test_source_generated_metadata_columns_are_preserved(tmp_path, core):
     result = annotate_repertoires(path, reference='unused', output_prefix=tmp_path / 'out')
     assert result['queries']['status'].to_list() == ['matched']
     assert result['queries']['input_status'].to_list() == ['raw-status']
+
+
+def test_initialized_table_pool_within_default_allocation(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    code = """
+import sys
+import polars as pl
+assert pl.thread_pool_size() == 4
+from unittest.mock import patch
+from vdjmatch import annotate_repertoires
+with patch('vdjtools.cores.available_cores', return_value=4):
+    result = annotate_repertoires(sys.argv[1], reference=sys.argv[2], output_prefix=sys.argv[3])
+assert result['queries'].height == 2
+assert result['manifest']['native_threads'] == 4
+assert result['manifest']['table_threads'] == 4
+"""
+    result = subprocess.run([sys.executable, '-c', code,
+        str(root / 'examples/inputs/cohort/sample_a.tsv'),
+        str(root / 'examples/inputs/reference.tsv'), str(tmp_path / 'initialized')],
+        env=dict(os.environ, POLARS_MAX_THREADS='4'), capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
 
 
 def test_initialized_table_pool_exceeding_library_budget_fails(tmp_path):

@@ -226,8 +226,12 @@ from vdjmatch.cli.__main__ import main
 if '{command}'=='annotate':
     import vdjmatch.cli.__main__ as cli
     cli._cmd_annotate=probe
-main(['{command}','unused','--vdjdb','unused','--locus','TRB',
-      '--threads','12','--output-prefix','unused'])
+from unittest.mock import patch
+with patch('vdjtools.cores.available_cores', return_value=12):
+    if {limit!r} is None:os.environ.pop('POLARS_MAX_THREADS',None)
+    else:os.environ['POLARS_MAX_THREADS']={limit!r}
+    main(['{command}','unused','--vdjdb','unused','--locus','TRB',
+          '--threads','12','--output-prefix','unused'])
 """
     output=subprocess.run([sys.executable,'-c',code],env=env,text=True,
                           capture_output=True,check=True,timeout=15)
@@ -239,7 +243,7 @@ def test_cli_rejects_invalid_parent_table_thread_cap(monkeypatch,capsys,limit):
     monkeypatch.setenv("POLARS_MAX_THREADS",limit)
     with pytest.raises(SystemExit) as error:
         cli.main(['historical-density','unused','--vdjdb','unused','--locus','TRB',
-                  '--threads','12','--output-prefix','unused'])
+                  '--threads','1','--output-prefix','unused'])
     assert error.value.code==2
     assert 'POLARS_MAX_THREADS must be a positive integer' in capsys.readouterr().err
 

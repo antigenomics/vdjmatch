@@ -5,7 +5,11 @@ cd "$(dirname "$0")"
 if [ ! -x .venv/bin/python ]; then
     uv venv .venv
 fi
-uv pip install --python .venv/bin/python -e '.[test,control]'
+extras='.[test,control]'
+if [ "${1:-}" = "--test" ]; then
+    extras='.[test,control,bench,diagnostics]'
+fi
+uv pip install --python .venv/bin/python -e "$extras"
 if [ "${1:-}" = "--test" ]; then
     .venv/bin/python -c 'import subprocess; subprocess.run([".venv/bin/python", "-m", "pytest", "tests/unit", "-q"], timeout=120, check=True)'
 fi

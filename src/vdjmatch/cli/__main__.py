@@ -532,7 +532,7 @@ def main(argv: list[str] | None = None) -> int:
         help="bundle/table role (default: primary, historical long fallback)",
     )
     up.add_argument("--cache", default=None, help="reference download directory")
-    up.add_argument("--threads", type=int, default=4, help="native indexing threads (default: 4)")
+    up.add_argument("--threads", type=int, default=0, help="native indexing threads (0 = allocated cores)")
     up.add_argument(
         "--pin", default=None, help="pin a specific release tag (default: latest)"
     )
@@ -545,7 +545,7 @@ def main(argv: list[str] | None = None) -> int:
     ix.add_argument("--vdjdb", help="custom reference table, archive or directory; otherwise fetch VDJdb")
     ix.add_argument("--asset", default="default", choices=["slim", "full", "default", "primary", "legacy", "airr"])
     ix.add_argument("--species", default=None, help="optional reference species filter")
-    ix.add_argument("--threads", type=int, default=4)
+    ix.add_argument("--threads", type=int, default=0, help="native indexing threads (0 = allocated cores)")
     ix.add_argument("--cache", default=None, help="reference download directory")
     ix.add_argument("--pin", default=None, help="pin a release when fetching VDJdb")
     ix.set_defaults(func=_cmd_index)
@@ -703,7 +703,7 @@ def main(argv: list[str] | None = None) -> int:
         "--threads",
         type=int,
         default=argparse.SUPPRESS,
-        help="native search threads (default: 1; 0 explicitly selects automatic)",
+        help="native search threads (default: 0 = allocated cores)",
     )
     m.set_defaults(func=_cmd_match)
 
@@ -947,6 +947,7 @@ def main(argv: list[str] | None = None) -> int:
     import os
 
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
+    native_threads = None
     evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     evidence_commands.add('paired-score')
     evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment'})
@@ -958,13 +959,21 @@ def main(argv: list[str] | None = None) -> int:
         import os
         import json
 
-        threads = getattr(a, "threads", 1)
+        threads = getattr(a, "threads", 0 if a.cmd == "match" else 1)
         if getattr(a, "config", None) and not hasattr(a, "threads"):
-            threads = json.loads(Path(a.config).read_text()).get("threads", 1)
+            threads = json.loads(Path(a.config).read_text()).get("threads", 0)
         if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
             p.error("threads must be a nonnegative integer")
-        if a.cmd in evidence_commands and threads < 1:
+        ordinary_commands = {"annotate", "neighbours", "evidence", "search", "match", "index", "update"}
+        if a.cmd in evidence_commands and a.cmd not in ordinary_commands and threads == 0:
             p.error("threads must be positive")
+        if threads > 0 or a.cmd in ordinary_commands:
+            from vdjtools.cores import kernel_threads
+            try:
+                threads = kernel_threads(threads)
+            except (TypeError, ValueError) as exc:
+                p.error(str(exc))
+            a.threads = native_threads = threads
         if threads > 0:
             try:
                 table_threads = int(previous_threads) if previous_threads is not None else threads
@@ -977,6 +986,10 @@ def main(argv: list[str] | None = None) -> int:
             os.environ["POLARS_MAX_THREADS"] = str(min(threads, table_threads))
     os.environ.update(dict.fromkeys(previous_kernels, "1"))
     try:
+        if native_threads is not None and "polars" in sys.modules:
+            import polars as pl
+            if pl.thread_pool_size() > native_threads:
+                raise ValueError("initialized Polars pool exceeds threads; start a fresh process with POLARS_MAX_THREADS set to the requested budget")
         return a.func(a)
     except (ValueError, FileNotFoundError, RuntimeError) as exc:
         p.error(str(exc))

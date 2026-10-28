@@ -64,7 +64,7 @@ Bounded native dependency
 
 Candidate-only single-chain reduction requires the native
 ``seqtree.Index.search_batch_consume`` method, supplied by the declared
-``seqtree>=1.3.1`` dependency. The API also checks the installed native method
+``seqtree>=1.3.2`` dependency. The API also checks the installed native method
 and raises an explicit error when it is absent. Requests that retain full hit
 tables continue to use the existing batch API.
 

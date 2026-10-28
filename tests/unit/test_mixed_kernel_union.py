@@ -125,7 +125,7 @@ def test_mixed_non_kernel_detailed_dispatch_remains_separate(tmp_path,monkeypatc
     from pathlib import Path
     from vdjmatch.cli import neighbours as geometry
     paths,reference=inputs(tmp_path);calls=[]
-    def main(a, *, v_loop_distances):
+    def main(a, *, v_loop_distances, reference_loader=None):
         assert v_loop_distances['matrix']=='blosum62'
         raw=pl.read_csv(a.sample,separator='\t');calls.append((a.locus,raw.height))
         q=(raw.select('clone_id').unique(maintain_order=True).with_row_index('query_id')

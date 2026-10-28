@@ -25,6 +25,28 @@ def test_missing_source_does_not_create_sidecars(tmp_path):
     assert not source.with_name(source.name+'.vdjmatch').exists()
 
 
+@pytest.mark.parametrize('allocation', [1, 2])
+@pytest.mark.parametrize('entrypoint', ['index', 'api'])
+def test_index_defaults_resolve_allocation(tmp_path, monkeypatch, allocation, entrypoint):
+    from vdjmatch.api import Annotator
+    from vdjmatch.db.index import load_or_build_index
+    import vdjtools.cores as cores
+
+    monkeypatch.setattr(cores, 'available_cores', lambda: allocation)
+    resolved, resolver = [], cores.kernel_threads
+    def observed(threads=0):
+        result = resolver(threads)
+        resolved.append((threads, result))
+        return result
+    monkeypatch.setattr(cores, 'kernel_threads', observed)
+    load = Annotator.from_path if entrypoint == 'api' else load_or_build_index
+    source = reference_file(tmp_path/'reference.tsv')
+    load(source)
+    assert resolved[0] == (0, allocation)
+    with pytest.raises(ValueError, match='threads'):
+        load(source, threads=allocation + 1)
+
+
 def test_saved_native_roundtrip_preserves_keys_observations_and_skips_producers(tmp_path, monkeypatch):
     from vdjmatch.db.index import load_or_build_index
     from vdjmatch import db
