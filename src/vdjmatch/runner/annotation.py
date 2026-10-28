@@ -197,9 +197,14 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     protected.extend(Path(value).expanduser().resolve() for value in (metadata, reference, options.get("control"))
                      if isinstance(value, (str, Path)))
     _validate_output_paths(prefix, protected)
-    frames, reports, offset = [], [], 0
+    frames, counts, reports, offset = [], [], [], 0
     for sample_id, path, info in rows:
         raw, report = io.normalize_annotation_input(path)
+        # Resolve validated counts before the cohort introduces absent-alias nulls.
+        count_column = io.columns._count_column(raw)
+        count = (io.columns._integer_count(count_column) if count_column is not None else
+                 pl.repeat(1, pl.len(), dtype=pl.Int64))
+        counts.append(raw.select(count.alias("count"))["count"])
         for col, value in info.items():
             if col in {"query_id", "sequence_id", "clone_id", "cloneid", "clonotype_id", "pair_id", "cell_id",
                        "source_query_id", "source_sequence_id", "source_clone_id", "source_pair_id", "_population", "_service_query_id"}:
@@ -231,6 +236,8 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         frames.append(raw); offset += raw.height
         reports.append({"sample_id": sample_id, "source_sha256": sha256(path), **report})
     cohort = pl.concat(frames, how="diagonal_relaxed")
+    canonical_counts = pl.concat(counts)
+    counts.clear()
     frames.clear()
     if cohort.filter(~pl.col("locus").is_in(["TRA", "TRB"]).fill_null(False)).height:
         raise ValueError("every query row requires TRA/TRB locus or a resolving V call")
@@ -273,7 +280,12 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
             # the scorer receives only the already-normalized long sequence axis.
             wide_sequences = [c for c in service_part.columns if c.lower() in {
                 "junction_aa_alpha", "junction_aa_beta", "cdr3_aa_alpha", "cdr3_aa_beta"}]
-            service_part.drop("_population", *wide_sequences).write_csv(sample, separator="\t")
+            count_aliases = [c for c in service_part.columns if c.lower().lstrip("#") in
+                            (*io.columns.ALIASES["count"], *io.columns._COUNT_FALLBACKS)]
+            # Original aliases remain in the restoration mapping as source metadata.
+            service_part.drop("_population", *wide_sequences, *count_aliases).with_columns(
+                canonical_counts.gather(service_part["query_id"]).alias("count")
+            ).write_csv(sample, separator="\t")
             args = _core_defaults(reference, local_prefix)
             vars(args).update(options)
             args.sample, args.locus, args.species = str(sample), population, species
