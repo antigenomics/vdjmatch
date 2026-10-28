@@ -8,13 +8,12 @@ version = "0.6.2"
 description = "Fast, control-calibrated annotation of T-cell receptor antigen specificity"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "GPL-3.0-or-later" }
+license = { file = "LICENSE" }
 authors = [{ name = "ISALGO laboratory", email = "mikhail.shugay@gmail.com" }]
 keywords = ["TCR", "VDJdb", "antigen-specificity", "immunology", "AIRR", "repertoire", "E-value"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]

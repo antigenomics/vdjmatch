@@ -16,7 +16,7 @@
   <a href="https://github.com/antigenomics/vdjmatch/actions/workflows/tests.yml"><img alt="tests" src="https://github.com/antigenomics/vdjmatch/actions/workflows/tests.yml/badge.svg"></a>
   <a href="https://docs.isalgo.dev/vdjmatch/"><img alt="docs" src="https://github.com/antigenomics/vdjmatch/actions/workflows/docs.yml/badge.svg"></a>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPLv3-green"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Academic%20%26%20Non--Commercial-green"></a>
 </p>
 
 `vdjmatch` annotates selected T-cell receptors and repertoires against
@@ -433,4 +433,4 @@ export was an artefact — the dense release makes controls findable too).
 
 ## License
 
-GPL-3.0-or-later (it builds on `seqtree`, which is GPL-3.0-or-later).
+ISALGO LAB Academic and Non-Commercial Research License v1.0. See [`LICENSE`](LICENSE).
