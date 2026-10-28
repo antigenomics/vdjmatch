@@ -28,7 +28,10 @@ Requires released `seqtree>=1.3.2` and `vdjtools>=5.3.2`, including allocation-a
 native thread validation.
 
 The Python implementation follows the legacy Java/Groovy package, preserved on the
-`legacy-java` branch. See the [tutorial](https://docs.isalgo.dev/vdjmatch/tutorial.html),
+`legacy-java` branch and [Java tag `1.3.1`](https://github.com/antigenomics/vdjmatch/tree/1.3.1).
+Existing Java consumers use the separate, pinned JitPack artifact
+`com.github.antigenomics:vdjmatch:1.3.1`; Python releases do not replace that artifact.
+See the [tutorial](https://docs.isalgo.dev/vdjmatch/tutorial.html),
 [workflow guide](https://docs.isalgo.dev/vdjmatch/how-to.html) and
 [score explanation](https://docs.isalgo.dev/vdjmatch/explanation.html).
 
