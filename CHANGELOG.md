@@ -5,6 +5,7 @@
 - Require seqtree 1.3.2, vdjtools 5.3.2 and optional arda-mapper 2.37.1.
 - Resolve ordinary CLI and repertoire-library CPU budgets from the job allocation.
 - Normalize cohort references once per invocation across TRA, TRB and paired batches.
+- Preserve each repertoire's count aliases when counted and uncounted inputs share a cohort; omitted counts remain one observation.
 - Validate and atomically publish precursor table downloads under resource-specific locks.
 - Keep default gallery checks offline; scientific notebooks require `--scientific`.
 - Correct installation, gene-conditioned control and example documentation.

@@ -22,15 +22,30 @@ ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "pair_id": ("pair_id", "cell_id", "clone_id", "cloneid", "complex.id", "clonotype_id"),
 }
+_COUNT_FALLBACKS = ("count", "clone count", "clonecount", "readcount", "uniquetagcountmolecule",
+                    "read.count", "number of reads", "count (templates/reads)", "templates")
+
+
+def _count_column(df: pl.DataFrame) -> str | None:
+    """Resolve supplied counts with the same precedence as count validation."""
+    lower = {c.lower(): c for c in df.columns}
+    name = next((lower[c] for c in ALIASES["count"] if c in lower), None)
+    if name is not None:
+        return name
+    lower = {c.lower().lstrip("#"): c for c in df.columns}
+    return next((lower[c] for c in _COUNT_FALLBACKS if c in lower), None)
 
 
 def _resolve(df: pl.DataFrame) -> dict[str, str]:
     lower = {c.lower(): c for c in df.columns}
-    return {
+    found = {
         canon: next(lower[s] for s in srcs if s in lower)
         for canon, srcs in ALIASES.items()
         if any(s in lower for s in srcs)
     }
+    if "count" not in found and (name := _count_column(df)) is not None:
+        found["count"] = name
+    return found
 
 
 def _integer_count(name: str) -> pl.Expr:
@@ -44,25 +59,7 @@ def _integer_count(name: str) -> pl.Expr:
 
 def validate_counts(df: pl.DataFrame) -> None:
     """Reject missing, malformed, fractional, negative or overflowing supplied counts."""
-    lower = {c.lower().lstrip("#"): c for c in df.columns}
-    name = _resolve(df).get("count") or next(
-        (
-            lower[c]
-            for c in (
-                "count",
-                "clone count",
-                "clonecount",
-                "readcount",
-                "uniquetagcountmolecule",
-                "read.count",
-                "number of reads",
-                "count (templates/reads)",
-                "templates",
-            )
-            if c in lower
-        ),
-        None,
-    )
+    name = _count_column(df)
     if name is None:
         return
     if df.select(_integer_count(name).is_null().any()).item():
