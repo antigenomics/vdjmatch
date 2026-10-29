@@ -1060,6 +1060,11 @@ Malformed parent thread allocations fail before loading inputs.
 vdjmatch apply-call-calibration
 -------------------------------
 
+The `saved mouse TRA operating point <https://huggingface.co/datasets/isalgo/airr_benchmark/blob/145e91124d0dc0ccc1928d1a36bd4fadd10ee7c4/vdjmatch/releases/0.6.3/calibration/README.md>`_
+includes its fitted cutoff, observed/generated validation counts and selected-label
+recall check. It applies to the recorded all-valid, exact-retained stem4 event;
+application requires its matching score-producer manifest.
+
 Apply a previously computed cutoff to independent query-level scores:
 
 .. code-block:: bash
