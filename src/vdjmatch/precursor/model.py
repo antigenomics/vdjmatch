@@ -24,6 +24,11 @@ def _native():
 def load_model(locus: str = "TRB", source: str = "olga", organism: str = "human"):
     """Bundled recombination model.
 
+    This legacy interface retains its explicit OLGA default for reproduction.
+    The numerical inventory below describes earlier bundled assets, not newly
+    fitted replacements. Inspect ``vdjtools.model.list_bundled()`` for the installed
+    catalogue; vdjtools owns the model parameters and ARDA supplies references.
+
     vdjtools ships three sets, and they differ in ways that matter for a mass over a *set* of
     junctions, where a junction scoring exactly zero is silently dropped from the total:
 
