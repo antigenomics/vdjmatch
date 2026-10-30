@@ -414,3 +414,20 @@ def test_mock_sampler_keeps_pool_index_dtype(monkeypatch):
     reference = control.head(2).with_columns(pl.lit('X').alias('group_id'))
     for policy in ['pgen', 'pgen-vj', 'pgen-different-v']:
         assert len(list(iter_epitope_mocks(reference, control, replicates=2, policy=policy))) == 2
+
+
+def test_vdjbet_strata_preserves_compiled_r_grouping():
+    from vdjmatch.evalue.mock_reference import vdjbet_strata
+    probes=pl.DataFrame(dict(junction_aa=['CAAF','CAAF','CACF'],
+        v=['V1','V2','V1'],j=['J1','J1','J2'],pgen=[2.**-20,2.**-18,0.]))
+    sample=pl.DataFrame(dict(v=['V1','V1','V2'],j=['J1','J2','J1'],records=[3,1,100]))
+    model=pl.DataFrame(dict(v=['V1','V1','V2','V2'],j=['J1','J2','J1','J2'],records=[1,3,1,1]))
+    result,audit=vdjbet_strata(probes,sample,model)
+    # Original AA-only join/max; V/J correction is normalized within V because
+    # dplyr summarise retains the V grouping. Zero uses the compiled 2^-80 floor.
+    assert result['pcdr'].to_list()==[2.**-18,2.**-18,0.]
+    assert result['pgen_bin'].to_list()==[-17,-17,-80]
+    assert result['vj_factor'].to_list()==pytest.approx([2.,202/102,.5])
+    assert audit.filter(pl.col('v')=='V1')['sample_probability'].sum()==pytest.approx(1.)
+    with pytest.raises(ValueError,match='unique'):
+        vdjbet_strata(pl.concat([probes,probes.head(1)]),sample,model)

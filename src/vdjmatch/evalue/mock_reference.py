@@ -312,6 +312,47 @@ def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='hum
     return sequences.with_columns(pl.Series('pgen', probabilities))
 
 
+def vdjbet_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
+                  model_vj: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Reproduce the compiled vdjbet probability strata and V/J audit.
+
+    Probes contain unique junction_aa/v/j keys and joint gene-masked ``pgen``.
+    The original AA-only probability join takes the maximum over keys sharing
+    a junction. Count tables contain v/j/records (source rows, not read weights).
+    Add-one V/J frequencies are normalized within V, preserving the compiled
+    R notebook's retained dplyr grouping. The compiled floor is 2**-80.
+    """
+    keys=['junction_aa','v','j']
+    if not {*keys,'pgen'}<=set(probes.columns) or not probes.height:
+        raise ValueError('nonempty probe keys and gene-masked pgen required')
+    if probes.select(keys).n_unique()!=probes.height:
+        raise ValueError('probe receptor keys must be unique')
+    if any(probes[c].null_count() for c in [*keys,'pgen']):
+        raise ValueError('non-null probe keys and probabilities required')
+    probabilities=probes['pgen'].to_numpy()
+    if not np.all(np.isfinite(probabilities)&(probabilities>=0)&(probabilities<=1)):
+        raise ValueError('probe probabilities must be finite and between zero and one')
+    counts=[]
+    for name,frame in [('sample',sample_vj),('model',model_vj)]:
+        if not {'v','j','records'}<=set(frame.columns) or not frame.height:
+            raise ValueError('nonempty V/J record-count tables required')
+        frame=frame.select('v','j',_integer_count('records').alias(name+'_records'))
+        if frame[name+'_records'].null_count() or (frame[name+'_records']<0).any():
+            raise ValueError('nonnegative integer V/J record counts required')
+        counts.append(frame.group_by('v','j').agg(pl.col(name+'_records').sum()))
+    audit=counts[0].join(counts[1],on=['v','j'],how='full',coalesce=True,nulls_equal=True)
+    audit=audit.with_columns(pl.col('sample_records','model_records').fill_null(0)+1)
+    audit=audit.with_columns((pl.col(name+'_records')/pl.col(name+'_records').sum().over('v')).alias(name+'_probability') for name in ['sample','model'])
+    audit=audit.with_columns((pl.col('sample_probability')/pl.col('model_probability')).alias('vj_factor')).sort('v','j',nulls_last=True)
+    result=probes.with_columns(pl.col('pgen').max().over('junction_aa').alias('pcdr')).join(
+        audit.select('v','j','vj_factor'),on=['v','j'],how='left',validate='m:1',maintain_order='left')
+    if result['vj_factor'].null_count():
+        raise ValueError('probe V/J keys absent from both count populations')
+    result=result.with_columns((pl.col('pcdr')*pl.col('vj_factor')+2.**-80).alias('adjusted_pgen'))
+    bins=np.rint(np.log2(result['adjusted_pgen'].to_numpy())).astype(np.int64)
+    return result.with_columns(pl.Series('pgen_bin',bins)),audit
+
+
 def pgen_strata(pgen: pl.DataFrame) -> pl.DataFrame:
     """Return unique junction/Pgen-bin keys: rounded log2(Pgen), zero=-2147483648.
 
