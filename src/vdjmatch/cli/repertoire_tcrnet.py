@@ -53,30 +53,33 @@ def main(a):
     reference=pl.concat([_genes(part,locus,species=a.species) for (locus,),part in reference.partition_by('gene',as_dict=True).items()])
     controls={locus:_read_control(path,species=a.species,locus=locus).select('junction_aa').unique() for locus,path in control_paths.items()}
     matcher=TcrnetMatcher(reference,controls,species=a.species,filter_fdr=a.tcrnet_fdr,scope=a.scope,match_v=a.match_v,threads=a.threads)
+    del controls
     stages['reference_and_controls_seconds']=time.monotonic()-start
     print('reference/control filtering complete',flush=True)
-    summaries=[];hits=[];filters=[];reports=[]
-    for number,(sample,path,_) in enumerate(rows):
-        t=time.monotonic();frame,report=io.read_rearrangement(path,valid_aa=False,return_report=True)
-        selected,observations=_observations(frame,locus=a.locus,species=a.species)
-        summary,hit,filtering=matcher.match(observations)
-        for table,container in [(summary,summaries),(hit,hits),(filtering,filters)]:
-            container.append(table.with_columns(pl.lit(sample).alias('sample_id')))
-        reports.append(dict(sample_id=sample,**report,selected_chain_rows=selected.height,excluded_rows=frame.height-selected.height,
-                            imputed_v_rows=int(selected['v_imputed'].sum()),unique_receptors=observations['receptor_id'].n_unique()))
-        stages[f'sample_{number+1}_seconds']=time.monotonic()-t
-        print(f'sample {number+1}/{len(rows)} complete',flush=True)
+    summaries=[];reports=[]
+    prefix.parent.mkdir(parents=True,exist_ok=True)
+    with open(str(prefix)+'.hits.tsv','wb') as hit_stream, open(str(prefix)+'.sample-filter.tsv','wb') as filter_stream:
+        for number,(sample,path,_) in enumerate(rows):
+            t=time.monotonic();frame,report=io.read_rearrangement(path,valid_aa=False,return_report=True)
+            selected,observations=_observations(frame,locus=a.locus,species=a.species)
+            summary,hit,filtering=matcher.match(observations)
+            summaries.append(summary.with_columns(pl.lit(sample).alias('sample_id')))
+            hit.with_columns(pl.lit(sample).alias('sample_id')).write_csv(hit_stream,separator='\t',include_header=number==0)
+            filtering.with_columns(pl.lit(sample).alias('sample_id')).write_csv(filter_stream,separator='\t',include_header=number==0)
+            reports.append(dict(sample_id=sample,**report,selected_chain_rows=selected.height,excluded_rows=frame.height-selected.height,
+                                imputed_v_rows=int(selected['v_imputed'].sum()),unique_receptors=observations['receptor_id'].n_unique()))
+            stages[f'sample_{number+1}_seconds']=time.monotonic()-t
+            print(f'sample {number+1}/{len(rows)} complete',flush=True)
     if before!=identities() or source_before!=freeze() or models!={locus:_pgen_model_identity(a.species,locus) for locus in loci}:
         raise ValueError('inputs, gene-imputation models or software changed during run')
-    prefix.parent.mkdir(parents=True,exist_ok=True);outputs={}
-    for suffix,table in [('summary.tsv',pl.concat(summaries)),('hits.tsv',pl.concat(hits,how='diagonal_relaxed')),
-            ('sample-filter.tsv',pl.concat(filters)),('reference-filter.tsv',matcher.reference_filtering),
+    outputs={Path(str(prefix)+'.'+suffix).name:sha256(Path(str(prefix)+'.'+suffix)) for suffix in ['hits.tsv','sample-filter.tsv']}
+    for suffix,table in [('summary.tsv',pl.concat(summaries)),('reference-filter.tsv',matcher.reference_filtering),
             ('ingestion.tsv',pl.DataFrame(reports,infer_schema_length=None))]:
         path=Path(str(prefix)+'.'+suffix);table.write_csv(path,separator='\t');outputs[path.name]=sha256(path)
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(dict(method='tcrnet-filtered-flexible-match',
         inputs=before,inputs_frozen=True,source=source_before,source_frozen=True,gene_imputation_models=models,
         software={n:version(n) for n in ['vdjmatch','vdjtools','seqtree','polars','numpy','scipy']},options=vars(a)|{'func':a.func.__name__},
-        repertoire_p_values=False,pgen_probabilities_used=False,reference_population='curated-benchmark',
+        repertoire_p_values=False,pgen_probabilities_used=False,hit_output='unique receptor/pMHC/chain/junction with minimum VDjam distance',reference_population='curated-benchmark',
         filter_families='sample/locus and full-pMHC/locus separately; existing TCRnet BH',
         filter_scope='Hamming<=1; target self-hit removed, exact background hits retained',
         counting_unit='unique original receptor; any retained matching chain; raw denominator preserved',

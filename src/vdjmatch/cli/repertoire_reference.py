@@ -159,7 +159,9 @@ def main(a):
     for number,(sample,path) in enumerate(zip(metadata['sample_id'],paths)):
         t=time.monotonic();frame,report=io.read_rearrangement(path,valid_aa=False,return_report=True)
         selected,obs=_observations(frame,locus=a.locus,species=a.species)
-        summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j)
+        def progress(stage,replicate):
+            print(f'sample {number+1}/{len(paths)}: {stage} {replicate} after {time.monotonic()-t:.3f}s',flush=True)
+        summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,progress=progress)
         summaries.append(summary.with_columns(pl.lit(sample).alias('sample_id')))
         mocks.append(mock.with_columns(pl.lit(sample).alias('sample_id')))
         hits.append(hit.with_columns(pl.lit(sample).alias('sample_id')))

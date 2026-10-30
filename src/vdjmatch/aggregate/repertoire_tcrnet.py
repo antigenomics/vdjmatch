@@ -81,15 +81,16 @@ class TcrnetMatcher:
         hit_parts=[]
         for (locus,),part in retained.partition_by('locus',as_dict=True).items():
             if locus not in self.annotator.loci:continue
-            hits=self.annotator.hits(part,locus=locus,scope=self.scope,match_v=self.match_v,
-                match_j=False,exclude_exact=False,threads=self.threads)
-            if hits.height:
-                hit_parts.append(hits.join(part.select('query_id','receptor_id'),on='query_id',validate='m:1').select(
-                    'receptor_id',*PMHC,pl.lit(locus).alias('locus'),pl.col('query_cdr3').alias('junction_aa'),
-                    'db_cdr3','score').unique())
+            def consume(hits):
+                if hits.height:
+                    compact=hits.group_by('query_id',*PMHC,'query_cdr3').agg(pl.col('score').min())
+                    hit_parts.append(compact.join(part.select('query_id','receptor_id'),on='query_id',validate='m:1').select(
+                        'receptor_id',*PMHC,pl.lit(locus).alias('locus'),pl.col('query_cdr3').alias('junction_aa'),'score'))
+            self.annotator.hits(part,locus=locus,scope=self.scope,match_v=self.match_v,
+                match_j=False,exclude_exact=False,threads=self.threads,consumer=consume,_candidate_only=True)
         schema={'receptor_id':obs.schema['receptor_id'],**{c:self.inventory.schema[c] for c in PMHC},
-                'locus':pl.String,'junction_aa':pl.String,'db_cdr3':pl.String,'score':pl.Int64}
-        hits=pl.concat(hit_parts) if hit_parts else pl.DataFrame(schema=schema)
+                'locus':pl.String,'junction_aa':pl.String,'score':pl.Int64}
+        hits=pl.concat(hit_parts).group_by('receptor_id',*PMHC,'locus','junction_aa').agg(pl.col('score').min()) if hit_parts else pl.DataFrame(schema=schema)
         counts=hits.select('receptor_id',*PMHC).unique().join(totals.select('receptor_id','count'),on='receptor_id',validate='m:1').group_by(PMHC).agg(
             pl.len().alias('matched_receptors'),pl.col('count').sum().alias('matched_count'))
         summary=self.reference_counts.join(counts,on=PMHC,how='left',nulls_equal=True).with_columns(

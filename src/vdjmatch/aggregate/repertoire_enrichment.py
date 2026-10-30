@@ -102,7 +102,7 @@ def matched_enrichment(observations, control, matches, targets, *, replicates=20
 def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                          controls: dict[str, pl.DataFrame], *, replicates: int = 200,
                          seed: int = 0, policy: str = 'pgen', threads: int = 1,
-                         mismatches: int = 1, match_j: bool = False):
+                         mismatches: int = 1, match_j: bool = False, progress=None):
     """Test a fixed repertoire against fresh Pgen-matched mock target corpora.
 
     Observations: receptor_id/locus/junction_aa/v/j/count. Multiple chains with
@@ -145,19 +145,21 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     indexes={};samplers={};unavailable=[]
     for (locus,),part in obs.partition_by('locus',as_dict=True).items():
         keys=part.select('junction_aa').unique().sort('junction_aa').with_row_index('_ri')
-        indexed=part.join(keys,on='junction_aa',validate='m:1').rename({'v':'_sample_v','j':'_sample_j'})
+        indexed=part.join(keys,on='junction_aa',validate='m:1').rename({'v':'_sample_v','j':'_sample_j'}).with_columns(
+            pl.col('_sample_v').str.replace(r'\*.*$','').alias('_match_v'),pl.col('_sample_j').str.replace(r'\*.*$','').alias('_match_j'))
         indexes[locus]=(Index.build(keys['junction_aa'].to_list(),alphabet='aa'),indexed)
     for (locus,),part in ref.partition_by('locus',as_dict=True).items():
         if locus not in controls:raise ValueError(f'missing {locus} control pool')
         samplers[locus]=iter_epitope_mocks(part,controls[locus],replicates=replicates,seed=seed+(0 if locus=='TRA' else 1),policy=policy,unavailable=unavailable)
     empty=pl.DataFrame(schema={'receptor_id':obs.schema['receptor_id'],'group_id':ref.schema['group_id'],'locus':pl.String,'junction_aa':pl.String,'v':pl.String,'j':pl.String})
-    def measure(population):
+    def measure(population, *, detailed=False):
         parts=[]
         for (locus,),targets in population.partition_by('locus',as_dict=True).items():
             if locus not in indexes:continue
             index,samples=indexes[locus]
             keys=targets.select('junction_aa').unique().sort('junction_aa').with_row_index('_qi')
-            roles=targets.join(keys,on='junction_aa',validate='m:1').select('_qi','group_id','v','j')
+            roles=targets.join(keys,on='junction_aa',validate='m:1').select('_qi','group_id',
+                pl.col('v').str.replace(r'\*.*$','').alias('_match_v'),pl.col('j').str.replace(r'\*.*$','').alias('_match_j'))
             buffers=[]
             def consume(start,stop,buffer):
                 pairs=np.asarray(buffer)
@@ -167,19 +169,25 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
             # Join sparse hits once: native memory bounds can make callbacks tiny.
             if buffers:
                 pairs=pl.DataFrame(np.concatenate(buffers),schema=[('_qi',pl.UInt32),('_ri',pl.UInt32)],orient='row')
-                hits=pairs.join(roles,on='_qi',validate='m:m').join(samples,on='_ri',validate='m:m')
-                valid=pl.col('v').str.replace(r'\*.*$','')==pl.col('_sample_v').str.replace(r'\*.*$','')
-                if match_j:valid &= pl.col('j').str.replace(r'\*.*$','')==pl.col('_sample_j').str.replace(r'\*.*$','')
-                parts.append(hits.filter(valid).select('receptor_id','group_id',pl.lit(locus).alias('locus'),'junction_aa',pl.col('_sample_v').alias('v'),pl.col('_sample_j').alias('j')).unique())
-        hits=pl.concat(parts).unique().sort('receptor_id','group_id','locus') if parts else empty
-        aggregate=hits.select('receptor_id','group_id').unique().join(totals.select('receptor_id','count'),on='receptor_id',validate='m:1').group_by('group_id').agg(pl.len().cast(pl.Int64).alias('receptors'),pl.col('count').sum())
+                predicate=['_ri','_match_v']+(['_match_j'] if match_j else [])
+                hits=pairs.join(roles,on='_qi',validate='m:m').join(samples,on=predicate,validate='m:m')
+                if detailed:
+                    parts.append(hits.select('receptor_id','group_id',pl.lit(locus).alias('locus'),'junction_aa',pl.col('_sample_v').alias('v'),pl.col('_sample_j').alias('j')).unique())
+                else:
+                    parts.append(hits.select('receptor_id','group_id').unique())
+        members=pl.concat(parts).unique() if parts else empty
+        hits=members.sort('receptor_id','group_id','locus') if detailed else empty
+        aggregate=members.select('receptor_id','group_id').unique().join(totals.select('receptor_id','count'),on='receptor_id',validate='m:1').group_by('group_id').agg(pl.len().cast(pl.Int64).alias('receptors'),pl.col('count').sum())
         values=inventory.join(aggregate,on='group_id',how='left',validate='1:1').fill_null(0).sort('_target')
         return values['receptors'].to_numpy(),values['count'].to_numpy(),hits
-    actual,abundance,hits=measure(ref)
+    actual,abundance,hits=measure(ref,detailed=True)
+    if progress is not None:progress('real',0)
     null=np.empty((replicates,inventory.height,2),dtype=np.int64)
     for b in range(replicates):
         population=pl.concat([next(sampler) for sampler in samplers.values()])
+        if b==0 and progress is not None:progress('first_mock_draw',1)
         null[b,:,0],null[b,:,1],_=measure(population)
+        if progress is not None and ((b+1)%20==0 or b+1==replicates):progress('mock',b+1)
     summary=inventory.drop('_target').with_columns(pl.lit(totals.height).alias('n_receptors'),pl.lit(total_count).alias('total_count'))
     for name,observed,values in [('receptors',actual,null[:,:,0]),('count',abundance,null[:,:,1])]:
         mean=values.mean(axis=0)

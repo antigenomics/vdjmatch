@@ -2713,3 +2713,10 @@ summary rows. No repertoire P/q-values or significant-call columns are emitted.
 No Pgen probability is used in this mode; bundled gene-imputation models are
 identified separately when recording normalization provenance. Empty mock
 results are not assumed by construction.
+
+
+The ``repertoire-tcrnet`` hit table contains one row per receptor, pMHC, chain
+and query junction, with the minimum matching distance in ``score``. Detailed
+reference observations remain available through ``Annotator.hits``. The CLI
+writes each sample's compact hits and filter audit directly to its final files;
+a completed manifest is required before treating those files as successful output.
