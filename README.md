@@ -466,7 +466,7 @@ All no-hit targets remain in the outputs. See the
 replicate resolution, test families and input schemas. The historical
 `--null repertoire` mode remains separate.
 
-For paired reference-null comparisons, `--chain-mode tra|trb|union|intersection`
+For paired reference-null comparisons, `--chain-mode tra|trb|union|intersection|all`
 preserves receptor identity throughout real and mock matching. The asymmetric
 `--tra-matcher stem4 --mismatches 1 --chain-mode intersection` combines strict
 TRB support with fuzzy TRA evidence for the same target; chain scores remain
@@ -492,3 +492,7 @@ yields normalized batches with file-wide positional IDs. The underlying
 `vdjtools.io.iter_table_batches` supports projected raw CSV/TSV/gzip/Parquet
 batches. Prefer the simpler one-sample-at-a-time path when profiling shows it
 fits; within-sample batching does not by itself bound reference/control memory.
+
+`--chain-mode all` computes the four chain rules from the same native searches and mock draws.
+Summary, mock and hit tables include a chain_mode column. BH correction is
+performed separately for each rule within the selected target or cohort family.

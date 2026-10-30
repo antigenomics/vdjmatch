@@ -486,10 +486,14 @@ A bounded input batch is not proof of a bounded whole workflow; measure controls
 reference indexes, retained sparse hits and all process-tree memory separately.
 
 
-Paired M3 comparison: `--chain-mode tra|trb|union|intersection` uses the shared
+Paired M3 comparison: `--chain-mode tra|trb|union|intersection|all` uses the shared
 vdjtools chain reducer on real and every mock panel. For asymmetric matching,
 `--tra-matcher stem4 --mismatches 1 --chain-mode intersection` combines strict
 TRB with positive stem4 TRA support at the same receptor/full-target identity.
 Keep continuous TRA scores and strict-chain indicators distinct; do not multiply
 them as independent probabilities. This comparison is separate from compiled
 bulk exact reproduction.
+
+`--chain-mode all` computes the four chain rules from the same native searches and mock draws.
+Summary, mock and hit tables include a chain_mode column. BH correction is
+performed separately for each rule within the selected target or cohort family.

@@ -2766,7 +2766,7 @@ it is not an established TRA factor. Both real and mock keys use the same
 explicit scaling. This does not rescale empirical TCRnet control frequencies.
 
 
-Reference-null ``repertoire-enrichment`` accepts ``--chain-mode tra|trb|union|intersection``.
+Reference-null ``repertoire-enrichment`` accepts ``--chain-mode tra|trb|union|intersection|all``.
 The chosen rule is applied to real and every mock panel through
 ``vdjtools.sc.chain_support``. Union retains orphan support; intersection requires
 both chains of the same observed receptor to support the same full target.
@@ -2786,3 +2786,7 @@ receptor counts/abundance under the chosen combined rule, not individual binding
 
 In this asymmetric mode, ``--match-j`` constrains only the Hamming arm;
 the TRA stem4 kernel uses its existing soft gene geometry and does not require exact J.
+
+``--chain-mode all`` computes the four chain rules from the same native searches and mock draws.
+Summary, mock and hit tables include a chain_mode column. BH correction is
+performed separately for each rule within the selected target or cohort family.

@@ -171,9 +171,9 @@ def main(a):
         print(f'sample {number+1}/{len(paths)} complete in {stages[f"sample_{number+1}_seconds"]:.3f}s',flush=True)
     summary=pl.concat(summaries)
     if a.significance in ('bh','both'):
-        if a.fdr_family=='target':
-            summary=pl.concat([part.with_columns(pl.Series('q_receptors',fdr_bh(part['p_receptors'].fill_null(1.).to_numpy()))) for part in summary.partition_by('group_id')])
-        else:summary=summary.with_columns(pl.Series('q_receptors',fdr_bh(summary['p_receptors'].fill_null(1.).to_numpy())))
+        family=(['chain_mode'] if a.chain_mode=='all' else [])+(['group_id'] if a.fdr_family=='target' else [])
+        parts=summary.partition_by(family) if family else [summary]
+        summary=pl.concat([part.with_columns(pl.Series('q_receptors',fdr_bh(part['p_receptors'].fill_null(1.).to_numpy()))) for part in parts])
         summary=summary.with_columns(pl.when(pl.col('status')=='ok').then(pl.col('q_receptors')).otherwise(None).alias('q_receptors'))
         summary=summary.with_columns(((pl.col('q_receptors')<a.fdr_alpha)&(pl.col('excess_receptors')>0)).alias('significant_bh'))
     if a.significance in ('nominal','both'):

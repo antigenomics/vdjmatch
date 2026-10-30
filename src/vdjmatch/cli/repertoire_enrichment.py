@@ -43,7 +43,7 @@ def register(subparsers):
     p.add_argument('--pgen-features-tra', help='validated TRA Pgen bank for paired mode')
     p.add_argument('--epitope', action='append', help='explicit target peptide(s), reference-null mode only')
     p.add_argument('--tra-matcher',choices=['hamming','stem4'],default='hamming',help='TRA matching rule; TRB retains the strict Hamming rule')
-    p.add_argument('--chain-mode',choices=['tra','trb','union','intersection'],default='union')
+    p.add_argument('--chain-mode',choices=['tra','trb','union','intersection','all'],default='union')
     p.add_argument('--mismatches', type=int, choices=range(4), default=1)
     p.add_argument('--match-j', action='store_true')
     p.add_argument('--significance', choices=['none','nominal','bh','both'], default='none')

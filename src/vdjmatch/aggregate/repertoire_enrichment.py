@@ -144,7 +144,8 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     with exact V and optional J gene matching. tra_matcher=stem4 instead uses
     the existing continuous TRA kernel (positive support) in every panel. Its
     chain_score is retained alongside strict-chain indicators, not a probability.
-    No query Pgen is required.
+    chain_mode=all reuses searches and mock draws for all four reducers; outputs
+    then include chain_mode. No query Pgen is required.
     """
     from seqtree import Index
     from ..match.scope import search_params
@@ -153,8 +154,8 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     if type(replicates) is not int or replicates < 1 or type(seed) is not int or seed < 0:
         raise ValueError('positive replicates and nonnegative seed required')
     from vdjtools.sc import chain_support
-    if chain_mode not in {"tra", "trb", "union", "intersection"}:
-        raise ValueError("chain_mode must be tra, trb, union or intersection")
+    if chain_mode not in {"tra", "trb", "union", "intersection", "all"}:
+        raise ValueError("chain_mode must be tra, trb, union, intersection or all")
     if tra_matcher not in {"hamming", "stem4"}:raise ValueError("tra_matcher must be hamming or stem4")
     required={'receptor_id','locus','junction_aa','v','j','count'}
     if not required <= set(observations.columns) or not observations.height:
@@ -175,7 +176,10 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         if not set(frame['locus'])<={'TRA','TRB'} or frame['locus'].null_count():raise ValueError('TRA/TRB loci required')
         if not frame['junction_aa'].str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).all():
             raise ValueError('valid full-junction amino acid sequences required')
-    inventory=ref.select('group_id').unique().sort('group_id').with_row_index('_target')
+    modes=['tra','trb','union','intersection'] if chain_mode=='all' else [chain_mode]
+    inventory=ref.select('group_id').unique().sort('group_id')
+    if chain_mode=='all':inventory=inventory.join(pl.DataFrame({'chain_mode':modes}),how='cross')
+    inventory=inventory.with_row_index('_target')
     indexes={};samplers={};unavailable=[]
     for (locus,),part in obs.partition_by('locus',as_dict=True).items():
         keys=part.select('junction_aa').unique().sort('junction_aa').with_row_index('_ri')
@@ -232,12 +236,21 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                 else:
                     parts.append(hits.select('receptor_id','group_id').with_columns(pl.lit(locus).alias('locus')).unique())
         members=pl.concat(parts).unique() if parts else empty
-        selected=chain_support(members,by=['receptor_id','group_id']).filter(pl.col(chain_mode+'_supported')).select('receptor_id','group_id')
-        members=members.join(selected,on=['receptor_id','group_id'],how='inner')
-        if chain_mode in {'tra','trb'}:members=members.filter(pl.col('locus')==chain_mode.upper())
-        hits=members.sort('receptor_id','group_id','locus') if detailed else empty
-        aggregate=selected.join(totals.select('receptor_id','count'),on='receptor_id',validate='m:1').group_by('group_id').agg(pl.len().cast(pl.Int64).alias('receptors'),pl.col('count').sum())
-        values=inventory.join(aggregate,on='group_id',how='left',validate='1:1').fill_null(0).sort('_target')
+        support=chain_support(members,by=['receptor_id','group_id'])
+        aggregates=[];details=[]
+        for mode in modes:
+            selected=support.filter(pl.col(mode+'_supported')).select('receptor_id','group_id')
+            aggregate=selected.join(totals.select('receptor_id','count'),on='receptor_id',validate='m:1').group_by('group_id').agg(pl.len().cast(pl.Int64).alias('receptors'),pl.col('count').sum())
+            if chain_mode=='all':aggregate=aggregate.with_columns(pl.lit(mode).alias('chain_mode'))
+            aggregates.append(aggregate)
+            if detailed:
+                detail=members.join(selected,on=['receptor_id','group_id'],how='inner')
+                if mode in {'tra','trb'}:detail=detail.filter(pl.col('locus')==mode.upper())
+                if chain_mode=='all':detail=detail.with_columns(pl.lit(mode).alias('chain_mode'))
+                details.append(detail)
+        keys=['group_id','chain_mode'] if chain_mode=='all' else ['group_id']
+        hits=pl.concat(details).sort('receptor_id',*keys,'locus') if detailed else empty
+        values=inventory.join(pl.concat(aggregates),on=keys,how='left',validate='1:1').fill_null(0).sort('_target')
         return values['receptors'].to_numpy(),values['count'].to_numpy(),hits
     actual,abundance,hits=measure(ref,detailed=True)
     if progress is not None:progress('real',0)
@@ -260,10 +273,11 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     mocks=mocks.join(inventory,on='_target',validate='m:1').drop('_target')
     reasons={}
     for row in unavailable:reasons.setdefault(row['group_id'],[]).append(row['reason'])
-    audit=inventory.select('group_id').with_columns(
+    audit=inventory.with_columns(
         pl.Series('status',['untestable_null' if g in reasons else 'ok' for g in inventory['group_id']]),
         pl.Series('null_unavailable_reason',['; '.join(dict.fromkeys(reasons[g])) if g in reasons else None for g in inventory['group_id']],dtype=pl.String))
-    summary=summary.join(audit,on='group_id',validate='1:1')
+    audit=audit.select('group_id','status','null_unavailable_reason').unique()
+    summary=summary.join(audit,on='group_id',validate='m:1',maintain_order='left')
     inferred=[c for c in summary.columns if c.startswith(('mock_','excess_','enrichment_','p_'))]
     summary=summary.with_columns(pl.when(pl.col('status')=='ok').then(pl.col(c)).otherwise(None).alias(c) for c in inferred)
     mocks=mocks.with_columns(pl.when(~pl.col('group_id').is_in(list(reasons))).then(pl.col(c)).otherwise(None).alias(c) for c in ['mock_receptors','mock_count'])

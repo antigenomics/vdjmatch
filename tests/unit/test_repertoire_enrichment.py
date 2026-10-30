@@ -157,6 +157,12 @@ def test_reference_mock_enrichment_counts_receptors_once_and_retains_no_hits():
     for mode,expected in [('tra',1),('trb',2),('intersection',1)]:
         separate=module.reference_enrichment(sample,reference,controls,replicates=3,threads=1,chain_mode=mode)[0]
         assert separate.filter(pl.col('group_id')=='X')['matched_receptors'].item()==expected
+    combined=module.reference_enrichment(sample,reference,controls,replicates=3,chain_mode='all')
+    for mode in ['tra','trb','union','intersection']:
+        separate=module.reference_enrichment(sample,reference,controls,replicates=3,chain_mode=mode)
+        for actual,expected in zip(combined,separate):
+            selected=actual.filter(pl.col('chain_mode')==mode).drop('chain_mode').select(expected.columns)
+            assert selected.sort(expected.columns).equals(expected.sort(expected.columns))
     parallel=module.reference_enrichment(sample,reference,controls,replicates=3,threads=2)
     assert all(a.equals(b) for a,b in zip((summary,mocks,hits),parallel))
     with pytest.raises(ValueError,match='count'):
@@ -164,7 +170,8 @@ def test_reference_mock_enrichment_counts_receptors_once_and_retains_no_hits():
 
 
 @pytest.mark.parametrize("supported", [True, False])
-def test_reference_mode_cli_and_significance_options(tmp_path,supported):
+@pytest.mark.parametrize("chain_mode", ["union", "all"])
+def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mode):
     import subprocess,sys,json
     from pathlib import Path
     sample=tmp_path/'sample.tsv'
@@ -174,10 +181,14 @@ def test_reference_mode_cli_and_significance_options(tmp_path,supported):
     (tmp_path/'control.tsv').write_text('junction_aa\tv\tj\toccurrences\nCASSF\t'+('TRBV3' if supported else 'TRBV2')+'\tTRBJ1-1\t100\n')
     command=[sys.executable,'-m','vdjmatch.cli','repertoire-enrichment',str(tmp_path/'metadata.tsv'),
         '--null','reference','--vdjdb',str(tmp_path/'reference.tsv'),'--control',str(tmp_path/'control.tsv'),
-        '--pgen-mismatches','0','--threads','1','--significance','both','--output-prefix',str(tmp_path/'result')]
+        '--pgen-mismatches','0','--threads','1','--significance','both','--chain-mode',chain_mode,'--output-prefix',str(tmp_path/'result')]
     result=subprocess.run(command,capture_output=True,text=True,timeout=30)
     assert result.returncode==0,result.stdout+result.stderr
     summary=pl.read_csv(tmp_path/'result.summary.tsv',separator='\t')
+    if chain_mode=='all':
+        assert summary.height==4
+        assert summary.filter(pl.col('chain_mode').is_in(['tra','intersection']))['matched_receptors'].sum()==0
+        summary=summary.filter(pl.col('chain_mode')=='union')
     assert summary['matched_receptors'].item()==1
     if supported:
         assert summary['p_receptors'].item()==1/201
@@ -186,11 +197,11 @@ def test_reference_mode_cli_and_significance_options(tmp_path,supported):
         assert summary['status'].item()=='untestable_null'
         assert summary['p_receptors'].item() is None and summary['q_receptors'].item() is None
         assert summary['significant_nominal'].item() is None and summary['significant_bh'].item() is None
-        assert pl.read_parquet(tmp_path/'result.mocks.parquet')['mock_receptors'].null_count()==200
+        assert pl.read_parquet(tmp_path/'result.mocks.parquet')['mock_receptors'].null_count()==(800 if chain_mode=='all' else 200)
     manifest=json.loads((tmp_path/'result.manifest.json').read_text())
     assert manifest['null']=='reference' and manifest['inputs_frozen'] and manifest['source_frozen']
     assert manifest['mock_policy']=='pgen' and manifest['counting_unit']=='unique receptor identity'
-    assert pl.read_csv(tmp_path/'result.hits.tsv',separator='\t').height==1
+    assert pl.read_csv(tmp_path/'result.hits.tsv',separator='\t').height==(2 if chain_mode=='all' else 1)
 
 
 def test_reference_cli_rejects_unattainable_tail_resolution(tmp_path):
@@ -256,6 +267,10 @@ def test_strict_beta_with_fuzzy_alpha_preserves_pairing():
     assert mocks['mock_receptors'].sum()==0
     parallel=reference_enrichment(sample,reference,controls,replicates=2,threads=2,chain_mode='intersection',tra_matcher='stem4',mismatches=1)
     assert all(a.sort(a.columns).equals(b.sort(b.columns)) for a,b in zip((summary,mocks,hits),parallel))
+    combined=reference_enrichment(sample,reference,controls,replicates=2,threads=1,chain_mode='all',tra_matcher='stem4')
+    for actual,expected in zip(combined,(summary,mocks,hits)):
+        selected=actual.filter(pl.col('chain_mode')=='intersection').drop('chain_mode').select(expected.columns)
+        assert selected.sort(expected.columns).equals(expected.sort(expected.columns))
     exact=reference_enrichment(sample,reference,controls,replicates=2,threads=1,
         chain_mode='intersection',tra_matcher='stem4',mismatches=0)[0]
     assert exact['matched_receptors'].item()==0
