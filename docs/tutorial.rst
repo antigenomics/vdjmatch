@@ -148,6 +148,18 @@ input and reference paths. See :doc:`explanation` for significance and
 Testing a repertoire for enrichment
 -----------------------------------
 
+For the compiled bulk reference-panel calculation use ``repertoire-exact``.
+Supply a sample manifest, VDJdb reference, distinct junction/V/J probes and
+model-generated V/J counts. Optional ``joint_pgen`` probe values preserve a
+specific probability model asset. Choose ``--sampler r --pool-mhc`` only when
+reproducing the original single-epitope union; ordinary target labels retain
+full pMHC. Declare correction groups with ``--fdr-group`` and inspect both
+source-row and read-abundance endpoints. The complete command is in :doc:`cli`.
+
+The flexible mode below uses marginal Pgen and distinct-receptor counting,
+so it is a separate comparison rather than the same calculation.
+
+
 Use ``vdjmatch repertoire-enrichment samples.tsv --null reference`` for a fixed
 observed repertoire tested against Pgen-matched mock epitope corpora. The sample
 manifest contains ``sample_id`` and ``path``; pass the VDJdb reference and raw

@@ -283,3 +283,15 @@ Use one complete sample at a time when its measured footprint is modest.
 it does not perform chunk-local gene imputation or deduplication. Consumers must
 combine repeated clonotypes and paired identities across batch boundaries.
 TCRnet requires sample-wide neighbourhood information.
+
+
+Exact bulk reference-panel primitives
+-------------------------------------
+
+The ``repertoire-exact`` CLI composes these normalized-table primitives:
+
+:func:`vdjmatch.evalue.mock_reference.compiled_reference_strata` constructs the probability strata and V/J audit.
+
+:func:`vdjmatch.evalue.mock_reference.sample_stratified_panels` draws fresh panels.
+
+.. autofunction:: vdjmatch.aggregate.repertoire_enrichment.exact_reference_counts

@@ -272,6 +272,31 @@ must repeat their complete statistic, including reference-derived weights,
 inside the null calculation. See :doc:`control-calibration` for the equations,
 event/unique-key distinction and dependence-safe maximum proof.
 
+Exact bulk reference-panel enrichment
+-------------------------------------
+
+``repertoire-exact`` preserves source clonotype rows and their read abundance.
+It matches exact junction/V/J keys and counts all reference panels in one table
+join per sample. Duplicate amino-acid keys in the sample retain their source-row
+multiplicity; duplicate reference keys do not multiply a sample's contribution.
+
+For each junction, the compiled calculation takes the maximum joint Pgen across
+its probe V/J keys. It multiplies that value by the experimental-to-model ratio
+of add-one-smoothed J frequencies conditional on V. Experimental frequencies
+pool source rows from the declared cohort, not reads. Rounded log2 probabilities
+with a 2**-80 additive floor define the sampling strata. Uniform sampling excludes
+complete target keys, preserves the reference stratum counts and uses no
+replacement within a panel. Pgen is used to construct the null, not again as a
+matching score. R sampling reproduces original seeded panels; NumPy sampling
+uses the same law with a different random generator.
+
+Complete-zero empirical tails include every panel. The separate ``original_*``
+columns reproduce the original omission of zero-hit panels, sample standard
+deviations and log2(reads+1) effects. BH families are explicit metadata groups
+within each target. These two statistics must not be interchanged silently.
+Supplied joint-Pgen assets preserve historical model values; native generation
+uses the installed model, including its documented anchor repairs.
+
 Repertoire enrichment with mock target corpora
 ----------------------------------------------
 
