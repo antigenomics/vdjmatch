@@ -32,6 +32,7 @@ def register(subparsers):
     p.add_argument('--vdjdb',required=True);p.add_argument('--control',required=True)
     p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=None,help='0 exact sequence or1 inclusive Hamming ball; prepared and fresh probabilities must agree')
     p.add_argument('--pgen-features',help='validated durable control Pgen bank; missing query masses are freshly calculated')
+    p.add_argument('--model-source',choices=['isalgo','olga-legacy'],help='Reference-null Pgen model family; recorded and checked against prepared assets')
     p.add_argument('--species',choices=['human','mouse'],default='human')
     p.add_argument('--locus',choices=['TRA','TRB','paired'],default='TRB')
     p.add_argument('--reference-population',choices=['all-valid','curated-benchmark'],default=None)
@@ -59,7 +60,7 @@ def main(a):
     if a.null == 'reference':
         from .repertoire_reference import main as reference_main
         return reference_main(a)
-    if a.tra_matcher != 'hamming' or a.chain_mode != 'union' or a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
+    if a.model_source or a.tra_matcher != 'hamming' or a.chain_mode != 'union' or a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
         raise ValueError('reference-null options require --null reference')
     import json,time
     from importlib.metadata import version

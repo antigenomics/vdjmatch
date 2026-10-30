@@ -2790,3 +2790,8 @@ the TRA stem4 kernel uses its existing soft gene geometry and does not require e
 ``--chain-mode all`` computes the four chain rules from the same native searches and mock draws.
 Summary, mock and hit tables include a chain_mode column. BH correction is
 performed separately for each rule within the selected target or cohort family.
+
+Reference-null repertoire enrichment accepts ``--model-source isalgo`` or
+``--model-source olga-legacy``. Fresh probabilities, model identity checks and
+prepared feature validation use that same family. Omission retains historical
+model selection until the calibrated-default release is finalized.

@@ -182,6 +182,7 @@ def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mo
     command=[sys.executable,'-m','vdjmatch.cli','repertoire-enrichment',str(tmp_path/'metadata.tsv'),
         '--null','reference','--vdjdb',str(tmp_path/'reference.tsv'),'--control',str(tmp_path/'control.tsv'),
         '--pgen-mismatches','0','--threads','1','--significance','both','--chain-mode',chain_mode,'--output-prefix',str(tmp_path/'result')]
+    if chain_mode=='all':command.extend(['--model-source','isalgo'])
     result=subprocess.run(command,capture_output=True,text=True,timeout=30)
     assert result.returncode==0,result.stdout+result.stderr
     summary=pl.read_csv(tmp_path/'result.summary.tsv',separator='\t')
@@ -200,6 +201,7 @@ def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mo
         assert pl.read_parquet(tmp_path/'result.mocks.parquet')['mock_receptors'].null_count()==(800 if chain_mode=='all' else 200)
     manifest=json.loads((tmp_path/'result.manifest.json').read_text())
     assert manifest['null']=='reference' and manifest['inputs_frozen'] and manifest['source_frozen']
+    if chain_mode=='all':assert manifest['models']['TRB']['source']=='isalgo'
     assert manifest['mock_policy']=='pgen' and manifest['counting_unit']=='unique receptor identity'
     assert pl.read_csv(tmp_path/'result.hits.tsv',separator='\t').height==(2 if chain_mode=='all' else 1)
 

@@ -12,7 +12,7 @@ EVENT_SAMPLER = "uniform-event-slots-v1"
 PGEN_BINNING = "rounded log2(Pgen), ties-to-even; absent reference bins, including zero mass, share the lowest occupied control bin with enough event slots for all mapped source rows plus its existing occupants"
 
 
-def _pgen_model_identity(species, locus):
+def _pgen_model_identity(species, locus, *, source=None):
     """Hash the existing immutable bundled model inputs and native implementation."""
     import hashlib
     import json
@@ -22,7 +22,7 @@ def _pgen_model_identity(species, locus):
     from ..db.cache import sha256
 
     organism = _organism(species)
-    source = 'olga' if organism == 'human' else 'arda'
+    source = source or ('olga' if organism == 'human' else 'arda')
     root = bundled_model_path(locus, source, organism)
     hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
               for p in sorted(root.iterdir(), key=lambda p: p.name) if p.is_file()}
@@ -32,7 +32,7 @@ def _pgen_model_identity(species, locus):
         native_sha256=sha256(Path(native_core.__file__)))
 
 
-def load_pgen_features(path, reference, control, *, species='human', locus='TRB', mismatches=1):
+def load_pgen_features(path, reference, control, *, species='human', locus='TRB', mismatches=1, source=None):
     """Validate a durable feature bank with the requested probability and model preprocessing.
 
     These requested durable model features are distinct from resampled controls.
@@ -67,7 +67,7 @@ def load_pgen_features(path, reference, control, *, species='human', locus='TRB'
     if feature.get('sha256') != table_hash:
         raise ValueError('Pgen feature table SHA256 does not match its manifest')
     files, metadata = model.get('files'), model.get('metadata')
-    expected = _pgen_model_identity(organism, locus)
+    expected = _pgen_model_identity(organism, locus, source=source)
     if (model.get('collapse_alleles') is not False or not isinstance(files, dict) or not files or
             any(expected['files'].get(name) != digest for name, digest in files.items()) or
             not isinstance(metadata, dict) or _organism(metadata.get('organism')) != organism or metadata.get('locus') != locus):
@@ -290,10 +290,11 @@ def _normalize_control(frame, *, species, locus, gene_keys):
     return result.sort(['junction_aa', 'v', 'j'] if gene_keys else 'junction_aa')
 
 
-def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='human', locus='TRB', threads=1, mismatches=0) -> pl.DataFrame:
+def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='human', locus='TRB', threads=1, mismatches=0, source=None) -> pl.DataFrame:
     """Compute marginal full-junction Pgen once over the reference/control union.
 
-    Bundled human OLGA or mouse ARDA models are selected by species/locus.
+    source selects the bundled model family explicitly. Omission preserves the
+    historical human OLGA or mouse ARDA selection.
     Supplied Pgen columns are ignored; no calculated values are persisted.
     ``mismatches`` selects exact probability (0) or inclusive Hamming<=1 mass (1).
     """
@@ -303,7 +304,7 @@ def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='hum
     if locus not in {'TRA', 'TRB'} or threads < 1 or type(mismatches) is not int or mismatches not in (0,1):
         raise ValueError('Pgen requires TRA/TRB, positive threads and mismatches0or1')
     sequences = pl.concat([reference.select('junction_aa'), control.select('junction_aa')]).unique().sort('junction_aa')
-    model = load_bundled(locus, 'olga' if organism == 'human' else 'arda', organism=organism, collapse=False)
+    model = load_bundled(locus, source or ('olga' if organism == 'human' else 'arda'), organism=organism, collapse=False)
     probabilities = np.asarray(native.pgen_aa_batch(model, sequences['junction_aa'].to_list(),
         mismatches=mismatches, threads=threads), dtype=np.float64)
     if probabilities.shape != (sequences.height,) or not np.all(

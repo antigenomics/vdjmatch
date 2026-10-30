@@ -20,7 +20,7 @@ def _bank(tmp_path, monkeypatch):
     files = {'genes_v.tsv': 'a'*64, 'manifest.json': 'b'*64, 'genes_j.tsv': 'c'*64, 'v_choice.tsv': 'd'*64}
     metadata = dict(organism='human', locus='TRB', chain_type='VJ',
         events={'v_choice': {'kind': 'choice', 'given': []}})
-    monkeypatch.setattr(mocks, '_pgen_model_identity', lambda *args: {'files': files, 'metadata': metadata})
+    monkeypatch.setattr(mocks, '_pgen_model_identity', lambda *args, **kwargs: {'files': files, 'metadata': metadata})
     model_hash = hashlib.sha256(''.join(f'{name}\t{files[name]}\n' for name in sorted(files)).encode()).hexdigest()
     manifest = dict(features=dict(path=path.name, sha256=sha256(path)),
         options=dict(species='human', locus='TRB', mismatches=1),
@@ -130,3 +130,17 @@ def test_feature_bank_can_move_with_its_manifest(tmp_path, monkeypatch):
     manifest_path.rename(destination/manifest_path.name)
     result, _ = load_pgen_features(destination/path.name, frame, frame)
     assert result.equals(frame.select('junction_aa', 'pgen'))
+
+
+def test_feature_bank_checks_selected_model_family(tmp_path, monkeypatch):
+    import vdjmatch.evalue.mock_reference as mocks
+    path, _, frame, manifest = _bank(tmp_path, monkeypatch)
+    calls=[]
+    def identity(species,locus,*,source=None):
+        calls.append(source)
+        return {'files':dict(manifest['model']['files'], **{'genes_v.tsv':'f'*64}),
+                'metadata':manifest['model']['metadata']}
+    monkeypatch.setattr(mocks,'_pgen_model_identity',identity)
+    with pytest.raises(ValueError,match='model files/metadata'):
+        load_pgen_features(path,frame,frame,source='isalgo')
+    assert calls==['isalgo']

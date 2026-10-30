@@ -79,6 +79,9 @@ def test_native_pgen_one_union_batch_and_ignores_supplied_scores(monkeypatch):
     assert result['pgen'].to_list() == [0.01, 0.01]
     assert calls == [(('TRA', 'arda'), {'organism': 'mouse', 'collapse': False}),
                      ('model', ['CAAF', 'CATF'], {'mismatches': 0, 'threads': 2})]
+    calls.clear()
+    compute_pgen(reference,control,species='human',locus='TRA',threads=2,source='isalgo')
+    assert calls[0] == (('TRA','isalgo'), {'organism':'human','collapse':False})
 
 
 def test_mixed_population_filter_and_weighted_stream():

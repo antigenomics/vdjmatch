@@ -121,7 +121,7 @@ def main(a):
     source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(seq_native.__file__),Path(pgen_native.__file__),Path(pair_support.__file__)]
     def freeze():return {str(p):sha256(p) for p in source_files}
     before,source_before=identities(),freeze()
-    models={locus:_pgen_model_identity(a.species,locus) for locus in loci}
+    models={locus:_pgen_model_identity(a.species,locus,source=a.model_source) for locus in loci}
     reference=db.load(inputs[1],species={'human':'HomoSapiens','mouse':'MusMusculus'}[a.species])
     valid=pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)&pl.col('gene').is_in(loci)
     population=a.reference_population
@@ -145,9 +145,9 @@ def main(a):
         if not part.height:continue
         part=_genes(part,locus,species=a.species)
         if features[locus]:
-            pgen,prepared[locus]=load_pgen_features(features[locus],part,control,species=a.species,locus=locus,mismatches=a.pgen_mismatches)
+            pgen,prepared[locus]=load_pgen_features(features[locus],part,control,species=a.species,locus=locus,mismatches=a.pgen_mismatches,source=a.model_source)
         else:
-            pgen=compute_pgen(part,control,species=a.species,locus=locus,threads=a.threads,mismatches=a.pgen_mismatches)
+            pgen=compute_pgen(part,control,species=a.species,locus=locus,threads=a.threads,mismatches=a.pgen_mismatches,source=a.model_source)
         bins=_repertoire_strata(pgen)
         part=part.join(bins,on='junction_aa',validate='m:1')
         pools[locus]=control.join(bins,on='junction_aa',validate='m:1')
@@ -179,7 +179,7 @@ def main(a):
     if a.significance in ('nominal','both'):
         summary=summary.with_columns(((pl.col('p_receptors')<a.nominal_alpha)&(pl.col('excess_receptors')>0)).alias('significant_nominal'))
     after,source_after=identities(),freeze()
-    if before!=after or source_before!=source_after or models!={locus:_pgen_model_identity(a.species,locus) for locus in loci}:
+    if before!=after or source_before!=source_after or models!={locus:_pgen_model_identity(a.species,locus,source=a.model_source) for locus in loci}:
         raise ValueError('raw inputs, model or software changed during the run')
     prefix.parent.mkdir(parents=True,exist_ok=True);outputs={}
     for suffix,table in [('summary.tsv',summary),('mocks.parquet',pl.concat(mocks)),('hits.tsv',pl.concat(hits)),('reference-audit.tsv',pl.concat(audits))]:
