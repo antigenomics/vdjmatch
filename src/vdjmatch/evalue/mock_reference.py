@@ -89,6 +89,18 @@ def load_pgen_features(path, reference, control, *, species='human', locus='TRB'
         raise ValueError('Pgen feature model SHA256 does not match its consumed files')
     from vdjtools.model import io as model_io, native as native_bridge
     software = manifest.get('software', {})
+    from importlib.metadata import version
+    import re
+    import vdjtools._core as native_core
+    if (not isinstance(software, dict) or software.get('vdjtools') != version('vdjtools') or
+            not isinstance(software.get('native_sha256'), str) or
+            re.fullmatch(r'[0-9a-f]{64}', software['native_sha256']) is None):
+        raise ValueError('Pgen producer version/native hash missing or incompatible with current vdjtools')
+    current_native = sha256(Path(native_core.__file__))
+    compatibility = dict(policy='same-version-model-and-python-source-v1',
+        producer_vdjtools=software['vdjtools'], consumer_vdjtools=version('vdjtools'),
+        producer_native_sha256=software['native_sha256'], consumer_native_sha256=current_native,
+        native_binary_identical=software['native_sha256']==current_native)
     implementation = {'model_io_sha256': sha256(Path(model_io.__file__)),
         'native_bridge_sha256': sha256(Path(native_bridge.__file__))}
     if model.get('anchor_repair') != 'vdjtools load_model' or any(
@@ -111,7 +123,7 @@ def load_pgen_features(path, reference, control, *, species='human', locus='TRB'
     if missing:
         raise ValueError(f'Pgen features do not cover {missing} required reference/control junctions')
     identity = dict(path=str(path), sha256=table_hash, manifest_path=str(manifest_path),
-        manifest_sha256=sha256(manifest_path), options=options, model=model, rows=frame.height)
+        manifest_sha256=sha256(manifest_path), options=options, model=model, rows=frame.height, native_compatibility=compatibility)
     return frame.select('junction_aa', pl.col('pgen').cast(pl.Float64)), identity
 
 

@@ -2795,3 +2795,11 @@ Reference-null repertoire enrichment accepts ``--model-source isalgo`` or
 ``--model-source olga-legacy``. Fresh probabilities, model identity checks and
 prepared feature validation use that same family. Omission retains historical
 model selection until the calibrated-default release is finalized.
+
+Prepared Pgen banks require matching vdjtools versions, model assets, probability
+options and Python preprocessing/bridge hashes, plus a recorded producer native
+SHA256. Exports retain producer/consumer native hashes and native_binary_identical.
+Different binaries are accepted under this version-and-source compatibility policy
+for portability; numerical equivalence is not established by that acceptance.
+Locally modified native code with an unchanged version is not detected by version
+matching. Missing producer metadata is rejected.
