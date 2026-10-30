@@ -397,3 +397,20 @@ def test_epitope_mock_policies_preserve_bins_and_exclude_reference_keys():
         list(m.iter_epitope_mocks(reference,control.head(1),replicates=1))
     with pytest.raises(ValueError,match='bin'):
         list(m.iter_epitope_mocks(reference,control.with_columns(pl.lit(-11).alias('pgen_bin')),replicates=1))
+
+
+def test_mock_sampler_keeps_pool_index_dtype(monkeypatch):
+    """Mixed signed/unsigned search keys copy the entire large control stratum."""
+    import numpy as np
+    from vdjmatch.evalue.mock_reference import iter_epitope_mocks
+    searchsorted = np.searchsorted
+    def checked(a, v, *args, **kwargs):
+        if a.dtype == np.dtype('uint32'):
+            assert v.dtype == a.dtype
+        return searchsorted(a, v, *args, **kwargs)
+    monkeypatch.setattr(np, 'searchsorted', checked)
+    control = pl.DataFrame(dict(junction_aa=['CAAF','CABF','CACF','CADF'],
+        v=['V1','V2','V1','V2'], j=['J1']*4, pgen_bin=[-10]*4))
+    reference = control.head(2).with_columns(pl.lit('X').alias('group_id'))
+    for policy in ['pgen', 'pgen-vj', 'pgen-different-v']:
+        assert len(list(iter_epitope_mocks(reference, control, replicates=2, policy=policy))) == 2

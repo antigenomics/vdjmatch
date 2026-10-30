@@ -606,6 +606,7 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
     # Source roles may repeat a chain key across different linked receptors.
     source = reference.with_row_index('_source_row')
     pool = control.select(required).sort(keys).with_row_index('_pool_row')
+    pool_index_dtype = pool['_pool_row'].to_numpy().dtype
     def partitions(frame,columns):
         grouped=frame.group_by(columns).agg(pl.col('_pool_row').sort())
         return {key:values.to_numpy() for key,values in zip(grouped.select(columns).iter_rows(),grouped['_pool_row'])}
@@ -660,7 +661,9 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
             rng = np.random.default_rng(np.random.SeedSequence([seed, identity, replicate]))
             for roles in groups:
                 if group in rejected:break
-                used = np.empty(0, dtype=np.int64)
+                # Match pool indices: mixed uint32/int64 searchsorted copies
+                # the complete control stratum even for an empty needle array.
+                used = np.empty(0, dtype=pool_index_dtype)
                 order = rng.permutation(len(roles)) if policy == 'pgen-different-v' else range(len(roles))
                 for i in order:
                     positions,eligible,blocked_positions=roles[i]
