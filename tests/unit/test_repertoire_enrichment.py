@@ -194,10 +194,13 @@ def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mo
     if supported:
         assert summary['p_receptors'].item()==1/201
         assert summary['significant_nominal'].item() and summary['significant_bh'].item()
+        assert summary['q_count'].item()==1/201
+        assert summary['significant_nominal_count'].item() and summary['significant_bh_count'].item()
     else:
         assert summary['status'].item()=='untestable_null'
         assert summary['p_receptors'].item() is None and summary['q_receptors'].item() is None
         assert summary['significant_nominal'].item() is None and summary['significant_bh'].item() is None
+        assert summary['q_count'].item() is None and summary['significant_bh_count'].item() is None
         assert pl.read_parquet(tmp_path/'result.mocks.parquet')['mock_receptors'].null_count()==(800 if chain_mode=='all' else 200)
     manifest=json.loads((tmp_path/'result.manifest.json').read_text())
     assert manifest['null']=='reference' and manifest['inputs_frozen'] and manifest['source_frozen']
@@ -276,3 +279,17 @@ def test_strict_beta_with_fuzzy_alpha_preserves_pairing():
     exact=reference_enrichment(sample,reference,controls,replicates=2,threads=1,
         chain_mode='intersection',tra_matcher='stem4',mismatches=0)[0]
     assert exact['matched_receptors'].item()==0
+
+
+def test_abundance_enrichment_can_differ_from_receptor_enrichment():
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    sample=pl.DataFrame(dict(receptor_id=['expanded','small'],locus=['TRB']*2,
+        junction_aa=['CASSF','CATSF'],v=['TRBV2']*2,j=['TRBJ1']*2,count=[7,1]))
+    reference=pl.DataFrame(dict(group_id=['X'],locus=['TRB'],junction_aa=['CASSF'],
+        v=['TRBV2'],j=['TRBJ1'],pgen_bin=[-10]))
+    controls={'TRB':pl.DataFrame(dict(junction_aa=['CATSF'],v=['TRBV2'],j=['TRBJ1'],pgen_bin=[-10]))}
+    summary,_,_=reference_enrichment(sample,reference,controls,replicates=200,mismatches=0)
+    assert summary['matched_receptors'].item()==1 and summary['mock_mean_receptors'].item()==1
+    assert summary['p_receptors'].item()==1
+    assert summary['matched_count'].item()==7 and summary['mock_mean_count'].item()==1
+    assert summary['p_count'].item()==1/201

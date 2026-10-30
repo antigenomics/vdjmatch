@@ -501,3 +501,9 @@ Reference-null repertoire enrichment accepts ``--model-source isalgo`` or
 ``--model-source olga-legacy``. Fresh probabilities, model identity checks and
 prepared feature validation use that same family. Omission retains historical
 model selection until the calibrated-default release is finalized.
+
+Reference-null significance reports both unique-receptor and abundance endpoints.
+``q_count``, ``significant_nominal_count`` and ``significant_bh_count`` describe
+summed abundance (reads in bulk data, supplied cell counts in single-cell data).
+Existing unsuffixed call flags describe receptor counts. Each endpoint uses the
+selected correction family separately; positive excess is required for a call.

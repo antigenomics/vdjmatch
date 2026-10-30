@@ -170,14 +170,16 @@ def main(a):
         stages[f'sample_{number+1}_seconds']=time.monotonic()-t
         print(f'sample {number+1}/{len(paths)} complete in {stages[f"sample_{number+1}_seconds"]:.3f}s',flush=True)
     summary=pl.concat(summaries)
-    if a.significance in ('bh','both'):
-        family=(['chain_mode'] if a.chain_mode=='all' else [])+(['group_id'] if a.fdr_family=='target' else [])
-        parts=summary.partition_by(family) if family else [summary]
-        summary=pl.concat([part.with_columns(pl.Series('q_receptors',fdr_bh(part['p_receptors'].fill_null(1.).to_numpy()))) for part in parts])
-        summary=summary.with_columns(pl.when(pl.col('status')=='ok').then(pl.col('q_receptors')).otherwise(None).alias('q_receptors'))
-        summary=summary.with_columns(((pl.col('q_receptors')<a.fdr_alpha)&(pl.col('excess_receptors')>0)).alias('significant_bh'))
-    if a.significance in ('nominal','both'):
-        summary=summary.with_columns(((pl.col('p_receptors')<a.nominal_alpha)&(pl.col('excess_receptors')>0)).alias('significant_nominal'))
+    for endpoint in ['receptors','count']:
+        suffix='' if endpoint=='receptors' else '_count'
+        if a.significance in ('bh','both'):
+            family=(['chain_mode'] if a.chain_mode=='all' else [])+(['group_id'] if a.fdr_family=='target' else [])
+            parts=summary.partition_by(family) if family else [summary]
+            summary=pl.concat([part.with_columns(pl.Series('q_'+endpoint,fdr_bh(part['p_'+endpoint].fill_null(1.).to_numpy()))) for part in parts])
+            summary=summary.with_columns(pl.when(pl.col('status')=='ok').then(pl.col('q_'+endpoint)).otherwise(None).alias('q_'+endpoint))
+            summary=summary.with_columns(((pl.col('q_'+endpoint)<a.fdr_alpha)&(pl.col('excess_'+endpoint)>0)).alias('significant_bh'+suffix))
+        if a.significance in ('nominal','both'):
+            summary=summary.with_columns(((pl.col('p_'+endpoint)<a.nominal_alpha)&(pl.col('excess_'+endpoint)>0)).alias('significant_nominal'+suffix))
     after,source_after=identities(),freeze()
     if before!=after or source_before!=source_after or models!={locus:_pgen_model_identity(a.species,locus,source=a.model_source) for locus in loci}:
         raise ValueError('raw inputs, model or software changed during the run')

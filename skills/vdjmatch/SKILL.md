@@ -510,3 +510,9 @@ Different binaries are accepted under this version-and-source compatibility poli
 for portability; numerical equivalence is not established by that acceptance.
 Locally modified native code with an unchanged version is not detected by version
 matching. Missing producer metadata is rejected.
+
+Reference-null significance reports both unique-receptor and abundance endpoints.
+``q_count``, ``significant_nominal_count`` and ``significant_bh_count`` describe
+summed abundance (reads in bulk data, supplied cell counts in single-cell data).
+Existing unsuffixed call flags describe receptor counts. Each endpoint uses the
+selected correction family separately; positive excess is required for a call.
