@@ -24,7 +24,7 @@
 reporting peptide–MHC candidates, competing evidence and optional background calibration.
 Native sequence search uses [`seqtree`](https://github.com/antigenomics/seqtree);
 repertoire ingestion reuses published `vdjtools` readers.
-Requires released `seqtree>=1.3.2` and `vdjtools>=5.3.2`, including allocation-aware
+Requires released `seqtree>=1.3.2` and `vdjtools>=5.4.0`, including allocation-aware
 native thread validation.
 
 The Python implementation follows the legacy Java/Groovy package, preserved on the
@@ -258,8 +258,9 @@ Two things worth knowing before trusting a number:
 - **`--source` picks the recombination model, and it matters for a mass over a set.** The default
   `olga` is a bit-faithful import of OLGA's published models — faithful to OLGA's deletion-bin grid
   too, under which **5.7% of human TRA junctions in VDJdb score `Pgen` exactly zero** (up to 15% for
-  some epitopes) and vanish from the total without an error. `learned` and `arda` are refits that do
-  not inherit it; `arda` is the only set carrying mouse. The `n_zero_pgen` output column reports the
+  some epitopes) and vanish from the total without an error. `isalgo` selects current gene-level fits; `learned` and `arda` alias those same
+  weights. Mouse TRA/TRB/IGH/IGK/IGL are available; mouse TRG/TRD fail explicitly.
+  Historical learned/ARDA results require their original pinned weights. The `n_zero_pgen` output column reports the
   loss per group and the CLI warns above 1%.
 - **`--species` selects records, `--organism` selects the model, and they must agree.** A mismatch
   used to run and return a plausible number that was wrong by an epitope-dependent factor; since

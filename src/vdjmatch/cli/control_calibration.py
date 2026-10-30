@@ -27,7 +27,7 @@ def _scores(hits, membership, statistic):
 
 def main(a):
     import hashlib
-    from importlib.resources import files
+    from ..precursor.model import bundled_model_path
     import time
     from importlib.metadata import version
     import seqtree._core as seqtree_native
@@ -54,8 +54,7 @@ def main(a):
     prefix = _validate_output_paths(a.output_prefix, [a.sample, a.vdjdb, a.control])
     species = {'human': 'HomoSapiens', 'mouse': 'MusMusculus'}[_organism(a.species)]
     model_source = 'olga' if _organism(a.species) == 'human' else 'arda'
-    model_key = a.locus if model_source == 'olga' else f'mouse_{a.locus}'
-    model_root = files('vdjtools.model') / '_bundled' / model_source / model_key
+    model_root = bundled_model_path(a.locus, model_source, _organism(a.species))
     model_digest = hashlib.sha256()
     for path in sorted(model_root.iterdir(), key=lambda p: p.name):
         if path.is_file():
