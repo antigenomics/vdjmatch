@@ -206,3 +206,18 @@ def test_projected_control_read_preserves_population_and_keys(tmp_path):
     projected=_read_table(p,columns=cs.exclude('unused'))
     assert projected.columns==['cdr3aa','v','j','occurrences','species','locus']
     assert control_events(projected).equals(control_events(_read_table(p)))
+
+
+def test_exact_reference_panel_counts_preserve_source_rows_and_reads():
+    from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
+    obs=pl.DataFrame(dict(junction_aa=['CASSF','CASSF','CASSF','CASRF'],
+        v=['V1','V1','V1','V1'],j=['J1','J1','J2','J1'],count=[7,3,20,4]))
+    panels=pl.DataFrame(dict(group_id=['X','X','X','Y'],replicate=[-1,0,1,-1],
+        junction_aa=['CASSF','CASRF','CATSF','CATSF'],v=['V1']*4,j=['J1']*4))
+    out=exact_reference_counts(obs,panels)
+    assert out.select('group_id','replicate','matched_records','matched_reads').rows()==[
+        ('X',-1,2,10),('X',0,1,4),('X',1,0,0),('Y',-1,0,0)]
+    with pytest.raises(ValueError,match='unique'):
+        exact_reference_counts(obs,pl.concat([panels,panels.head(1)]))
+    with pytest.raises(ValueError,match='nonnegative'):
+        exact_reference_counts(obs.with_columns(pl.lit(-1).alias('count')),panels)

@@ -9,6 +9,32 @@ from ..evalue.mock_reference import _sample_event_indices
 from ..io.columns import _integer_count
 
 
+def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame) -> pl.DataFrame:
+    """Count source rows and reads against all exact V/J/junction panels at once.
+
+    Observations contain junction_aa/v/j/count; panels additionally contain
+    group_id/replicate. Source rows sharing a key remain separate observations.
+    Panel keys must be unique within group/replicate. Zero-hit panels are kept.
+    This is the original bulk-repertoire counting unit, not paired-cell union.
+    """
+    keys=['junction_aa','v','j'];groups=['group_id','replicate']
+    if not {*keys,'count'}<=set(observations.columns) or not {*keys,*groups}<=set(panels.columns) or not panels.height:
+        raise ValueError('source keys/counts and nonempty reference panels required')
+    if panels.select(*groups,*keys).n_unique()!=panels.height:
+        raise ValueError('reference panel keys must be unique within group/replicate')
+    if any(panels[c].null_count() for c in [*groups,*keys]):
+        raise ValueError('reference panel identities and keys must be non-null')
+    obs=observations.select(*keys,_integer_count('count').alias('count'))
+    if obs['count'].null_count() or (obs['count']<0).any():
+        raise ValueError('nonnegative integer source counts required')
+    if obs.select(pl.col('count').cast(pl.Int128).sum()).item()>np.iinfo(np.int64).max:
+        raise ValueError('source read total exceeds int64')
+    counted=obs.group_by(keys).agg(pl.len().cast(pl.Int64).alias('matched_records'),pl.col('count').sum().alias('matched_reads'))
+    matched=panels.join(counted,on=keys,how='inner',validate='m:1').group_by(groups).agg(pl.col('matched_records','matched_reads').sum())
+    return panels.select(groups).unique().join(matched,on=groups,how='left',validate='1:1').with_columns(
+        pl.col('matched_records','matched_reads').fill_null(0)).sort(groups)
+
+
 def matched_enrichment(observations, control, matches, targets, *, replicates=200, seed=0, measure=None):
     """Return real/null counts, empirical upper-tail P-values and exact-bin audit.
 
