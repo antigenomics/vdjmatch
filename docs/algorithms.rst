@@ -271,3 +271,28 @@ implemented. Full VDJmatch-score, selected-label and paired search adapters
 must repeat their complete statistic, including reference-derived weights,
 inside the null calculation. See :doc:`control-calibration` for the equations,
 event/unique-key distinction and dependence-safe maximum proof.
+
+Repertoire enrichment with mock target corpora
+----------------------------------------------
+
+M3's reference-null test fixes a sample and counts its distinct receptor identities
+supporting each pMHC. A receptor matches when an available chain satisfies the
+specified full-junction Hamming radius and gene predicate. Chain union is evaluated
+inside every real and mock calculation, so paired receptors cannot be counted twice.
+The sample index is execution-owned; each real or mock target population is searched
+in one native batch per locus with bounded primitive hit buffers.
+
+For target ``e``, let ``K_e`` be the observed matched-receptor count, ``B`` the number
+of fresh mock target corpora, and ``K_eb`` the count for mock ``b``. The one-sided
+empirical tail is ``(1 + sum_b I[K_eb >= K_e]) / (B + 1)``. Ties and zero-hit mocks
+are retained. The expected count is the mean of ``K_eb``; excess is observed minus
+expected. The same calculations on summed receptor abundance are descriptive
+secondary endpoints. Biological donor replication is distinct from mock replication.
+
+The construction matches reference publicity while
+removing selected target identities. It uses native marginal full-junction Pgen,
+not the historical snippet's conditional probability and cohort-fitted V/J factor.
+Binning is ``round(log2(Pgen + 2**-60))``. Explicit options preserve V/J composition
+or require different V/junction identities; these change the null hypothesis and
+must not be selected by suppressing unfavourable results. See :doc:`cli` for the
+sampling laws, significance families and complete output contracts.

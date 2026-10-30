@@ -410,3 +410,36 @@ counts expected neighbours; it does not calibrate winning-label selection.
 Dual-use V-loop aliases: `TRAV14_DV4*02` resolves to the model-backed
 `TRAV14/DV4*02` allele. Preserve submitted calls and explicit allele suffixes;
 do not remove the dual-use suffix or substitute a different allele.
+
+## M3 reference-null repertoire inference
+
+Use `repertoire-enrichment METADATA --null reference --vdjdb RAW --control RAW_CONTROL
+--threads N --output-prefix NEW` to hold samples fixed and randomize epitope
+references. Defaults: curated reference, exact marginal junction Pgen, V+Hamming1,
+200 draws, seed0, no automatic significance calls. Preserve the historical
+`--null repertoire` mode separately; it randomizes observations instead.
+
+Mock policies: `pgen` excludes full target V/J/junction keys; `pgen-vj` also
+preserves V/J composition; `pgen-different-v` excludes target junctions and changes
+source V using randomized-stratum sequential sampling without replacement.
+Do not claim these laws equivalent or motif-free. Controls are distinct keys,
+not read/event-weighted. Exact Pgen bins cannot be widened or source rows dropped.
+`--pgen-features` accepts validated durable model inputs, never predictions.
+
+Bulk counts use unique junction/V/J identities and summed abundance. For
+`--locus paired`, every long-form chain row needs pair_id and consistent count;
+`--control` supplies TRB and `--control-tra` TRA. Any-chain target support counts
+once per receptor, including orphans and unlinked marginal references. This
+calibrates union support, not the linked-first annotation score.
+
+`--significance nominal|bh|both` exposes positive-excess calls (nominal .05,
+BH .1); `--fdr-family cohort|target` declares the correction family. Retain all
+P-values and zero-hit rows. No automatic inference over policy comparisons.
+Outputs include summary, complete aggregate mocks, actual chain hit keys,
+reference-bin/ingestion audits and raw/model/software manifests. API:
+`vdjmatch.api.repertoire_enrichment` / aggregate `reference_enrichment` consume
+normalized keyed tables; `iter_epitope_mocks` owns sampling. See docs/cli.rst.
+For large runs use examples/profile_cli.profile with timeout=float('inf'),
+max_rss_bytes=None and trace_path for measurement without application abort caps;
+choose production limits from measurements. Dextramer assignments without a
+validated binding rule are linked annotations, not invented binary truth.

@@ -97,3 +97,97 @@ def matched_enrichment(observations, control, matches, targets, *, replicates=20
         mock=pl.DataFrame(dict(_target=np.tile(np.arange(inventory.height),replicates),replicate=np.repeat(np.arange(replicates),inventory.height),mock_records=mock_records.ravel(),mock_reads=mock_reads.ravel())).with_columns(pl.col('_target').cast(inventory.schema['_target']),pl.lit(sample).alias('sample_id'))
         mock_tables.append(mock.join(inventory,on='_target',validate='m:1').drop('_target'))
     return pl.concat(summaries),pl.concat(mock_tables),pl.DataFrame(audits)
+
+
+def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
+                         controls: dict[str, pl.DataFrame], *, replicates: int = 200,
+                         seed: int = 0, policy: str = 'pgen', threads: int = 1,
+                         mismatches: int = 1, match_j: bool = False):
+    """Test a fixed repertoire against fresh Pgen-matched mock target corpora.
+
+    Observations: receptor_id/locus/junction_aa/v/j/count. Multiple chains with
+    one receptor_id represent one receptor and must carry the same abundance.
+    Reference: group_id/locus/junction_aa/v/j/pgen_bin. Controls are normalized
+    unique junction/V/J keys with pgen_bin per locus. Target support is the union
+    of available chain matches; paired receptors count once. Linked and unlinked
+    references both contribute. This calibrates that union, not a paired score.
+    Counts are unique receptor identities and their summed abundance separately.
+    Returns summary, complete aggregate mock endpoints and real chain hit links.
+    Full-junction Hamming matching uses one native batch per locus/population,
+    with exact V and optional J gene matching. No query Pgen is required.
+    """
+    from seqtree import Index
+    from ..match.scope import search_params
+    from ..evalue.mock_reference import iter_epitope_mocks
+
+    if type(replicates) is not int or replicates < 1 or type(seed) is not int or seed < 0:
+        raise ValueError('positive replicates and nonnegative seed required')
+    required={'receptor_id','locus','junction_aa','v','j','count'}
+    if not required <= set(observations.columns) or not observations.height:
+        raise ValueError('nonempty observations with receptor identities, chain keys and counts required')
+    obs=observations.select(sorted(required)).with_columns(_integer_count('count').alias('count'))
+    if any(obs[c].null_count() for c in required) or (obs['count']<0).any():
+        raise ValueError('non-null receptor keys and nonnegative integer counts required')
+    totals=obs.group_by('receptor_id').agg(pl.col('count').n_unique().alias('_n'),pl.col('count').first())
+    if (totals['_n']!=1).any():raise ValueError('all chains of a receptor must have the same count')
+    total_count=sum(totals['count'].to_list())
+    if total_count>np.iinfo(np.int64).max:raise ValueError('total count exceeds int64')
+    if type(threads) is not int or threads<1 or type(mismatches) is not int or mismatches not in (0,1,2,3):
+        raise ValueError('positive threads and Hamming mismatches from 0 to 3 required')
+    if not {'group_id','locus','junction_aa','v','j','pgen_bin'}<=set(reference.columns) or not reference.height:
+        raise ValueError('nonempty reference with target, locus, receptor keys and Pgen bins required')
+    ref=reference.select('group_id','locus','junction_aa','v','j','pgen_bin').unique().sort('group_id','locus','junction_aa','v','j')
+    for frame in [obs,ref]:
+        if not set(frame['locus'])<={'TRA','TRB'} or frame['locus'].null_count():raise ValueError('TRA/TRB loci required')
+        if not frame['junction_aa'].str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).all():
+            raise ValueError('valid full-junction amino acid sequences required')
+    inventory=ref.select('group_id').unique().sort('group_id').with_row_index('_target')
+    indexes={};samplers={}
+    for (locus,),part in obs.partition_by('locus',as_dict=True).items():
+        keys=part.select('junction_aa').unique().sort('junction_aa').with_row_index('_ri')
+        indexed=part.join(keys,on='junction_aa',validate='m:1').rename({'v':'_sample_v','j':'_sample_j'})
+        indexes[locus]=(Index.build(keys['junction_aa'].to_list(),alphabet='aa'),indexed)
+    for (locus,),part in ref.partition_by('locus',as_dict=True).items():
+        if locus not in controls:raise ValueError(f'missing {locus} control pool')
+        samplers[locus]=iter_epitope_mocks(part,controls[locus],replicates=replicates,seed=seed+(0 if locus=='TRA' else 1),policy=policy)
+    empty=pl.DataFrame(schema={'receptor_id':obs.schema['receptor_id'],'group_id':ref.schema['group_id'],'locus':pl.String,'junction_aa':pl.String,'v':pl.String,'j':pl.String})
+    def measure(population):
+        parts=[]
+        for (locus,),targets in population.partition_by('locus',as_dict=True).items():
+            if locus not in indexes:continue
+            index,samples=indexes[locus]
+            keys=targets.select('junction_aa').unique().sort('junction_aa').with_row_index('_qi')
+            roles=targets.join(keys,on='junction_aa',validate='m:1').select('_qi','group_id','v','j')
+            buffers=[]
+            def consume(start,stop,buffer):
+                pairs=np.asarray(buffer)
+                if len(pairs):buffers.append(pairs[:,:2].copy())
+            index.search_batch_consume(keys['junction_aa'].to_list(),search_params(f'{mismatches},0,0,{mismatches}'),consume,
+                threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
+            # Join sparse hits once: native memory bounds can make callbacks tiny.
+            if buffers:
+                pairs=pl.DataFrame(np.concatenate(buffers),schema=[('_qi',pl.UInt32),('_ri',pl.UInt32)],orient='row')
+                hits=pairs.join(roles,on='_qi',validate='m:m').join(samples,on='_ri',validate='m:m')
+                valid=pl.col('v').str.replace(r'\*.*$','')==pl.col('_sample_v').str.replace(r'\*.*$','')
+                if match_j:valid &= pl.col('j').str.replace(r'\*.*$','')==pl.col('_sample_j').str.replace(r'\*.*$','')
+                parts.append(hits.filter(valid).select('receptor_id','group_id',pl.lit(locus).alias('locus'),'junction_aa',pl.col('_sample_v').alias('v'),pl.col('_sample_j').alias('j')).unique())
+        hits=pl.concat(parts).unique().sort('receptor_id','group_id','locus') if parts else empty
+        aggregate=hits.select('receptor_id','group_id').unique().join(totals.select('receptor_id','count'),on='receptor_id',validate='m:1').group_by('group_id').agg(pl.len().cast(pl.Int64).alias('receptors'),pl.col('count').sum())
+        values=inventory.join(aggregate,on='group_id',how='left',validate='1:1').fill_null(0).sort('_target')
+        return values['receptors'].to_numpy(),values['count'].to_numpy(),hits
+    actual,abundance,hits=measure(ref)
+    null=np.empty((replicates,inventory.height,2),dtype=np.int64)
+    for b in range(replicates):
+        population=pl.concat([next(sampler) for sampler in samplers.values()])
+        null[b,:,0],null[b,:,1],_=measure(population)
+    summary=inventory.drop('_target').with_columns(pl.lit(totals.height).alias('n_receptors'),pl.lit(total_count).alias('total_count'))
+    for name,observed,values in [('receptors',actual,null[:,:,0]),('count',abundance,null[:,:,1])]:
+        mean=values.mean(axis=0)
+        ratio=np.divide(observed,mean,out=np.full(len(mean),np.nan),where=mean>0)
+        summary=summary.with_columns(pl.Series('matched_'+name,observed),pl.Series('mock_mean_'+name,mean),
+            pl.Series('mock_lower_'+name,np.quantile(values,.025,axis=0)),pl.Series('mock_upper_'+name,np.quantile(values,.975,axis=0)),
+            pl.Series('excess_'+name,observed-mean),pl.Series('enrichment_'+name,ratio).fill_nan(None),
+            pl.Series('p_'+name,(1+(values>=observed).sum(axis=0))/(replicates+1)))
+    mocks=pl.DataFrame(dict(_target=np.tile(np.arange(inventory.height,dtype=np.uint32),replicates),
+        replicate=np.repeat(np.arange(replicates),inventory.height),mock_receptors=null[:,:,0].ravel(),mock_count=null[:,:,1].ravel()))
+    return summary,mocks.join(inventory,on='_target',validate='m:1').drop('_target'),hits

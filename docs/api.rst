@@ -251,3 +251,12 @@ Reference graph morphology
 .. autofunction:: vdjmatch.aggregate.germline_information.iter_germline_information
 
 .. autofunction:: vdjmatch.aggregate.paired_labels.paired_labels
+
+Reference-null repertoire inference
+-----------------------------------
+
+See :func:`vdjmatch.api.repertoire_enrichment` above.
+
+.. autofunction:: vdjmatch.aggregate.repertoire_enrichment.reference_enrichment
+
+See :func:`vdjmatch.evalue.mock_reference.iter_epitope_mocks` above.

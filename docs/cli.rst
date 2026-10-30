@@ -2593,3 +2593,82 @@ once for the fixed locus population, retaining original calls, flags, source
 identities and junctions. All queries share that same annotation view; neither
 exact-hit exclusion nor query membership changes reference model counts. The
 ordinary source model remains unchanged.
+
+Reference-null repertoire enrichment (M3)
+-----------------------------------------
+
+``repertoire-enrichment --null reference`` holds each observed repertoire fixed
+and replaces the epitope-reference receptors with fresh Pgen-matched controls.
+The older ``--null repertoire`` mode above retains its original semantics.
+The reference-null defaults are curated references and exact marginal
+full-junction Pgen; the historical mode retains all-valid references and
+Hamming-one Pgen. Neither mode transfers per-hit annotation confidence into a
+sample-level P-value.
+
+For deep repertoires, retain the precision-oriented default: full-junction
+Hamming distance at most one with exact allele-pooled V matching. Real and mock
+references use the same search rule. Broader radii can substantially increase
+background matches; a per-clonotype low-false-positive threshold is not a
+calibrated repertoire-level cutoff. ``--mismatches 0`` provides exact-junction
+matching when explicitly required.
+
+.. code-block:: console
+
+   vdjmatch repertoire-enrichment samples.tsv --null reference \
+     --vdjdb reference.zip --control control.tsv.gz --locus TRB \
+     --mock-policy pgen --pgen-mismatches 0 --mismatches 1 \
+     --mock-replicates 200 --seed 0 --threads 4 \
+     --significance both --nominal-alpha 0.05 --fdr-alpha 0.1 \
+     --fdr-family cohort --output-prefix reference-null
+
+Metadata has unique ``sample_id,path`` rows. Bulk samples are reduced to unique
+junction/V/J/locus keys, summing their abundance. ``--locus paired`` reads linked
+long-form AIRR input with ``pair_id`` on every row, including orphan chains;
+``--control`` and ``--pgen-features`` then refer to TRB, and ``--control-tra`` and
+``--pgen-features-tra`` supply TRA. Chain rows of a receptor must carry identical
+abundance. An observed receptor supports a target if any available chain matches;
+it contributes once even if both chains or several reference records match.
+This is a separately calibrated union-support statistic, not the linked-first
+paired annotation score. Single-chain reference support is never vetoed by
+missing linked references.
+
+``--mismatches`` selects full-junction Hamming distance zero through three;
+V genes always match after allele pooling and ``--match-j`` also requires J.
+``--epitope PEPTIDE`` can be repeated to declare a target panel before scoring;
+full MHC context remains separate. Exact annotation hits remain included.
+
+Three reference mock laws are available:
+
+* ``pgen`` samples distinct control junction/V/J keys without replacement within
+  each target's exact Pgen bins, excluding known complete target keys.
+* ``pgen-vj`` additionally retains the source V/J composition in each bin.
+* ``pgen-different-v`` changes each source V and excludes every junction in that
+  target. Source-V strata are visited in fresh random order; eligible keys are
+  sampled without replacement. This sequential conditional law is not uniform
+  over every possible constrained assignment.
+
+The controls' read/event weights are not sampling weights in this mode. Different
+receptor identities do not guarantee absence of a similar motif: random motif
+neighbours remain eligible. Missing or insufficient bins fail explicitly. The
+same mock corpora are drawn for every sample using stable target identities and
+separate locus streams, supporting a consistent longitudinal comparison.
+
+``--significance none`` (default) emits no binary call. ``nominal`` uses the
+primary unique-receptor P-value and positive excess; ``bh`` adds BH-adjusted
+``q_receptors`` and calls; ``both`` retains both alternatives. ``--fdr-family
+cohort`` adjusts all sample/pMHC tests in this invocation, while ``target`` adjusts
+samples separately within each full pMHC. Neither accounts for testing several
+mock policies; comparing policies is an explicit method-development analysis.
+Abundance P-values remain separately labelled, not alternate primary calls.
+At 200 draws, the smallest possible P-value is 1/201; choose replication before
+analysis with the declared test family in mind.
+
+Outputs: ``.summary.tsv`` (including all no-hit targets), ``.mocks.parquet``
+(aggregate null counts), ``.hits.tsv`` (real matching receptor/chain keys),
+``.reference-audit.tsv`` (source records and distinct keys per Pgen bin),
+``.ingestion.tsv`` and ``.manifest.json``. The manifest records the null law,
+options, reference population, raw/model/software hashes and stage durations.
+A zero mock mean gives an undefined enrichment ratio; observed and expected
+counts and excess remain available. Mock quantiles are not donor-level confidence
+intervals. Dextramer assignments and HLA compatibility are external assay evidence;
+missing assay results must not be interpreted as binding-negative labels.

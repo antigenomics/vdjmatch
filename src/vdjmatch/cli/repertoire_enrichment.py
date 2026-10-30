@@ -30,17 +30,35 @@ def register(subparsers):
     p=subparsers.add_parser('repertoire-enrichment',help=__doc__)
     p.add_argument('metadata',help='TSV with unique sample_id,path; paths relative to this file')
     p.add_argument('--vdjdb',required=True);p.add_argument('--control',required=True)
-    p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=1,help='0 exact sequence or1 inclusive Hamming ball; prepared and fresh probabilities must agree')
+    p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=None,help='0 exact sequence or1 inclusive Hamming ball; prepared and fresh probabilities must agree')
     p.add_argument('--pgen-features',help='validated durable control Pgen bank; missing query masses are freshly calculated')
     p.add_argument('--species',choices=['human','mouse'],default='human')
-    p.add_argument('--locus',choices=['TRA','TRB'],default='TRB')
-    p.add_argument('--reference-population',choices=['all-valid','curated-benchmark'],default='all-valid')
+    p.add_argument('--locus',choices=['TRA','TRB','paired'],default='TRB')
+    p.add_argument('--reference-population',choices=['all-valid','curated-benchmark'],default=None)
     p.add_argument('--mock-replicates',type=int,default=200);p.add_argument('--seed',type=int,default=0)
     p.add_argument('--threads',type=int,default=4);p.add_argument('--output-prefix',required=True)
+    p.add_argument('--null', choices=['repertoire','reference'], default='repertoire')
+    p.add_argument('--mock-policy', choices=['pgen','pgen-vj','pgen-different-v'], default='pgen')
+    p.add_argument('--control-tra', help='TRA control for paired reference-null mode; --control supplies TRB')
+    p.add_argument('--pgen-features-tra', help='validated TRA Pgen bank for paired mode')
+    p.add_argument('--epitope', action='append', help='explicit target peptide(s), reference-null mode only')
+    p.add_argument('--mismatches', type=int, choices=range(4), default=1)
+    p.add_argument('--match-j', action='store_true')
+    p.add_argument('--significance', choices=['none','nominal','bh','both'], default='none')
+    p.add_argument('--nominal-alpha', type=float, default=.05)
+    p.add_argument('--fdr-alpha', type=float, default=.1)
+    p.add_argument('--fdr-family', choices=['cohort','target'], default='cohort')
     p.set_defaults(func=main)
 
 
 def main(a):
+    if a.pgen_mismatches is None:a.pgen_mismatches = 0 if a.null == 'reference' else 1
+    if a.reference_population is None:a.reference_population = 'curated-benchmark' if a.null == 'reference' else 'all-valid'
+    if a.null == 'reference':
+        from .repertoire_reference import main as reference_main
+        return reference_main(a)
+    if a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
+        raise ValueError('reference-null options require --null reference')
     import json,time
     from importlib.metadata import version
     import numpy as np

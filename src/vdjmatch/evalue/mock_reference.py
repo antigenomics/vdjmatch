@@ -567,3 +567,80 @@ def iter_mock_paired_references(reference: pl.DataFrame, control: pl.DataFrame, 
                 a.select(*[pl.col(c).alias(c + '_alpha') for c in columns]),
                 b.select(*[pl.col(c).alias(c + '_beta') for c in columns])], how='horizontal'))
         yield pl.concat(paired).sort('group_id', 'draw_id')
+
+
+def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
+                       replicates: int, seed: int = 0, policy: str = 'pgen'):
+    """Yield Pgen-matched replacement reference corpora, retaining source roles.
+
+    Inputs contain junction_aa/v/j/pgen_bin; reference also has group_id. Rows
+    represent distinct receptor keys, not reads or weighted recombination events.
+    Known target keys are excluded. ``pgen-vj`` additionally preserves V/J;
+    ``pgen-different-v`` excludes every target junction and changes each source V.
+    The latter samples source-V strata in fresh random order without replacement
+    within a target/bin; it is a sequential conditional law, not a uniform draw
+    over all feasible constrained assignments. Infeasible draws fail explicitly.
+    No bin widening, motif-neighbour rejection, or persistent memberships.
+    Extra reference columns (including pairing roles) follow the replaced row.
+    """
+    import hashlib
+
+    if policy not in {'pgen', 'pgen-vj', 'pgen-different-v'}:
+        raise ValueError('unknown mock reference policy')
+    if type(replicates) is not int or replicates < 1 or type(seed) is not int or seed < 0:
+        raise ValueError('positive replicates and nonnegative seed required')
+    keys = ['junction_aa', 'v', 'j']
+    required = [*keys, 'pgen_bin']
+    for frame, columns in [(reference, ['group_id', *required]), (control, required)]:
+        if not set(columns) <= set(frame.columns) or not frame.height:
+            raise ValueError('nonempty reference/control with receptor keys and Pgen bins required')
+        if any(frame[c].null_count() for c in columns) or not frame.schema['pgen_bin'].is_integer():
+            raise ValueError('non-null receptor keys and integer Pgen bins required')
+        if frame.select(pl.any_horizontal(pl.col(c).cast(pl.String).str.strip_chars() == '' for c in keys).any()).item():
+            raise ValueError('receptor keys cannot be empty')
+    if control.select(keys).n_unique() != control.height:
+        raise ValueError('control receptor keys must be unique')
+    # Source roles may repeat a chain key across different linked receptors.
+    source = reference.with_row_index('_source_row')
+    pool = control.select(required).sort(keys).with_row_index('_pool_row')
+    plans = []
+    for (group,), target in source.partition_by('group_id', as_dict=True).items():
+        available = pool.join(target.select(keys).unique(), on=keys, how='anti')
+        if policy == 'pgen-different-v':
+            available = available.join(target.select('junction_aa').unique(), on='junction_aa', how='anti')
+        groups = []
+        for (bin_id,), part in target.partition_by('pgen_bin', as_dict=True).items():
+            candidates = available.filter(pl.col('pgen_bin') == bin_id)
+            roles = []
+            strata = ['v','j'] if policy == 'pgen-vj' else ['v'] if policy == 'pgen-different-v' else ['pgen_bin']
+            for role, members in part.partition_by(strata, as_dict=True).items():
+                eligible = candidates
+                if policy == 'pgen-vj':
+                    eligible = candidates.filter((pl.col('v') == role[0]) & (pl.col('j') == role[1]))
+                elif policy == 'pgen-different-v':
+                    eligible = candidates.filter(pl.col('v') != role[0])
+                if eligible.height < members.height:
+                    raise ValueError(f'insufficient control keys for group {group!r}, bin {bin_id}, role {role}: need {members.height}, have {eligible.height}')
+                roles.append((members['_source_row'].to_numpy(), eligible['_pool_row'].to_numpy()))
+            if candidates.height < part.height:
+                raise ValueError(f'insufficient control keys for group {group!r}, bin {bin_id}')
+            groups.append(roles)
+        identity = int.from_bytes(hashlib.sha256(str(group).encode()).digest()[:8], 'little')
+        plans.append((identity, groups))
+    for replicate in range(replicates):
+        selected = np.empty(source.height, dtype=np.int64)
+        for identity, groups in plans:
+            rng = np.random.default_rng(np.random.SeedSequence([seed, identity, replicate]))
+            for roles in groups:
+                used = np.empty(0, dtype=np.int64)
+                order = rng.permutation(len(roles)) if policy == 'pgen-different-v' else range(len(roles))
+                for i in order:
+                    positions, eligible = roles[i]
+                    remaining = np.setdiff1d(eligible, used, assume_unique=True)
+                    if len(remaining) < len(positions):
+                        raise ValueError('insufficient eligible keys in sequential different-V draw; enlarge the control pool')
+                    draw = rng.choice(remaining, len(positions), replace=False)
+                    selected[positions] = draw
+                    used = np.concatenate([used, draw])
+        replacement = pool[selected].select(keys)
+        yield reference.with_columns(*(replacement[c] for c in keys), pl.lit(replicate).alias('replicate'))

@@ -144,3 +144,16 @@ An invalid V gene in the second cohort file produces ``no_support`` rather than
 losing the row. For real data, start with these same commands and replace the
 input and reference paths. See :doc:`explanation` for significance and
 :doc:`algorithms` for the scoring steps.
+
+Testing a repertoire for enrichment
+-----------------------------------
+
+Use ``vdjmatch repertoire-enrichment samples.tsv --null reference`` for a fixed
+observed repertoire tested against Pgen-matched mock epitope corpora. The sample
+manifest contains ``sample_id`` and ``path``; pass the VDJdb reference and raw
+control population explicitly. ``--mock-policy pgen`` samples reference-size
+controls, ``pgen-vj`` also preserves V/J usage, and ``pgen-different-v`` changes V
+and junction identities. Set the policy, matching radius, replicate count and
+significance family before examining outcome scores. See :doc:`cli` for a complete
+command and paired-input requirements. A significant sample is enriched relative
+to that null; its contributing receptors are not thereby experimentally validated.

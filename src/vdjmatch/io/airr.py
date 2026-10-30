@@ -13,9 +13,13 @@ from . import columns
 _SEP = {".csv": ",", ".tsv": "\t", ".txt": "\t"}
 
 
-def _read_table(path: str | os.PathLike) -> pl.DataFrame:
+def _read_table(path: str | os.PathLike, *, columns=None) -> pl.DataFrame:
     p = Path(path)
     suffix = p.with_suffix("").suffix if p.suffix.lower() == ".gz" else p.suffix
+    if columns is not None:
+        scan = (pl.scan_parquet(p) if suffix.lower() in {".parquet", ".pq"} else
+                pl.scan_csv(p, separator=_SEP.get(suffix.lower(), "\t"), quote_char='"', infer_schema_length=0))
+        return scan.select(columns).collect(engine='streaming')
     if suffix.lower() in {".parquet", ".pq"}:
         return pl.read_parquet(p)
     return pl.read_csv(

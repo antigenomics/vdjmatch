@@ -135,3 +135,66 @@ def test_mixed_control_population_selected_before_imputation():
     events=_single_v(control_events(pooled,locus='TRB'),'v',impute=False)
     assert events['event_weight'].sum()==5 and events['v'].to_list()==['TRBV19']
     assert events['v_imputed'].all()
+
+
+def test_reference_mock_enrichment_counts_receptors_once_and_retains_no_hits():
+    from vdjmatch.aggregate import repertoire_enrichment as module
+    assert hasattr(module,'reference_enrichment'), 'M3 reference enrichment is missing'
+    sample=pl.DataFrame(dict(receptor_id=['r1','r1','r2'],locus=['TRA','TRB','TRB'],
+        junction_aa=['CAVSF','CASSF','CATSF'],v=['TRAV1','TRBV2','TRBV2'],j=['TRAJ1','TRBJ1','TRBJ1'],count=[3,3,2]))
+    reference=pl.DataFrame(dict(group_id=['X','X','X','Y'],locus=['TRA','TRB','TRB','TRB'],
+        junction_aa=['CAVSF','CASSF','CASSF','CWWEF'],v=['TRAV1','TRBV2','TRBV2','TRBV3'],j=['TRAJ1','TRBJ1','TRBJ1','TRBJ2'],pgen_bin=[-10]*4))
+    controls={locus:pl.DataFrame(dict(junction_aa=['CQQQF','CTTTF','CPPPF','CNNNF'],
+        v=[v]*4,j=[j]*4,pgen_bin=[-10]*4)) for locus,v,j in [('TRA','TRAV2','TRAJ2'),('TRB','TRBV4','TRBJ2')]}
+    summary,mocks,hits=module.reference_enrichment(sample,reference,controls,replicates=3,threads=1)
+    x=summary.filter(pl.col('group_id')=='X').row(0,named=True)
+    y=summary.filter(pl.col('group_id')=='Y').row(0,named=True)
+    assert (x['matched_receptors'],x['matched_count'],x['p_receptors'])==(2,5,.25)
+    assert (y['matched_receptors'],y['p_receptors'])==(0,1.)
+    assert mocks.height==6 and mocks['mock_receptors'].sum()==0
+    assert hits.select('receptor_id','group_id').n_unique()==2
+    assert x['n_receptors']==2 and x['total_count']==5
+    parallel=module.reference_enrichment(sample,reference,controls,replicates=3,threads=2)
+    assert all(a.equals(b) for a,b in zip((summary,mocks,hits),parallel))
+    with pytest.raises(ValueError,match='count'):
+        module.reference_enrichment(sample.with_columns(pl.Series('count',[3,4,2])),reference,controls,replicates=3)
+
+
+def test_reference_mode_cli_and_significance_options(tmp_path):
+    import subprocess,sys,json
+    from pathlib import Path
+    sample=tmp_path/'sample.tsv'
+    sample.write_text('junction_aa\tv_call\tj_call\tlocus\tduplicate_count\nCASSF\tTRBV2\tTRBJ1-1\tTRB\t7\n')
+    (tmp_path/'metadata.tsv').write_text('sample_id\tpath\nS\tsample.tsv\n')
+    (tmp_path/'reference.tsv').write_text('cdr3\tgene\tv\tj\tspecies\tepitope\tmhc_a\tmhc_b\tmhc_class\nCASSF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tSYNTHETIC\tHLA-A*02:01\tB2M\tMHCI\n')
+    (tmp_path/'control.tsv').write_text('junction_aa\tv\tj\toccurrences\nCASSF\tTRBV3\tTRBJ1-1\t100\n')
+    command=[sys.executable,'-m','vdjmatch.cli','repertoire-enrichment',str(tmp_path/'metadata.tsv'),
+        '--null','reference','--vdjdb',str(tmp_path/'reference.tsv'),'--control',str(tmp_path/'control.tsv'),
+        '--pgen-mismatches','0','--threads','1','--significance','both','--output-prefix',str(tmp_path/'result')]
+    result=subprocess.run(command,capture_output=True,text=True,timeout=30)
+    assert result.returncode==0,result.stdout+result.stderr
+    summary=pl.read_csv(tmp_path/'result.summary.tsv',separator='\t')
+    assert summary['matched_receptors'].item()==1 and summary['p_receptors'].item()==1/201
+    assert summary['significant_nominal'].item() and summary['significant_bh'].item()
+    manifest=json.loads((tmp_path/'result.manifest.json').read_text())
+    assert manifest['null']=='reference' and manifest['inputs_frozen'] and manifest['source_frozen']
+    assert manifest['mock_policy']=='pgen' and manifest['counting_unit']=='unique receptor identity'
+    assert pl.read_csv(tmp_path/'result.hits.tsv',separator='\t').height==1
+
+
+def test_reference_cli_rejects_unattainable_tail_resolution(tmp_path):
+    from argparse import Namespace
+    from vdjmatch.cli.repertoire_reference import main
+    with pytest.raises(ValueError,match='resolution'):
+        main(Namespace(mock_replicates=200,seed=0,threads=1,nominal_alpha=.001,fdr_alpha=.1,significance='nominal'))
+
+
+def test_projected_control_read_preserves_population_and_keys(tmp_path):
+    from vdjmatch.io.airr import _read_table
+    from vdjmatch.evalue.mock_reference import control_events
+    import polars.selectors as cs
+    p=tmp_path/'control.tsv'
+    p.write_text('cdr3aa\tv\tj\toccurrences\tspecies\tlocus\tunused\nCASSF\tTRBV2\tTRBJ1-1\t3\thuman\tTRB\textra\nCATSF\tTRBV3\tTRBJ1-1\t0\thuman\tTRB\textra\n')
+    projected=_read_table(p,columns=cs.exclude('unused'))
+    assert projected.columns==['cdr3aa','v','j','occurrences','species','locus']
+    assert control_events(projected).equals(control_events(_read_table(p)))

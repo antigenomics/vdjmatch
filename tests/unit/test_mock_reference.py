@@ -363,3 +363,28 @@ def test_imputation_retains_original_aa_event_keys_and_infers_missing_declared_l
     counted=raw.with_columns(pl.Series('locus',['TRB',None]),pl.Series('occurrences',[2,3]))
     assert control_events(counted)['event_weight'].sum()==5
     assert control_events(counted.with_columns(pl.col('locus').fill_null('')))['event_weight'].sum()==5
+
+
+def test_epitope_mock_policies_preserve_bins_and_exclude_reference_keys():
+    from vdjmatch.evalue import mock_reference as m
+    assert hasattr(m, 'iter_epitope_mocks'), 'M3 reference mock sampler is missing'
+    reference = pl.DataFrame(dict(group_id=['X','X'], junction_aa=['CASSF','CATSF'],
+                                 v=['TRBV2','TRBV3'], j=['TRBJ1-1']*2, pgen_bin=[-10]*2))
+    control = pl.DataFrame(dict(junction_aa=['CASSF','CASRF','CAVRF','CARRF','CAARF','CAGRF'],
+                               v=['TRBV2','TRBV2','TRBV3','TRBV3','TRBV4','TRBV4'],
+                               j=['TRBJ1-1']*6,pgen_bin=[-10]*6))
+    for policy in ['pgen','pgen-vj','pgen-different-v']:
+        draws=list(m.iter_epitope_mocks(reference,control,replicates=3,seed=7,policy=policy))
+        assert all(x.height==2 and x['pgen_bin'].to_list()==[-10,-10] for x in draws)
+        assert all('CASSF' not in x['junction_aa'].to_list() for x in draws)
+        assert all(x.select('junction_aa','v','j').n_unique()==2 for x in draws)
+        if policy=='pgen-vj':
+            assert all(x['v'].to_list()==reference['v'].to_list() for x in draws)
+        if policy=='pgen-different-v':
+            assert all((x['v']!=reference['v']).all() for x in draws)
+        again=list(m.iter_epitope_mocks(reference,control,replicates=3,seed=7,policy=policy))
+        assert all(a.equals(b) for a,b in zip(draws,again))
+    with pytest.raises(ValueError,match='insufficient'):
+        list(m.iter_epitope_mocks(reference,control.head(1),replicates=1))
+    with pytest.raises(ValueError,match='bin'):
+        list(m.iter_epitope_mocks(reference,control.with_columns(pl.lit(-11).alias('pgen_bin')),replicates=1))

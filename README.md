@@ -440,3 +440,16 @@ export was an artefact — the dense release makes controls findable too).
 ## License
 
 ISALGO LAB Academic and Non-Commercial Research License v1.0. See [`LICENSE`](LICENSE).
+
+### Repertoire-level enrichment (M3)
+
+`vdjmatch repertoire-enrichment samples.tsv --null reference --vdjdb reference.zip --control control.tsv.gz --threads 4 --output-prefix enrichment`
+holds each repertoire fixed and compares its unique receptor support against fresh
+Pgen-matched mock epitope corpora. `--mock-policy pgen-vj` preserves V/J usage;
+`pgen-different-v` changes V and junction identities. Paired inputs retain orphan
+chains and count a receptor once per target. `--significance nominal|bh|both`
+selects explicit inference options; no binary significance call is the default.
+All no-hit targets remain in the outputs. See the
+[CLI contract](https://docs.isalgo.dev/vdjmatch/cli.html) for matching, Pgen,
+replicate resolution, test families and input schemas. The historical
+`--null repertoire` mode remains separate.

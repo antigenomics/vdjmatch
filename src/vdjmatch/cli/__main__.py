@@ -976,7 +976,9 @@ def main(argv: list[str] | None = None) -> int:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
             if table_threads < 1:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
-            if a.cmd in {'database-evidence', 'repertoire-enrichment'} or (a.cmd == 'annotate' and a.cmd in evidence_commands):
+            if (a.cmd == 'database-evidence' or
+                    (a.cmd == 'repertoire-enrichment' and a.null != 'reference') or
+                    (a.cmd == 'annotate' and a.cmd in evidence_commands)):
                 table_threads = 1
             os.environ["POLARS_MAX_THREADS"] = str(min(threads, table_threads))
     os.environ.update(dict.fromkeys(previous_kernels, "1"))
