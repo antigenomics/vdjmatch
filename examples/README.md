@@ -14,10 +14,13 @@ Browse the [examples gallery](https://docs.isalgo.dev/vdjmatch/examples.html) an
 sh examples/annotate.sh NEW_ANNOTATION_DIRECTORY
 sh examples/compare.sh NEW_COMPARISON_DIRECTORY
 sh examples/database.sh NEW_DATABASE_DIRECTORY
+# Use an existing VDJdb primary build without downloading or rebuilding it:
+sh examples/annotate.sh NEW_BUILD_DIRECTORY /path/to/build/tables/vdjdb.parquet
 ```
 
 Keep this complete directory together. The scripts find their raw inputs beside
-themselves, use the offline reference, default to four native threads and fail if
+themselves, use the offline reference unless a second annotation argument supplies a
+local primary or legacy table (or an AIRR bundle with receptor species metadata), default to four native threads and fail if
 the output directory exists. Every invocation calculates fresh CLI tables;
 there are no feature caches, predictions as inputs, skip or resume paths.
 

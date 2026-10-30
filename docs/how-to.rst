@@ -50,6 +50,11 @@ select the corresponding legacy projections. Request a representation that the
 chosen release supplies. A new bundle supported by the resolver is not necessarily
 available in the latest public release.
 
+Species-filtered annotation requires receptor species metadata. Some VDJdb
+AIRR exports omit it; use the primary or legacy bundle for those builds.
+The loader retains missing species and rejects a species filter rather than
+inferring receptor species from antigen or MHC metadata.
+
 Reference rows with an invalid amino-acid junction are retained with
 ``reference_valid=False`` and excluded from the search index. The reference report
 states retained/excluded counts. Inspect that report when assessing reference coverage.

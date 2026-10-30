@@ -187,7 +187,7 @@ def _detail_targets(raw,receptors,reference):
 def main(a):
     import hashlib
     from importlib.metadata import version
-    from importlib.resources import files
+    from ..precursor.model import bundled_model_path
     import time
     import polars as pl
     import seqtree._core as native
@@ -267,7 +267,7 @@ def main(a):
         source = 'olga' if organism == 'human' else 'arda'
         digest = hashlib.sha256()
         for chain in chains:
-            model = files('vdjtools.model') / '_bundled' / source / (chain if source == 'olga' else 'mouse_' + chain)
+            model = bundled_model_path(chain, source, organism)
             for path in sorted(model.iterdir(), key=lambda p: p.name):
                 if path.is_file():
                     digest.update(chain.encode() + path.name.encode() + b'\0' + hashlib.sha256(path.read_bytes()).digest())

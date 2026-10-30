@@ -22,6 +22,7 @@ def test_original_sorted_source_is_not_replaced_by_mirror(tmp_path):
         'j.segm':['TRBJ2-7']*2,'antigen.epitope':['LLWNGPMAV','LLLGIGILV']}).write_csv(source,separator='\t')
     raw=module.prepare(tmp_path,source)
     contrast=raw.filter(pl.col('input_origin')=='original-sorted-source')
+    assert 'cdr3' not in raw.columns and 'source_cdr3' in raw.columns
     assert raw.height==6 and raw['query_id'].n_unique()==6
     assert raw['locus'].to_list()==['TRB']*6
     from vdjmatch.io import read_rearrangement

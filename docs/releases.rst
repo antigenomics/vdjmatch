@@ -1,16 +1,24 @@
 Release notes
 =============
 
-0.6.3 (in preparation)
-----------------------
+1.0.0
+-----
 
-Requires seqtree 1.3.2, vdjtools 5.3.2 and optional arda-mapper 2.37.1.
+Requires seqtree 1.3.2, vdjtools 5.4.0 and optional arda-mapper 2.38.2.
 Ordinary commands and repertoire annotation resolve their default CPU budget
 from the job allocation; ``--threads 1`` selects serial operation. Reference
 normalization is shared across cohort populations. Precursor downloads use
 validated resource-specific atomic publication. Offline gallery checks exclude
 scientific notebooks unless explicitly requested with ``--scientific``.
-Scoring defaults and accepted scientific results are unchanged.
+Bundled model provenance follows the installed canonical families: ``isalgo``
+(current gene-level fits, including compatibility aliases ``learned``/``arda``)
+and ``olga-legacy`` (compatibility alias ``olga``). Historical learned/ARDA
+calibrations require their original pinned weights. Scoring defaults and accepted
+scientific results are preserved. The optional mouse TRA historical all-valid
+operating-point recommendation is now 0.17: nominal source-pooled 1% calibration,
+with all six previously accepted correct reference calls retained. Its complete
+panel counts and binding are linked from :doc:`cli`; it is not a global cutoff
+for curated or new reference builds.
 
 0.6.2
 -----

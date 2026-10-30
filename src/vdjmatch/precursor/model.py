@@ -25,39 +25,35 @@ def load_model(locus: str = "TRB", source: str = "olga", organism: str = "human"
     """Bundled recombination model.
 
     This legacy interface retains its explicit OLGA default for reproduction.
-    The numerical inventory below describes earlier bundled assets, not newly
-    fitted replacements. Inspect ``vdjtools.model.list_bundled()`` for the installed
-    catalogue; vdjtools owns the model parameters and ARDA supplies references.
-
-    vdjtools ships three sets, and they differ in ways that matter for a mass over a *set* of
-    junctions, where a junction scoring exactly zero is silently dropped from the total:
-
-    ``"olga"``
-        A bit-faithful import of OLGA's published models — native `Pgen` matches OLGA's own to
-        machine precision. Human, seven loci. Faithful includes faithful to OLGA's defects: its
-        per-locus deletion grid puts mass on trims an allele is too short to reach, and the DP
-        never visits those, so `Pgen` through the affected alleles is an underestimate or exactly
-        zero. On VDJdb this costs **5.7% of human TRA junctions** (3,000 of 52,363) and 41 of
-        111,331 on TRB.
-    ``"learned"``
-        Refit from real 5'RACE reads on arda germline, so it does not inherit that grid. Human,
-        seven loci. Loses 270 TRA junctions (0.5%) and 2 on TRB.
-    ``"arda"``
-        The same refit on the arda IMGT allele namespace, and the **only** set carrying a non-human
-        organism: human for seven loci plus mouse TRA/TRB. Loses 19 TRA junctions and 2 on TRB;
-        neither mouse locus loses any.
-
-    ``"olga"`` remains the default because exact agreement with the reference implementation is the
-    right property for a published null. **For a mass over a set — which is what everything in this
-    package computes — prefer ``"learned"`` or ``"arda"``**, and for anything comparing human with
-    mouse use ``"arda"`` on both so the model family is held fixed.
-
-    Sparse gene usage is not a proxy for this: mouse ``arda`` TRA has `P(V) = 0` for 60% of its V
-    genes and loses *no* junctions, because marginalising over V and J routes around genes the fit
-    never saw, while ``olga`` TRA has one zero-usage V gene and loses 5.7%.
+    vdjtools owns the installed catalogue and parameters. Canonical ``isalgo``
+    contains current gene-level fits; ``learned`` and ``arda`` are aliases of
+    these current weights, not historical trained models. ``olga`` aliases
+    frozen human ``olga-legacy`` models. Mouse isalgo supports TRA/TRB/IGH/IGK/IGL;
+    missing contexts fail explicitly. Historical learned/ARDA results require
+    their original pinned parameters and calibration identities.
     """
     from vdjtools.model import load_bundled
     return load_bundled(locus, source=source, organism=organism)
+
+
+def bundled_model_path(locus: str, source: str = "olga", organism: str = "human"):
+    """Locate installed model files for provenance using the public catalogue.
+
+    Loading remains owned by ``vdjtools.model.load_bundled``. This resolver is
+    only for hashing the same immutable files, never for selecting old weights.
+    """
+    from importlib.resources import files
+    from vdjtools.model import list_bundled
+
+    family = {"olga": "olga-legacy", "learned": "isalgo", "arda": "isalgo"}.get(source, source)
+    catalogue = list_bundled()
+    if family not in catalogue or organism.lower() not in ("human", "mouse"):
+        raise ValueError(f"unsupported model source/organism: {source}/{organism}")
+    key = locus.upper() if organism.lower() == "human" else "mouse_" + locus.upper()
+    if key not in catalogue[family]:
+        raise FileNotFoundError(f"no bundled {family} model for {organism}/{locus}")
+    directory = "olga" if family == "olga-legacy" else family
+    return files("vdjtools.model") / "_bundled" / directory / key
 
 
 def check_junctions(seqs):

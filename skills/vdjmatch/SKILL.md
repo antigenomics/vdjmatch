@@ -49,7 +49,7 @@ Permutation/matched-control envelopes are not Efron bootstrap CIs.
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)
 for advanced scorers. Run `vdjmatch annotate --help` to verify installed options.
-Use released `seqtree>=1.3.2` and `vdjtools>=5.3.2` for native search and ingestion.
+Use released `seqtree>=1.3.2` and `vdjtools>=5.4.0` for native search and ingestion.
 Version 0.6.0 defaults to `--reference-population curated-benchmark`, the manuscript
 primary population. Preserve `--reference-population all-valid` for the accepted
 all-valid baseline. Curation excludes KLGGALQAK and PMID 40498839 source records;

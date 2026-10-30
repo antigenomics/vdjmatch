@@ -396,7 +396,7 @@ repertoire mass can see an epitope. Needs the optional extra::
 
 .. note::
 
-   **Which model set.** ``--source`` picks between three bundled sets, and the choice matters more
+   **Which model set.** ``--source`` selects a bundled model family, and the choice matters more
    for a mass over a *set* than for scoring one sequence, because a junction whose ``Pgen`` is
    exactly zero contributes nothing and raises nothing.
 
@@ -405,17 +405,19 @@ repertoire mass can see an epitope. Needs the optional extra::
       precision. Human, seven loci. Faithful includes faithful to OLGA's deletion-bin grid, on which
       an allele shorter than the grid carries probability on trims it cannot reach; **5.7% of human
       TRA junctions in VDJdb score exactly zero** as a result, and for some epitopes it reaches 13–15%.
-   ``learned``
-      Refit from real 5'RACE reads on arda germline, so it does not inherit that grid. Human, seven
-      loci. 0.5% on TRA.
-   ``arda``
-      The same refit on the arda IMGT allele namespace, and the only set with a non-human organism:
-      human for seven loci plus mouse TRA/TRB. 0.0% on both human loci and both mouse loci.
+   ``isalgo``
+      Current gene-level fits for seven human loci and mouse TRA/TRB/IGH/IGK/IGL.
+      ``learned`` and ``arda`` are compatibility aliases to these same weights.
+      Mouse TRG/TRD are unavailable and fail explicitly.
 
-   Use ``olga`` when exact agreement with the reference implementation is the point. Prefer
-   ``learned`` or ``arda`` for precursor work, and use ``arda`` on both species when comparing them
-   so the model family is held fixed. The ``n_zero_pgen`` output column reports the loss per group,
-   and the CLI warns when it exceeds 1% overall.
+   The legacy ``olga`` default aliases ``olga-legacy`` for historical reproduction.
+   Historical learned/ARDA fits had 270/52,363 and 19/52,363 zero-Pgen human TRA
+   junctions respectively, and two zero-Pgen human TRB junctions each. The old
+   mouse ARDA TRA/TRB fits had no zero-Pgen junctions in that accepted cohort.
+   These recorded results describe the original weights, not the current alias
+   targets; historical reproduction requires the pinned original parameters.
+   The ``n_zero_pgen`` output reports the observed loss per group and warns
+   above 1% overall.
 
 .. note::
 
@@ -423,7 +425,7 @@ repertoire mass can see an epitope. Needs the optional extra::
    agree. Scoring mouse junctions against the human recombination model does not error and does not
    produce zeros — it returns a plausible number for every group, a median 0.157× of the right
    answer with an 11× spread across epitopes, so the ranking is wrong too. That mismatch is
-   therefore refused. Mouse models live only in ``--source arda``, which ``--organism mouse``
+   therefore refused. Mouse models use ``isalgo`` (also selected by the ``arda`` alias), which ``--organism mouse``
    selects for you.
 
 .. list-table::
@@ -1060,10 +1062,17 @@ Malformed parent thread allocations fail before loading inputs.
 vdjmatch apply-call-calibration
 -------------------------------
 
-The `saved mouse TRA operating point <https://huggingface.co/datasets/isalgo/airr_benchmark/blob/145e91124d0dc0ccc1928d1a36bd4fadd10ee7c4/vdjmatch/releases/0.6.3/calibration/README.md>`_
-includes its fitted cutoff, observed/generated validation counts and selected-label
-recall check. It applies to the recorded all-valid, exact-retained stem4 event;
-application requires its matching score-producer manifest.
+The `mouse TRA operating-point recommendation <https://huggingface.co/datasets/isalgo/airr_benchmark/blob/72fb387cf6098f4135732c4e7693ea951698cb2a/vdjmatch/releases/1.0.0/calibration/README.md>`_
+uses ``kernel_score >= 0.17`` for the recorded historical all-valid,
+exact-retained stem4 event. It calibrates a nominal 1% null-query any-call rate;
+this is not a per-panel release gate or false discovery rate among called receptors.
+The four same-source observed subsamples contribute 189 calls among 19,045
+panel-query observations (0.9924%); they are calibration inputs. The separate
+generated panel has 872 calls among 100,000 queries (0.8720%). Correct accepted
+reference calls remain 6 among 6,791 queries, unchanged from the previous cutoff.
+Complete per-panel counts and the recall limitation accompany the recipe.
+Application requires its matching score-producer manifest; this cutoff does not
+transfer to curated references or another database build.
 
 Apply a previously computed cutoff to independent query-level scores:
 

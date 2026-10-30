@@ -29,6 +29,9 @@ def prepare(benchmark, sorted_input=None):
     else:
         from vdjmatch.io.airr import normalize_annotation_input
         sorted_cells,_=normalize_annotation_input(sorted_input)
+        # Keep the legacy amino-acid field out of AIRR's nucleotide cdr3 namespace.
+        if 'cdr3' in sorted_cells.columns:
+            sorted_cells=sorted_cells.rename({'cdr3': 'source_cdr3'})
         label=next((c for c in ('source_epitope','epitope','antigen.epitope') if c in sorted_cells.columns),None)
         if label is None:
             raise ValueError('sorted input requires the original source population label')

@@ -136,14 +136,17 @@ def load_estimates(source: str | os.PathLike | None = None, *, species: str | No
         source: path to an existing table; ``None`` fetches from the HuggingFace mirror.
         species: ``"human"`` or ``"mouse"``.
         chain: ``"TRA"`` or ``"TRB"``.
-        model: recombination model set — ``"olga"`` or ``"arda"``.
+        model: saved historical model label — ``"olga"`` or ``"arda"``.
+            This filters stored estimates; it does not select current model weights.
         cache: cache directory.
         revision: HF revision override; the default mirror uses a fixed commit.
 
     Note:
-        Human is scored under **both** model sets on purpose, because mouse exists only under
+        The saved estimates scored human under **both historical** model sets, because mouse existed only under
         ``arda`` and a human-``olga`` against mouse-``arda`` comparison would confound species with
-        model family. The sets are not interchangeable: ``olga`` scores 5.7% of human TRA junctions
+        model family. Current vdjtools ``arda``/``learned`` aliases select new ``isalgo``
+        weights; these stored estimates require the original pinned parameters for reproduction.
+        The historical sets are not interchangeable: ``olga`` scores 5.7% of human TRA junctions
         at exactly zero, where they contribute nothing to any mass and raise no error.
     """
     path = Path(source) if source is not None else _fetch("estimates", cache, revision=revision)
