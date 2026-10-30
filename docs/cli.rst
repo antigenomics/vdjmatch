@@ -2757,3 +2757,10 @@ standard deviations, log2(reads+1) effects and significance calculation.
 They are reproduction diagnostics, not interchangeable with complete-zero tails.
 Fresh counts, summary, V/J audit, reference-bin audit and input/source provenance
 are exported. No calculated mock panels are reused between invocations.
+
+``--selection-q`` scales generation mass through
+``vdjtools.model.selection.selection_mass`` before the V/J correction and binning.
+Its default is 1 to preserve the compiled baseline. The shared
+``ALICE_TRB_SELECTION_Q`` constant is 9.41 on the original TRB model scale;
+it is not an established TRA factor. Both real and mock keys use the same
+explicit scaling. This does not rescale empirical TCRnet control frequencies.

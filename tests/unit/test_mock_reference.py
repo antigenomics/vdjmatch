@@ -427,6 +427,10 @@ def test_compiled_reference_strata_preserves_compiled_r_grouping():
     # dplyr summarise retains the V grouping. Zero uses the compiled 2^-80 floor.
     assert result['pcdr'].to_list()==[2.**-18,2.**-18,0.]
     assert result['pgen_bin'].to_list()==[-17,-17,-80]
+    selected,_=compiled_reference_strata(probes,sample,model,selection_q=4)
+    assert selected['pgen_bin'].to_list()==[-15,-15,-80]
+    with pytest.raises(ValueError,match='selection_q'):
+        compiled_reference_strata(probes,sample,model,selection_q=0)
     assert result['vj_factor'].to_list()==pytest.approx([2.,202/102,.5])
     assert audit.filter(pl.col('v')=='V1')['sample_probability'].sum()==pytest.approx(1.)
     with pytest.raises(ValueError,match='unique'):

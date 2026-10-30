@@ -313,7 +313,7 @@ def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='hum
 
 
 def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
-                  model_vj: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+                  model_vj: pl.DataFrame, *, selection_q: float = 1.0) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Reproduce the compiled reference-panel probability strata and V/J audit.
 
     Probes contain unique junction_aa/v/j keys and joint gene-masked ``pgen``.
@@ -322,6 +322,7 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
     Add-one V/J frequencies are normalized within V, preserving the compiled
     R notebook's retained dplyr grouping. The compiled floor is 2**-80.
     """
+    from vdjtools.model.selection import selection_mass
     keys=['junction_aa','v','j']
     if not {*keys,'pgen'}<=set(probes.columns) or not probes.height:
         raise ValueError('nonempty probe keys and gene-masked pgen required')
@@ -348,7 +349,8 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
         audit.select('v','j','vj_factor'),on=['v','j'],how='left',validate='m:1',maintain_order='left')
     if result['vj_factor'].null_count():
         raise ValueError('probe V/J keys absent from both count populations')
-    result=result.with_columns((pl.col('pcdr')*pl.col('vj_factor')+2.**-80).alias('adjusted_pgen'))
+    result=result.with_columns(pl.Series('selection_mass',selection_mass(result['pcdr'].to_numpy(),selection_q)))
+    result=result.with_columns((pl.col('selection_mass')*pl.col('vj_factor')+2.**-80).alias('adjusted_pgen'))
     bins=np.rint(np.log2(result['adjusted_pgen'].to_numpy())).astype(np.int64)
     return result.with_columns(pl.Series('pgen_bin',bins)),audit
 

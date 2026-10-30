@@ -221,3 +221,16 @@ def test_exact_reference_panel_counts_preserve_source_rows_and_reads():
         exact_reference_counts(obs,pl.concat([panels,panels.head(1)]))
     with pytest.raises(ValueError,match='nonnegative'):
         exact_reference_counts(obs.with_columns(pl.lit(-1).alias('count')),panels)
+
+
+@pytest.mark.parametrize('mismatches,expected',[(0,['exact']),(1,['exact','one'])])
+def test_reference_lookup_zero_and_one_mismatch_memberships(mismatches,expected):
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    sample=pl.DataFrame(dict(receptor_id=['exact','one','two','wrong_v'],locus=['TRB']*4,
+        junction_aa=['CASSF','CATSF','CATRF','CASSF'],v=['TRBV2']*3+['TRBV3'],j=['TRBJ1']*4,count=[2,3,5,7]))
+    reference=pl.DataFrame(dict(group_id=['X'],locus=['TRB'],junction_aa=['CASSF'],v=['TRBV2'],j=['TRBJ1'],pgen_bin=[-10]))
+    controls={'TRB':pl.DataFrame(dict(junction_aa=['CQQQF','CWWWF','CNNNF'],v=['TRBV2']*3,j=['TRBJ1']*3,pgen_bin=[-10]*3))}
+    summary,mocks,hits=reference_enrichment(sample,reference,controls,mismatches=mismatches,replicates=3,threads=1)
+    assert hits['receptor_id'].sort().to_list()==expected
+    assert summary['matched_count'].item()==(2 if mismatches==0 else 5)
+    assert mocks['mock_receptors'].sum()==0

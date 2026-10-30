@@ -12,6 +12,7 @@ def register(sub):
     p.add_argument('--pool-mhc',action='store_true',help='Explicit original epitope-union reproduction')
     p.add_argument('--locus',choices=['TRA','TRB'],default='TRB')
     p.add_argument('--species',choices=['human','mouse'],default='human')
+    p.add_argument('--selection-q',type=float,default=1.0,help='Explicit generation-mass multiplier; 1 preserves compiled reproduction')
     p.add_argument('--sampler',choices=['numpy','r'],default='numpy')
     p.add_argument('--mock-replicates',type=int,default=200)
     p.add_argument('--seed',type=int,default=42)
@@ -86,6 +87,8 @@ def main(a):
     from ..aggregate.repertoire_enrichment import exact_reference_counts
     from ..evalue.mock_reference import compiled_reference_strata,sample_stratified_panels,_pgen_model_identity
     from ..runner.annotation import _validate_output_paths
+    from vdjtools.model.selection import selection_mass
+    selection_mass(0.,a.selection_q)
     if a.mock_replicates<2 or a.seed<0 or a.threads<1:raise ValueError('at least two mocks, nonnegative seed and positive threads required')
     start=time.monotonic();meta_path=Path(a.metadata).expanduser().resolve();meta=_read_table(meta_path)
     needed=['sample_id','path',*a.fdr_group]
@@ -102,7 +105,8 @@ def main(a):
     import vdjtools._core as native_core
     import vdjtools.model.io as model_io
     import vdjtools.model.native as model_native
-    source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(native_core.__file__),Path(model_io.__file__),Path(model_native.__file__)]
+    import vdjtools.model.selection as model_selection
+    source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(native_core.__file__),Path(model_io.__file__),Path(model_native.__file__),Path(model_selection.__file__)]
     source_before={str(p):sha256(p) for p in source_files}
     reference=db.load(inputs[1],species={'human':'HomoSapiens','mouse':'MusMusculus'}[a.species]).filter(pl.col('gene')==a.locus)
     if a.epitope:
@@ -129,7 +133,7 @@ def main(a):
     for path in paths:
         frame=_source(path,locus=a.locus);vj.append(frame.group_by('v','j').len(name='records'))
     model=_read_table(inputs[3])
-    probes,audit=compiled_reference_strata(probes,pl.concat(vj),model)
+    probes,audit=compiled_reference_strata(probes,pl.concat(vj),model,selection_q=a.selection_q)
     reference=reference.join(probes.select(*keys,'pgen_bin'),on=keys,validate='m:1')
     mocks=sample_stratified_panels(reference,probes.select(*keys,'pgen_bin'),replicates=a.mock_replicates,seed=a.seed,sampler=a.sampler)
     panels=pl.concat([reference.select('group_id',*keys).with_columns(pl.lit(-1,dtype=pl.Int64).alias('replicate')),mocks.select('group_id',*keys,pl.col('replicate').cast(pl.Int64))])
@@ -156,7 +160,7 @@ def main(a):
     for suffix,frame in outputs.items():frame.write_csv(str(prefix)+'.'+suffix,separator='\t')
     if before!={str(p):sha256(p) for p in inputs} or source_before!={str(p):sha256(p) for p in source_files}:raise RuntimeError('inputs or source changed during calculation')
     if model_identity is not None and model_identity!=_pgen_model_identity(a.species,a.locus):raise RuntimeError('recombination model changed during calculation')
-    manifest=dict(inputs_frozen=True,source_frozen=True,inputs=before,source=source_before,options=vars(a)|{'func':None},pgen_origin=pgen_origin,probability='original AA-max joint Pgen times within-V add-one J usage ratio; floor2^-80',counting='source rows and reads; exact V/J/junction',fdr_family=['group_id',*a.fdr_group],seconds=time.monotonic()-start,software={n:version(n) for n in ['vdjmatch','vdjtools','polars','numpy']},outputs={Path(str(prefix)+'.'+s).name:sha256(Path(str(prefix)+'.'+s)) for s in outputs})
+    manifest=dict(inputs_frozen=True,source_frozen=True,inputs=before,source=source_before,options=vars(a)|{'func':None},pgen_origin=pgen_origin,probability='selection_q times AA-max joint Pgen times within-V add-one J usage ratio; floor2^-80',counting='source rows and reads; exact V/J/junction',fdr_family=['group_id',*a.fdr_group],seconds=time.monotonic()-start,software={n:version(n) for n in ['vdjmatch','vdjtools','polars','numpy']},outputs={Path(str(prefix)+'.'+s).name:sha256(Path(str(prefix)+'.'+s)) for s in outputs})
     if a.sampler=='r':
         import subprocess,shutil
         manifest['r_version']=subprocess.run([shutil.which('Rscript'),'--version'],capture_output=True,text=True,check=True).stdout.strip()
