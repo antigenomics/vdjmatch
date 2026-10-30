@@ -407,3 +407,44 @@ def read_tcrvdb(
         "output_rows": out.height,
     }
     return (out, report) if return_report else out
+
+
+def iter_rearrangement(path, *, batch_size=65536, valid_aa=True, source='auto',
+                       sequence_convention=None, return_report=False):
+    """Yield source-normalized rows with file-wide positional query IDs.
+
+    AIRR, native vdjtools, MiTCR/tcR and simple junction tables are supported.
+    Rows are not collapsed; pairing, supplied-ID uniqueness, gene imputation and
+    deduplication across batches belong to the downstream whole-sample reducer.
+    Wide paired tables must first be exported as long AIRR rows. No frequencies
+    are calculated from chunk totals. Memory is bounded by parser/batch buffers
+    rather than the full sample; retaining yielded frames defeats this bound.
+    """
+    from vdjtools.io import iter_table_batches
+
+    offset = 0
+    for raw in iter_table_batches(path, batch_size=batch_size):
+        size = raw.height
+        if _is_wide(raw):
+            raise ValueError('streaming requires long rows; export wide pairs as long AIRR')
+        names = {c.lower().lstrip('#'): c for c in raw.columns}
+        if 'query_id' not in raw.columns:
+            raw = raw.with_row_index('query_id', offset=offset)
+        offset += size
+        if 'junction_aa' not in names and 'cdr3.amino.acid.sequence' in names:
+            # Same producer convention as vdjtools' MiTCR reader: lowercase
+            # noncoding markers are not translated into ordinary amino acids.
+            from vdjtools.io.convert import _unified_expr, _upper_expr
+            expressions = [_unified_expr(names['cdr3.amino.acid.sequence']).alias('junction_aa')]
+            for kind in ('v', 'j'):
+                col = next((names[n] for n in (kind+'.gene', 'best'+kind+'gene') if n in names), None)
+                if col is None:
+                    raise ValueError('MiTCR streaming requires V and J gene columns')
+                expressions.append(_upper_expr(col).alias(kind+'_call'))
+            raw = raw.with_columns(expressions)
+        elif 'junction_aa' not in names and 'cdr3aa' in names:
+            raw = raw.with_columns(pl.col(names['cdr3aa']).alias('junction_aa'))
+        frame, report = columns.normalize_query(raw, valid_aa=valid_aa, source=source,
+            sequence_convention=sequence_convention, return_report=True)
+        report.update(output_rows=frame.height, deduplicated_rows=0)
+        yield (frame, report) if return_report else frame

@@ -312,3 +312,14 @@ raw receptor denominator is retained; paired/orphan chain support is unioned
 per receptor and target. Only descriptive repertoire counts are returned.
 Filtering q-values are not combined, and no repertoire P-value or guaranteed
 empty random background is inferred.
+
+Large-control ingestion
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Controls with explicit occurrence counts are read in projected raw batches,
+normalized with the existing control adapter, then reduced globally by
+junction/V/J. Cross-batch weights are summed exactly. The normalized key pool
+remains in memory for mock sampling; the complete raw table does not. If gene
+imputation is needed, ingestion uses the existing whole-population path so modal
+replacements cannot depend on batch boundaries. Other event representations
+retain their established whole-population normalization.

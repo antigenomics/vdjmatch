@@ -467,3 +467,10 @@ vdjmatch repertoire-tcrnet samples.tsv --vdjdb reference.zip \
 This mode exports filter evidence, matching hits and raw-denominator counts;
 it does not produce repertoire P-values or assume random backgrounds filter to
 an empty set. Paired inputs retain orphan chains and count each receptor once.
+
+
+For inputs too large to retain as one sample, `vdjmatch.io.iter_rearrangement`
+yields normalized batches with file-wide positional IDs. The underlying
+`vdjtools.io.iter_table_batches` supports projected raw CSV/TSV/gzip/Parquet
+batches. Prefer the simpler one-sample-at-a-time path when profiling shows it
+fits; within-sample batching does not by itself bound reference/control memory.

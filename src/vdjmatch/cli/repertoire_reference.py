@@ -14,11 +14,47 @@ def _genes(frame,locus,*,species='human'):
         frame=frame.with_columns(pl.when(good).then(pl.col('j')).otherwise(pl.lit(modal)).alias('j'))
     return frame
 
-def _read_control(path,*,species,locus):
+def _read_control(path,*,species,locus,batch_size=65536):
+    import polars as pl
     import polars.selectors as cs
     from ..evalue.mock_reference import control_events
     from ..io.airr import _read_table
     control_columns=cs.matches(r'(?i)^(junction_aa|cdr3aa|cdr3|cdr3_aa|v|j|v_call|j_call|v_gene|j_gene|v\.segm|j\.segm|locus|chain|species|organism|junction|cdr3nt|junction_nt|cdr3_nt|sequence_id|sample_id|sample|repertoire_id|occurrences|convergence|incidence|original_v|original_j|v_imputed|j_imputed)$')
+    p=Path(path)
+    suffix=p.with_suffix('').suffix if p.suffix.lower()=='.gz' else p.suffix
+    scan=(pl.scan_parquet(p) if suffix.lower() in {'.parquet','.pq'} else
+          pl.scan_csv(p,separator=',' if suffix.lower()=='.csv' else '\t',infer_schema_length=0))
+    # Explicit occurrence counts are authoritative in control_events. NT/event
+    # identity columns are then unused; do not materialize them for huge controls.
+    if 'occurrences' in {name.lower() for name in scan.collect_schema().names()}:
+        control_columns=control_columns-cs.matches(r'(?i)^(junction|cdr3nt|junction_nt|cdr3_nt|sample_id|sample|repertoire_id|convergence|incidence)$')
+        from vdjtools.io import iter_table_batches
+        parts=[];matched_population=False
+        for chunk in iter_table_batches(path,batch_size=batch_size,columns=control_columns):
+            try:
+                part=control_events(chunk,species=species,locus=locus)
+            except ValueError as error:
+                if str(error)=='control has no rows matching requested species/locus':
+                    continue
+                if str(error)=='control has no positive-weight junctions':
+                    matched_population=True
+                    continue
+                raise
+            matched_population=True
+            # Chunk-local modes are not whole-control modes. Unresolved genes
+            # require the existing global path; never silently change imputation.
+            if any(part[c].any() for c in ('v_imputed','j_imputed') if c in part.columns):
+                break
+            canonical_species,canonical_locus=part['species'][0],part['locus'][0]
+            parts.append(part.select('junction_aa','v','j','event_weight'))
+        else:
+            if not parts:
+                raise ValueError('control has no positive-weight junctions' if matched_population else
+                                 'control has no rows matching requested species/locus')
+            return pl.concat(parts).group_by('junction_aa','v','j').agg(pl.col('event_weight').sum()).with_columns(
+                pl.lit(canonical_species).alias('species'),pl.lit(canonical_locus).alias('locus')).sort('junction_aa','v','j')
+        del parts
+
     return control_events(_read_table(path,columns=control_columns),species=species,locus=locus)
 
 def _observations(frame,*,locus,species):

@@ -460,3 +460,16 @@ Reference filtering is computed once within a fresh cohort. Preserve raw
 denominators, gene variants, pairing, orphans, filter evidence and zero-hit rows.
 Do not emit or transfer repertoire P-values, multiply filtering probabilities,
 assume random backgrounds become empty, or claim a new TCRnet statistical test.
+
+
+### Large-input memory strategy
+
+Measure one sample separately from reference/control preparation before replacing
+one-sample-at-a-time matching. Use `vdjmatch.io.iter_rearrangement(path,
+batch_size=65536)` for normalized long rows, or
+`vdjtools.io.iter_table_batches(path, batch_size=65536, columns=...)` for projected
+raw batches. Both are iterators: consume and discard batches. Never calculate
+global frequencies, modal gene replacements, unique clonotype counts or paired
+union counts independently per chunk. TCRnet needs sample-wide neighbourhoods.
+A bounded input batch is not proof of a bounded whole workflow; measure controls,
+reference indexes, retained sparse hits and all process-tree memory separately.

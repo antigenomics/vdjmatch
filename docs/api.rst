@@ -271,3 +271,15 @@ The owned reference and control indexes may be shared across samples within a
 fresh cohort invocation. Filtering evidence is available as
 ``reference_filtering``. ``match`` returns summary counts, real hit links and
 sample-filter evidence; it does not return repertoire P-values.
+
+
+Bounded query ingestion
+-----------------------
+
+``vdjmatch.io.iter_rearrangement``
+
+Use one complete sample at a time when its measured footprint is modest.
+``iter_rearrangement`` provides within-sample batches for unusually large files;
+it does not perform chunk-local gene imputation or deduplication. Consumers must
+combine repeated clonotypes and paired identities across batch boundaries.
+TCRnet requires sample-wide neighbourhood information.
