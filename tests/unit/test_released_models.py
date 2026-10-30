@@ -5,17 +5,19 @@ from vdjmatch.precursor.model import load_model, pgen
 from vdjtools.model import native
 
 
-@pytest.mark.parametrize('organism,locus,seq', [
-    ('human', 'TRA', 'CAVRDSNYQLIW'), ('human', 'TRB', 'CASSIRSSYEQYF'),
-    ('mouse', 'TRA', 'CAVRDSNYQLIW'), ('mouse', 'TRB', 'CASSIRSSYEQYF')])
-def test_released_gene_aliases_scalar_and_batch(organism, locus, seq):
+# Fixed software fixtures: one productive native draw/context (seed42), never a null panel.
+@pytest.mark.parametrize('organism,locus,seq,nt,v,j', [
+    ('human', 'TRA', 'CVVRNRDDKIIF', 'TGTGTGGTGCGTAACAGAGATGACAAGATCATCTTT', 'TRAV12-1', 'TRAJ30'),
+    ('human', 'TRB', 'CASSEVPTGGFLYGYTF', 'TGTGCCAGCAGTGAAGTTCCGACAGGGGGCTTCCTCTATGGCTACACCTTC', 'TRBV6-1', 'TRBJ1-2'),
+    ('mouse', 'TRA', 'CALRGSSGNKLIF', 'TGTGCTTTGAGGGGGAGCAGTGGCAACAAGCTCATCTTT', 'TRAV12D-3', 'TRAJ32'),
+    ('mouse', 'TRB', 'CASSLPQGAETLYF', 'TGTGCCAGCTCTCTACCACAGGGAGCAGAAACGCTGTATTTT', 'TRBV12-2', 'TRBJ2-3')])
+def test_released_gene_aliases_scalar_and_batch(organism, locus, seq, nt, v, j):
     model = load_model(locus, source='isalgo', organism=organism)
-    v = model.genomic['genes_v']['gene'][0].split('*')[0]
-    j = model.genomic['genes_j']['gene'][0].split('*')[0]
     expected = native.pgen_aa(model, seq, v=v, j=j)
+    assert expected > 0
     assert pgen(model, [seq, seq], v=[v, v+'*99'], j=[j, j+'*99'], threads=2) == [expected]*2
-    nt = 'TGTGCCGTGCGTGATAGCAATTATCAGCTGATTTGG'
     nt_expected = native.pgen_nt(model, nt, v=v, j=j)
+    assert nt_expected > 0
     assert native.pgen_nt_batch(model, [nt, nt], v=[v, v+'*99'], j=[j, j+'*99'], threads=2) == [nt_expected]*2
     assert pgen(model, [seq], threads=1)[0] > 0
     with pytest.raises(KeyError):
