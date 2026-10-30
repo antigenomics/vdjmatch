@@ -20,7 +20,7 @@ sh examples/annotate.sh NEW_BUILD_DIRECTORY /path/to/build/tables/vdjdb.parquet
 
 Keep this complete directory together. The scripts find their raw inputs beside
 themselves, use the offline reference unless a second annotation argument supplies a
-local primary table, legacy table or AIRR export directory, default to four native threads and fail if
+local primary or legacy table (or an AIRR bundle with receptor species metadata), default to four native threads and fail if
 the output directory exists. Every invocation calculates fresh CLI tables;
 there are no feature caches, predictions as inputs, skip or resume paths.
 
