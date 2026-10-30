@@ -1062,7 +1062,7 @@ Malformed parent thread allocations fail before loading inputs.
 vdjmatch apply-call-calibration
 -------------------------------
 
-The `mouse TRA operating-point recommendation <https://huggingface.co/datasets/isalgo/airr_benchmark/blob/9c8fac983f9bc6aa95dbd82c5139d7ac369be43e/vdjmatch/releases/1.0.0/calibration/README.md>`_
+The `mouse TRA operating-point recommendation <https://huggingface.co/datasets/isalgo/airr_benchmark/blob/72fb387cf6098f4135732c4e7693ea951698cb2a/vdjmatch/releases/1.0.0/calibration/README.md>`_
 uses ``kernel_score >= 0.17`` for the recorded historical all-valid,
 exact-retained stem4 event. It calibrates a nominal 1% null-query any-call rate;
 this is not a per-panel release gate or false discovery rate among called receptors.
