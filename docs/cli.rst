@@ -2649,7 +2649,10 @@ Three reference mock laws are available:
 
 The controls' read/event weights are not sampling weights in this mode. Different
 receptor identities do not guarantee absence of a similar motif: random motif
-neighbours remain eligible. Missing or insufficient bins fail explicitly. The
+neighbours remain eligible. Missing or insufficient strata produce explicit
+``untestable_null`` target rows with a reason. Observed hits remain available;
+null summaries, P/q-values and binary calls are missing. These hypotheses remain
+nonrejectable members of the declared BH family. Bins are never widened. The
 same mock corpora are drawn for every sample using stable target identities and
 separate locus streams, supporting a consistent longitudinal comparison.
 

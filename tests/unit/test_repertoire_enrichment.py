@@ -160,22 +160,30 @@ def test_reference_mock_enrichment_counts_receptors_once_and_retains_no_hits():
         module.reference_enrichment(sample.with_columns(pl.Series('count',[3,4,2])),reference,controls,replicates=3)
 
 
-def test_reference_mode_cli_and_significance_options(tmp_path):
+@pytest.mark.parametrize("supported", [True, False])
+def test_reference_mode_cli_and_significance_options(tmp_path,supported):
     import subprocess,sys,json
     from pathlib import Path
     sample=tmp_path/'sample.tsv'
     sample.write_text('junction_aa\tv_call\tj_call\tlocus\tduplicate_count\nCASSF\tTRBV2\tTRBJ1-1\tTRB\t7\n')
     (tmp_path/'metadata.tsv').write_text('sample_id\tpath\nS\tsample.tsv\n')
     (tmp_path/'reference.tsv').write_text('cdr3\tgene\tv\tj\tspecies\tepitope\tmhc_a\tmhc_b\tmhc_class\nCASSF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tSYNTHETIC\tHLA-A*02:01\tB2M\tMHCI\n')
-    (tmp_path/'control.tsv').write_text('junction_aa\tv\tj\toccurrences\nCASSF\tTRBV3\tTRBJ1-1\t100\n')
+    (tmp_path/'control.tsv').write_text('junction_aa\tv\tj\toccurrences\nCASSF\t'+('TRBV3' if supported else 'TRBV2')+'\tTRBJ1-1\t100\n')
     command=[sys.executable,'-m','vdjmatch.cli','repertoire-enrichment',str(tmp_path/'metadata.tsv'),
         '--null','reference','--vdjdb',str(tmp_path/'reference.tsv'),'--control',str(tmp_path/'control.tsv'),
         '--pgen-mismatches','0','--threads','1','--significance','both','--output-prefix',str(tmp_path/'result')]
     result=subprocess.run(command,capture_output=True,text=True,timeout=30)
     assert result.returncode==0,result.stdout+result.stderr
     summary=pl.read_csv(tmp_path/'result.summary.tsv',separator='\t')
-    assert summary['matched_receptors'].item()==1 and summary['p_receptors'].item()==1/201
-    assert summary['significant_nominal'].item() and summary['significant_bh'].item()
+    assert summary['matched_receptors'].item()==1
+    if supported:
+        assert summary['p_receptors'].item()==1/201
+        assert summary['significant_nominal'].item() and summary['significant_bh'].item()
+    else:
+        assert summary['status'].item()=='untestable_null'
+        assert summary['p_receptors'].item() is None and summary['q_receptors'].item() is None
+        assert summary['significant_nominal'].item() is None and summary['significant_bh'].item() is None
+        assert pl.read_parquet(tmp_path/'result.mocks.parquet')['mock_receptors'].null_count()==200
     manifest=json.loads((tmp_path/'result.manifest.json').read_text())
     assert manifest['null']=='reference' and manifest['inputs_frozen'] and manifest['source_frozen']
     assert manifest['mock_policy']=='pgen' and manifest['counting_unit']=='unique receptor identity'

@@ -378,6 +378,15 @@ def test_epitope_mock_policies_preserve_bins_and_exclude_reference_keys():
         assert all(x.height==2 and x['pgen_bin'].to_list()==[-10,-10] for x in draws)
         assert all('CASSF' not in x['junction_aa'].to_list() for x in draws)
         assert all(x.select('junction_aa','v','j').n_unique()==2 for x in draws)
+        if policy=='pgen':
+            import hashlib,numpy as np
+            keys=['junction_aa','v','j']
+            eligible=control.sort(keys).join(reference.select(keys),on=keys,how='anti')
+            identity=int.from_bytes(hashlib.sha256(b'X').digest()[:8],'little')
+            for b,draw in enumerate(draws):
+                rng=np.random.default_rng(np.random.SeedSequence([7,identity,b]))
+                expected=eligible[rng.choice(eligible.height,2,replace=False)]
+                assert draw.select(keys).equals(expected.select(keys))
         if policy=='pgen-vj':
             assert all(x['v'].to_list()==reference['v'].to_list() for x in draws)
         if policy=='pgen-different-v':

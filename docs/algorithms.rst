@@ -296,3 +296,9 @@ Binning is ``round(log2(Pgen + 2**-60))``. Explicit options preserve V/J composi
 or require different V/junction identities; these change the null hypothesis and
 must not be selected by suppressing unfavourable results. See :doc:`cli` for the
 sampling laws, significance families and complete output contracts.
+
+If a target has insufficient eligible control keys, its observed count and hits
+are retained with ``status=untestable_null`` and a reason. All mock-derived
+inference is missing, including earlier draws if a sequential different-V draw
+later becomes infeasible. BH retains these targets as nonrejectable family
+members; their output P/q-values are not fabricated as negative evidence.

@@ -570,7 +570,7 @@ def iter_mock_paired_references(reference: pl.DataFrame, control: pl.DataFrame, 
 
 
 def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
-                       replicates: int, seed: int = 0, policy: str = 'pgen'):
+                       replicates: int, seed: int = 0, policy: str = 'pgen', unavailable: list | None = None):
     """Yield Pgen-matched replacement reference corpora, retaining source roles.
 
     Inputs contain junction_aa/v/j/pgen_bin; reference also has group_id. Rows
@@ -581,6 +581,9 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
     within a target/bin; it is a sequential conditional law, not a uniform draw
     over all feasible constrained assignments. Infeasible draws fail explicitly.
     No bin widening, motif-neighbour rejection, or persistent memberships.
+    By default unavailable targets raise. With an ``unavailable`` audit list,
+    record their group/reason and omit them from draws; callers must mark their
+    entire null inference unavailable, including any earlier successful draws.
     Extra reference columns (including pairing roles) follow the replaced row.
     """
     import hashlib
@@ -603,44 +606,74 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
     # Source roles may repeat a chain key across different linked receptors.
     source = reference.with_row_index('_source_row')
     pool = control.select(required).sort(keys).with_row_index('_pool_row')
-    plans = []
-    for (group,), target in source.partition_by('group_id', as_dict=True).items():
-        available = pool.join(target.select(keys).unique(), on=keys, how='anti')
-        if policy == 'pgen-different-v':
-            available = available.join(target.select('junction_aa').unique(), on='junction_aa', how='anti')
-        groups = []
-        for (bin_id,), part in target.partition_by('pgen_bin', as_dict=True).items():
-            candidates = available.filter(pl.col('pgen_bin') == bin_id)
-            roles = []
-            strata = ['v','j'] if policy == 'pgen-vj' else ['v'] if policy == 'pgen-different-v' else ['pgen_bin']
-            for role, members in part.partition_by(strata, as_dict=True).items():
-                eligible = candidates
-                if policy == 'pgen-vj':
-                    eligible = candidates.filter((pl.col('v') == role[0]) & (pl.col('j') == role[1]))
-                elif policy == 'pgen-different-v':
-                    eligible = candidates.filter(pl.col('v') != role[0])
-                if eligible.height < members.height:
-                    raise ValueError(f'insufficient control keys for group {group!r}, bin {bin_id}, role {role}: need {members.height}, have {eligible.height}')
-                roles.append((members['_source_row'].to_numpy(), eligible['_pool_row'].to_numpy()))
-            if candidates.height < part.height:
-                raise ValueError(f'insufficient control keys for group {group!r}, bin {bin_id}')
+    def partitions(frame,columns):
+        grouped=frame.group_by(columns).agg(pl.col('_pool_row').sort())
+        return {key:values.to_numpy() for key,values in zip(grouped.select(columns).iter_rows(),grouped['_pool_row'])}
+    def excluded_positions(eligible,blocked):
+        positions=np.searchsorted(eligible,blocked)
+        valid=positions<len(eligible)
+        positions,blocked=positions[valid],blocked[valid]
+        return positions[eligible[positions]==blocked]
+    # Partition raw key indices once, rather than scanning the full pool per target.
+    bin_pools=partitions(pool,['pgen_bin'])
+    strata=['pgen_bin','v','j'] if policy=='pgen-vj' else ['pgen_bin','v']
+    conditional=partitions(pool,strata) if policy!='pgen' else {}
+    empty_indices=np.empty(0,dtype=np.uint32)
+    if policy=='pgen-different-v':
+        conditional={role:np.setdiff1d(bin_pools.get((role[0],),empty_indices),
+            conditional.get(role,empty_indices),assume_unique=True)
+            for role in source.select('pgen_bin','v').unique().iter_rows()}
+    exclusion_keys=['junction_aa'] if policy=='pgen-different-v' else keys
+    excluded=partitions(source.select('group_id',*exclusion_keys).unique().join(
+        pool.select(*exclusion_keys,'pgen_bin','_pool_row'),on=exclusion_keys,how='inner'),['group_id','pgen_bin'])
+    plans=[];rejected=set()
+    def reject(group,reason):
+        if unavailable is None:raise ValueError(reason)
+        rejected.add(group)
+        unavailable.append(dict(group_id=group,reason=reason))
+    for (group,),target in source.partition_by('group_id',as_dict=True).items():
+        groups=[]
+        for (bin_id,),part in target.partition_by('pgen_bin',as_dict=True).items():
+            candidates=bin_pools.get((bin_id,),empty_indices)
+            blocked=excluded.get((group,bin_id),empty_indices)
+            if len(candidates)-len(excluded_positions(candidates,blocked))<part.height:
+                reject(group,f'insufficient control keys for group {group!r}, bin {bin_id}')
+                break
+            roles=[]
+            strata=['v','j'] if policy=='pgen-vj' else ['v'] if policy=='pgen-different-v' else ['pgen_bin']
+            for role,members in part.partition_by(strata,as_dict=True).items():
+                eligible=candidates if policy=='pgen' else conditional.get((bin_id,*role),empty_indices)
+                blocked_positions=excluded_positions(eligible,blocked)
+                available=len(eligible)-len(blocked_positions)
+                if available<members.height:
+                    reject(group,f'insufficient control keys for group {group!r}, bin {bin_id}, role {role}: need {members.height}, have {available}')
+                    break
+                roles.append((members['_source_row'].to_numpy(),eligible,blocked_positions))
+            if group in rejected:break
             groups.append(roles)
-        identity = int.from_bytes(hashlib.sha256(str(group).encode()).digest()[:8], 'little')
-        plans.append((identity, groups))
+        identity=int.from_bytes(hashlib.sha256(str(group).encode()).digest()[:8],'little')
+        if group not in rejected:plans.append((group,identity,groups))
     for replicate in range(replicates):
-        selected = np.empty(source.height, dtype=np.int64)
-        for identity, groups in plans:
+        selected = np.zeros(source.height, dtype=np.int64)
+        for group,identity,groups in plans:
+            if group in rejected:continue
             rng = np.random.default_rng(np.random.SeedSequence([seed, identity, replicate]))
             for roles in groups:
+                if group in rejected:break
                 used = np.empty(0, dtype=np.int64)
                 order = rng.permutation(len(roles)) if policy == 'pgen-different-v' else range(len(roles))
                 for i in order:
-                    positions, eligible = roles[i]
-                    remaining = np.setdiff1d(eligible, used, assume_unique=True)
-                    if len(remaining) < len(positions):
-                        raise ValueError('insufficient eligible keys in sequential different-V draw; enlarge the control pool')
-                    draw = rng.choice(remaining, len(positions), replace=False)
+                    positions,eligible,blocked_positions=roles[i]
+                    blocked=np.union1d(blocked_positions,excluded_positions(eligible,used))
+                    remaining=len(eligible)-len(blocked)
+                    if remaining < len(positions):
+                        reject(group,f'insufficient eligible keys in sequential different-V draw {replicate} for group {group!r}; enlarge the control pool')
+                        break
+                    ranks=rng.choice(remaining,len(positions),replace=False)
+                    # Map uniform ranks in the complement without materialising it.
+                    offsets=np.searchsorted(blocked-np.arange(len(blocked)),ranks,side='right')
+                    draw=eligible[ranks+offsets]
                     selected[positions] = draw
                     used = np.concatenate([used, draw])
         replacement = pool[selected].select(keys)
-        yield reference.with_columns(*(replacement[c] for c in keys), pl.lit(replicate).alias('replicate'))
+        yield reference.with_columns(*(replacement[c] for c in keys), pl.lit(replicate).alias('replicate')).filter(~pl.col('group_id').is_in(list(rejected)))

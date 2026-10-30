@@ -443,3 +443,9 @@ For large runs use examples/profile_cli.profile with timeout=float('inf'),
 max_rss_bytes=None and trace_path for measurement without application abort caps;
 choose production limits from measurements. Dextramer assignments without a
 validated binding rule are linked annotations, not invented binary truth.
+
+For reference-null repertoire enrichment, retain `untestable_null` rows and their
+reasons. Never treat unavailable control strata as negative calls or widen bins
+to manufacture significance. The low-level sampler remains strict unless passed
+an unavailable-target audit list; the repertoire reducer masks the entire null
+inference for audited targets.

@@ -118,8 +118,9 @@ def main(a):
     summary=pl.concat(summaries)
     if a.significance in ('bh','both'):
         if a.fdr_family=='target':
-            summary=pl.concat([part.with_columns(pl.Series('q_receptors',fdr_bh(part['p_receptors'].to_numpy()))) for part in summary.partition_by('group_id')])
-        else:summary=summary.with_columns(pl.Series('q_receptors',fdr_bh(summary['p_receptors'].to_numpy())))
+            summary=pl.concat([part.with_columns(pl.Series('q_receptors',fdr_bh(part['p_receptors'].fill_null(1.).to_numpy()))) for part in summary.partition_by('group_id')])
+        else:summary=summary.with_columns(pl.Series('q_receptors',fdr_bh(summary['p_receptors'].fill_null(1.).to_numpy())))
+        summary=summary.with_columns(pl.when(pl.col('status')=='ok').then(pl.col('q_receptors')).otherwise(None).alias('q_receptors'))
         summary=summary.with_columns(((pl.col('q_receptors')<a.fdr_alpha)&(pl.col('excess_receptors')>0)).alias('significant_bh'))
     if a.significance in ('nominal','both'):
         summary=summary.with_columns(((pl.col('p_receptors')<a.nominal_alpha)&(pl.col('excess_receptors')>0)).alias('significant_nominal'))
@@ -141,5 +142,5 @@ def main(a):
         pgen_definition=f'marginal full-junction Hamming<={a.pgen_mismatches}; rounded log2(Pgen+2**-60)',
         control_law='uniform unique junction/V/J keys, without replacement per target/bin; source event/read weights are not sampling weights',
         archive_differences='marginal model Pgen without cohort-fitted VJ factor; complete zero-hit rows; explicit matching and conditional mock options; independent locus streams',
-        significance_family=a.fdr_family,significance=a.significance,stages=stages,seconds=time.monotonic()-started,outputs=outputs),indent=2)+'\n')
+        significance_family=a.fdr_family,significance=a.significance,unavailable_null='null-valued inference; retained as nonrejectable hypotheses in BH family',stages=stages,seconds=time.monotonic()-started,outputs=outputs),indent=2)+'\n')
     return 0

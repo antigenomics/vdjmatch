@@ -142,14 +142,14 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         if not frame['junction_aa'].str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).all():
             raise ValueError('valid full-junction amino acid sequences required')
     inventory=ref.select('group_id').unique().sort('group_id').with_row_index('_target')
-    indexes={};samplers={}
+    indexes={};samplers={};unavailable=[]
     for (locus,),part in obs.partition_by('locus',as_dict=True).items():
         keys=part.select('junction_aa').unique().sort('junction_aa').with_row_index('_ri')
         indexed=part.join(keys,on='junction_aa',validate='m:1').rename({'v':'_sample_v','j':'_sample_j'})
         indexes[locus]=(Index.build(keys['junction_aa'].to_list(),alphabet='aa'),indexed)
     for (locus,),part in ref.partition_by('locus',as_dict=True).items():
         if locus not in controls:raise ValueError(f'missing {locus} control pool')
-        samplers[locus]=iter_epitope_mocks(part,controls[locus],replicates=replicates,seed=seed+(0 if locus=='TRA' else 1),policy=policy)
+        samplers[locus]=iter_epitope_mocks(part,controls[locus],replicates=replicates,seed=seed+(0 if locus=='TRA' else 1),policy=policy,unavailable=unavailable)
     empty=pl.DataFrame(schema={'receptor_id':obs.schema['receptor_id'],'group_id':ref.schema['group_id'],'locus':pl.String,'junction_aa':pl.String,'v':pl.String,'j':pl.String})
     def measure(population):
         parts=[]
@@ -190,4 +190,14 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
             pl.Series('p_'+name,(1+(values>=observed).sum(axis=0))/(replicates+1)))
     mocks=pl.DataFrame(dict(_target=np.tile(np.arange(inventory.height,dtype=np.uint32),replicates),
         replicate=np.repeat(np.arange(replicates),inventory.height),mock_receptors=null[:,:,0].ravel(),mock_count=null[:,:,1].ravel()))
-    return summary,mocks.join(inventory,on='_target',validate='m:1').drop('_target'),hits
+    mocks=mocks.join(inventory,on='_target',validate='m:1').drop('_target')
+    reasons={}
+    for row in unavailable:reasons.setdefault(row['group_id'],[]).append(row['reason'])
+    audit=inventory.select('group_id').with_columns(
+        pl.Series('status',['untestable_null' if g in reasons else 'ok' for g in inventory['group_id']]),
+        pl.Series('null_unavailable_reason',['; '.join(dict.fromkeys(reasons[g])) if g in reasons else None for g in inventory['group_id']],dtype=pl.String))
+    summary=summary.join(audit,on='group_id',validate='1:1')
+    inferred=[c for c in summary.columns if c.startswith(('mock_','excess_','enrichment_','p_'))]
+    summary=summary.with_columns(pl.when(pl.col('status')=='ok').then(pl.col(c)).otherwise(None).alias(c) for c in inferred)
+    mocks=mocks.with_columns(pl.when(~pl.col('group_id').is_in(list(reasons))).then(pl.col(c)).otherwise(None).alias(c) for c in ['mock_receptors','mock_count'])
+    return summary,mocks,hits
