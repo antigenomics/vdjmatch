@@ -31,3 +31,11 @@ def test_reference_panel_cli_preserves_rows_reads_zero_panels_and_fdr_groups(tmp
     invalid[invalid.index('--output-prefix')+1]=str(tmp_path/'invalid')
     failed=subprocess.run(invalid,capture_output=True,text=True,timeout=30)
     assert failed.returncode!=0 and 'integer' in failed.stderr.lower()
+
+
+def test_exact_source_restricts_selected_locus(tmp_path):
+    from vdjmatch.cli.repertoire_exact import _source
+    path=tmp_path/'mixed.tsv'
+    path.write_text('junction_aa\tv\tj\tcount\nCASSF\tTRBV2\tTRBJ1-1\t7\nCAVRF\tTRAV1-1\tTRAJ1\t9\n')
+    assert _source(path,locus='TRB')['count'].to_list()==[7]
+    assert _source(path,locus='TRA')['count'].to_list()==[9]

@@ -21,10 +21,10 @@ def register(sub):
     p.set_defaults(func=main)
 
 
-def _source(path):
+def _source(path, *, locus):
     import polars as pl
     from .. import io
-    frame=io.read_rearrangement(path,valid_aa=False)
+    frame=io.read_rearrangement(path,valid_aa=False).filter(pl.col("locus")==locus)
     return frame.select(pl.col('cdr3').alias('junction_aa'),
         pl.col('v','j').str.split('*').list.first(),'count')
 
@@ -127,7 +127,7 @@ def main(a):
         pgen_origin='native gene-allele-summed joint probability'
     vj=[]
     for path in paths:
-        frame=_source(path);vj.append(frame.group_by('v','j').len(name='records'))
+        frame=_source(path,locus=a.locus);vj.append(frame.group_by('v','j').len(name='records'))
     model=_read_table(inputs[3])
     probes,audit=compiled_reference_strata(probes,pl.concat(vj),model)
     reference=reference.join(probes.select(*keys,'pgen_bin'),on=keys,validate='m:1')
@@ -135,7 +135,7 @@ def main(a):
     panels=pl.concat([reference.select('group_id',*keys).with_columns(pl.lit(-1,dtype=pl.Int64).alias('replicate')),mocks.select('group_id',*keys,pl.col('replicate').cast(pl.Int64))])
     counts=[]
     for i,(sample,path) in enumerate(zip(meta['sample_id'],paths),1):
-        counts.append(exact_reference_counts(_source(path),panels).with_columns(pl.lit(sample).alias('sample_id')))
+        counts.append(exact_reference_counts(_source(path,locus=a.locus),panels).with_columns(pl.lit(sample).alias('sample_id')))
         print(f'counted sample {i}/{len(paths)}',flush=True)
     counts=pl.concat(counts);summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
     parts=[]
