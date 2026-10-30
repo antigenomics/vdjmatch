@@ -42,6 +42,7 @@ def register(subparsers):
     p.add_argument('--control-tra', help='TRA control for paired reference-null mode; --control supplies TRB')
     p.add_argument('--pgen-features-tra', help='validated TRA Pgen bank for paired mode')
     p.add_argument('--epitope', action='append', help='explicit target peptide(s), reference-null mode only')
+    p.add_argument('--chain-mode',choices=['tra','trb','union','intersection'],default='union')
     p.add_argument('--mismatches', type=int, choices=range(4), default=1)
     p.add_argument('--match-j', action='store_true')
     p.add_argument('--significance', choices=['none','nominal','bh','both'], default='none')
@@ -57,7 +58,7 @@ def main(a):
     if a.null == 'reference':
         from .repertoire_reference import main as reference_main
         return reference_main(a)
-    if a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
+    if a.chain_mode != 'union' or a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
         raise ValueError('reference-null options require --null reference')
     import json,time
     from importlib.metadata import version

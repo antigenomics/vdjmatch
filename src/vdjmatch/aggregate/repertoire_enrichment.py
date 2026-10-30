@@ -128,15 +128,15 @@ def matched_enrichment(observations, control, matches, targets, *, replicates=20
 def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                          controls: dict[str, pl.DataFrame], *, replicates: int = 200,
                          seed: int = 0, policy: str = 'pgen', threads: int = 1,
-                         mismatches: int = 1, match_j: bool = False, progress=None):
+                         mismatches: int = 1, match_j: bool = False, chain_mode: str = "union", progress=None):
     """Test a fixed repertoire against fresh Pgen-matched mock target corpora.
 
     Observations: receptor_id/locus/junction_aa/v/j/count. Multiple chains with
     one receptor_id represent one receptor and must carry the same abundance.
     Reference: group_id/locus/junction_aa/v/j/pgen_bin. Controls are normalized
-    unique junction/V/J keys with pgen_bin per locus. Target support is the union
-    of available chain matches; paired receptors count once. Linked and unlinked
-    references both contribute. This calibrates that union, not a paired score.
+    unique junction/V/J keys with pgen_bin per locus. chain_mode selects separate
+    tra/trb, union or intersection support; paired receptors count once. Linked and unlinked
+    references both contribute. This calibrates the selected rule, not a paired score.
     Counts are unique receptor identities and their summed abundance separately.
     Returns summary, complete aggregate mock endpoints and real chain hit links.
     Full-junction Hamming matching uses one native batch per locus/population,
@@ -148,6 +148,9 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
 
     if type(replicates) is not int or replicates < 1 or type(seed) is not int or seed < 0:
         raise ValueError('positive replicates and nonnegative seed required')
+    from vdjtools.sc import chain_support
+    if chain_mode not in {"tra", "trb", "union", "intersection"}:
+        raise ValueError("chain_mode must be tra, trb, union or intersection")
     required={'receptor_id','locus','junction_aa','v','j','count'}
     if not required <= set(observations.columns) or not observations.height:
         raise ValueError('nonempty observations with receptor identities, chain keys and counts required')
@@ -200,10 +203,13 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                 if detailed:
                     parts.append(hits.select('receptor_id','group_id',pl.lit(locus).alias('locus'),'junction_aa',pl.col('_sample_v').alias('v'),pl.col('_sample_j').alias('j')).unique())
                 else:
-                    parts.append(hits.select('receptor_id','group_id').unique())
+                    parts.append(hits.select('receptor_id','group_id').with_columns(pl.lit(locus).alias('locus')).unique())
         members=pl.concat(parts).unique() if parts else empty
+        selected=chain_support(members,by=['receptor_id','group_id']).filter(pl.col(chain_mode+'_supported')).select('receptor_id','group_id')
+        members=members.join(selected,on=['receptor_id','group_id'],how='inner')
+        if chain_mode in {'tra','trb'}:members=members.filter(pl.col('locus')==chain_mode.upper())
         hits=members.sort('receptor_id','group_id','locus') if detailed else empty
-        aggregate=members.select('receptor_id','group_id').unique().join(totals.select('receptor_id','count'),on='receptor_id',validate='m:1').group_by('group_id').agg(pl.len().cast(pl.Int64).alias('receptors'),pl.col('count').sum())
+        aggregate=selected.join(totals.select('receptor_id','count'),on='receptor_id',validate='m:1').group_by('group_id').agg(pl.len().cast(pl.Int64).alias('receptors'),pl.col('count').sum())
         values=inventory.join(aggregate,on='group_id',how='left',validate='1:1').fill_null(0).sort('_target')
         return values['receptors'].to_numpy(),values['count'].to_numpy(),hits
     actual,abundance,hits=measure(ref,detailed=True)

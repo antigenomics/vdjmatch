@@ -2764,3 +2764,12 @@ Its default is 1 to preserve the compiled baseline. The shared
 ``ALICE_TRB_SELECTION_Q`` constant is 9.41 on the original TRB model scale;
 it is not an established TRA factor. Both real and mock keys use the same
 explicit scaling. This does not rescale empirical TCRnet control frequencies.
+
+
+Reference-null ``repertoire-enrichment`` accepts ``--chain-mode tra|trb|union|intersection``.
+The chosen rule is applied to real and every mock panel through
+``vdjtools.sc.chain_support``. Union retains orphan support; intersection requires
+both chains of the same observed receptor to support the same full target.
+This is target-level chain evidence and does not imply a linked reference pair.
+The default union preserves existing behavior; the raw receptor denominator
+includes unmatched and orphan receptors in every mode.

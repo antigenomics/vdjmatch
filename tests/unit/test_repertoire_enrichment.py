@@ -154,6 +154,9 @@ def test_reference_mock_enrichment_counts_receptors_once_and_retains_no_hits():
     assert mocks.height==6 and mocks['mock_receptors'].sum()==0
     assert hits.select('receptor_id','group_id').n_unique()==2
     assert x['n_receptors']==2 and x['total_count']==5
+    for mode,expected in [('tra',1),('trb',2),('intersection',1)]:
+        separate=module.reference_enrichment(sample,reference,controls,replicates=3,threads=1,chain_mode=mode)[0]
+        assert separate.filter(pl.col('group_id')=='X')['matched_receptors'].item()==expected
     parallel=module.reference_enrichment(sample,reference,controls,replicates=3,threads=2)
     assert all(a.equals(b) for a,b in zip((summary,mocks,hits),parallel))
     with pytest.raises(ValueError,match='count'):
