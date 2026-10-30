@@ -353,6 +353,53 @@ def vdjbet_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
     return result.with_columns(pl.Series('pgen_bin',bins)),audit
 
 
+def sample_vdjbet_panels(reference: pl.DataFrame, probes: pl.DataFrame, *,
+                        replicates=200, seed=42, sampler='numpy') -> pl.DataFrame:
+    """Draw fresh exact-bin reference panels; optionally reproduce base-R draws.
+
+    NumPy uses the existing uniform-key sampler. The optional R backend is for
+    single-target notebook reproduction, preserving probe order and R's RNG.
+    All panels are transient in memory; no calculated panel cache is written.
+    """
+    if sampler=='numpy':
+        return pl.concat(iter_epitope_mocks(reference,probes,replicates=replicates,seed=seed))
+    if sampler!='r':raise ValueError('sampler must be numpy or r')
+    if type(replicates) is not int or replicates<1 or type(seed) is not int or not 0<=seed<2**31:
+        raise ValueError('positive replicates and a nonnegative R integer seed required')
+    keys=['junction_aa','v','j'];required=[*keys,'pgen_bin']
+    if not {*required,'group_id'}<=set(reference.columns) or not set(required)<=set(probes.columns):
+        raise ValueError('reference/probe keys and Pgen bins required')
+    if reference['group_id'].n_unique()!=1:
+        raise ValueError('R reproduction sampler requires one target')
+    for frame in [reference,probes]:
+        if not frame.height or frame.select(keys).n_unique()!=frame.height:
+            raise ValueError('nonempty unique receptor keys required')
+        if any(frame[c].null_count() for c in required) or not frame.schema['pgen_bin'].is_integer():
+            raise ValueError('non-null keys and integer Pgen bins required')
+    counts=reference.group_by('pgen_bin').len(name='required')
+    pool=probes.with_row_index('pool_row').join(reference.select(keys),on=keys,how='anti',maintain_order='left').join(counts,on='pgen_bin',how='inner',maintain_order='left')
+    available=counts.join(pool.group_by('pgen_bin').len(name='available'),on='pgen_bin',how='left').fill_null(0)
+    if available.filter(pl.col('available')<pl.col('required')).height:
+        raise ValueError('insufficient control keys for exact Pgen strata')
+    import io,shutil,subprocess
+    executable=shutil.which('Rscript')
+    if executable is None:raise RuntimeError('Rscript is required only for the optional R reproduction sampler')
+    code='''args <- commandArgs(trailingOnly=TRUE)
+set.seed(as.integer(args[2]))
+x <- read.delim(file("stdin"),check.names=FALSE)
+bins <- sort(unique(x$pgen_bin))
+parts <- lapply(bins,function(b) x[x$pgen_bin==b,])
+draws <- lapply(seq_len(as.integer(args[1])),function(i) {
+ rows <- unlist(lapply(parts,function(p) p$pool_row[sample.int(nrow(p),p$required[1])]),use.names=FALSE)
+ data.frame(pool_row=rows,replicate=i-1L)
+})
+write.table(do.call(rbind,draws),stdout(),sep="\\t",row.names=FALSE,quote=FALSE)
+'''
+    result=subprocess.run([executable,'--vanilla','-e',code,str(replicates),str(seed)],input=pool.select('pool_row','pgen_bin','required').write_csv(separator='\t'),text=True,capture_output=True,check=True)
+    draws=pl.read_csv(io.StringIO(result.stdout),separator='\t',schema_overrides={'pool_row':pl.UInt32,'replicate':pl.Int64})
+    return probes[draws['pool_row']].with_columns(draws['replicate'],pl.lit(reference['group_id'][0]).alias('group_id'))
+
+
 def pgen_strata(pgen: pl.DataFrame) -> pl.DataFrame:
     """Return unique junction/Pgen-bin keys: rounded log2(Pgen), zero=-2147483648.
 

@@ -431,3 +431,16 @@ def test_vdjbet_strata_preserves_compiled_r_grouping():
     assert audit.filter(pl.col('v')=='V1')['sample_probability'].sum()==pytest.approx(1.)
     with pytest.raises(ValueError,match='unique'):
         vdjbet_strata(pl.concat([probes,probes.head(1)]),sample,model)
+
+
+def test_vdjbet_r_sampler_matches_base_r_seed42():
+    import shutil
+    if not shutil.which('Rscript'):pytest.skip('optional R reproduction sampler')
+    from vdjmatch.evalue.mock_reference import sample_vdjbet_panels
+    probes=pl.DataFrame(dict(junction_aa=['CAAF','CACF','CADF','CAEF','CAFF','CAGF'],
+        v=['V1']*6,j=['J1']*6,pgen_bin=[-10]*6))
+    reference=probes.head(2).with_columns(pl.lit('X').alias('group_id'))
+    result=sample_vdjbet_panels(reference,probes,replicates=3,seed=42,sampler='r')
+    # R: set.seed(42); replicate(3, sample.int(4,2)) => (1,4),(1,4),(2,4).
+    assert result['junction_aa'].to_list()==['CADF','CAGF','CADF','CAGF','CAEF','CAGF']
+    assert result['replicate'].to_list()==[0,0,1,1,2,2]
