@@ -128,7 +128,8 @@ def matched_enrichment(observations, control, matches, targets, *, replicates=20
 def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                          controls: dict[str, pl.DataFrame], *, replicates: int = 200,
                          seed: int = 0, policy: str = 'pgen', threads: int = 1,
-                         mismatches: int = 1, match_j: bool = False, chain_mode: str = "union", progress=None):
+                         mismatches: int = 1, match_j: bool = False, chain_mode: str = "union",
+                         tra_matcher: str = "hamming", species: str = "human", progress=None):
     """Test a fixed repertoire against fresh Pgen-matched mock target corpora.
 
     Observations: receptor_id/locus/junction_aa/v/j/count. Multiple chains with
@@ -140,7 +141,10 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     Counts are unique receptor identities and their summed abundance separately.
     Returns summary, complete aggregate mock endpoints and real chain hit links.
     Full-junction Hamming matching uses one native batch per locus/population,
-    with exact V and optional J gene matching. No query Pgen is required.
+    with exact V and optional J gene matching. tra_matcher=stem4 instead uses
+    the existing continuous TRA kernel (positive support) in every panel. Its
+    chain_score is retained alongside strict-chain indicators, not a probability.
+    No query Pgen is required.
     """
     from seqtree import Index
     from ..match.scope import search_params
@@ -151,6 +155,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     from vdjtools.sc import chain_support
     if chain_mode not in {"tra", "trb", "union", "intersection"}:
         raise ValueError("chain_mode must be tra, trb, union or intersection")
+    if tra_matcher not in {"hamming", "stem4"}:raise ValueError("tra_matcher must be hamming or stem4")
     required={'receptor_id','locus','junction_aa','v','j','count'}
     if not required <= set(observations.columns) or not observations.height:
         raise ValueError('nonempty observations with receptor identities, chain keys and counts required')
@@ -181,11 +186,31 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         if locus not in controls:raise ValueError(f'missing {locus} control pool')
         samplers[locus]=iter_epitope_mocks(part,controls[locus],replicates=replicates,seed=seed+(0 if locus=='TRA' else 1),policy=policy,unavailable=unavailable)
     empty=pl.DataFrame(schema={'receptor_id':obs.schema['receptor_id'],'group_id':ref.schema['group_id'],'locus':pl.String,'junction_aa':pl.String,'v':pl.String,'j':pl.String})
+    fuzzy_queries = obs.filter(pl.col('locus')=='TRA').with_row_index('query_id').rename({'junction_aa':'cdr3'}) if tra_matcher=='stem4' else None
+    contexts = None
+    if tra_matcher == 'stem4' and fuzzy_queries.height:
+        from ..match.geometry import precompute_v_loop_distances
+        contexts = {'blosum62':precompute_v_loop_distances(species=species,alphabet='full',matrix='blosum62',v_regions='cdr12plus')}
+    if tra_matcher == 'stem4':empty=empty.with_columns(pl.lit(None,dtype=pl.Float64).alias('chain_score'))
     def measure(population, *, detailed=False):
         parts=[]
         for (locus,),targets in population.partition_by('locus',as_dict=True).items():
             if locus not in indexes:continue
             index,samples=indexes[locus]
+            if locus == 'TRA' and tra_matcher == 'stem4':
+                from ..runner.combined import _kernel
+                scored=[]
+                kernel_reference=targets.rename({'junction_aa':'cdr3','group_id':'epitope'}).with_columns(
+                    pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
+                def collect(name,frame):
+                    scored.append(frame.filter(pl.col('kernel_score')>0).select('query_id',pl.col('epitope').alias('group_id'),pl.col('kernel_score').alias('chain_score')))
+                _kernel(fuzzy_queries,kernel_reference,None,species=species,threads=threads,paired=False,
+                    exclude_exact=False,contexts=contexts,_consume=collect,kernels=('stem4',))
+                if scored:
+                    supported=pl.concat(scored).join(fuzzy_queries,on='query_id',validate='m:1').rename({'cdr3':'junction_aa'})
+                    columns=['receptor_id','group_id','locus']+(['junction_aa','v','j','chain_score'] if detailed else [])
+                    parts.append(supported.select(columns).unique())
+                continue
             keys=targets.select('junction_aa').unique().sort('junction_aa').with_row_index('_qi')
             roles=targets.join(keys,on='junction_aa',validate='m:1').select('_qi','group_id',
                 pl.col('v').str.replace(r'\*.*$','').alias('_match_v'),pl.col('j').str.replace(r'\*.*$','').alias('_match_j'))
@@ -201,7 +226,9 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                 predicate=['_ri','_match_v']+(['_match_j'] if match_j else [])
                 hits=pairs.join(roles,on='_qi',validate='m:m').join(samples,on=predicate,validate='m:m')
                 if detailed:
-                    parts.append(hits.select('receptor_id','group_id',pl.lit(locus).alias('locus'),'junction_aa',pl.col('_sample_v').alias('v'),pl.col('_sample_j').alias('j')).unique())
+                    detail=hits.select('receptor_id','group_id',pl.lit(locus).alias('locus'),'junction_aa',pl.col('_sample_v').alias('v'),pl.col('_sample_j').alias('j')).unique()
+                    if tra_matcher=='stem4':detail=detail.with_columns(pl.lit(1.).alias('chain_score'))
+                    parts.append(detail)
                 else:
                     parts.append(hits.select('receptor_id','group_id').with_columns(pl.lit(locus).alias('locus')).unique())
         members=pl.concat(parts).unique() if parts else empty

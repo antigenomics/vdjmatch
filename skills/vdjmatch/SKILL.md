@@ -484,3 +484,12 @@ global frequencies, modal gene replacements, unique clonotype counts or paired
 union counts independently per chunk. TCRnet needs sample-wide neighbourhoods.
 A bounded input batch is not proof of a bounded whole workflow; measure controls,
 reference indexes, retained sparse hits and all process-tree memory separately.
+
+
+Paired M3 comparison: `--chain-mode tra|trb|union|intersection` uses the shared
+vdjtools chain reducer on real and every mock panel. For asymmetric matching,
+`--tra-matcher stem4 --mismatches 1 --chain-mode intersection` combines strict
+TRB with positive stem4 TRA support at the same receptor/full-target identity.
+Keep continuous TRA scores and strict-chain indicators distinct; do not multiply
+them as independent probabilities. This comparison is separate from compiled
+bulk exact reproduction.

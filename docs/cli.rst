@@ -2773,3 +2773,16 @@ both chains of the same observed receptor to support the same full target.
 This is target-level chain evidence and does not imply a linked reference pair.
 The default union preserves existing behavior; the raw receptor denominator
 includes unmatched and orphan receptors in every mode.
+
+
+For asymmetric paired evidence, use ``--tra-matcher stem4 --mismatches 1
+--chain-mode intersection --locus paired`` with both control populations.
+TRB retains strict V-matched Hamming lookup; TRA uses the existing stem4 kernel
+with its fixed geometry and positive-support rule. Every real/mock panel uses
+the same combination. Real hits retain ``chain_score`` (continuous stem4 for
+TRA, Boolean support encoded as 1 for strict TRB). These are different evidence
+units, not probabilities to multiply. Repertoire P-values concern matched
+receptor counts/abundance under the chosen combined rule, not individual binding.
+
+In this asymmetric mode, ``--match-j`` constrains only the Hamming arm;
+the TRA stem4 kernel uses its existing soft gene geometry and does not require exact J.

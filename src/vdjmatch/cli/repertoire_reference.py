@@ -117,7 +117,8 @@ def main(a):
     def identities():return {str(p):db.provenance(p) if p.is_dir() else sha256(p) for p in inputs}
     import seqtree._core as seq_native
     import vdjtools._core as pgen_native
-    source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(seq_native.__file__),Path(pgen_native.__file__)]
+    import vdjtools.sc.pair as pair_support
+    source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(seq_native.__file__),Path(pgen_native.__file__),Path(pair_support.__file__)]
     def freeze():return {str(p):sha256(p) for p in source_files}
     before,source_before=identities(),freeze()
     models={locus:_pgen_model_identity(a.species,locus) for locus in loci}
@@ -161,7 +162,7 @@ def main(a):
         selected,obs=_observations(frame,locus=a.locus,species=a.species)
         def progress(stage,replicate):
             print(f'sample {number+1}/{len(paths)}: {stage} {replicate} after {time.monotonic()-t:.3f}s',flush=True)
-        summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,progress=progress)
+        summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,species=a.species,progress=progress)
         summaries.append(summary.with_columns(pl.lit(sample).alias('sample_id')))
         mocks.append(mock.with_columns(pl.lit(sample).alias('sample_id')))
         hits.append(hit.with_columns(pl.lit(sample).alias('sample_id')))
@@ -191,7 +192,8 @@ def main(a):
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(dict(null='reference',mock_policy=a.mock_policy,inputs=before,inputs_frozen=True,source=source_before,source_frozen=True,
         models=models,prepared_pgen=prepared,software={n:version(n) for n in ['vdjmatch','vdjtools','seqtree','polars','numpy','scipy']},
         options=vars(a)|{'func':a.func.__name__},reference_population=population,counting_unit='unique receptor identity',
-        paired_rule='union of available chain supports, counted once per receptor/target; independently calibrated by the same mock procedure',
+        paired_rule=f'{a.chain_mode} of available chain supports, counted once per receptor/target; same rule in real and mock panels',
+        matchers=dict(TRB=f'Hamming<={a.mismatches}, exact V'+(', exact J' if a.match_j else ''),TRA=a.tra_matcher),
         pgen_definition=f'marginal full-junction Hamming<={a.pgen_mismatches}; rounded log2(Pgen+2**-60)',
         control_law='uniform unique junction/V/J keys, without replacement per target/bin; source event/read weights are not sampling weights',
         archive_differences='marginal model Pgen without cohort-fitted VJ factor; complete zero-hit rows; explicit matching and conditional mock options; independent locus streams',

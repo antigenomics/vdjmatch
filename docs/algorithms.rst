@@ -348,3 +348,16 @@ remains in memory for mock sampling; the complete raw table does not. If gene
 imputation is needed, ingestion uses the existing whole-population path so modal
 replacements cannot depend on batch boundaries. Other event representations
 retain their established whole-population normalization.
+
+
+Asymmetric chain support
+------------------------
+
+The reference-null comparison can use strict V-matched Hamming lookup for TRB
+and the existing stem4 kernel for TRA. Positive kernel support supplies the TRA
+membership indicator, while its continuous value remains in real hit exports.
+The shared vdjtools reducer combines chains only within a receptor/full-target
+key. The selected separate, union or intersection rule is identical in real and
+mock panels; repertoire inference tests counts and abundance under that rule.
+No chain-score product or independence assumption is introduced. The complete
+TRA reference panel supplies its fixed kernel model for every query in that draw.

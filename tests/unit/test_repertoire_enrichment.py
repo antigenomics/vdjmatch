@@ -237,3 +237,25 @@ def test_reference_lookup_zero_and_one_mismatch_memberships(mismatches,expected)
     assert hits['receptor_id'].sort().to_list()==expected
     assert summary['matched_count'].item()==(2 if mismatches==0 else 5)
     assert mocks['mock_receptors'].sum()==0
+
+
+def test_strict_beta_with_fuzzy_alpha_preserves_pairing():
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    sample=pl.DataFrame(dict(receptor_id=['pair','pair','beta_only','alpha_only'],locus=['TRA','TRB','TRB','TRA'],
+        junction_aa=['CAVRDSNFQLIW','CASSLGRAYEQYF','CASSLGRAYEQYF','CAVRDSNFQLIW'],
+        v=['TRAV12-2*01','TRBV19*01','TRBV19*01','TRAV12-2*01'],j=['TRAJ33*01','TRBJ2-7*01','TRBJ2-7*01','TRAJ33*01'],count=[5,5,3,2]))
+    reference=pl.DataFrame(dict(group_id=['X','X'],locus=['TRA','TRB'],junction_aa=['CAVRDSNYQLIW','CASSLGQAYEQYF'],
+        v=['TRAV12-2*01','TRBV19*01'],j=['TRAJ33*01','TRBJ2-7*01'],pgen_bin=[-10,-10]))
+    controls={locus:pl.DataFrame(dict(junction_aa=['CAVRRNTGGFKTIF','CAVRDDNTGGFKTIF'],v=[v]*2,j=[j]*2,pgen_bin=[-10]*2))
+        for locus,v,j in [('TRA','TRAV1-2*01','TRAJ9*01'),('TRB','TRBV4-1*01','TRBJ1-1*01')]}
+    summary,mocks,hits=reference_enrichment(sample,reference,controls,replicates=2,threads=1,
+        chain_mode='intersection',tra_matcher='stem4',mismatches=1)
+    assert summary['matched_receptors'].item()==1 and summary['matched_count'].item()==5
+    assert set(hits['receptor_id'])=={'pair'} and set(hits['locus'])=={'TRA','TRB'}
+    assert hits.filter(pl.col('locus')=='TRA')['chain_score'].min()>0
+    assert mocks['mock_receptors'].sum()==0
+    parallel=reference_enrichment(sample,reference,controls,replicates=2,threads=2,chain_mode='intersection',tra_matcher='stem4',mismatches=1)
+    assert all(a.sort(a.columns).equals(b.sort(b.columns)) for a,b in zip((summary,mocks,hits),parallel))
+    exact=reference_enrichment(sample,reference,controls,replicates=2,threads=1,
+        chain_mode='intersection',tra_matcher='stem4',mismatches=0)[0]
+    assert exact['matched_receptors'].item()==0

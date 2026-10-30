@@ -466,6 +466,12 @@ All no-hit targets remain in the outputs. See the
 replicate resolution, test families and input schemas. The historical
 `--null repertoire` mode remains separate.
 
+For paired reference-null comparisons, `--chain-mode tra|trb|union|intersection`
+preserves receptor identity throughout real and mock matching. The asymmetric
+`--tra-matcher stem4 --mismatches 1 --chain-mode intersection` combines strict
+TRB support with fuzzy TRA evidence for the same target; chain scores remain
+separate from repertoire significance.
+
 An independent counts-only comparison filters both the sample and each pMHC
 reference with the existing TCRnet neighbourhood test, then runs flexible
 VDJmatch matching:
