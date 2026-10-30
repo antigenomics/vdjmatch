@@ -39,3 +39,20 @@ def test_exact_source_restricts_selected_locus(tmp_path):
     path.write_text('junction_aa\tv\tj\tcount\nCASSF\tTRBV2\tTRBJ1-1\t7\nCAVRF\tTRAV1-1\tTRAJ1\t9\n')
     assert _source(path,locus='TRB')['count'].to_list()==[7]
     assert _source(path,locus='TRA')['count'].to_list()==[9]
+
+
+def test_joint_pgen_uses_shared_gene_batch_and_preserves_rows(monkeypatch):
+    from vdjtools.model import native
+    from vdjmatch.cli.repertoire_exact import _joint_pgen
+    probes=pl.DataFrame({'junction_aa':['CASSYVGSEQFF']*2,'v':['TRBV19','TRBV7-9'],
+                         'j':['TRBJ2-1']*2})
+    original=native.pgen_aa_gene_batch
+    calls=[]
+    def batch(model,sequences,v,j,**kwargs):
+        calls.append((sequences,v,j,kwargs))
+        return original(model,sequences,v,j,**kwargs)
+    monkeypatch.setattr(native,'pgen_aa_gene_batch',batch)
+    result=_joint_pgen(probes,species='human',locus='TRB',threads=1)
+    assert result.select(probes.columns).equals(probes)
+    assert result['pgen'].min()>0
+    assert len(calls)==1 and calls[0][3]=={'mismatches':0,'threads':1}

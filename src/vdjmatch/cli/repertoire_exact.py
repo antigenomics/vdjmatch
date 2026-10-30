@@ -33,18 +33,10 @@ def _source(path, *, locus):
 def _joint_pgen(probes,*,species,locus,threads):
     import polars as pl
     from vdjtools.model import load_bundled,native
-    from vdjtools.overlap.alice import _alleles_for
     model=load_bundled(locus,'olga' if species=='human' else 'arda',organism=species,collapse=False)
-    _,vi,ji=native.pack(model)
-    indexed=probes.with_row_index('_key')
-    mappings=[]
-    for column,index in [('v',vi),('j',ji)]:
-        names=probes[column].unique().sort().to_list()
-        mappings.append(pl.DataFrame({column:names,column+'_allele':[_alleles_for(index,n) for n in names]}).explode(column+'_allele'))
-    expanded=indexed.join(mappings[0],on='v').join(mappings[1],on='j')
-    values=native.pgen_aa_batch(model,expanded['junction_aa'].to_list(),expanded['v_allele'].to_list(),expanded['j_allele'].to_list(),mismatches=0,threads=threads)
-    masses=expanded.select('_key').with_columns(pl.Series('pgen',values)).group_by('_key').agg(pl.col('pgen').sum())
-    return indexed.join(masses,on='_key',validate='1:1').sort('_key').drop('_key')
+    values=native.pgen_aa_gene_batch(model,probes['junction_aa'].to_list(),probes['v'].to_list(),
+                                   probes['j'].to_list(),mismatches=0,threads=threads)
+    return probes.with_columns(pl.Series('pgen',values))
 
 
 def _summaries(counts):
