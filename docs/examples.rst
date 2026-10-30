@@ -25,6 +25,16 @@ From the repository root, choose a new output directory:
 
    sh examples/annotate.sh annotation-demo
 
+To use an existing VDJdb build, provide its primary table as the second argument:
+
+.. code-block:: sh
+
+   sh examples/annotate.sh build-demo /path/to/build/tables/vdjdb.parquet
+
+A legacy table or AIRR export directory is also accepted. This only annotates
+the supplied synthetic queries; it does not rebuild the database or measure
+biological accuracy. The manifest records the chosen reference identity.
+
 The cohort contains four single-chain rows across two samples and two paired
 receptors, including an incomplete pair. Inspect these outputs:
 
