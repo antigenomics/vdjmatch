@@ -16,15 +16,14 @@ def _pgen_model_identity(species, locus):
     """Hash the existing immutable bundled model inputs and native implementation."""
     import hashlib
     import json
-    from importlib.resources import files
+    from ..precursor.model import bundled_model_path
     from pathlib import Path
     import vdjtools._core as native_core
     from ..db.cache import sha256
 
     organism = _organism(species)
     source = 'olga' if organism == 'human' else 'arda'
-    key = locus if source == 'olga' else organism + '_' + locus
-    root = files('vdjtools.model') / '_bundled' / source / key
+    root = bundled_model_path(locus, source, organism)
     hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
               for p in sorted(root.iterdir(), key=lambda p: p.name) if p.is_file()}
     return dict(source=source, organism=organism, locus=locus, files=hashes,

@@ -56,8 +56,11 @@ counting *measurements* rather than weighting them.
 The model set is not interchangeable
 ------------------------------------
 
-Human is scored under **both** bundled sets on purpose. Mouse exists only under ``arda``, so a
+The saved comparison scored human under **both historical** bundled sets on purpose.
+Its mouse models used the historical ``arda`` family, so a
 human-``olga`` against mouse-``arda`` comparison would confound species with model family.
+With vdjtools 5.4.0, ``arda`` and ``learned`` alias the current ``isalgo`` fits.
+Reproducing the saved comparison requires its original pinned parameter files.
 
 They differ where it matters: OLGA stores ``P(delV | V)`` on one deletion-bin grid per locus, sized
 for the longest allele, so a shorter allele carries probability on trims it cannot reach. **5.7% of
