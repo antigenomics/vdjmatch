@@ -1062,10 +1062,17 @@ Malformed parent thread allocations fail before loading inputs.
 vdjmatch apply-call-calibration
 -------------------------------
 
-The `saved mouse TRA operating point <https://huggingface.co/datasets/isalgo/airr_benchmark/blob/145e91124d0dc0ccc1928d1a36bd4fadd10ee7c4/vdjmatch/releases/0.6.3/calibration/README.md>`_
-includes its fitted cutoff, observed/generated validation counts and selected-label
-recall check. It applies to the recorded all-valid, exact-retained stem4 event;
-application requires its matching score-producer manifest.
+The `mouse TRA operating-point recommendation <https://huggingface.co/datasets/isalgo/airr_benchmark/blob/9c8fac983f9bc6aa95dbd82c5139d7ac369be43e/vdjmatch/releases/1.0.0/calibration/README.md>`_
+uses ``kernel_score >= 0.17`` for the recorded historical all-valid,
+exact-retained stem4 event. It calibrates a nominal 1% null-query any-call rate;
+this is not a per-panel release gate or false discovery rate among called receptors.
+The four same-source observed subsamples contribute 189 calls among 19,045
+panel-query observations (0.9924%); they are calibration inputs. The separate
+generated panel has 872 calls among 100,000 queries (0.8720%). Correct accepted
+reference calls remain 6 among 6,791 queries, unchanged from the previous cutoff.
+Complete per-panel counts and the recall limitation accompany the recipe.
+Application requires its matching score-producer manifest; this cutoff does not
+transfer to curated references or another database build.
 
 Apply a previously computed cutoff to independent query-level scores:
 
