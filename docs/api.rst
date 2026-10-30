@@ -260,3 +260,14 @@ See :func:`vdjmatch.api.repertoire_enrichment` above.
 .. autofunction:: vdjmatch.aggregate.repertoire_enrichment.reference_enrichment
 
 See :func:`vdjmatch.evalue.mock_reference.iter_epitope_mocks` above.
+
+TCRnet-filtered repertoire counts
+---------------------------------
+
+.. autoclass:: vdjmatch.aggregate.repertoire_tcrnet.TcrnetMatcher
+   :members: match
+
+The owned reference and control indexes may be shared across samples within a
+fresh cohort invocation. Filtering evidence is available as
+``reference_filtering``. ``match`` returns summary counts, real hit links and
+sample-filter evidence; it does not return repertoire P-values.

@@ -302,3 +302,13 @@ are retained with ``status=untestable_null`` and a reason. All mock-derived
 inference is missing, including earlier draws if a sequential different-V draw
 later becomes infeasible. BH retains these targets as nonrejectable family
 members; their output P/q-values are not fabricated as negative evidence.
+
+The independent TCRnet-filtered route uses the existing unique-junction
+neighbourhood test within each sample/locus and full-pMHC/locus reference
+population. It removes the target self-hit while retaining exact background
+hits. After filtering, original gene variants and receptor identities are
+restored and existing flexible VDJmatch lookup supplies real hit links. The
+raw receptor denominator is retained; paired/orphan chain support is unioned
+per receptor and target. Only descriptive repertoire counts are returned.
+Filtering q-values are not combined, and no repertoire P-value or guaranteed
+empty random background is inferred.

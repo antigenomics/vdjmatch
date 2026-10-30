@@ -449,3 +449,14 @@ reasons. Never treat unavailable control strata as negative calls or widen bins
 to manufacture significance. The low-level sampler remains strict unless passed
 an unavailable-target audit list; the repertoire reducer masks the entire null
 inference for audited targets.
+
+### Optional TCRnet-filtered matching comparison
+
+Use `repertoire-tcrnet` / `vdjmatch.TcrnetMatcher` for the separately requested
+counts-and-assay-support route: TCRnet on both sample/locus and full-pMHC/locus
+reference populations, then existing flexible VDJmatch matching. Default filter
+FDR is0.1 and matching scope3,1,1,3; declare settings before evaluating outcomes.
+Reference filtering is computed once within a fresh cohort. Preserve raw
+denominators, gene variants, pairing, orphans, filter evidence and zero-hit rows.
+Do not emit or transfer repertoire P-values, multiply filtering probabilities,
+assume random backgrounds become empty, or claim a new TCRnet statistical test.

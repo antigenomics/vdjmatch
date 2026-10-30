@@ -2675,3 +2675,41 @@ A zero mock mean gives an undefined enrichment ratio; observed and expected
 counts and excess remain available. Mock quantiles are not donor-level confidence
 intervals. Dextramer assignments and HLA compatibility are external assay evidence;
 missing assay results must not be interpreted as binding-negative labels.
+
+TCRnet-filtered repertoire matching
+-----------------------------------
+
+``repertoire-tcrnet`` is an independent counts-and-assay-support comparison. It
+uses the existing ``vdjtools.overlap.tcrnet`` test on each sample/locus and each
+full-pMHC/locus reference population. The TCRnet neighbourhood is Hamming<=1;
+filtering requires its BH q-value below ``--tcrnet-fdr`` (default 0.1) and
+observed degree above background expectation. The target self-hit is removed;
+exact background hits are retained. These are filtering probabilities, not
+repertoire probabilities.
+
+.. code-block:: console
+
+   vdjmatch repertoire-tcrnet samples.tsv --vdjdb reference.zip \
+     --control control.tsv.gz --tcrnet-fdr 0.1 --scope 3,1,1,3 \
+     --threads 4 --output-prefix filtered
+
+The default flexible matching scope permits at most three substitutions, one
+insertion, one deletion and three total edits. Existing VDJmatch/VDJAM matching
+retains all supported reference hits and reports its distance score; it does not
+force a top label or turn distance into confidence. V equality is optional with
+``--match-v``. Freeze the scope before evaluating a cohort; this is not a
+threshold sweep or a replacement for precision-oriented reference-null testing.
+
+``--locus paired`` requires ``--control-tra`` plus ``--control`` for TRB and
+non-null ``pair_id`` for every input chain, including orphans. Junction filtering
+restores all original gene variants and paired identities. Each receptor counts
+once per pMHC if any retained chain matches. The denominator always includes
+the original eligible receptors, including filtered and unmatched receptors.
+
+Outputs are ``summary.tsv`` (raw/retained/matched counts), ``hits.tsv``,
+``sample-filter.tsv``, ``reference-filter.tsv``, ``ingestion.tsv`` and a frozen
+input/source manifest. Targets removed entirely by filtering retain zero-match
+summary rows. No repertoire P/q-values or significant-call columns are emitted.
+No Pgen probability is used in this mode; bundled gene-imputation models are
+identified separately when recording normalization provenance. Empty mock
+results are not assumed by construction.

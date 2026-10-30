@@ -2,19 +2,53 @@
 from pathlib import Path
 
 
+def _genes(frame,locus,*,species='human'):
+    import polars as pl
+    from .repertoire_enrichment import _single_v
+    from ..evalue.mock_reference import _modal_gene
+    frame=_single_v(frame,'v',species=species,locus=locus)
+    frame=frame.with_columns(pl.col('j').str.replace(r'\*.*$','').alias('j'))
+    good=pl.col('j').str.contains('^'+locus+'J[A-Z0-9/.-]+$').fill_null(False)
+    if frame.filter(~good).height:
+        modal=_modal_gene(frame.filter(good),'j',species=species,locus=locus,kind='j').split('*')[0]
+        frame=frame.with_columns(pl.when(good).then(pl.col('j')).otherwise(pl.lit(modal)).alias('j'))
+    return frame
+
+def _read_control(path,*,species,locus):
+    import polars.selectors as cs
+    from ..evalue.mock_reference import control_events
+    from ..io.airr import _read_table
+    control_columns=cs.matches(r'(?i)^(junction_aa|cdr3aa|cdr3|cdr3_aa|v|j|v_call|j_call|v_gene|j_gene|v\.segm|j\.segm|locus|chain|species|organism|junction|cdr3nt|junction_nt|cdr3_nt|sequence_id|sample_id|sample|repertoire_id|occurrences|convergence|incidence|original_v|original_j|v_imputed|j_imputed)$')
+    return control_events(_read_table(path,columns=control_columns),species=species,locus=locus)
+
+def _observations(frame,*,locus,species):
+    import polars as pl
+    loci=['TRA','TRB'] if locus=='paired' else [locus]
+    if locus!='paired':frame=frame.with_columns(pl.col('locus').fill_null(locus))
+    valid=pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)&pl.col('locus').is_in(loci).fill_null(False)
+    selected=frame.filter(valid);parts=[]
+    for (chain,),part in selected.partition_by('locus',as_dict=True).items():parts.append(_genes(part,chain,species=species))
+    if not parts:raise ValueError('sample has no valid selected-locus receptors')
+    selected=pl.concat(parts)
+    if locus=='paired':
+        if selected['pair_id'].null_count() or selected['pair_id'].str.strip_chars().eq('').any():raise ValueError('paired mode requires non-null pair_id for every chain, including orphans')
+        obs=selected.select(pl.col('pair_id').alias('receptor_id'),'locus',pl.col('cdr3').alias('junction_aa'),'v','j','count')
+    else:
+        obs=selected.group_by('locus','cdr3','v','j').agg(pl.col('count').sum()).sort('locus','cdr3','v','j').with_row_index('_id').select(pl.col('_id').cast(pl.String).alias('receptor_id'),'locus',pl.col('cdr3').alias('junction_aa'),'v','j','count')
+    return selected,obs
+
 def main(a):
     import json,time
     from importlib.metadata import version
     import polars as pl
-    import polars.selectors as cs
     from vdjtools.biomarker.stats import fdr_bh
     from .. import db,io
     from ..aggregate.candidates import PMHC
     from ..aggregate.repertoire_enrichment import reference_enrichment
-    from ..evalue.mock_reference import control_events,compute_pgen,load_pgen_features,_pgen_model_identity,_modal_gene
+    from ..evalue.mock_reference import compute_pgen,load_pgen_features,_pgen_model_identity
     from ..io.airr import _read_table
     from ..runner.annotation import _validate_output_paths
-    from .repertoire_enrichment import _single_v,_repertoire_strata
+    from .repertoire_enrichment import _repertoire_strata
 
     started=time.monotonic()
     if a.mock_replicates<200 or a.seed<0 or a.threads<1:
@@ -64,24 +98,15 @@ def main(a):
     inventory=reference.select(PMHC).unique().sort(PMHC,nulls_last=True).with_columns(pl.struct(PMHC).struct.json_encode().alias('group_id'))
     reference=reference.join(inventory,on=PMHC,validate='m:1',nulls_equal=True)
     pools={};ref_parts=[];audits=[];prepared={};stages={}
-    def genes(frame,locus):
-        frame=_single_v(frame,'v',species=a.species,locus=locus)
-        frame=frame.with_columns(pl.col('j').str.replace(r'\*.*$','').alias('j'))
-        good=pl.col('j').str.contains('^'+locus+'J[A-Z0-9/.-]+$').fill_null(False)
-        if frame.filter(~good).height:
-            modal=_modal_gene(frame.filter(good),'j',species=a.species,locus=locus,kind='j').split('*')[0]
-            frame=frame.with_columns(pl.when(good).then(pl.col('j')).otherwise(pl.lit(modal)).alias('j'))
-        return frame
     for locus in loci:
         t=time.monotonic()
-        control_columns=cs.matches(r'(?i)^(junction_aa|cdr3aa|cdr3|cdr3_aa|v|j|v_call|j_call|v_gene|j_gene|v\.segm|j\.segm|locus|chain|species|organism|junction|cdr3nt|junction_nt|cdr3_nt|sequence_id|sample_id|sample|repertoire_id|occurrences|convergence|incidence|original_v|original_j|v_imputed|j_imputed)$')
-        raw=control_events(_read_table(control_paths[locus],columns=control_columns),species=a.species,locus=locus)
+        raw=_read_control(control_paths[locus],species=a.species,locus=locus)
         stages[locus+'_control_ingestion_seconds']=time.monotonic()-t
         print(f'{locus}: control ingestion complete ({raw.height} keys)',flush=True)
-        control=genes(raw,locus).select('junction_aa','v','j').unique().sort('junction_aa','v','j')
+        control=_genes(raw,locus,species=a.species).select('junction_aa','v','j').unique().sort('junction_aa','v','j')
         part=reference.filter(pl.col('gene')==locus).rename({'cdr3':'junction_aa','gene':'locus'})
         if not part.height:continue
-        part=genes(part,locus)
+        part=_genes(part,locus,species=a.species)
         if features[locus]:
             pgen,prepared[locus]=load_pgen_features(features[locus],part,control,species=a.species,locus=locus,mismatches=a.pgen_mismatches)
         else:
@@ -97,17 +122,7 @@ def main(a):
     summaries=[];mocks=[];hits=[];reports=[]
     for number,(sample,path) in enumerate(zip(metadata['sample_id'],paths)):
         t=time.monotonic();frame,report=io.read_rearrangement(path,valid_aa=False,return_report=True)
-        if a.locus!='paired':frame=frame.with_columns(pl.col('locus').fill_null(a.locus))
-        valid=pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)&pl.col('locus').is_in(loci).fill_null(False)
-        selected=frame.filter(valid);parts=[]
-        for (locus,),part in selected.partition_by('locus',as_dict=True).items():parts.append(genes(part,locus))
-        if not parts:raise ValueError(f'sample {number+1} has no valid selected-locus receptors')
-        selected=pl.concat(parts)
-        if a.locus=='paired':
-            if selected['pair_id'].null_count() or selected['pair_id'].str.strip_chars().eq('').any():raise ValueError('paired mode requires non-null pair_id for every chain, including orphans')
-            obs=selected.select(pl.col('pair_id').alias('receptor_id'),'locus',pl.col('cdr3').alias('junction_aa'),'v','j','count')
-        else:
-            obs=selected.group_by('locus','cdr3','v','j').agg(pl.col('count').sum()).sort('locus','cdr3','v','j').with_row_index('_id').select(pl.col('_id').cast(pl.String).alias('receptor_id'),'locus',pl.col('cdr3').alias('junction_aa'),'v','j','count')
+        selected,obs=_observations(frame,locus=a.locus,species=a.species)
         summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j)
         summaries.append(summary.with_columns(pl.lit(sample).alias('sample_id')))
         mocks.append(mock.with_columns(pl.lit(sample).alias('sample_id')))

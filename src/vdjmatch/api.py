@@ -1154,3 +1154,7 @@ def repertoire_enrichment(observations, reference, controls, **options):
     """
     from .aggregate.repertoire_enrichment import reference_enrichment
     return reference_enrichment(observations, reference, controls, **options)
+
+
+# Fixed-background reference filtering is shared across samples in a fresh cohort.
+from .aggregate.repertoire_tcrnet import TcrnetMatcher

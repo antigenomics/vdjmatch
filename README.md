@@ -453,3 +453,17 @@ All no-hit targets remain in the outputs. See the
 [CLI contract](https://docs.isalgo.dev/vdjmatch/cli.html) for matching, Pgen,
 replicate resolution, test families and input schemas. The historical
 `--null repertoire` mode remains separate.
+
+An independent counts-only comparison filters both the sample and each pMHC
+reference with the existing TCRnet neighbourhood test, then runs flexible
+VDJmatch matching:
+
+```sh
+vdjmatch repertoire-tcrnet samples.tsv --vdjdb reference.zip \
+  --control control.tsv.gz --tcrnet-fdr 0.1 --scope 3,1,1,3 \
+  --threads 4 --output-prefix filtered
+```
+
+This mode exports filter evidence, matching hits and raw-denominator counts;
+it does not produce repertoire P-values or assume random backgrounds filter to
+an empty set. Paired inputs retain orphan chains and count each receptor once.

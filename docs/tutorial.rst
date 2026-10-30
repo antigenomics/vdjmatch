@@ -157,3 +157,10 @@ and junction identities. Set the policy, matching radius, replicate count and
 significance family before examining outcome scores. See :doc:`cli` for a complete
 command and paired-input requirements. A significant sample is enriched relative
 to that null; its contributing receptors are not thereby experimentally validated.
+
+A separate filtering-first comparison is available with ``repertoire-tcrnet``.
+It runs the existing TCRnet neighbourhood test on samples and reference targets,
+then flexible VDJmatch lookup. Use its raw-denominator counts, longitudinal
+changes and linked assay evidence; it does not emit repertoire P-values. Keep
+its filter FDR and matching scope explicit and separate from reference-null
+enrichment settings.
