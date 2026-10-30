@@ -413,6 +413,17 @@ do not remove the dual-use suffix or substitute a different allele.
 
 ## M3 reference-null repertoire inference
 
+For compiled-reference-panel bulk reproduction use `repertoire-exact`, with probe
+junction/V/J keys and generated-model V/J counts. Preserve source-row/read
+counts, exact V/J/junction matching, AA-max joint Pgen, within-V add-one J
+correction and the 2^-80 floor. `--sampler r --pool-mhc` reproduces original
+single-epitope draws; declare original FDR groups with `--fdr-group`.
+The NumPy backend follows the same sampling law, not R's seeded draws.
+Keep complete-zero tests separate from `original_*` statistics that omit
+zero-hit mock groups. See the compiled-reference-panel section in docs/cli.rst.
+The mode below is a separate marginal-Pgen/flexible-matching comparison.
+
+
 Use `repertoire-enrichment METADATA --null reference --vdjdb RAW --control RAW_CONTROL
 --threads N --output-prefix NEW` to hold samples fixed and randomize epitope
 references. Defaults: curated reference, exact marginal junction Pgen, V+Hamming1,

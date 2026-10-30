@@ -2720,3 +2720,40 @@ and query junction, with the minimum matching distance in ``score``. Detailed
 reference observations remain available through ``Annotator.hits``. The CLI
 writes each sample's compact hits and filter audit directly to its final files;
 a completed manifest is required before treating those files as successful output.
+
+Compiled-reference-panel repertoire calculation
+-----------------------------------------------
+
+``repertoire-exact`` preserves the original bulk-repertoire counting unit:
+source clonotype rows and their summed reads, matched by exact junction/V/J.
+Multiple source rows with the same amino-acid/V/J key remain distinct records.
+One batched join counts all freshly sampled reference panels per sample.
+
+The probe table contains ``junction_aa``, ``v`` and ``j``. Optional
+``joint_pgen`` values are an explicitly supplied gene-masked probability asset;
+otherwise the command computes joint probabilities with the native model,
+summing compatible V/J alleles. The original AA-only maximum reducer and
+within-V, add-one J-usage correction define the strata, with the compiled
+notebook's ``2**-80`` floor. Model V/J counts are a separate ``v,j,records``
+table from the generation model, not experimental read counts.
+
+.. code-block:: bash
+
+   vdjmatch repertoire-exact samples.tsv --vdjdb reference.zip \
+     --control probes.tsv --model-vj-counts model-vj.tsv \
+     --epitope PEPTIDE --threads 4 --output-prefix results/reference-panel
+
+Metadata requires ``sample_id,path``. Repeated ``--fdr-group COLUMN`` options
+select metadata-defined BH families within each target. Default target labels
+retain full pMHC; ``--pool-mhc`` explicitly reproduces the original epitope
+union. ``--sampler r`` requires Rscript and reproduces base-R sampling for one
+target, preserving probe order. The default NumPy sampler has the same uniform
+stratified sampling law but does not promise identical seeded draws to R.
+
+Both record and read endpoints include complete-zero empirical tails, nominal
+P<0.05 and BH q<0.1 positive-enrichment calls. Separate ``original_*`` columns
+preserve the compiled notebook's omission of zero-hit mock groups, sample
+standard deviations, log2(reads+1) effects and significance calculation.
+They are reproduction diagnostics, not interchangeable with complete-zero tails.
+Fresh counts, summary, V/J audit, reference-bin audit and input/source provenance
+are exported. No calculated mock panels are reused between invocations.

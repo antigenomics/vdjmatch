@@ -312,9 +312,9 @@ def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='hum
     return sequences.with_columns(pl.Series('pgen', probabilities))
 
 
-def vdjbet_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
+def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
                   model_vj: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Reproduce the compiled vdjbet probability strata and V/J audit.
+    """Reproduce the compiled reference-panel probability strata and V/J audit.
 
     Probes contain unique junction_aa/v/j keys and joint gene-masked ``pgen``.
     The original AA-only probability join takes the maximum over keys sharing
@@ -353,7 +353,7 @@ def vdjbet_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
     return result.with_columns(pl.Series('pgen_bin',bins)),audit
 
 
-def sample_vdjbet_panels(reference: pl.DataFrame, probes: pl.DataFrame, *,
+def sample_stratified_panels(reference: pl.DataFrame, probes: pl.DataFrame, *,
                         replicates=200, seed=42, sampler='numpy') -> pl.DataFrame:
     """Draw fresh exact-bin reference panels; optionally reproduce base-R draws.
 

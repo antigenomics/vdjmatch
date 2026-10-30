@@ -443,6 +443,18 @@ ISALGO LAB Academic and Non-Commercial Research License v1.0. See [`LICENSE`](LI
 
 ### Repertoire-level enrichment (M3)
 
+`vdjmatch repertoire-exact samples.tsv --vdjdb reference.zip --control probes.tsv --model-vj-counts model-vj.tsv --output-prefix enrichment`
+preserves the compiled reference-panel bulk calculation: exact junction/V/J matching,
+source clonotype rows and read abundance, joint Pgen with the original AA-max
+reducer and within-V J-usage correction. Use `--sampler r --pool-mhc` for the
+original single-epitope sampling convention; declare replicate-level correction
+families explicitly with repeated `--fdr-group` options. NumPy is the default
+sampler. Complete-zero tests and original-notebook statistics are separate columns.
+
+The following flexible-matching mode uses a different null and counting unit;
+it is not a reproduction of the compiled reference-panel calculation.
+
+
 `vdjmatch repertoire-enrichment samples.tsv --null reference --vdjdb reference.zip --control control.tsv.gz --threads 4 --output-prefix enrichment`
 holds each repertoire fixed and compares its unique receptor support against fresh
 Pgen-matched mock epitope corpora. `--mock-policy pgen-vj` preserves V/J usage;

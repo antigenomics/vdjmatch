@@ -936,6 +936,8 @@ def main(argv: list[str] | None = None) -> int:
     register_repertoire_enrichment(sub)
     from .repertoire_tcrnet import register as register_repertoire_tcrnet
     register_repertoire_tcrnet(sub)
+    from .repertoire_exact import register as register_repertoire_exact
+    register_repertoire_exact(sub)
     from .fixed_scope import register as register_fixed_scope
     register_fixed_scope(sub)
     register_fixed_scope(sub, trained=True)
@@ -947,6 +949,7 @@ def main(argv: list[str] | None = None) -> int:
     native_threads = None
     evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     evidence_commands.add('paired-score')
+    evidence_commands.add('repertoire-exact')
     evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment', 'repertoire-tcrnet'})
     if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
         evidence_commands.add('annotate')
