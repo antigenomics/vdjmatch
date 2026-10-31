@@ -31,7 +31,13 @@ The bulk ``repertoire-exact`` command accepts the same four names through
 ``--matcher`` and the bound through ``--radius-factor``. It preserves its original
 panel sampler and source-row/read units, including repeated source rows. Exact J
 is retained in every bulk family; V equality applies only to ``v-`` families.
-It searches all observed/mock panel memberships in one native batch per sample.
+For these graded families, substitution costs are symmetric and insertion and
+deletion budgets/costs are equal, so exchanging the two alignment rows preserves
+the minimum cost. The bulk count path therefore indexes the repertoire once and
+batches the smaller real/mock panel junctions as queries. Resolved V/J predicates
+are joined to the sparse hits before deduplicating source observations. This
+reuses the existing native search for large-repertoire/small-panel workloads;
+receptor-level NED rankings keep their own query-conditioned interpretation.
 
 Software parity is checked against the existing graded API. The new M3
 four-family cohort comparison and operating-point selection are still pending;
