@@ -134,6 +134,38 @@ unconditional random labeling. These observations motivate a comparison; they
 do not establish that the existing result is invalid or guarantee an alternative
 will improve it. No new null model or threshold sweep is introduced here.
 
+What is optimal under a stated model?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Fix the reference, matching rule and threshold before testing a sample of N
+independent receptors. Let X_i indicate whether receptor i has at least one
+qualifying match, and K=sum(X_i). Suppose every X_i is Bernoulli(b) under the
+background hypothesis and Bernoulli(a) under the response hypothesis, with
+0<b<a<1. The likelihood ratio is
+
+L(K)=(a/b)^K ((1-a)/(1-b))^(N-K).
+
+Increasing K by one multiplies L by a(1-b)/(b(1-a)), which exceeds one because
+a>b. For a fixed background rejection probability, assigning rejection to
+outcomes with larger likelihood ratios maximizes response probability: swapping
+equal background mass from a smaller ratio to a larger one increases the
+response mass. Therefore an upper-tail test on K is the most powerful test at a fixed
+false-positive rate for these two simple Bernoulli hypotheses (randomizing at
+the boundary if needed). This proves optimality of the count ordering under
+that model, not optimality of a particular matching geometry, Hamming radius
+or V predicate. Those choices change a and b and must be compared empirically.
+Read-weighted support has a different sampling model; this proof does not
+make reads independent receptor observations. M3 retains its matched mock tails
+rather than replacing them with this illustrative binomial model.
+
+Training determines a scoring rule; calibration determines an operating point
+for a specified event and reference/null population; evaluation measures its
+performance on the declared test population. The earlier selected-kernel
+calibration is therefore useful evidence for its receptor-level event. It does
+not select the most powerful sample-level count test across these four
+alignment families. M3 can keep the trained scoring parameters fixed while
+comparing individual-distance cutoffs using the recorded sample endpoints.
+
 V and J matching are part of the hypothesis
 -------------------------------------------
 
@@ -160,14 +192,16 @@ When can hard V equality be optimal?
 
 Let H1 mean target-specific recognition and H0 mean matched background. For
 junction comparison d and V relationship g, the full likelihood ratio is
-L(d,g)=P(d,g|H1)/P(d,g|H0), wherever the denominator is positive. A hard V
-filter is justified without loss only under the strong assumption
+L(d,g)=P(d,g|H1)/P(d,g|H0), wherever the denominator is positive. A sufficient condition for a hard V
+filter to be lossless is the strong assumption
 P(g is unequal|H1)=0 (and correctly observed V calls). Then every unequal-V
 case has zero numerator and can be rejected by an optimal likelihood-ratio
 rule. This assumption is not established by the present results. If unequal V
-occurs under H1, hard equality can discard real signal. Conversely, dropping V
-is lossless only if L(d,g) is independent of g conditional on the retained
-features. Neither condition follows from Pgen matching.
+occurs under H1, hard equality can discard real signal. At a fixed likelihood-ratio cutoff c, the weaker condition that every
+excluded unequal-V case has L(d,g)<=c is already sufficient (with ties handled
+consistently). Conversely, dropping V is lossless across operating points if
+L(d,g) is independent of g conditional on the retained features. Neither
+sufficient condition follows from Pgen matching.
 
 Thus exact V, fuzzy loop geometry and no V correspond to different assumptions
 about germline contribution. Test their matched-case effects before declaring
