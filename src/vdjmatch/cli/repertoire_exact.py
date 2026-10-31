@@ -16,9 +16,8 @@ def register(sub):
     p.add_argument('--selection-profile',help='Opt-in length | vj-length | vdjtools calibration JSON')
     p.add_argument('--source',default=None,help='Model source; default isalgo (legacy human: olga-legacy)')
     p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
-    p.add_argument('--matcher',choices=['exact','hamming','blosum62','positional-blosum62'],default='exact')
+    p.add_argument('--matcher',choices=['exact','hamming'],default='exact')
     p.add_argument('--mismatches',type=int,default=1,help='Hamming substitutions; exact V/J retained')
-    p.add_argument('--max-penalty',type=int,help='Inclusive weighted penalty; required for BLOSUM modes')
     p.add_argument('--sampler',choices=['numpy','r'],default='numpy')
     p.add_argument('--mock-replicates',type=int,default=200)
     p.add_argument('--seed',type=int,default=42)
@@ -107,8 +106,6 @@ def main(a):
     a.threads = kernel_threads(a.threads)
     if a.mock_replicates<2 or a.seed<0 or a.threads<1:raise ValueError('at least two mocks, nonnegative seed and positive threads required')
     if not 0<=a.mismatches<=3:raise ValueError('zero to three mismatches required')
-    if a.matcher in {'blosum62','positional-blosum62'} and (a.max_penalty is None or a.max_penalty<=0):
-        raise ValueError('weighted matching requires a positive integer penalty')
     start=time.monotonic();meta_path=Path(a.metadata).expanduser().resolve();meta=_read_table(meta_path)
     needed=['sample_id','path',*a.fdr_group]
     if not set(needed)<=set(meta.columns) or not meta.height or meta['sample_id'].n_unique()!=meta.height:
@@ -184,7 +181,7 @@ def main(a):
     panels=pl.concat([reference.select('group_id',*keys).with_columns(pl.lit(-1,dtype=pl.Int64).alias('replicate')),mocks.select('group_id',*keys,pl.col('replicate').cast(pl.Int64))])
     counts=[]
     for i,(sample,path) in enumerate(zip(meta['sample_id'],paths),1):
-        counts.append(exact_reference_counts(_source(path,locus=a.locus),panels,matcher=a.matcher,mismatches=a.mismatches,max_penalty=a.max_penalty,threads=a.threads).with_columns(pl.lit(sample).alias('sample_id')))
+        counts.append(exact_reference_counts(_source(path,locus=a.locus),panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads).with_columns(pl.lit(sample).alias('sample_id')))
         print(f'counted sample {i}/{len(paths)}',flush=True)
     counts=pl.concat(counts);summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
     parts=[]

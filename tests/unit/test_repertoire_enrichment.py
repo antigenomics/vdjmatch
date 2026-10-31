@@ -410,17 +410,17 @@ def test_fuzzy_cutoff_rejected_before_cli_input_loading(cutoff):
         main(SimpleNamespace(tra_min_score=cutoff, tra_matcher='stem4'))
 
 
-@pytest.mark.parametrize('matcher,bound', [('hamming',None),('blosum62',1400),('positional-blosum62',2000)])
+@pytest.mark.parametrize('matcher,bound', [('hamming',None)])
 def test_bulk_panel_matchers_count_each_source_row_once(matcher,bound):
     from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
     obs=pl.DataFrame(dict(junction_aa=['CASSIIDAYEQYF','CASSIIDAYEQYF','CASSMMDAYEQYF','CASSIIRAYEQYF','CASSIIDAYEQYF'],
         v=['V']*5,j=['J']*4+['wrong'],count=[2,3,7,11,100]))
     panels=pl.DataFrame(dict(group_id=['X','X','X','none'],replicate=[-1,-1,0,0],
         junction_aa=['CASSIIDAYEQYF','CASSMIDAYEQYF','CASSIIDAYEQYF','CWWWWWWWWWWWF'],v=['V']*4,j=['J']*4))
-    result=exact_reference_counts(obs,panels,matcher=matcher,max_penalty=bound)
+    result=exact_reference_counts(obs,panels,matcher=matcher)
     assert result.select('matched_records','matched_reads').rows()==(
         [(4,23),(3,16),(0,0)] if matcher=='hamming' else [(3,12),(3,12),(0,0)])
-    parallel=exact_reference_counts(obs,panels,matcher=matcher,max_penalty=bound,threads=2)
+    parallel=exact_reference_counts(obs,panels,matcher=matcher,threads=2)
     assert result.equals(parallel)
-    empty=exact_reference_counts(obs.head(0),panels,matcher=matcher,max_penalty=bound)
+    empty=exact_reference_counts(obs.head(0),panels,matcher=matcher)
     assert empty['matched_records'].sum()==empty['matched_reads'].sum()==0
