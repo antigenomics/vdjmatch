@@ -456,6 +456,18 @@ ISALGO LAB Academic and Non-Commercial Research License v1.0. See [`LICENSE`](LI
 
 ### Repertoire-level enrichment (M3)
 
+Start with the [algorithm and parameter guide](docs/repertoire-method.rst).
+It explains the two null models, matching/V/J choices, chain and epitope
+aggregation, Fisher evidence and the completed manuscript comparisons.
+There is no universal best radius: positional BLOSUM62 radius 0.30 improved
+bulk day15 clonotype detection (5/7 libraries; 7/7 by reads, 0/12 day0), while
+Hamming<=1 retained the broader paired single-cell exposure coverage
+(5/6 day14 donors, 6/6 ever post, 0/6 prechallenge). These are different endpoints.
+Keep exact Pgen, original correction families and the full reference scope
+attached to each result. Chain P-values support inference; paired exposure and
+cross-epitope unions are descriptive. See the guide before transferring settings.
+
+
 `vdjmatch repertoire-exact samples.tsv --vdjdb reference.zip --control probes.tsv --model-vj-counts model-vj.tsv --output-prefix enrichment`
 preserves the compiled reference-panel bulk calculation: exact junction/V/J matching,
 source clonotype rows and read abundance, joint Pgen with the original AA-max

@@ -138,3 +138,22 @@ the biological workflows alongside the original gallery in a fresh environment:
 
 Use a new directory for each verification. The checker records cell timing and
 keeps complete execution outputs private; docs builds never execute notebooks.
+
+
+## Read the biological examples in the right order
+
+1. Run `annotation.ipynb` to learn query identities, complete pMHC keys and no-hit
+   outputs on offline fixtures; it does not validate biological specificity.
+2. Run `comparison.ipynb` to inspect matcher/geometry differences on identical
+   queries. An annotation score is not a repertoire enrichment P-value.
+3. Read `vaccination.ipynb` as an annotation/coverage example. Its neighbourhood
+   evidence is distinct from the manuscript's mock-reference enrichment test.
+4. Use the [repertoire method guide](../docs/repertoire-method.rst) to select
+   the null, matching/V/J rule, counting unit and aggregation before interpreting
+   repertoire outputs. Do not transfer a selected bulk radius to paired exposure
+   solely because both workflows use the same sequences or matrix.
+
+For manuscript reporting notebooks, consume the authoritative final CLI tables
+with their manifests. Replotting does not authorize rescoring. Inspect chain
+P-values beside nominal/BH families; show paired/union support without statistical
+borders. Keep all timepoints and separate technical libraries from donors.

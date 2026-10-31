@@ -574,3 +574,22 @@ For cohorts that fit in memory, reference-null ``repertoire-enrichment --batch-s
 shares each seeded mock draw and native search across samples. It preserves
 per-sample receptor identities, counts, null statistics and the selected BH family.
 The default still loads and processes one sample at a time.
+
+
+## Repertoire interpretation and manuscript operating points
+
+Read `docs/repertoire-method.rst` before selecting repertoire matchers or
+combining evidence. Keep `repertoire-exact` historical bulk reproduction separate
+from flexible `repertoire-enrichment --null reference` inference.
+There is no demonstrated universally optimal matcher: bulk positional radius0.30
+and paired Hamming<=1 have different demonstrated strengths. Exact Pgen remains
+separate from search radius. Never infer Hamming optimality from nested counts;
+real and mock supports both change. State exact/fuzzy/no V and J predicates
+separately; kernel geometry is not a V-only contrast. Apply matching identically
+to observed and mock panels. Interpret statistics at sample-chain/epitope-chain
+level; retain paired/union outputs as descriptive. Fisher's -2 sum log P is an
+evidence score here, with target count and component tests, not a calibrated
+exposure P-value. Do not select only significant components or duplicate evidence
+across chains and reducers. Retain full pMHC, HLA compatibility, orphan chains,
+zero hits, unavailable nulls and receptor/cell denominators. New comparisons or
+null calibration require explicit authorization; no Pgen result caches.

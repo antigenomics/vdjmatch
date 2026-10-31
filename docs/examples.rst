@@ -181,3 +181,13 @@ builds render saved outputs without executing them.
 
 Use :doc:`how-to` for your own formats, :doc:`explanation` to interpret evidence,
 and :doc:`cli`/:doc:`api` for command and library details.
+
+
+From examples to manuscript interpretation
+-------------------------------------------
+
+The offline annotation/comparison notebooks teach file and score semantics.
+The vaccination notebook reports annotation neighbourhood evidence, not the
+mock-reference enrichment test. Read :doc:`repertoire-method` for the tested
+bulk and paired operating points, V/J restrictions and aggregation choices,
+and :doc:`how-to` for an explicit paired chain-test command.

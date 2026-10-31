@@ -300,6 +300,9 @@ uses the installed model, including its documented anchor repairs.
 Repertoire enrichment with mock target corpora
 ----------------------------------------------
 
+For operating points, matching optimality, V/J constraints and evidence
+aggregation, start with :doc:`repertoire-method`.
+
 M3's reference-null test fixes a sample and counts its distinct receptor identities
 supporting each pMHC. A receptor matches when an available chain satisfies the
 specified full-junction Hamming radius and gene predicate. Chain union is evaluated
@@ -311,8 +314,9 @@ For target ``e``, let ``K_e`` be the observed matched-receptor count, ``B`` the 
 of fresh mock target corpora, and ``K_eb`` the count for mock ``b``. The one-sided
 empirical tail is ``(1 + sum_b I[K_eb >= K_e]) / (B + 1)``. Ties and zero-hit mocks
 are retained. The expected count is the mean of ``K_eb``; excess is observed minus
-expected. The same calculations on summed receptor abundance are descriptive
-secondary endpoints. Biological donor replication is distinct from mock replication.
+expected. The same calculations on summed receptor abundance provide a separate chain-level
+endpoint. Paired and cross-target exposure summaries remain descriptive under
+the manuscript interpretation. Biological donor replication is distinct from mock replication.
 
 The construction matches reference publicity while
 removing selected target identities. It uses native marginal full-junction Pgen,
@@ -359,5 +363,7 @@ membership indicator, while its continuous value remains in real hit exports.
 The shared vdjtools reducer combines chains only within a receptor/full-target
 key. The selected separate, union or intersection rule is identical in real and
 mock panels; repertoire inference tests counts and abundance under that rule.
-No chain-score product or independence assumption is introduced. The complete
+No chain-score product or independence assumption is introduced by the reducer.
+The current manuscript interprets statistical tests only for separate chains;
+paired/union results are descriptive exposure summaries. The complete
 TRA reference panel supplies its fixed kernel model for every query in that draw.
