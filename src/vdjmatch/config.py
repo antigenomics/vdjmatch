@@ -13,6 +13,9 @@ import json
 from pathlib import Path
 
 
+GRADED_FAMILIES = ('unit', 'v-unit', 'weighted', 'v-weighted')
+
+
 @dataclasses.dataclass
 class Params:
     """Effective ``match`` parameters (one run's full configuration)."""

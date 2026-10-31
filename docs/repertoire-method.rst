@@ -8,7 +8,9 @@ The four established comparison families are unit, V-unit, weighted and
 V-weighted. They cross unit/weighted edit-bounded search with absence/presence
 of hard V equality. Their NED score also retains the existing soft V weight
 when hard equality is disabled. The implementation is owned by
-``Annotator.graded_candidates`` and the shared candidate reducer.
+``Annotator.graded_candidates`` and the shared candidate reducer. The M3
+count adapter uses ``Annotator.target_memberships`` to preserve the same native
+search and gene handling while omitting unused NED rankings.
 
 M3 now exposes those four geometries through the same matcher names. Supply
 ``--tra-radius-factor`` or ``--trb-radius-factor`` as an explicit upper bound

@@ -1,6 +1,6 @@
 """Exact reference-panel enrichment preserving source-row and read counts."""
 from pathlib import Path
-from ..match.scope import GRADED_FAMILIES, graded_family_params
+from ..config import GRADED_FAMILIES
 
 
 def register(sub):
@@ -125,6 +125,7 @@ def main(a):
         from ..match.scope import blosum_radius_params
         blosum_radius_params(a.matcher,factor,1)
     elif a.matcher in GRADED_FAMILIES:
+        from ..match.scope import graded_family_params
         graded_family_params(a.matcher,a.mismatches,factor)
     elif factor is not None:raise ValueError('--radius-factor requires a BLOSUM or graded family matcher')
     start=time.monotonic();meta_path=Path(a.metadata).expanduser().resolve();meta=_read_table(meta_path)

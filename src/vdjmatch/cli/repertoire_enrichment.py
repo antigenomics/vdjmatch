@@ -1,6 +1,6 @@
 """Fresh strict Pgen/count-matched repertoire enrichment one repertoire and one mock at a time."""
 from pathlib import Path
-from ..match.scope import GRADED_FAMILIES, graded_family_params
+from ..config import GRADED_FAMILIES
 
 
 def _single_v(frame,column,*,species='human',locus='TRB',impute=True):
@@ -75,6 +75,7 @@ def main(a):
             from ..match.scope import blosum_radius_params
             blosum_radius_params(matcher,factor,1)
         elif matcher in GRADED_FAMILIES:
+            from ..match.scope import graded_family_params
             graded_family_params(matcher,a.mismatches,factor)
         elif factor is not None:raise ValueError('radius factor requires a BLOSUM matcher')
     if a.pgen_mismatches is None:a.pgen_mismatches = 0 if a.null == 'reference' else 1

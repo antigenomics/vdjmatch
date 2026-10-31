@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from seqtree import SearchParams
 
-GRADED_FAMILIES = ('unit', 'v-unit', 'weighted', 'v-weighted')
+from ..config import GRADED_FAMILIES
 
 
 def parse_scope(spec: str) -> tuple[int, int, int, int]:
