@@ -271,7 +271,7 @@ These are proposals with distinct verification requirements, not measured gains.
 No new experiment, fitted rule, cache, null model or software default is added.
 
 Runtime records for later optimization
--------------------------------------
+--------------------------------------
 
 Bulk CLI manifests include ``stage_seconds`` and ``sample_timings``. Stage
 timings separate input/identity checks, reference/probe loading, Pgen/selection,
