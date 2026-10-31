@@ -165,7 +165,7 @@ def main(a):
         if a.batch_samples:
             cohort.append(obs.with_columns(pl.lit(sample).alias('sample_id')))
         else:
-            summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,species=a.species,progress=progress)
+            summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,progress=progress)
             summaries.append(summary.with_columns(pl.lit(sample).alias('sample_id')))
             mocks.append(mock.with_columns(pl.lit(sample).alias('sample_id')))
             hits.append(hit.with_columns(pl.lit(sample).alias('sample_id')))
@@ -176,7 +176,7 @@ def main(a):
         t=time.monotonic()
         def cohort_progress(stage,replicate):
             print(f'cohort: {stage} {replicate} after {time.monotonic()-t:.3f}s',flush=True)
-        summary,mock,hit=reference_enrichment(pl.concat(cohort),ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,species=a.species,progress=cohort_progress)
+        summary,mock,hit=reference_enrichment(pl.concat(cohort),ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,progress=cohort_progress)
         summaries.append(summary);mocks.append(mock);hits.append(hit)
         stages['cohort_seconds']=time.monotonic()-t
     summary=pl.concat(summaries)
@@ -205,7 +205,7 @@ def main(a):
         models=models,prepared_pgen=prepared,software={n:version(n) for n in ['vdjmatch','vdjtools','seqtree','polars','numpy','scipy']},
         options=vars(a)|{'func':a.func.__name__},reference_population=population,counting_unit='unique receptor identity',
         paired_rule=f'{a.chain_mode} of available chain supports, counted once per receptor/target; same rule in real and mock panels',
-        matchers=dict(TRB=f'Hamming<={a.mismatches}, exact V'+(', exact J' if a.match_j else ''),TRA=a.tra_matcher),
+        matchers={locus:(f'Hamming<={a.mismatches}, exact V'+(', exact J' if a.match_j else '') if matcher=='hamming' else matcher) for locus,matcher in [('TRA',a.tra_matcher),('TRB',a.trb_matcher)]},
         pgen_definition=f'marginal full-junction Hamming<={a.pgen_mismatches}; rounded log2(Pgen+2**-60)',
         control_law='uniform unique junction/V/J keys, without replacement per target/bin; source event/read weights are not sampling weights',
         archive_differences='marginal model Pgen without cohort-fitted VJ factor; complete zero-hit rows; explicit matching and conditional mock options; independent locus streams',

@@ -494,6 +494,14 @@ Keep continuous TRA scores and strict-chain indicators distinct; do not multiply
 them as independent probabilities. This comparison is separate from compiled
 bulk exact reproduction.
 
+Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, or
+`gapblock`. `--tra-min-score` and `--trb-min-score` set strict lower bounds
+for fuzzy support (default zero); the same bounds apply to real and every
+mock panel. Use `--trb-matcher stem4 --chain-mode intersection` for the reverse
+asymmetric comparison. Cutoffs require calibration for their own kernel and
+locus; positive support alone is not calibrated binding confidence. Defaults
+remain Hamming on both chains. Full reference models are preserved.
+
 `--chain-mode all` computes the four chain rules from the same native searches and mock draws.
 Summary, mock and hit tables include a chain_mode column. BH correction is
 performed separately for each rule within the selected target or cohort family.

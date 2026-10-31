@@ -257,7 +257,9 @@ def test_reference_lookup_zero_and_one_mismatch_memberships(mismatches,expected)
     assert mocks['mock_receptors'].sum()==0
 
 
-def test_strict_beta_with_fuzzy_alpha_preserves_pairing(monkeypatch):
+@pytest.mark.parametrize("kernel", ["stem4", "gapblock"])
+@pytest.mark.parametrize("fuzzy_locus", ["TRA", "TRB"])
+def test_strict_beta_with_fuzzy_alpha_preserves_pairing(monkeypatch, fuzzy_locus, kernel):
     from vdjmatch.runner import combined
     original=combined._kernel;scopes=[]
     def capture(queries,reference,cases,**options):
@@ -272,31 +274,46 @@ def test_strict_beta_with_fuzzy_alpha_preserves_pairing(monkeypatch):
         v=['TRAV12-2*01','TRBV19*01'],j=['TRAJ33*01','TRBJ2-7*01'],pgen_bin=[-10,-10]))
     controls={locus:pl.DataFrame(dict(junction_aa=['CAVRRNTGGFKTIF','CAVRDDNTGGFKTIF'],v=[v]*2,j=[j]*2,pgen_bin=[-10]*2))
         for locus,v,j in [('TRA','TRAV1-2*01','TRAJ9*01'),('TRB','TRBV4-1*01','TRBJ1-1*01')]}
+    options={fuzzy_locus.lower()+'_matcher':kernel}
+    if fuzzy_locus=='TRB':
+        def swap(frame):
+            replacements={'TRAV12-2*01':'TRBV19*01','TRBV19*01':'TRAV12-2*01',
+                'TRAJ33*01':'TRBJ2-7*01','TRBJ2-7*01':'TRAJ33*01',
+                'TRAV1-2*01':'TRBV4-1*01','TRBV4-1*01':'TRAV1-2*01',
+                'TRAJ9*01':'TRBJ1-1*01','TRBJ1-1*01':'TRAJ9*01'}
+            frame=frame.with_columns(pl.col('v','j').replace(replacements))
+            return frame.with_columns(pl.col('locus').replace({'TRA':'TRB','TRB':'TRA'})) if 'locus' in frame.columns else frame
+        sample,reference=swap(sample),swap(reference)
+        controls={('TRB' if locus=='TRA' else 'TRA'):swap(frame) for locus,frame in controls.items()}
     summary,mocks,hits=reference_enrichment(sample,reference,controls,replicates=2,threads=1,
-        chain_mode='intersection',tra_matcher='stem4',mismatches=1)
+        chain_mode='intersection',**options,mismatches=1)
     assert summary['matched_receptors'].item()==1 and summary['matched_count'].item()==5
     assert set(hits['receptor_id'])=={'pair'} and set(hits['locus'])=={'TRA','TRB'}
-    assert hits.filter(pl.col('locus')=='TRA')['chain_score'].min()>0
+    assert hits.filter(pl.col('locus')==fuzzy_locus)['chain_score'].min()>0
     assert mocks['mock_receptors'].sum()==0
     assert scopes[0]==(1,True)
-    parallel=reference_enrichment(sample,reference,controls,replicates=2,threads=2,chain_mode='intersection',tra_matcher='stem4',mismatches=1)
+    parallel=reference_enrichment(sample,reference,controls,replicates=2,threads=2,chain_mode='intersection',**options,mismatches=1)
     assert all(a.sort(a.columns).equals(b.sort(b.columns)) for a,b in zip((summary,mocks,hits),parallel))
-    combined=reference_enrichment(sample,reference,controls,replicates=2,threads=1,chain_mode='all',tra_matcher='stem4')
+    combined=reference_enrichment(sample,reference,controls,replicates=2,threads=1,chain_mode='all',**options)
     for actual,expected in zip(combined,(summary,mocks,hits)):
         selected=actual.filter(pl.col('chain_mode')=='intersection').drop('chain_mode').select(expected.columns)
         assert selected.sort(expected.columns).equals(expected.sort(expected.columns))
     from polars.testing import assert_frame_equal
     inputs={'A':sample,'B':sample.with_columns(pl.col('count')+7)}
     cohort=pl.concat([part.with_columns(pl.lit(name).alias('sample_id')) for name,part in inputs.items()])
-    batched=reference_enrichment(cohort,reference,controls,replicates=2,chain_mode='all',tra_matcher='stem4')
+    batched=reference_enrichment(cohort,reference,controls,replicates=2,chain_mode='all',**options)
     for name,part in inputs.items():
-        separate=reference_enrichment(part,reference,controls,replicates=2,chain_mode='all',tra_matcher='stem4')
+        separate=reference_enrichment(part,reference,controls,replicates=2,chain_mode='all',**options)
         for actual,expected in zip(batched,separate):
             selected=actual.filter(pl.col('sample_id')==name).drop('sample_id').select(expected.columns)
             assert_frame_equal(selected.sort(expected.columns),expected.sort(expected.columns),check_dtypes=False)
     exact=reference_enrichment(sample,reference,controls,replicates=2,threads=1,
-        chain_mode='intersection',tra_matcher='stem4',mismatches=0)[0]
+        chain_mode='intersection',**options,mismatches=0)[0]
     assert exact['matched_receptors'].item()==0
+    cutoff=float(hits.filter(pl.col('locus')==fuzzy_locus)['chain_score'].max())
+    rejected=reference_enrichment(sample,reference,controls,replicates=2,chain_mode='intersection',**options,**{fuzzy_locus.lower()+'_min_score':cutoff})
+    assert rejected[0]['matched_receptors'].item()==0
+    assert rejected[2].is_empty()
 
 
 def test_abundance_enrichment_can_differ_from_receptor_enrichment():
@@ -311,3 +328,10 @@ def test_abundance_enrichment_can_differ_from_receptor_enrichment():
     assert summary['p_receptors'].item()==1
     assert summary['matched_count'].item()==7 and summary['mock_mean_count'].item()==1
     assert summary['p_count'].item()==1/201
+
+@pytest.mark.parametrize('cutoff', [-1., float('nan'), float('inf')])
+def test_fuzzy_cutoff_rejected_before_cli_input_loading(cutoff):
+    from types import SimpleNamespace
+    from vdjmatch.cli.repertoire_enrichment import main
+    with pytest.raises(ValueError, match='finite nonnegative'):
+        main(SimpleNamespace(tra_min_score=cutoff, tra_matcher='stem4'))

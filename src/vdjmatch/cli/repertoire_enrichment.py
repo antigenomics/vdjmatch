@@ -43,7 +43,10 @@ def register(subparsers):
     p.add_argument('--control-tra', help='TRA control for paired reference-null mode; --control supplies TRB')
     p.add_argument('--pgen-features-tra', help='validated TRA Pgen bank for paired mode')
     p.add_argument('--epitope', action='append', help='explicit target peptide(s), reference-null mode only')
-    p.add_argument('--tra-matcher',choices=['hamming','stem4'],default='hamming',help='TRA matching rule; TRB retains the strict Hamming rule')
+    p.add_argument('--tra-matcher',choices=['hamming','stem4','gapblock'],default='hamming',help='TRA matching rule')
+    p.add_argument('--trb-matcher',choices=['hamming','stem4','gapblock'],default='hamming',help='TRB matching rule')
+    p.add_argument('--tra-min-score',type=float,default=0.,help='Strict lower score bound for fuzzy TRA support')
+    p.add_argument('--trb-min-score',type=float,default=0.,help='Strict lower score bound for fuzzy TRB support')
     p.add_argument('--chain-mode',choices=['tra','trb','union','intersection','all'],default='union')
     p.add_argument('--mismatches', type=int, choices=range(4), default=1)
     p.add_argument('--batch-samples', action='store_true', help='reference null: share seeded mock panels and native searches across the in-memory cohort')
@@ -56,12 +59,17 @@ def register(subparsers):
 
 
 def main(a):
+    import math
+    for locus in ('tra','trb'):
+        cutoff=getattr(a,locus+'_min_score')
+        if not math.isfinite(cutoff) or cutoff<0:raise ValueError('finite nonnegative fuzzy score cutoffs required')
+        if cutoff and getattr(a,locus+'_matcher')=='hamming':raise ValueError('score cutoff requires a fuzzy matcher')
     if a.pgen_mismatches is None:a.pgen_mismatches = 0 if a.null == 'reference' else 1
     if a.reference_population is None:a.reference_population = 'curated-benchmark' if a.null == 'reference' else 'all-valid'
     if a.null == 'reference':
         from .repertoire_reference import main as reference_main
         return reference_main(a)
-    if a.batch_samples or a.model_source or a.tra_matcher != 'hamming' or a.chain_mode != 'union' or a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
+    if a.batch_samples or a.model_source or a.tra_matcher != 'hamming' or a.trb_matcher != 'hamming' or a.tra_min_score != 0 or a.trb_min_score != 0 or a.chain_mode != 'union' or a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
         raise ValueError('reference-null options require --null reference')
     import json,time
     from importlib.metadata import version

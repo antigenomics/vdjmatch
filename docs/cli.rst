@@ -2812,8 +2812,17 @@ TRA, Boolean support encoded as 1 for strict TRB). These are different evidence
 units, not probabilities to multiply. Repertoire P-values concern matched
 receptor counts/abundance under the chosen combined rule, not individual binding.
 
+Both ``--tra-matcher`` and ``--trb-matcher`` accept ``hamming``, ``stem4``
+or ``gapblock``. Either or both chains may use a fuzzy kernel.
+``--tra-min-score`` and ``--trb-min-score`` require finite nonnegative values;
+support requires a score strictly greater than the selected bound (default zero).
+Nonzero cutoffs are rejected for Hamming arms. Real and mock panels use identical
+rules and complete fixed reference models. These raw kernel bounds require
+separate calibration per geometry and locus; they are not binding probabilities.
+The default remains Hamming on both chains.
+
 In this asymmetric mode, ``--match-j`` constrains only the Hamming arm;
-the TRA stem4 kernel uses its existing soft gene geometry and does not require exact J.
+fuzzy kernels use their existing soft gene geometry and do not require exact J.
 
 ``--chain-mode all`` computes the four chain rules from the same native searches and mock draws.
 Summary, mock and hit tables include a chain_mode column. BH correction is
