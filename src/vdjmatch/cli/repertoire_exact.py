@@ -18,6 +18,7 @@ def register(sub):
     p.add_argument('--source',default=None,help='Model source; default isalgo (legacy human: olga-legacy)')
     p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
     p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact joint Pgen; 1 inclusive Hamming-1 joint mass')
+    p.add_argument('--allow-missing-model-genes',action='store_true',help='Retain absent model genes with zero joint mass and the existing add-one V/J-count smoothing; original calls are unchanged')
     p.add_argument('--matcher',choices=['exact','hamming','stem4','blosum62','positional-blosum62',*GRADED_FAMILIES],default='exact')
     p.add_argument('--min-score',type=float,help='Explicit dimensionless stem4 score threshold; fixed geometry')
     p.add_argument('--radius-factor',type=float,help='Normalized distance bound for BLOSUM or graded family matching')
@@ -53,10 +54,23 @@ def _source(path, *, locus):
         pl.col('v','j').str.split('*').list.first(),'count')
 
 
-def _joint_pgen(probes,*,species,locus,threads,source="isalgo",profile=None,mismatches=0):
+def _joint_pgen(probes,*,species,locus,threads,source="isalgo",profile=None,mismatches=0,allow_missing_model_genes=False):
     import polars as pl
     from vdjtools.model import load_bundled,native
     model=load_bundled(locus,source,organism=species,collapse=False)
+    if allow_missing_model_genes:
+        import numpy as np
+        if profile is not None:raise ValueError('missing model genes require model counts, not a selection profile')
+        _,v_index,j_index=native.pack(model)
+        known=set(v_index)|set(j_index)
+        known.update(a.split('*')[0] for a in tuple(known))
+        supported=probes.select(pl.all_horizontal(pl.col('v','j').is_in(known))).to_series()
+        valid=probes.filter(supported)
+        values=np.zeros(probes.height)
+        if valid.height:
+            values[supported.to_numpy()]=native.pgen_aa_gene_batch(model,valid['junction_aa'].to_list(),
+                valid['v'].to_list(),valid['j'].to_list(),mismatches=mismatches,threads=threads)
+        return probes.with_columns(pl.Series('pgen',values),supported.alias('pgen_model_supported'))
     values=native.pgen_aa_gene_batch(model,probes['junction_aa'].to_list(),probes['v'].to_list(),
                                    probes['j'].to_list(),mismatches=mismatches,threads=threads)
     if profile is not None:
@@ -138,6 +152,8 @@ def main(a):
     if len(set(paths))!=len(paths):raise ValueError('sample paths must be unique')
     if a.selection_profile and (a.legacy or a.model_vj_counts):
         raise ValueError('selection profiles require modern mode and replace model V/J counts')
+    if a.allow_missing_model_genes and a.selection_profile:
+        raise ValueError('--allow-missing-model-genes requires model counts, not a selection profile')
     if not a.selection_profile and not a.model_vj_counts:
         raise ValueError('--model-vj-counts is required without a selection profile')
     inputs=[meta_path,Path(a.vdjdb).expanduser().resolve(),Path(a.control).expanduser().resolve(),*paths]
@@ -147,6 +163,7 @@ def main(a):
         inputs.append(Path(a.selection_profile).expanduser().resolve())
     prefix=_validate_output_paths(a.output_prefix,[str(p) for p in inputs])
     suffixes=['summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
+    if a.allow_missing_model_genes:suffixes.append('missing-model-genes.tsv')
     if any(Path(str(prefix)+'.'+s).exists() for s in suffixes):raise FileExistsError('fresh output prefix required')
     before={str(p):sha256(p) for p in inputs}
     import seqtree._core as search_native
@@ -184,6 +201,8 @@ def main(a):
     else:
         a.source,a.selection_q,q_origin=_selection_options(a,external_pgen='joint_pgen' in probes.columns)
     if not set(keys)<=set(probes.columns):raise ValueError('control requires junction_aa,v,j')
+    if a.allow_missing_model_genes and 'joint_pgen' in probes.columns:
+        raise ValueError('--allow-missing-model-genes requires fresh native probabilities')
     if 'joint_pgen' in probes.columns and a.pgen_mismatches:
         raise ValueError('neighbourhood Pgen requires fresh native probabilities')
     if 'joint_pgen' in probes.columns:
@@ -193,7 +212,7 @@ def main(a):
     else:
         model_identity=_pgen_model_identity(a.species,a.locus,source=a.source)
         probes=pl.concat([probes.select(keys),reference.select(keys)]).unique(maintain_order=True)
-        probes=_joint_pgen(probes,species=a.species,locus=a.locus,threads=a.threads,source=a.source,profile=shape,mismatches=a.pgen_mismatches)
+        probes=_joint_pgen(probes,species=a.species,locus=a.locus,threads=a.threads,source=a.source,profile=shape,mismatches=a.pgen_mismatches,allow_missing_model_genes=a.allow_missing_model_genes)
         pgen_origin='native gene-allele-summed joint probability'
     now=time.monotonic();stages['pgen_and_selection']=now-mark;mark=now
     vj=[]
@@ -253,6 +272,8 @@ def main(a):
     summary=pl.concat(parts).join(inventory,on='group_id',validate='m:1')
     now=time.monotonic();stages['statistics_and_fdr']=now-mark;mark=now
     outputs={'summary.tsv':summary,'counts.tsv':counts,'vj-audit.tsv':audit,'reference-bins.tsv':reference.group_by('group_id','pgen_bin').len(name='reference_keys')}
+    if 'pgen_model_supported' in probes.columns:
+        outputs['missing-model-genes.tsv']=probes.filter(~pl.col('pgen_model_supported'))
     prefix.parent.mkdir(parents=True,exist_ok=True)
     for suffix,frame in outputs.items():frame.write_csv(str(prefix)+'.'+suffix,separator='\t')
     now=time.monotonic();stages['table_export']=now-mark;mark=now
@@ -268,6 +289,9 @@ def main(a):
     manifest['selection_q']=a.selection_q
     manifest['model_source']=a.source
     manifest['legacy']=a.legacy
+    if a.allow_missing_model_genes:
+        manifest['missing_model_genes']=dict(policy='Zero joint mass for genes absent from the fixed model; AA-max join and 2^-80 floor unchanged; add-one V/J counts over all probe keys; source calls retained',
+            keys=int((~probes['pgen_model_supported']).sum()))
     if a.matcher in {'blosum62','positional-blosum62'}:
         manifest['matching_model']=dict(preset=a.matcher,radius_factor=factor,scope='3,0,0,3',normalization='maximum matrix substitution penalty; positional weights use fixed scale100')
     if a.matcher in GRADED_FAMILIES:

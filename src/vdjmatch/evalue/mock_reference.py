@@ -334,7 +334,8 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
     The original AA-only probability join takes the maximum over keys sharing
     a junction. Count tables contain v/j/records (source rows, not read weights).
     Add-one V/J frequencies are normalized within V, preserving the compiled
-    R notebook's retained dplyr grouping. The compiled floor is 2**-80.
+    R notebook's retained dplyr grouping. Probe-only V/J keys receive one count
+    in each count population. The compiled floor is 2**-80.
     An opt-in selection profile supplies exact normalized selected V/J ``p``
     instead of generated model counts; the sample retains its add-one correction.
     This removes the fitted V/J bias from the residual composition correction.
@@ -360,6 +361,7 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
         counts.append(frame.group_by('v','j').agg(pl.col(name+'_records').sum()))
     if model_vj_probabilities is None:
         audit=counts[0].join(counts[1],on=['v','j'],how='full',coalesce=True,nulls_equal=True)
+        audit=audit.join(probes.select('v','j').unique(),on=['v','j'],how='full',coalesce=True)
         audit=audit.with_columns(pl.col('sample_records','model_records').fill_null(0)+1)
         audit=audit.with_columns((pl.col(name+'_records')/pl.col(name+'_records').sum().over('v')).alias(name+'_probability') for name in ['sample','model'])
     else:

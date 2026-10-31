@@ -2803,6 +2803,15 @@ within-V, add-one J-usage correction define the strata, with the compiled
 notebook's ``2**-80`` floor. Model V/J counts are a separate ``v,j,records``
 table from the generation model, not experimental read counts.
 
+Probe-only V/J keys receive the same add-one count in each count population.
+For a reference build containing genes absent from the chosen recombination
+model, ``--allow-missing-model-genes`` retains the calls and records zero joint
+mass for those keys. The existing AA-only maximum and probability floor still
+apply. ``missing-model-genes.tsv`` and the manifest record the affected keys;
+this option uses fresh native probabilities and model counts, not a selected
+profile or an external probability asset. Without it, unknown model genes
+remain an explicit error.
+
 .. code-block:: bash
 
    vdjmatch repertoire-exact samples.tsv --vdjdb reference.zip \

@@ -243,3 +243,32 @@ def test_bulk_reverse_search_matches_forward_memberships(family):
             ids=expected.filter(pl.col('epitope')==str(row['replicate']))['query_id']
             selected=obs.with_row_index('query_id').filter(pl.col('query_id').is_in(ids.implode()))
             assert (row['matched_records'],row['matched_reads'])==(selected.height,selected['count'].sum())
+
+
+def test_missing_model_gene_uses_explicit_zero_mass_and_count_pseudocount():
+    import pytest
+    from vdjmatch.cli.repertoire_exact import _joint_pgen
+    from vdjmatch.evalue.mock_reference import compiled_reference_strata
+    probes=pl.DataFrame(dict(junction_aa=['CASSYVGSEQFF','CASSF'],
+        v=['TRBV19','TRBV17-1'],j=['TRBJ2-1']*2))
+    with pytest.raises(KeyError):
+        _joint_pgen(probes,species='human',locus='TRB',threads=1,source='olga-legacy')
+    scored=_joint_pgen(probes,species='human',locus='TRB',threads=1,
+        source='olga-legacy',allow_missing_model_genes=True)
+    assert scored.select(probes.columns).equals(probes)
+    assert scored['pgen_model_supported'].to_list()==[True,False]
+    assert scored['pgen'][0]>0 and scored['pgen'][1]==0
+    expected=_joint_pgen(probes.head(1),species='human',locus='TRB',threads=1,source='olga-legacy')
+    assert scored['pgen'][0]==expected['pgen'][0]
+    counts=pl.DataFrame(dict(v=['TRBV19'],j=['TRBJ2-1'],records=[3]))
+    result,audit=compiled_reference_strata(scored,counts,counts)
+    missing=audit.filter(pl.col('v')=='TRBV17-1').row(0,named=True)
+    assert missing['sample_records']==missing['model_records']==1
+    assert missing['vj_factor']==1 and result['pgen_bin'][1]==-80
+    from vdjtools.model import load_bundled,native
+    _,vi,_=native.pack(load_bundled('TRB','olga-legacy',organism='human',collapse=False))
+    allele=next(a for a in vi if a.endswith('*02'))
+    known=probes.head(1).with_columns(pl.lit(allele).alias('v'))
+    ordinary=_joint_pgen(known,species='human',locus='TRB',threads=1,source='olga-legacy')
+    retained=_joint_pgen(known,species='human',locus='TRB',threads=1,source='olga-legacy',allow_missing_model_genes=True)
+    assert retained['pgen_model_supported'].item() and retained['pgen'].item()==ordinary['pgen'].item()
