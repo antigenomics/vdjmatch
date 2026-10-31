@@ -7,19 +7,36 @@ def register(sub):
     p.add_argument('metadata',help='TSV sample_id,path and optional FDR-group columns')
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--control',required=True,help='Distinct junction_aa,v,j probe keys; optional joint_pgen column')
-    p.add_argument('--model-vj-counts',required=True,help='Generated-model v,j,records counts')
+    p.add_argument('--model-vj-counts',help='Generated-model v,j,records counts from the selected source')
     p.add_argument('--epitope',action='append')
     p.add_argument('--pool-mhc',action='store_true',help='Explicit original epitope-union reproduction')
     p.add_argument('--locus',choices=['TRA','TRB'],default='TRB')
     p.add_argument('--species',choices=['human','mouse'],default='human')
-    p.add_argument('--selection-q',type=float,default=1.0,help='Explicit generation-mass multiplier; 1 preserves compiled reproduction')
+    p.add_argument('--selection-q',type=float,default=None,help='Q override; default is calibrated for source/species/locus')
+    p.add_argument('--selection-profile',help='Opt-in length | vj-length | vdjtools calibration JSON')
+    p.add_argument('--source',default=None,help='Model source; default isalgo (legacy human: olga-legacy)')
+    p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
     p.add_argument('--sampler',choices=['numpy','r'],default='numpy')
     p.add_argument('--mock-replicates',type=int,default=200)
     p.add_argument('--seed',type=int,default=42)
     p.add_argument('--fdr-group',action='append',default=[],help='Metadata columns defining FDR families within each target')
-    p.add_argument('--threads',type=int,default=4)
+    p.add_argument('--threads',type=int,default=0,help='Native CPU budget; 0 selects the allocation')
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
+
+
+
+def _selection_options(args, *, external_pgen=False):
+    """Resolve model and Q together; external probability scales need explicit Q."""
+    from vdjtools.model.selection import selection_factor, selection_mass
+    source = args.source or ('olga-legacy' if args.legacy and args.species == 'human' else 'isalgo')
+    if args.selection_q is not None:
+        return source, selection_mass(1., args.selection_q), 'explicit'
+    if args.legacy:
+        return source, 1., 'legacy'
+    if external_pgen:
+        raise ValueError('external joint_pgen requires explicit --selection-q or --legacy')
+    return source, selection_factor(args.locus, organism=args.species, source=source), 'calibrated'
 
 
 def _source(path, *, locus):
@@ -30,12 +47,16 @@ def _source(path, *, locus):
         pl.col('v','j').str.split('*').list.first(),'count')
 
 
-def _joint_pgen(probes,*,species,locus,threads):
+def _joint_pgen(probes,*,species,locus,threads,source="isalgo",profile=None):
     import polars as pl
     from vdjtools.model import load_bundled,native
-    model=load_bundled(locus,'olga' if species=='human' else 'arda',organism=species,collapse=False)
+    model=load_bundled(locus,source,organism=species,collapse=False)
     values=native.pgen_aa_gene_batch(model,probes['junction_aa'].to_list(),probes['v'].to_list(),
                                    probes['j'].to_list(),mismatches=0,threads=threads)
+    if profile is not None:
+        from vdjtools.model.selection import selection_profile_factors
+        values=selection_profile_factors(profile,probes['junction_aa'].str.len_chars().to_numpy(),
+            probes['v'].to_list(),probes['j'].to_list()) * values
     return probes.with_columns(pl.Series('pgen',values))
 
 
@@ -79,8 +100,8 @@ def main(a):
     from ..aggregate.repertoire_enrichment import exact_reference_counts
     from ..evalue.mock_reference import compiled_reference_strata,sample_stratified_panels,_pgen_model_identity
     from ..runner.annotation import _validate_output_paths
-    from vdjtools.model.selection import selection_mass
-    selection_mass(0.,a.selection_q)
+    from vdjtools.cores import kernel_threads
+    a.threads = kernel_threads(a.threads)
     if a.mock_replicates<2 or a.seed<0 or a.threads<1:raise ValueError('at least two mocks, nonnegative seed and positive threads required')
     start=time.monotonic();meta_path=Path(a.metadata).expanduser().resolve();meta=_read_table(meta_path)
     needed=['sample_id','path',*a.fdr_group]
@@ -89,7 +110,15 @@ def main(a):
     if any(meta[c].null_count() or meta[c].str.strip_chars().eq('').any() for c in needed):raise ValueError('sample identities, paths and FDR groups cannot be missing')
     paths=[(meta_path.parent/Path(p).expanduser()).resolve() for p in meta['path']]
     if len(set(paths))!=len(paths):raise ValueError('sample paths must be unique')
-    inputs=[meta_path,Path(a.vdjdb).expanduser().resolve(),Path(a.control).expanduser().resolve(),Path(a.model_vj_counts).expanduser().resolve(),*paths]
+    if a.selection_profile and (a.legacy or a.model_vj_counts):
+        raise ValueError('selection profiles require modern mode and replace model V/J counts')
+    if not a.selection_profile and not a.model_vj_counts:
+        raise ValueError('--model-vj-counts is required without a selection profile')
+    inputs=[meta_path,Path(a.vdjdb).expanduser().resolve(),Path(a.control).expanduser().resolve(),*paths]
+    if a.model_vj_counts:
+        inputs.append(Path(a.model_vj_counts).expanduser().resolve())
+    if a.selection_profile and a.selection_profile not in {'length','vj-length'}:
+        inputs.append(Path(a.selection_profile).expanduser().resolve())
     prefix=_validate_output_paths(a.output_prefix,[str(p) for p in inputs])
     suffixes=['summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
     if any(Path(str(prefix)+'.'+s).exists() for s in suffixes):raise FileExistsError('fresh output prefix required')
@@ -98,7 +127,7 @@ def main(a):
     import vdjtools.model.io as model_io
     import vdjtools.model.native as model_native
     import vdjtools.model.selection as model_selection
-    source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(native_core.__file__),Path(model_io.__file__),Path(model_native.__file__),Path(model_selection.__file__)]
+    source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(native_core.__file__),Path(model_io.__file__),Path(model_native.__file__),Path(model_selection.__file__),Path(model_selection.__file__).with_name('selection_factors.json'),Path(model_selection.__file__).with_name('selection_profiles.json')]
     source_before={str(p):sha256(p) for p in source_files}
     reference=db.load(inputs[1],species={'human':'HomoSapiens','mouse':'MusMusculus'}[a.species]).filter(pl.col('gene')==a.locus)
     if a.epitope:
@@ -111,21 +140,39 @@ def main(a):
     reference=reference.join(inventory,on=labels,nulls_equal=True).select('group_id',pl.col('cdr3').alias('junction_aa'),pl.col('v','j').str.split('*').list.first()).unique()
     probes=_read_table(inputs[2])
     model_identity=None
+    shape=None
+    if a.selection_profile:
+        if 'joint_pgen' in probes.columns:
+            raise ValueError('selection profiles require fresh native probabilities, not external joint_pgen')
+        from vdjtools.model import load_bundled
+        from vdjtools.model.selection import load_selection_profile, selection_mass
+        a.source=a.source or 'isalgo'
+        shape,profile_q=load_selection_profile(a.selection_profile,
+            load_bundled(a.locus,a.source,organism=a.species,collapse=False))
+        a.selection_q=profile_q if a.selection_q is None else selection_mass(1.,a.selection_q)
+        q_origin='profile'
+    else:
+        a.source,a.selection_q,q_origin=_selection_options(a,external_pgen='joint_pgen' in probes.columns)
     if not set(keys)<=set(probes.columns):raise ValueError('control requires junction_aa,v,j')
     if 'joint_pgen' in probes.columns:
         probes=probes.select(*keys,pl.col('joint_pgen').cast(pl.Float64).alias('pgen'))
         if reference.select(keys).join(probes.select(keys),on=keys,how='anti').height:raise ValueError('external joint_pgen probes must include every reference key')
         pgen_origin='external gene-masked probability asset'
     else:
-        model_identity=_pgen_model_identity(a.species,a.locus)
+        model_identity=_pgen_model_identity(a.species,a.locus,source=a.source)
         probes=pl.concat([probes.select(keys),reference.select(keys)]).unique(maintain_order=True)
-        probes=_joint_pgen(probes,species=a.species,locus=a.locus,threads=a.threads)
+        probes=_joint_pgen(probes,species=a.species,locus=a.locus,threads=a.threads,source=a.source,profile=shape)
         pgen_origin='native gene-allele-summed joint probability'
     vj=[]
     for path in paths:
         frame=_source(path,locus=a.locus);vj.append(frame.group_by('v','j').len(name='records'))
-    model=_read_table(inputs[3])
-    probes,audit=compiled_reference_strata(probes,pl.concat(vj),model,selection_q=a.selection_q)
+    if shape is None:
+        model=_read_table(Path(a.model_vj_counts).expanduser().resolve())
+        probes,audit=compiled_reference_strata(probes,pl.concat(vj),model,selection_q=a.selection_q)
+    else:
+        selected=pl.DataFrame(shape['selected_vj']).rename({'v_call':'v','j_call':'j'})
+        probes,audit=compiled_reference_strata(probes,pl.concat(vj),selection_q=a.selection_q,
+            model_vj_probabilities=selected)
     reference=reference.join(probes.select(*keys,'pgen_bin'),on=keys,validate='m:1')
     mocks=sample_stratified_panels(reference,probes.select(*keys,'pgen_bin'),replicates=a.mock_replicates,seed=a.seed,sampler=a.sampler)
     panels=pl.concat([reference.select('group_id',*keys).with_columns(pl.lit(-1,dtype=pl.Int64).alias('replicate')),mocks.select('group_id',*keys,pl.col('replicate').cast(pl.Int64))])
@@ -151,11 +198,18 @@ def main(a):
     prefix.parent.mkdir(parents=True,exist_ok=True)
     for suffix,frame in outputs.items():frame.write_csv(str(prefix)+'.'+suffix,separator='\t')
     if before!={str(p):sha256(p) for p in inputs} or source_before!={str(p):sha256(p) for p in source_files}:raise RuntimeError('inputs or source changed during calculation')
-    if model_identity is not None and model_identity!=_pgen_model_identity(a.species,a.locus):raise RuntimeError('recombination model changed during calculation')
+    if model_identity is not None and model_identity!=_pgen_model_identity(a.species,a.locus,source=a.source):raise RuntimeError('recombination model changed during calculation')
     manifest=dict(inputs_frozen=True,source_frozen=True,inputs=before,source=source_before,options=vars(a)|{'func':None},pgen_origin=pgen_origin,probability='selection_q times AA-max joint Pgen times within-V add-one J usage ratio; floor2^-80',counting='source rows and reads; exact V/J/junction',fdr_family=['group_id',*a.fdr_group],seconds=time.monotonic()-start,software={n:version(n) for n in ['vdjmatch','vdjtools','polars','numpy']},outputs={Path(str(prefix)+'.'+s).name:sha256(Path(str(prefix)+'.'+s)) for s in outputs})
     if a.sampler=='r':
         import subprocess,shutil
         manifest['r_version']=subprocess.run([shutil.which('Rscript'),'--version'],capture_output=True,text=True,check=True).stdout.strip()
     manifest['model_identity']=model_identity
+    manifest['selection_q_origin']=q_origin
+    manifest['selection_q']=a.selection_q
+    manifest['model_source']=a.source
+    manifest['legacy']=a.legacy
+    if shape is not None:
+        manifest['selection_profile_kind']=shape['kind']
+        manifest['probability']='global Q times AA-max selected joint mass times residual within-V J usage ratio; floor2^-80'
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     return 0

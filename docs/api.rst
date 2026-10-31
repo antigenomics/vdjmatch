@@ -288,9 +288,18 @@ TCRnet requires sample-wide neighbourhood information.
 Exact bulk reference-panel primitives
 -------------------------------------
 
-The ``repertoire-exact`` CLI composes these normalized-table primitives:
+The ``repertoire-exact`` CLI uses checked model-specific selection
+factors from vdjtools by default; ``--legacy`` preserves the compiled
+uncalibrated convention. It composes these normalized-table primitives:
 
 :func:`vdjmatch.evalue.mock_reference.compiled_reference_strata` constructs the probability strata and V/J audit.
+Its default count-table path preserves the compiled Q=1 convention. The optional
+``model_vj_probabilities`` argument instead accepts exact selected ``v,j,p``
+marginals summing to one, with positive support, and replaces model counts.
+The CLI ``repertoire-exact --selection-profile`` applies the coarse shape to joint mass
+before the AA maximum and passes these selected marginals to the residual
+within-V composition correction. Modern CLI defaults use calibrated global Q;
+legacy reproduction is explicit.
 
 :func:`vdjmatch.evalue.mock_reference.sample_stratified_panels` draws fresh panels.
 

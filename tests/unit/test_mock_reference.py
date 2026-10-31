@@ -451,3 +451,16 @@ def test_reference_panel_r_sampler_matches_base_r_seed42():
     # R: set.seed(42); replicate(3, sample.int(4,2)) => (1,4),(1,4),(2,4).
     assert result['junction_aa'].to_list()==['CADF','CAGF','CADF','CAGF','CAEF','CAGF']
     assert result['replicate'].to_list()==[0,0,1,1,2,2]
+
+
+def test_profile_strata_corrects_against_selected_vj_probabilities():
+    from vdjmatch.evalue.mock_reference import compiled_reference_strata
+    probes=pl.DataFrame({'junction_aa':['CASSF','CATSF'], 'v':['V','V'], 'j':['J1','J2'], 'pgen':[.01,.02]})
+    sample=pl.DataFrame({'v':['V','V'], 'j':['J1','J2'], 'records':[3,1]})
+    selected=pl.DataFrame({'v':['V','V'], 'j':['J1','J2'], 'p':[.8,.2]})
+    scored,audit=compiled_reference_strata(probes,sample,model_vj_probabilities=selected,selection_q=2.)
+    assert audit['model_probability'].to_list()==[.8,.2]
+    assert scored['vj_factor'].to_list()==pytest.approx([(4/6)/.8,(2/6)/.2])
+    assert scored['adjusted_pgen'].to_list()==pytest.approx([.02*(4/6)/.8,.04*(2/6)/.2])
+    with pytest.raises(ValueError,match='positive'):
+        compiled_reference_strata(probes,sample,model_vj_probabilities=selected.with_columns(pl.lit(0.).alias('p')))

@@ -2724,6 +2724,21 @@ a completed manifest is required before treating those files as successful outpu
 Compiled-reference-panel repertoire calculation
 -----------------------------------------------
 
+``repertoire-exact`` uses current isalgo models and the
+shared vdjtools model/species/locus-calibrated Q by default. Human TRA/TRB Q is
+3.47/6.59; mouse TRA/TRB Q is 4.25/5.36 (display rounded). Full coefficients and
+model-hash checks belong to vdjtools. ``--selection-q`` overrides Q and
+``--source`` selects a model explicitly. Uncalibrated sources require explicit Q.
+External ``joint_pgen`` assets require explicit ``--selection-q`` or ``--legacy``;
+a model-specific factor must not silently transfer to an unknown probability
+scale. Generated V/J counts must come from the selected recombination model.
+Resolved source, factor and factor origin are recorded in the manifest.
+
+``--legacy`` preserves the compiled probability convention with Q=1 and the
+historical human OLGA source (mouse: isalgo/ARDA alias). Historical trained
+parameter sets require their original pinned version. The legacy compiled
+reducer remains available separately in the library.
+
 ``repertoire-exact`` preserves the original bulk-repertoire counting unit:
 source clonotype rows and their summed reads, matched by exact junction/V/J.
 Multiple source rows with the same amino-acid/V/J key remain distinct records.
@@ -2760,10 +2775,23 @@ are exported. No calculated mock panels are reused between invocations.
 
 ``--selection-q`` scales generation mass through
 ``vdjtools.model.selection.selection_mass`` before the V/J correction and binning.
-Its default is 1 to preserve the compiled baseline. The shared
-``ALICE_TRB_SELECTION_Q`` constant is 9.41 on the original TRB model scale;
-it is not an established TRA factor. Both real and mock keys use the same
-explicit scaling. This does not rescale empirical TCRnet control frequencies.
+The modern default is the checked model-specific factor listed above;
+``--legacy`` retains Q=1. Both real and mock keys use the same scaling.
+This does not rescale empirical TCRnet control frequencies.
+
+``--selection-profile length`` or ``--selection-profile vj-length`` selects a
+shipped model-bound profile. A calibration JSON path is also accepted.
+``--selection-profile fitted.json`` opts into a vdjtools coarse length or joint
+V/J times shared smoothed length calibration. It supplies global Q unless
+``--selection-q`` overrides it. The complete model parameters must match the
+report. Fresh native joint mass is multiplied by the fitted shape **before**
+the AA-only maximum reducer. The residual within-V J-usage correction divides
+by the profile's exact selected V/J marginal; this avoids correcting a fitted
+gene preference a second time. The sample retains add-one counts. In this
+mode omit ``--model-vj-counts``: the selected model distribution replaces it.
+Profiles reject legacy mode and external ``joint_pgen`` assets. A sample V/J
+pair outside selected model support raises an explicit error. The manifest
+records the profile kind and freezes the shipped parameter asset or supplied report.
 
 
 Reference-null ``repertoire-enrichment`` accepts ``--chain-mode tra|trb|union|intersection|all``.

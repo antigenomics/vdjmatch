@@ -516,3 +516,16 @@ Reference-null significance reports both unique-receptor and abundance endpoints
 summed abundance (reads in bulk data, supplied cell counts in single-cell data).
 Existing unsuffixed call flags describe receptor counts. Each endpoint uses the
 selected correction family separately; positive excess is required for a call.
+
+``repertoire-exact`` defaults to isalgo with shared
+vdjtools model/species/locus-specific Q. ``--legacy`` selects the compiled
+Q=1 convention and historical human OLGA source. External joint_pgen assets
+require explicit Q or legacy; model-V/J counts must use the selected source.
+Do not transfer calibrated factors between model identities. Modern
+``--threads 0`` selects the allocation; manifests record resolved source/Q.
+
+``--selection-profile length|vj-length|report.json`` opts into shared vdjtools
+coarse factors with parameter-identity checks. Omit --model-vj-counts: exact
+selected V/J marginals replace them in the residual composition correction.
+Apply the shape before AA-max, global Q once afterward. Reject external Pgen
+or legacy mixing. Raw Pgen remains unselected; profiles are explicit.

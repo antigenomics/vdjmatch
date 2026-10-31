@@ -326,7 +326,8 @@ def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='hum
 
 
 def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
-                  model_vj: pl.DataFrame, *, selection_q: float = 1.0) -> tuple[pl.DataFrame, pl.DataFrame]:
+                  model_vj: pl.DataFrame | None = None, *, selection_q: float = 1.0,
+                  model_vj_probabilities: pl.DataFrame | None = None) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Reproduce the compiled reference-panel probability strata and V/J audit.
 
     Probes contain unique junction_aa/v/j keys and joint gene-masked ``pgen``.
@@ -334,6 +335,9 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
     a junction. Count tables contain v/j/records (source rows, not read weights).
     Add-one V/J frequencies are normalized within V, preserving the compiled
     R notebook's retained dplyr grouping. The compiled floor is 2**-80.
+    An opt-in selection profile supplies exact normalized selected V/J ``p``
+    instead of generated model counts; the sample retains its add-one correction.
+    This removes the fitted V/J bias from the residual composition correction.
     """
     from vdjtools.model.selection import selection_mass
     keys=['junction_aa','v','j']
@@ -347,16 +351,32 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
     if not np.all(np.isfinite(probabilities)&(probabilities>=0)&(probabilities<=1)):
         raise ValueError('probe probabilities must be finite and between zero and one')
     counts=[]
-    for name,frame in [('sample',sample_vj),('model',model_vj)]:
+    for name,frame in [('sample',sample_vj)]+([('model',model_vj)] if model_vj_probabilities is None else []):
         if not {'v','j','records'}<=set(frame.columns) or not frame.height:
             raise ValueError('nonempty V/J record-count tables required')
         frame=frame.select('v','j',_integer_count('records').alias(name+'_records'))
         if frame[name+'_records'].null_count() or (frame[name+'_records']<0).any():
             raise ValueError('nonnegative integer V/J record counts required')
         counts.append(frame.group_by('v','j').agg(pl.col(name+'_records').sum()))
-    audit=counts[0].join(counts[1],on=['v','j'],how='full',coalesce=True,nulls_equal=True)
-    audit=audit.with_columns(pl.col('sample_records','model_records').fill_null(0)+1)
-    audit=audit.with_columns((pl.col(name+'_records')/pl.col(name+'_records').sum().over('v')).alias(name+'_probability') for name in ['sample','model'])
+    if model_vj_probabilities is None:
+        audit=counts[0].join(counts[1],on=['v','j'],how='full',coalesce=True,nulls_equal=True)
+        audit=audit.with_columns(pl.col('sample_records','model_records').fill_null(0)+1)
+        audit=audit.with_columns((pl.col(name+'_records')/pl.col(name+'_records').sum().over('v')).alias(name+'_probability') for name in ['sample','model'])
+    else:
+        if model_vj is not None:
+            raise ValueError('supply model counts or exact selected V/J probabilities, not both')
+        selected=model_vj_probabilities
+        if not {'v','j','p'}<=set(selected.columns) or not selected.height or selected.select('v','j').n_unique()!=selected.height:
+            raise ValueError('unique nonempty selected V/J probabilities required')
+        if any(selected[c].null_count() for c in ['v','j','p']) or not np.all(np.isfinite(selected['p'].to_numpy()) & (selected['p'].to_numpy()>0)) or not np.isclose(selected['p'].sum(),1.,rtol=1e-10,atol=1e-12):
+            raise ValueError('positive finite selected V/J probabilities summing to one required')
+        audit=counts[0].join(selected.select('v','j',pl.col('p').cast(pl.Float64).alias('model_probability')),
+            on=['v','j'],how='full',coalesce=True)
+        if audit['model_probability'].null_count():
+            raise ValueError('sample V/J pair outside selected model support')
+        audit=audit.with_columns((pl.col('sample_records').fill_null(0)+1).alias('sample_records'))
+        audit=audit.with_columns((pl.col('sample_records')/pl.col('sample_records').sum().over('v')).alias('sample_probability'),
+            (pl.col('model_probability')/pl.col('model_probability').sum().over('v')).alias('model_probability'))
     audit=audit.with_columns((pl.col('sample_probability')/pl.col('model_probability')).alias('vj_factor')).sort('v','j',nulls_last=True)
     result=probes.with_columns(pl.col('pgen').max().over('junction_aa').alias('pcdr')).join(
         audit.select('v','j','vj_factor'),on=['v','j'],how='left',validate='m:1',maintain_order='left')
