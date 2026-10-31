@@ -407,7 +407,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
 
 
 def kernel_reference_counts(observations, panels, inventory, full_reference, *,
-                            locus, species, min_score, threads=1):
+                            locus, species, min_score, threads=1, progress=None):
     """Count original real/mock panels with the fixed stem4 dimensionless score.
 
     One model per panel scores all cohort queries together. Other-peptide
@@ -444,4 +444,5 @@ def kernel_reference_counts(observations, panels, inventory, full_reference, *,
             matched,on=['sample_id','group_id'],how='left',validate='1:1').with_columns(
             pl.col('matched_records','matched_reads').fill_null(0),pl.lit(replicate).alias('replicate'))
         results.append(complete)
+        if progress is not None and (replicate==-1 or (replicate+1)%20==0):progress(replicate)
     return pl.concat(results).sort('sample_id','group_id','replicate')

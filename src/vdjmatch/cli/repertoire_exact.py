@@ -208,7 +208,7 @@ def main(a):
             classes=full_reference.filter(pl.col('epitope').is_in(inventory['epitope'])).select('epitope','mhc_class').unique()
             if classes['epitope'].n_unique()!=classes.height:raise ValueError('pooled kernel targets require one MHC class per peptide')
             score_inventory=inventory.join(classes,on='epitope',validate='1:1').with_columns(pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'))
-        counts=kernel_reference_counts(pl.concat(cohort),panels,score_inventory,full_reference.rename({'gene':'locus'}),locus=a.locus,species=a.species,min_score=a.min_score,threads=a.threads)
+        counts=kernel_reference_counts(pl.concat(cohort),panels,score_inventory,full_reference.rename({'gene':'locus'}),locus=a.locus,species=a.species,min_score=a.min_score,threads=a.threads,progress=lambda replicate:print(f'scored reference panel {replicate}',flush=True))
     else:counts=pl.concat(counts)
     counts=counts.join(panel_sizes,on=['group_id','replicate'],validate='m:1').join(pl.DataFrame(totals),on='sample_id',validate='m:1').with_columns(
         (pl.col('matched_records')/pl.col('sample_clonotypes')/pl.col('epitope_clonotypes')).alias('normalized_clonotype_matches'),
