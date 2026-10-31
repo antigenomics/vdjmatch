@@ -189,11 +189,19 @@ The strict Hamming and normalized BLOSUM routes retain the documented V
 predicate, with optional J equality. Kernel routes use their own production
 V-loop geometry and score semantics; this is not a controlled V-only comparison.
 Do not attribute differences between those routes exclusively to V matching.
-A future comparison should hold junction rule, reference, cohorts, Pgen model,
-null sampler and aggregation fixed, then vary exact V, fixed fuzzy V and no V.
-Apply each V rule identically to real and mock panels. Preserve raw missing-gene
-status and imputation; do not silently treat imputed equality as observed truth.
-This comparison is proposed, not a new recommendation or executed experiment.
+The completed bulk exact-junction count comparison holds reference, sample
+cohort, Pgen model, sampler, J predicate and aggregation fixed. Hard V equality
+retains 4/7 day15 clonotype and 7/7 read calls, compared with 2/7 and 5/7 without
+the hard V filter; both have 0/12 day0 calls. The strict-V route reproduces the
+accepted exact matched counts and all call flags across 42 libraries. These
+results favour enforcing V for this exact-junction bulk endpoint; they do not
+assume that cross-V recognition is impossible. The separate day-1 read call
+remains in the complete record.
+
+The remaining four-family bound comparisons are running. An isolated fuzzy-V
+contrast remains a proposal: keep the junction rule and other settings fixed,
+and apply the V rule identically to real and mock panels. Preserve raw missing
+gene status and imputation; imputed equality is not an observed gene call.
 
 When can hard V equality be optimal?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
