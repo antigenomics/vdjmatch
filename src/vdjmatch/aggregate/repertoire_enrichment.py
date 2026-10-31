@@ -218,8 +218,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     if cohort:
         if observations['sample_id'].null_count() or observations['sample_id'].cast(pl.String).str.strip_chars().eq('').any():
             raise ValueError('sample_id cannot be missing')
-        identities = observations.select('sample_id','receptor_id').unique().with_columns(
-            pl.struct('sample_id','receptor_id').struct.json_encode().alias('_cohort_id'))
+        identities = observations.select('sample_id','receptor_id').unique(maintain_order=True).with_row_index('_cohort_id')
         observations = observations.join(identities,on=['sample_id','receptor_id'],validate='m:1').drop('receptor_id').rename({'_cohort_id':'receptor_id'})
     obs=observations.select(sorted(required)).with_columns(_integer_count('count').alias('count'))
     if any(obs[c].null_count() for c in required) or (obs['count']<0).any():
