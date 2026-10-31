@@ -433,6 +433,14 @@ counts, exact V/J/junction matching, AA-max joint Pgen, within-V add-one J
 correction and the 2^-80 floor. `--sampler r --pool-mhc` reproduces original
 single-epitope draws; declare original FDR groups with `--fdr-group`.
 The NumPy backend follows the same sampling law, not R's seeded draws.
+
+Optional `--matcher` selects hamming, blosum62 or positional-blosum62 while
+preserving this sampler and statistical contract. Exact is the default.
+Hamming uses `--mismatches` (default one); BLOSUM modes require `--max-penalty`
+in 100-scaled matrix units and allow at most three substitutions, no indels.
+Exact V/J remains mandatory. All real/mock panels share the same matcher;
+multiple matching references count a source row only once per panel.
+These are calibration options, not promoted biological operating points.
 Keep complete-zero tests separate from `original_*` statistics that omit
 zero-hit mock groups. See the compiled-reference-panel section in docs/cli.rst.
 The mode below is a separate marginal-Pgen/flexible-matching comparison.

@@ -9,13 +9,16 @@ from ..evalue.mock_reference import _sample_event_indices
 from ..io.columns import _integer_count
 
 
-def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame) -> pl.DataFrame:
+def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
+                           matcher='exact', mismatches=1, max_penalty=None, threads=1) -> pl.DataFrame:
     """Count source rows and reads against all exact V/J/junction panels at once.
 
     Observations contain junction_aa/v/j/count; panels additionally contain
     group_id/replicate. Source rows sharing a key remain separate observations.
     Panel keys must be unique within group/replicate. Zero-hit panels are kept.
     This is the original bulk-repertoire counting unit, not paired-cell union.
+    Optional Hamming/BLOSUM matching changes junction membership only; exact
+    V/J and one count per source observation per panel remain mandatory.
     """
     keys=['junction_aa','v','j'];groups=['group_id','replicate']
     if not {*keys,'count'}<=set(observations.columns) or not {*keys,*groups}<=set(panels.columns) or not panels.height:
@@ -30,7 +33,43 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame) -> 
     if obs.select(pl.col('count').cast(pl.Int128).sum()).item()>np.iinfo(np.int64).max:
         raise ValueError('source read total exceeds int64')
     counted=obs.group_by(keys).agg(pl.len().cast(pl.Int64).alias('matched_records'),pl.col('count').sum().alias('matched_reads'))
-    matched=panels.join(counted,on=keys,how='inner',validate='m:1').group_by(groups).agg(pl.col('matched_records','matched_reads').sum())
+    if matcher not in {'exact','hamming','blosum62','positional-blosum62'}:
+        raise ValueError('unknown panel matcher')
+    if type(threads) is not int or threads<1 or type(mismatches) is not int or not 0<=mismatches<=3:
+        raise ValueError('positive threads and zero to three mismatches required')
+    if matcher in {'blosum62','positional-blosum62'} and (type(max_penalty) is not int or max_penalty<=0):
+        raise ValueError('weighted matching requires a positive integer penalty')
+    if matcher=='exact' or not counted.height:
+        members=panels.join(counted,on=keys,how='inner',validate='m:1')
+    else:
+        from seqtree import Index, PositionalMatrix, SubstitutionMatrix
+        from ..match.scope import search_params
+        from ..match.regions import significance_pssm
+        observed=counted.select('junction_aa').unique().sort('junction_aa').with_row_index('_ri')
+        queries=panels.select('junction_aa').unique().sort('junction_aa').with_row_index('_qi')
+        index=Index.build(observed['junction_aa'].to_list(),alphabet='aa')
+        buffers=[]
+        def consume(start,stop,buffer):
+            pairs=np.asarray(buffer)
+            if len(pairs):
+                pairs=pairs[:,:2].copy();pairs[:,0]=query_ids[pairs[:,0]]
+                buffers.append(pairs)
+        batches=queries.with_columns(pl.col('junction_aa').str.len_chars().alias('_length')).partition_by('_length',as_dict=True)
+        for (length,),batch in batches.items():
+            if matcher=='hamming':params=search_params(f'{mismatches},0,0,{mismatches}')
+            else:
+                matrix=(significance_pssm(length) if matcher=='positional-blosum62' else
+                        PositionalMatrix.from_weights(SubstitutionMatrix.blosum62(),[100]*length))
+                params=search_params('3,0,0,3',pos_matrix=matrix,max_penalty=max_penalty)
+            query_ids=batch['_qi'].to_numpy()
+            index.search_batch_consume(batch['junction_aa'].to_list(),params,consume,
+                threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
+        pairs=pl.DataFrame(np.concatenate(buffers) if buffers else np.empty((0,2),dtype=np.uint32),
+            schema=[('_qi',pl.UInt32),('_ri',pl.UInt32)],orient='row')
+        roles=panels.join(queries,on='junction_aa',validate='m:1').drop('junction_aa')
+        memberships=pairs.join(roles,on='_qi',validate='m:m').join(observed,on='_ri',validate='m:1').select(*groups,*keys).unique()
+        members=memberships.join(counted,on=keys,validate='m:1')
+    matched=members.group_by(groups).agg(pl.col('matched_records','matched_reads').sum())
     return panels.select(groups).unique().join(matched,on=groups,how='left',validate='1:1').with_columns(
         pl.col('matched_records','matched_reads').fill_null(0)).sort(groups)
 

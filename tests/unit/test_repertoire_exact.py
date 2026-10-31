@@ -28,6 +28,13 @@ def test_reference_panel_cli_preserves_rows_reads_zero_panels_and_fdr_groups(tmp
     assert manifest['inputs_frozen'] and manifest['source_frozen']
     assert manifest['fdr_family']==['group_id','family']
     assert manifest['legacy'] and manifest['selection_q'] == 1.
+    fuzzy=command+['--matcher','hamming','--mismatches','1']
+    fuzzy[fuzzy.index('--output-prefix')+1]=str(tmp_path/'fuzzy')
+    run=subprocess.run(fuzzy,capture_output=True,text=True,timeout=30)
+    assert run.returncode==0,run.stderr+run.stdout
+    fuzzy_counts=pl.read_csv(tmp_path/'fuzzy.counts.tsv',separator='\t')
+    assert fuzzy_counts.filter(pl.col('replicate')==-1).select('matched_records','matched_reads').row(0)==(3,15)
+    assert fuzzy_counts.height==201
     # Exercise shipped profile loading, native dispatch, selected V/J audit and outputs.
     # The native batch is stubbed here; its weighted probabilities have separate exact tests.
     import argparse

@@ -2744,6 +2744,14 @@ source clonotype rows and their summed reads, matched by exact junction/V/J.
 Multiple source rows with the same amino-acid/V/J key remain distinct records.
 One batched join counts all freshly sampled reference panels per sample.
 
+Optional ``--matcher`` selects hamming, blosum62 or positional-blosum62 while
+preserving this sampler and statistical contract. Exact is the default.
+Hamming uses ``--mismatches`` (default one); BLOSUM modes require ``--max-penalty``
+in 100-scaled matrix units and allow at most three substitutions, no indels.
+Exact V/J remains mandatory. All real/mock panels share the same matcher;
+multiple matching references count a source row only once per panel.
+These are calibration options, not promoted biological operating points.
+
 The probe table contains ``junction_aa``, ``v`` and ``j``. Optional
 ``joint_pgen`` values are an explicitly supplied gene-masked probability asset;
 otherwise the command computes joint probabilities with the native model,
