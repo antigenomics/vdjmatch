@@ -64,6 +64,22 @@ def search_params(
     return p
 
 
+def graded_search_params(radius, matrix=None):
+    """Existing edit-bounded family geometry shared by single and paired search.
+
+    Weighted families change alignment costs, not the edit acceptance budget.
+    Their NED score scale remains the candidate reducer's separate parameter.
+    """
+    from .scoring import DEFAULT_SCALE
+    if isinstance(radius, bool) or not isinstance(radius, int) or not 1 <= radius <= 5:
+        raise ValueError('radius must be an integer from 1 through 5')
+    gap = DEFAULT_SCALE if matrix is not None else 1
+    indels = min(radius, 2)
+    return search_params(f'{radius},{indels},{indels},{radius}',
+                         matrix=matrix if matrix is not None else '',
+                         gap_open=gap, gap_extend=gap)
+
+
 def blosum_radius_params(matcher, radius_factor, length):
     """Fixed BLOSUM recipes; radius is relative to the matrix substitution scale."""
     import math

@@ -12,7 +12,7 @@ from .aggregate.candidates import (
 )
 from .io.columns import normalize_query
 from .match.engine import VdjdbIndex, _empty_hits, _search_unique_junctions
-from .match.scope import search_params
+from .match.scope import search_params, graded_search_params
 from .match.scoring import load_vdjam, DEFAULT_SCALE
 
 DEFAULT_SCOPE = "1,0,0,1"
@@ -377,9 +377,8 @@ class Annotator:
         if isinstance(max_radius, bool) or not isinstance(max_radius, int) or not 1 <= max_radius <= 5:
             raise ValueError('max_radius must be an integer from 1 through 5')
         _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
-        gap = DEFAULT_SCALE if matrix is not None else 1
         if matrix is None:
-            sp = search_params(f"{max_radius},{min(max_radius,2)},{min(max_radius,2)},{max_radius}", gap_open=gap, gap_extend=gap)
+            sp = graded_search_params(max_radius)
             h, c = self._evidence(q, sp, threads=threads, control=control,
                                   calibrate=calibrate, species=species,
                                   score_scale=1.0, exclude_exact=exclude_exact,
@@ -389,8 +388,7 @@ class Annotator:
         else:
             hs, cs = [], []
             for radius in range(1, max_radius+1):
-                sp = search_params(f"{radius},{min(radius,2)},{min(radius,2)},{radius}",
-                                   matrix=matrix, gap_open=gap, gap_extend=gap)
+                sp = graded_search_params(radius, matrix)
                 rh, rc = self._evidence(q, sp, threads=threads, control=control,
                                        calibrate=calibrate, species=species,
                                        score_scale=400.0, exclude_exact=exclude_exact,
@@ -995,9 +993,8 @@ class Annotator:
         gap = DEFAULT_SCALE if matrix is not None else 1
         radii = range(1,max_radius+1) if ball and matrix is not None else [None]
         for radius in radii:
-            params = search_params(f'{radius},{min(radius,2)},{min(radius,2)},{radius}',
-                matrix=matrix,gap_open=gap,gap_extend=gap) if radius is not None else (
-                search_params(f'{max_radius},{min(max_radius,2)},{min(max_radius,2)},{max_radius}',gap_open=1,gap_extend=1) if ball else
+            params = graded_search_params(radius, matrix) if radius is not None else (
+                graded_search_params(max_radius) if ball else
                 (search_params(scope,matrix=matrix or '',gap_open=gap,gap_extend=gap) if isinstance(scope,str) else scope))
             callbacks=[];marginals=[];references=[]
             for chain,q in zip(('TRA','TRB'),queries):
