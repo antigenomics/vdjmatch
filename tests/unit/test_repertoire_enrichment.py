@@ -278,6 +278,15 @@ def test_strict_beta_with_fuzzy_alpha_preserves_pairing():
     for actual,expected in zip(combined,(summary,mocks,hits)):
         selected=actual.filter(pl.col('chain_mode')=='intersection').drop('chain_mode').select(expected.columns)
         assert selected.sort(expected.columns).equals(expected.sort(expected.columns))
+    from polars.testing import assert_frame_equal
+    inputs={'A':sample,'B':sample.with_columns(pl.col('count')+7)}
+    cohort=pl.concat([part.with_columns(pl.lit(name).alias('sample_id')) for name,part in inputs.items()])
+    batched=reference_enrichment(cohort,reference,controls,replicates=2,chain_mode='all',tra_matcher='stem4')
+    for name,part in inputs.items():
+        separate=reference_enrichment(part,reference,controls,replicates=2,chain_mode='all',tra_matcher='stem4')
+        for actual,expected in zip(batched,separate):
+            selected=actual.filter(pl.col('sample_id')==name).drop('sample_id').select(expected.columns)
+            assert_frame_equal(selected.sort(expected.columns),expected.sort(expected.columns),check_dtypes=False)
     exact=reference_enrichment(sample,reference,controls,replicates=2,threads=1,
         chain_mode='intersection',tra_matcher='stem4',mismatches=0)[0]
     assert exact['matched_receptors'].item()==0
