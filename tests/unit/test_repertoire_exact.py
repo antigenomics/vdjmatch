@@ -31,6 +31,9 @@ def test_reference_panel_cli_preserves_rows_reads_zero_panels_and_fdr_groups(tmp
     assert summary['original_significant_bh_records']
     manifest=json.loads((tmp_path/'nested/out.manifest.json').read_text())
     assert manifest['inputs_frozen'] and manifest['source_frozen']
+    assert all(value>=0 for value in manifest['stage_seconds'].values())
+    assert {'pgen_and_selection','source_vj_loading','sample_load_and_matching','statistics_and_fdr','table_export'}<=set(manifest['stage_seconds'])
+    assert len(manifest['sample_timings'])==1 and manifest['sample_timings'][0]['records']==3
     assert manifest['fdr_family']==['group_id','family']
     assert manifest['legacy'] and manifest['selection_q'] == 1.
     for mode in ['blosum62','positional-blosum62','unit','v-unit','weighted','v-weighted']:

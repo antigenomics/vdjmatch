@@ -129,6 +129,7 @@ def main(a):
         graded_family_params(a.matcher,a.mismatches,factor)
     elif factor is not None:raise ValueError('--radius-factor requires a BLOSUM or graded family matcher')
     start=time.monotonic();meta_path=Path(a.metadata).expanduser().resolve();meta=_read_table(meta_path)
+    stages={};sample_timings=[];mark=start
     needed=['sample_id','path',*a.fdr_group]
     if not set(needed)<=set(meta.columns) or not meta.height or meta['sample_id'].n_unique()!=meta.height:
         raise ValueError('unique sample_id,path and declared FDR columns required')
@@ -155,6 +156,7 @@ def main(a):
     import vdjtools.model.selection as model_selection
     source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(native_core.__file__),Path(search_native.__file__),Path(model_io.__file__),Path(model_native.__file__),Path(model_selection.__file__),Path(model_selection.__file__).with_name('selection_factors.json'),Path(model_selection.__file__).with_name('selection_profiles.json')]
     source_before={str(p):sha256(p) for p in source_files}
+    now=time.monotonic();stages['input_validation_and_freeze']=now-mark;mark=now
     reference=db.load(inputs[1],species={'human':'HomoSapiens','mouse':'MusMusculus'}[a.species]).filter(pl.col('gene')==a.locus)
     full_reference=reference.clone()
     if a.epitope:
@@ -166,6 +168,7 @@ def main(a):
     keys=['junction_aa','v','j']
     reference=reference.join(inventory,on=labels,nulls_equal=True).select('group_id',pl.col('cdr3').alias('junction_aa'),pl.col('v','j').str.split('*').list.first()).unique()
     probes=_read_table(inputs[2])
+    now=time.monotonic();stages['reference_and_probe_loading']=now-mark;mark=now
     model_identity=None
     shape=None
     if a.selection_profile:
@@ -192,9 +195,11 @@ def main(a):
         probes=pl.concat([probes.select(keys),reference.select(keys)]).unique(maintain_order=True)
         probes=_joint_pgen(probes,species=a.species,locus=a.locus,threads=a.threads,source=a.source,profile=shape,mismatches=a.pgen_mismatches)
         pgen_origin='native gene-allele-summed joint probability'
+    now=time.monotonic();stages['pgen_and_selection']=now-mark;mark=now
     vj=[]
     for path in paths:
         frame=_source(path,locus=a.locus);vj.append(frame.group_by('v','j').len(name='records'))
+    now=time.monotonic();stages['source_vj_loading']=now-mark;mark=now
     if shape is None:
         model=_read_table(Path(a.model_vj_counts).expanduser().resolve())
         probes,audit=compiled_reference_strata(probes,pl.concat(vj),model,selection_q=a.selection_q)
@@ -203,16 +208,23 @@ def main(a):
         probes,audit=compiled_reference_strata(probes,pl.concat(vj),selection_q=a.selection_q,
             model_vj_probabilities=selected)
     reference=reference.join(probes.select(*keys,'pgen_bin'),on=keys,validate='m:1')
+    now=time.monotonic();stages['strata_and_reference_bins']=now-mark;mark=now
     mocks=sample_stratified_panels(reference,probes.select(*keys,'pgen_bin'),replicates=a.mock_replicates,seed=a.seed,sampler=a.sampler)
     panels=pl.concat([reference.select('group_id',*keys).with_columns(pl.lit(-1,dtype=pl.Int64).alias('replicate')),mocks.select('group_id',*keys,pl.col('replicate').cast(pl.Int64))])
     panel_sizes=panels.group_by('group_id','replicate').len(name='epitope_clonotypes')
+    now=time.monotonic();stages['mock_panel_generation']=now-mark;mark=now
     counts=[];cohort=[];totals=[]
     for i,(sample,path) in enumerate(zip(meta['sample_id'],paths),1):
+        sample_start=time.monotonic()
         observations=_source(path,locus=a.locus)
+        loaded=time.monotonic()
         totals.append(dict(sample_id=sample,sample_clonotypes=observations.height,sample_reads=int(observations['count'].sum())))
         if a.matcher=='stem4':cohort.append(observations.with_columns(pl.lit(sample).alias('sample_id')))
         else:counts.append(exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads,radius_factor=factor,locus=a.locus,species=a.species).with_columns(pl.lit(sample).alias('sample_id')))
-        print(f'loaded sample {i}/{len(paths)}',flush=True)
+        finished=time.monotonic()
+        sample_timings.append(dict(sample_id=sample,records=observations.height,load_seconds=loaded-sample_start,match_or_stage_seconds=finished-loaded))
+        print(f'loaded sample {i}/{len(paths)}; load={loaded-sample_start:.3f}s match_or_stage={finished-loaded:.3f}s elapsed={finished-start:.3f}s',flush=True)
+    now=time.monotonic();stages['sample_load_and_matching']=now-mark;mark=now
     if a.matcher=='stem4':
         score_inventory=inventory
         if a.pool_mhc:
@@ -224,6 +236,7 @@ def main(a):
     counts=counts.join(panel_sizes,on=['group_id','replicate'],validate='m:1').join(pl.DataFrame(totals),on='sample_id',validate='m:1').with_columns(
         (pl.col('matched_records')/pl.col('sample_clonotypes')/pl.col('epitope_clonotypes')).alias('normalized_clonotype_matches'),
         (pl.col('matched_reads')/pl.col('sample_reads')).alias('matched_read_fraction'))
+    now=time.monotonic();stages['cohort_kernel_and_count_assembly']=now-mark;mark=now
     summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
     parts=[]
     for part in summary.partition_by(['group_id',*a.fdr_group]):
@@ -238,12 +251,15 @@ def main(a):
                 ((pl.col('original_q_'+endpoint)<.1)&(pl.col('original_effect_'+endpoint)>0)).alias('original_significant_bh_'+endpoint))
         parts.append(part)
     summary=pl.concat(parts).join(inventory,on='group_id',validate='m:1')
+    now=time.monotonic();stages['statistics_and_fdr']=now-mark;mark=now
     outputs={'summary.tsv':summary,'counts.tsv':counts,'vj-audit.tsv':audit,'reference-bins.tsv':reference.group_by('group_id','pgen_bin').len(name='reference_keys')}
     prefix.parent.mkdir(parents=True,exist_ok=True)
     for suffix,frame in outputs.items():frame.write_csv(str(prefix)+'.'+suffix,separator='\t')
+    now=time.monotonic();stages['table_export']=now-mark;mark=now
     if before!={str(p):sha256(p) for p in inputs} or source_before!={str(p):sha256(p) for p in source_files}:raise RuntimeError('inputs or source changed during calculation')
     if model_identity is not None and model_identity!=_pgen_model_identity(a.species,a.locus,source=a.source):raise RuntimeError('recombination model changed during calculation')
-    manifest=dict(inputs_frozen=True,source_frozen=True,inputs=before,source=source_before,options=vars(a)|{'func':None},pgen_origin=pgen_origin,probability='selection_q times AA-max joint Pgen times within-V add-one J usage ratio; floor2^-80',counting='source rows and reads; '+('fixed stem4 score; production V geometry imputation; no hard V/J predicate' if a.matcher=='stem4' else 'exact V/J; '+a.matcher+' junction membership'),fdr_family=['group_id',*a.fdr_group],seconds=time.monotonic()-start,software={n:version(n) for n in ['vdjmatch','vdjtools','seqtree','polars','numpy']},outputs={Path(str(prefix)+'.'+s).name:sha256(Path(str(prefix)+'.'+s)) for s in outputs})
+    stages['final_identity_checks']=time.monotonic()-mark
+    manifest=dict(stage_seconds=stages,sample_timings=sample_timings,timing_scope='CLI body after argument validation; external process-tree profile includes startup',inputs_frozen=True,source_frozen=True,inputs=before,source=source_before,options=vars(a)|{'func':None},pgen_origin=pgen_origin,probability='selection_q times AA-max joint Pgen times within-V add-one J usage ratio; floor2^-80',counting='source rows and reads; '+('fixed stem4 score; production V geometry imputation; no hard V/J predicate' if a.matcher=='stem4' else 'exact V/J; '+a.matcher+' junction membership'),fdr_family=['group_id',*a.fdr_group],seconds=time.monotonic()-start,software={n:version(n) for n in ['vdjmatch','vdjtools','seqtree','polars','numpy']},outputs={Path(str(prefix)+'.'+s).name:sha256(Path(str(prefix)+'.'+s)) for s in outputs})
     if a.sampler=='r':
         import subprocess,shutil
         manifest['r_version']=subprocess.run([shutil.which('Rscript'),'--version'],capture_output=True,text=True,check=True).stdout.strip()

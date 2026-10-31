@@ -269,3 +269,21 @@ Refinement priorities
 
 These are proposals with distinct verification requirements, not measured gains.
 No new experiment, fitted rule, cache, null model or software default is added.
+
+Runtime records for later optimization
+-------------------------------------
+
+Bulk CLI manifests include ``stage_seconds`` and ``sample_timings``. Stage
+timings separate input/identity checks, reference/probe loading, Pgen/selection,
+the initial source V/J pass, strata, mock generation, sample loading/matching,
+count assembly, statistics/FDR and export. Per-library records retain source
+row counts and loading versus matching/staging time; divide by those counts
+when comparing differently sized libraries. For stem4, sample staging and the
+subsequent cohort kernel stage are reported separately.
+
+The per-library timings break down the aggregate stage and must not be added
+to it again. Manifest timings cover the CLI body; the external whole-process
+profile includes startup and records sampled CPU, threads and summed RSS.
+Use both records to identify expensive stages before changing algorithms.
+Frozen existing runs retain their original whole-run resource records; missing
+internal stage times cannot be reconstructed exactly from untimestamped logs.
