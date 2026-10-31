@@ -128,9 +128,10 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
         pl.col('original_supported').fill_null(False))
 
 
-def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts, _consume=None, kernels=("gapblock", "stem4")):
+def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts, _consume=None, kernels=("gapblock", "stem4"), scorer="v-bounded"):
     import numpy as np
-    from ..evalue.kernel import grouped_kernel_enrichment, ladder_cutoffs
+    from ..evalue.kernel import grouped_kernel_enrichment, ladder_cutoffs, KERNEL_SCORERS
+    if scorer not in KERNEL_SCORERS:raise ValueError("unknown kernel scorer")
     from ..match.geometry import (resolve_v_alleles, distance_units, _substitution_costs)
 
     definitions = [('gapblock','clipped',0),('stem4','blosum62',4)]
@@ -174,7 +175,7 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
             scale,_ = distance_units(_substitution_costs('full',matrix))
             grouped_kernel_enrichment(q,r,groups,query_keys=query_keys,search_keys=search_keys,
                 paired=paired,cutoffs=ladder_cutoffs(scale),radius=22.5*scale,kernel_scale=22.5*scale,
-                scorer='v-bounded',assayed=False,species=species,threads=threads,ctrim=3,v_loop_weight=1,
+                scorer=scorer,assayed=False,species=species,threads=threads,ctrim=3,v_loop_weight=1,
                 alphabet='full',stem_depth=depth,stem_weight=1.,matrix=matrix,
                 v_loop_distances=contexts[matrix],exclude_exact=exclude_exact,_allow_empty_background=True,
                 _scores_only=True,_consume=lambda frame:_consume(name,frame))
@@ -207,7 +208,7 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
         scale, _ = distance_units(_substitution_costs('full', matrix))
         grouped_kernel_enrichment(q, r, groups, query_keys=query_keys, search_keys=search_keys,
             paired=paired, cutoffs=ladder_cutoffs(scale), radius=22.5 * scale, kernel_scale=22.5 * scale,
-            scorer='v-bounded', assayed=True, species=species, threads=threads, ctrim=3, v_loop_weight=1,
+            scorer=scorer, assayed=True, species=species, threads=threads, ctrim=3, v_loop_weight=1,
             alphabet='full', stem_depth=depth, stem_weight=1.0, matrix=matrix,
             v_loop_distances=contexts[matrix], exclude_exact=exclude_exact, _allow_empty_background=True,
             _scores_only=True, _consume=consume)

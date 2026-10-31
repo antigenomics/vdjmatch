@@ -424,3 +424,20 @@ def test_bulk_panel_matchers_count_each_source_row_once(matcher,bound):
     assert result.equals(parallel)
     empty=exact_reference_counts(obs.head(0),panels,matcher=matcher)
     assert empty['matched_records'].sum()==empty['matched_reads'].sum()==0
+
+
+@pytest.mark.parametrize('kernel',['stem4','gapblock'])
+@pytest.mark.parametrize('targets',[None,['X']])
+def test_fuzzy_same_v_reducer_preserves_model_and_excludes_cross_v_support(kernel,targets):
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    obs=pl.DataFrame(dict(receptor_id=['same','different'],locus=['TRB']*2,
+        junction_aa=['CASSIIDAYEQYF']*2,v=['TRBV19','TRBV7-9'],j=['TRBJ2-7']*2,count=[3,7]))
+    ref=obs.head(1).select('locus','junction_aa','v','j').with_columns(pl.lit('X').alias('group_id'),pl.lit(-10).alias('pgen_bin'))
+    control=ref.drop('group_id').with_columns(pl.lit('CASSMMDAYEQYF').alias('junction_aa'))
+    options=dict(replicates=2,trb_matcher=kernel,chain_mode='trb',target_groups=targets)
+    soft=reference_enrichment(obs,ref,{'TRB':control},**options)
+    strict=reference_enrichment(obs,ref,{'TRB':control},kernel_scorer='vonly-bounded',**options)
+    assert set(soft[2]['receptor_id'])=={'same','different'}
+    assert strict[2]['receptor_id'].to_list()==['same']
+    assert strict[0]['matched_count'].item()==3
+    assert strict[0]['n_receptors'].item()==2

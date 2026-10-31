@@ -2857,6 +2857,12 @@ per-query worker pool. Real and mock references use the identical predicate.
 No BLOSUM penalty bound is recommended before calibration. These modes report
 match support, not kernel scores or probabilities; ``--*-min-score`` applies
 only to the stem4/gapblock kernels. ``--mismatches`` still controls Hamming arms.
+``--kernel-scorer vonly-bounded`` uses the existing same-V target-evidence
+reducer for either ``stem4`` or ``gapblock``, identically in real/mock panels.
+Default ``v-bounded`` retains soft cross-V evidence. Neither changes Hamming
+matching, pairing rules or the fixed reference population; the same-V option
+requires its own sample-level calibration before recommendation.
+
 See :doc:`scoring` for the accepted BLOSUM62/positional-weighting evidence
 and the distinction between positive kernel support and calibrated matching.
 ``--tra-min-score`` and ``--trb-min-score`` require finite nonnegative values;

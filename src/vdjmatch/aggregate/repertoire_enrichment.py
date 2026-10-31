@@ -159,7 +159,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                          controls: dict[str, pl.DataFrame], *, replicates: int = 200,
                          seed: int = 0, policy: str = 'pgen', threads: int = 1,
                          mismatches: int = 1, match_j: bool = False, chain_mode: str = "union",
-                         tra_matcher: str = "hamming", trb_matcher: str = "hamming", tra_min_score: float = 0., trb_min_score: float = 0., species: str = "human", tra_max_penalty: int | None = None, trb_max_penalty: int | None = None, target_groups=None, progress=None):
+                         tra_matcher: str = "hamming", trb_matcher: str = "hamming", tra_min_score: float = 0., trb_min_score: float = 0., species: str = "human", tra_max_penalty: int | None = None, trb_max_penalty: int | None = None, target_groups=None, progress=None, kernel_scorer="v-bounded"):
     """Test a fixed repertoire against fresh Pgen-matched mock target corpora.
 
     Observations: receptor_id/locus/junction_aa/v/j/count. Multiple chains with
@@ -207,6 +207,8 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     cutoffs={'TRA':tra_min_score,'TRB':trb_min_score}
     if any(not np.isfinite(c) or c<0 for c in cutoffs.values()):raise ValueError('finite nonnegative fuzzy score cutoffs required')
     if any(cutoffs[locus] and matcher not in {'stem4','gapblock'} for locus,matcher in matchers.items()):raise ValueError('score cutoff requires a fuzzy matcher')
+    from ..evalue.kernel import KERNEL_SCORERS
+    if kernel_scorer not in KERNEL_SCORERS:raise ValueError("unknown kernel scorer")
     fuzzy_loci=[locus for locus,matcher in matchers.items() if matcher in {'stem4','gapblock'}]
     anchored=chain_mode=="intersection" and len(fuzzy_loci)==1
     required={'receptor_id','locus','junction_aa','v','j','count'}
@@ -306,11 +308,11 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                     if not cases.height:continue
                     queries=fuzzy_queries.join(cases.select('query_id').unique(),on='query_id',how='semi')
                     result=_kernel(queries,kernel_reference,cases,species=species,threads=threads,paired=False,
-                        exclude_exact=False,contexts=contexts,kernels=(kernel,))
+                        exclude_exact=False,contexts=contexts,kernels=(kernel,),scorer=kernel_scorer)
                     collect(kernel,result.rename({kernel+'_score':'kernel_score'}))
                 else:
                     _kernel(fuzzy_queries,kernel_reference,None,species=species,threads=threads,paired=False,
-                        exclude_exact=False,contexts=contexts,_consume=collect,kernels=(kernel,))
+                        exclude_exact=False,contexts=contexts,_consume=collect,kernels=(kernel,),scorer=kernel_scorer)
                 if scored:
                     supported=pl.concat(scored).join(fuzzy_queries,on='query_id',validate='m:1').rename({'cdr3':'junction_aa'})
                     columns=['receptor_id','group_id','locus']+(['junction_aa','v','j','chain_score'] if detailed else [])

@@ -43,6 +43,7 @@ def register(subparsers):
     p.add_argument('--control-tra', help='TRA control for paired reference-null mode; --control supplies TRB')
     p.add_argument('--pgen-features-tra', help='validated TRA Pgen bank for paired mode')
     p.add_argument('--epitope', action='append', help='reported target peptide(s); full reference model and mock panels retained, reference-null only')
+    p.add_argument('--kernel-scorer',choices=['v-bounded','vonly-bounded'],default='v-bounded',help='Existing fuzzy kernel reducer; vonly-bounded requires same-V target support')
     p.add_argument('--tra-matcher',choices=['hamming','stem4','gapblock','blosum62','positional-blosum62'],default='hamming',help='TRA matching rule')
     p.add_argument('--trb-matcher',choices=['hamming','stem4','gapblock','blosum62','positional-blosum62'],default='hamming',help='TRB matching rule')
     p.add_argument('--tra-min-score',type=float,default=0.,help='Strict lower score bound for fuzzy TRA support')

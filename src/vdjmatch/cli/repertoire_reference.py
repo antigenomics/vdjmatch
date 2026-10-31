@@ -170,7 +170,7 @@ def main(a):
         if a.batch_samples:
             cohort.append(obs.with_columns(pl.lit(sample).alias('sample_id')))
         else:
-            summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,tra_max_penalty=a.tra_max_penalty,trb_max_penalty=a.trb_max_penalty,target_groups=target_groups,progress=progress)
+            summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,tra_max_penalty=a.tra_max_penalty,trb_max_penalty=a.trb_max_penalty,kernel_scorer=a.kernel_scorer,target_groups=target_groups,progress=progress)
             summaries.append(summary.with_columns(pl.lit(sample).alias('sample_id')))
             mocks.append(mock.with_columns(pl.lit(sample).alias('sample_id')))
             hits.append(hit.with_columns(pl.lit(sample).alias('sample_id')))
@@ -181,7 +181,7 @@ def main(a):
         t=time.monotonic()
         def cohort_progress(stage,replicate):
             print(f'cohort: {stage} {replicate} after {time.monotonic()-t:.3f}s',flush=True)
-        summary,mock,hit=reference_enrichment(pl.concat(cohort),ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,tra_max_penalty=a.tra_max_penalty,trb_max_penalty=a.trb_max_penalty,target_groups=target_groups,progress=cohort_progress)
+        summary,mock,hit=reference_enrichment(pl.concat(cohort),ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,tra_max_penalty=a.tra_max_penalty,trb_max_penalty=a.trb_max_penalty,kernel_scorer=a.kernel_scorer,target_groups=target_groups,progress=cohort_progress)
         summaries.append(summary);mocks.append(mock);hits.append(hit)
         stages['cohort_seconds']=time.monotonic()-t
     summary=pl.concat(summaries)
