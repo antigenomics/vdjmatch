@@ -1,6 +1,21 @@
 Repertoire enrichment: algorithm and parameter choices
 ======================================================
 
+Implementation status
+---------------------
+
+The four established comparison families are unit, V-unit, weighted and
+V-weighted. They cross unit/weighted edit-bounded search with absence/presence
+of hard V equality. Their NED score also retains the existing soft V weight
+when hard equality is disabled. The implementation is owned by
+``Annotator.graded_candidates`` and the shared candidate reducer.
+
+The normalized BLOSUM repertoire experiments below do not reproduce this
+four-family comparison: they use a substitution-penalty bound and hard V
+matching. Their measured results remain valid for those declared settings,
+but do not select the optimal M3 family. M3 integration of the established
+families is unfinished. Exact Hamming reproduction is a baseline check.
+
 Start with the biological question
 ----------------------------------
 
