@@ -561,8 +561,11 @@ def test_family_count_threshold_matches_existing_alignment_api(family):
             selected=reference_enrichment(sample,two_targets,{'TRB':control},target_groups=['X'],**options)
             assert set(selected[2]['group_id'])<={'X'}
             assert selected[0].select('matched_receptors','matched_count').row(0)==expected[0]
-            cohort=pl.concat([sample.with_columns(pl.lit(name).alias('sample_id')) for name in ['s1','s2']])
+            names=['s1','s2']+['batch'+str(i) for i in range(255)]
+            cohort=pl.concat([sample.with_columns(pl.lit(name).alias('sample_id')) for name in names])
             batched=reference_enrichment(cohort,ref,{'TRB':control},**options)
             for actual,combined in zip((summary,mocks,hits),batched):
+                assert combined.height==actual.height*len(names)
+                assert set(combined['sample_id'])==set(names)
                 for name in ['s1','s2']:
                     assert actual.equals(combined.filter(pl.col('sample_id')==name).select(actual.columns))
