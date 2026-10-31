@@ -451,3 +451,19 @@ def test_fuzzy_preserves_peptide_background_across_mhc_restrictions(anchored,tar
     scored=hits.filter((pl.col('group_id')=='X')&(pl.col('locus')=='TRB'))
     assert scored.height==1
     assert scored['chain_score'].item()==pytest.approx(expected,rel=0,abs=1e-15)
+
+
+def test_fuzzy_keeps_reference_rows_requiring_production_v_geometry_imputation(monkeypatch):
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    import vdjmatch.evalue.kernel as kernel
+    original=kernel.grouped_kernel_enrichment
+    observed=[]
+    def capture(queries,references,*args,**kwargs):
+        observed.append(references.height)
+        return original(queries,references,*args,**kwargs)
+    monkeypatch.setattr(kernel,'grouped_kernel_enrichment',capture)
+    sample=pl.DataFrame(dict(receptor_id=['q'],locus=['TRA'],junction_aa=['CAVRDSNYQLIW'],v=['TRAV1-1'],j=['TRAJ33'],count=[1]))
+    reference=pl.DataFrame(dict(group_id=['X','Y'],locus=['TRA']*2,junction_aa=['CAVRDSNYQLIW','CAVRDSNFQLIW'],v=['TRAV1-1','TRAV14-1'],j=['TRAJ33']*2,pgen_bin=[-10]*2))
+    control=reference.drop('group_id').with_columns(pl.Series('junction_aa',['CAVRDSNQQLIW','CAVRDSNHQLIW']))
+    reference_enrichment(sample,reference,{'TRA':control},replicates=2,tra_matcher='stem4',chain_mode='tra',target_groups=['X'])
+    assert observed[0]==reference.height

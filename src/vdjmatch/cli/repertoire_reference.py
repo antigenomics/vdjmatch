@@ -213,6 +213,7 @@ def main(a):
         target_selection='output cases only; complete eligible reference and mock panels retained',
         paired_rule=f'{a.chain_mode} of available chain supports, counted once per receptor/target; same rule in real and mock panels',
         matchers={locus:(f'Hamming<={a.mismatches}, exact V'+(', exact J' if a.match_j else '') if matcher=='hamming' else matcher) for locus,matcher in [('TRA',a.tra_matcher),('TRB',a.trb_matcher)]},
+        fuzzy_v_geometry='production V geometry imputation; raw V keys retained',
         pgen_definition=f'marginal full-junction Hamming<={a.pgen_mismatches}; rounded log2(Pgen+2**-60)',
         control_law='uniform unique junction/V/J keys, without replacement per target/bin; source event/read weights are not sampling weights',
         archive_differences='marginal model Pgen without cohort-fitted VJ factor; complete zero-hit rows; explicit matching and conditional mock options; independent locus streams',

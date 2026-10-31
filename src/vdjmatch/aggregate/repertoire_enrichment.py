@@ -182,6 +182,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     target_groups restricts reported targets, never reference models or mock draws.
     Optional epitope/mhc_a/mhc_b/mhc_class columns preserve peptide identity
     across restrictions in the fuzzy background; otherwise group IDs are labels.
+    Fuzzy models use production V geometry imputation, retaining raw V keys.
     """
     from seqtree import Index
     from ..match.scope import search_params
@@ -293,11 +294,11 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                     if not cases.height:continue
                     queries=fuzzy_queries.join(cases.select('query_id').unique(),on='query_id',how='semi')
                     result=_kernel(queries,kernel_reference,cases,species=species,threads=threads,paired=False,
-                        exclude_exact=False,contexts=contexts,kernels=(kernel,),scorer=kernel_scorer)
+                        exclude_exact=False,contexts=contexts,kernels=(kernel,),scorer=kernel_scorer,_impute_v=True)
                     collect(kernel,result.rename({kernel+'_score':'kernel_score'}))
                 else:
                     _kernel(fuzzy_queries,kernel_reference,None,species=species,threads=threads,paired=False,
-                        exclude_exact=False,contexts=contexts,_consume=collect,kernels=(kernel,),scorer=kernel_scorer)
+                        exclude_exact=False,contexts=contexts,_consume=collect,kernels=(kernel,),scorer=kernel_scorer,_impute_v=True)
                 if scored:
                     supported=pl.concat(scored).join(fuzzy_queries,on='query_id',validate='m:1').rename({'cdr3':'junction_aa'})
                     columns=['receptor_id','group_id','locus']+(['junction_aa','v','j','chain_score'] if detailed else [])
@@ -416,7 +417,7 @@ def kernel_reference_counts(observations, panels, inventory, full_reference, *,
         def consume(name,scores):
             members.append(scores.filter(pl.col('kernel_score')>min_score).select('query_id',*PMHC))
         _kernel(queries,model,None,species=species,threads=threads,paired=False,
-            exclude_exact=False,contexts=contexts,kernels=('stem4',),_consume=consume,_targets=targets.select(PMHC))
+            exclude_exact=False,contexts=contexts,kernels=('stem4',),_consume=consume,_targets=targets.select(PMHC),_impute_v=True)
         supported=pl.concat(members) if members else queries.head(0).select('query_id').join(targets.select(PMHC),how='cross')
         support=supported.join(targets,on=PMHC,nulls_equal=True,validate='m:1').select('query_id','group_id').unique()
         matched=support.join(counted,on='query_id',validate='m:m').group_by('sample_id','group_id').agg(pl.col('matched_records','matched_reads').sum())

@@ -518,6 +518,7 @@ Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4` or `gapblock`
 Keep calibrated scorer parameters fixed; select only dimensionless score thresholds.
 Pass full peptide/MHC metadata into fuzzy reference models; never rename a
 serialized pMHC group ID as the peptide, which changes background membership.
+Use production V geometry imputation; do not drop unresolved reference rows.
  `--tra-min-score` and `--trb-min-score` set strict lower bounds
 for fuzzy support (default zero); the same bounds apply to real and every
 mock panel. Use `--trb-matcher stem4 --chain-mode intersection` for the reverse

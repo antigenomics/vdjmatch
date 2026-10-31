@@ -2764,6 +2764,8 @@ matching. All cohort queries share each real/mock model; other-peptide
 reference observations remain fixed, including conflicting metadata. Target
 selection restricts scored outputs, never the background model. The preset
 retains its existing V-loop weighting and does not add a hard J predicate.
+It uses production V geometry imputation rather than dropping unresolved
+reference rows; original V identities remain in the model keys.
 Exact and Hamming keep their original V/J predicates. Geometry, positional
 weights, decay and ladder parameters are not fitted by this command.
 
@@ -2858,6 +2860,7 @@ Both ``--tra-matcher`` and ``--trb-matcher`` accept ``hamming``, ``stem4`` or
 ``gapblock``. Either or both chains may use a fuzzy matcher.
 ``--mismatches`` controls Hamming arms.
 The CLI preserves peptide and MHC fields separately inside each fuzzy model.
+It retains reference rows using the production V geometry imputation rule.
 API references may supply ``epitope,mhc_a,mhc_b,mhc_class`` alongside
 ``group_id``; these must map one-to-one to full targets. Without those fields,
 group IDs are independent labels. MHC variants of one peptide must retain

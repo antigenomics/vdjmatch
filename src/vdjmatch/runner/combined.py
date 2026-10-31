@@ -128,11 +128,12 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
         pl.col('original_supported').fill_null(False))
 
 
-def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts, _consume=None, kernels=("gapblock", "stem4"), scorer="v-bounded", _targets=None):
+def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts, _consume=None, kernels=("gapblock", "stem4"), scorer="v-bounded", _targets=None, _impute_v=False):
     import numpy as np
     from ..evalue.kernel import grouped_kernel_enrichment, ladder_cutoffs, KERNEL_SCORERS
     if scorer not in KERNEL_SCORERS:raise ValueError("unknown kernel scorer")
     from ..match.geometry import (resolve_v_alleles, distance_units, _substitution_costs)
+    if _impute_v and paired:raise ValueError('production V imputation here requires single-chain axes')
 
     definitions = [('gapblock','clipped',0),('stem4','blosum62',4)]
     if not kernels or not set(kernels)<= {'gapblock','stem4'}:
@@ -151,6 +152,17 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
                 r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$').fill_null(False))
         query_keys = ['cdr3a', 'cdr3b', '_allelea', '_alleleb']
         search_keys = ['alpha', 'beta', '_allele_alpha', '_allele_beta']
+    elif _impute_v:
+        from ..match.geometry import impute_reference_v_alleles
+        chain=queries['locus'][0] if queries.height else 'TRB'
+        def prepare(frame):
+            alleles,imputed=impute_reference_v_alleles(frame['v'],model,locus=chain)
+            return frame.with_columns(alleles.alias('_allele'),imputed).with_columns(
+                pl.when(pl.col('v_geometry_imputed')).then(pl.struct('v').struct.json_encode())
+                    .otherwise(pl.col('_allele')).alias('_v_key')).filter(
+                pl.col('_allele').is_not_null() & pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$').fill_null(False))
+        q,r=prepare(queries),prepare(reference)
+        query_keys,search_keys=['cdr3','_allele','_v_key'],['cdr3','_allele','_v_key']
     else:
         chain = queries['locus'][0] if queries.height else 'TRB'
         q = queries.with_columns(resolve_v_alleles(queries['v'], model, locus=chain).alias('_allele')).filter(
