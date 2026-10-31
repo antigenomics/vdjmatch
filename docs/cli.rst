@@ -2750,6 +2750,8 @@ Hamming uses ``--mismatches`` (default one); BLOSUM modes require ``--max-penalt
 in 100-scaled matrix units and allow at most three substitutions, no indels.
 Exact V/J remains mandatory. All real/mock panels share the same matcher;
 multiple matching references count a source row only once per panel.
+Noncanonical junction rows remain in source totals and V/J sampling counts,
+but are not searched by fuzzy modes; the manifest reports their row/read counts.
 These are calibration options, not promoted biological operating points.
 
 The probe table contains ``junction_aa``, ``v`` and ``j``. Optional

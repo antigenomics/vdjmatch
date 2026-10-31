@@ -45,9 +45,10 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
         from seqtree import Index, PositionalMatrix, SubstitutionMatrix
         from ..match.scope import search_params
         from ..match.regions import significance_pssm
-        observed=counted.select('junction_aa').unique().sort('junction_aa').with_row_index('_ri')
-        queries=panels.select('junction_aa').unique().sort('junction_aa').with_row_index('_qi')
-        index=Index.build(observed['junction_aa'].to_list(),alphabet='aa')
+        valid=pl.col('junction_aa').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)
+        observed=counted.filter(valid).select('junction_aa').unique().sort('junction_aa').with_row_index('_ri')
+        queries=panels.filter(valid).select('junction_aa').unique().sort('junction_aa').with_row_index('_qi')
+        index=Index.build(observed['junction_aa'].to_list(),alphabet='aa') if observed.height else None
         buffers=[]
         def consume(start,stop,buffer):
             pairs=np.asarray(buffer)
@@ -56,6 +57,7 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
                 buffers.append(pairs)
         batches=queries.with_columns(pl.col('junction_aa').str.len_chars().alias('_length')).partition_by('_length',as_dict=True)
         for (length,),batch in batches.items():
+            if index is None:continue
             if matcher=='hamming':params=search_params(f'{mismatches},0,0,{mismatches}')
             else:
                 matrix=(significance_pssm(length) if matcher=='positional-blosum62' else
