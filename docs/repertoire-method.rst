@@ -242,8 +242,12 @@ from ``P(V,J) = P(J|V) P(V)``; it does not establish which null best represents
 the biological background. Pooling samples versus fitting each sample also
 changes those frequencies and hence the Pgen strata and mock law. Compare those
 choices with matching held fixed, preserving observed counts and common final
-FDR families. The separate sample-specific comparison is in progress; it does
-not change the accepted pooled results or introduce a marginal-V correction.
+FDR families. The completed 42-library comparison retains 4/7 day15 clonotype
+and 7/7 read calls for hard-V exact under either correction. Positional bound
+0.30 gives 5/7 clonotype calls pooled versus 4/7 sample-specific, retaining 7/7
+read calls and 0/12 day0 calls on both endpoints in either case. Pooled
+correction therefore retains the strongest observed bulk result on this
+endpoint. This comparison does not introduce or select a marginal-V correction.
 
 When can hard V equality be optimal?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
