@@ -2746,7 +2746,13 @@ One batched join counts all freshly sampled reference panels per sample.
 
 Optional ``--matcher hamming --mismatches 1`` changes junction membership
 while preserving exact V/J, sampling and statistics. Exact is the default.
-Multiple matching references count a source row once per panel. Noncoding
+Multiple matching references count a source row once per panel. Outputs include
+``normalized_clonotype_matches = matched_records / sample_clonotypes / epitope_clonotypes``
+and ``matched_read_fraction = matched_reads / sample_reads``, with all three
+integer denominators explicit in real/mock counts and summaries. Each source
+clonotype row is one sample clonotype under this bulk reproduction contract.
+Real/mock panel sizes are equal; these fixed per-sample scale factors leave
+upper-tail empirical P-values unchanged. Noncoding
 junction rows are dropped by the standard input filter before counting.
 Fuzzy kernel comparisons use the existing ``stem4`` and ``gapblock`` modes
 of reference-null ``repertoire-enrichment`` described below.

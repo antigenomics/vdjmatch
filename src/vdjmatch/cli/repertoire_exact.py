@@ -87,6 +87,13 @@ def _summaries(counts):
                 'original_mean_'+endpoint:mean,'original_sd_'+endpoint:sd,
                 'original_effect_'+endpoint:effect,
                 'excess_'+endpoint:float(actual-values.mean())})
+        if 'sample_clonotypes' in part.columns:
+            for denominator in ['sample_clonotypes','epitope_clonotypes','sample_reads']:
+                if part[denominator].n_unique()!=1:raise ValueError('real/mock normalization denominators must agree')
+                row[denominator]=observed[denominator]
+            for measure in ['normalized_clonotype_matches','matched_read_fraction']:
+                row[measure]=observed[measure]
+                row['mock_mean_'+measure]=float(mock[measure].mean())
         rows.append(row)
     return pl.DataFrame(rows,infer_schema_length=None)
 
@@ -182,9 +189,16 @@ def main(a):
     reference=reference.join(probes.select(*keys,'pgen_bin'),on=keys,validate='m:1')
     mocks=sample_stratified_panels(reference,probes.select(*keys,'pgen_bin'),replicates=a.mock_replicates,seed=a.seed,sampler=a.sampler)
     panels=pl.concat([reference.select('group_id',*keys).with_columns(pl.lit(-1,dtype=pl.Int64).alias('replicate')),mocks.select('group_id',*keys,pl.col('replicate').cast(pl.Int64))])
+    panel_sizes=panels.group_by('group_id','replicate').len(name='epitope_clonotypes')
     counts=[]
     for i,(sample,path) in enumerate(zip(meta['sample_id'],paths),1):
-        counts.append(exact_reference_counts(_source(path,locus=a.locus),panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads).with_columns(pl.lit(sample).alias('sample_id')))
+        observations=_source(path,locus=a.locus)
+        counted=exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads).join(panel_sizes,on=['group_id','replicate'],validate='1:1')
+        counted=counted.with_columns(pl.lit(sample).alias('sample_id'),
+            pl.lit(observations.height).alias('sample_clonotypes'),pl.lit(int(observations['count'].sum())).alias('sample_reads'))
+        counted=counted.with_columns((pl.col('matched_records')/pl.col('sample_clonotypes')/pl.col('epitope_clonotypes')).alias('normalized_clonotype_matches'),
+            (pl.col('matched_reads')/pl.col('sample_reads')).alias('matched_read_fraction'))
+        counts.append(counted)
         print(f'counted sample {i}/{len(paths)}',flush=True)
     counts=pl.concat(counts);summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
     parts=[]

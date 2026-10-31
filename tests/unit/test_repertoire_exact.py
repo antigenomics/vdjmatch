@@ -17,6 +17,10 @@ def test_reference_panel_cli_preserves_rows_reads_zero_panels_and_fdr_groups(tmp
     assert run.returncode==0,run.stderr+run.stdout
     counts=pl.read_csv(str(prefix)+'.counts.tsv',separator='\t')
     assert counts.height==201
+    real=counts.filter(pl.col('replicate')==-1).row(0,named=True)
+    assert real['sample_clonotypes']==3 and real['epitope_clonotypes']==1 and real['sample_reads']==15
+    assert real['normalized_clonotype_matches']==2/3
+    assert real['matched_read_fraction']==10/15
     assert counts.filter(pl.col('replicate')==-1).select('matched_records','matched_reads').row(0)==(2,10)
     assert set(counts.filter(pl.col('replicate')>=0)['matched_records'])=={0,1}
     summary=pl.read_csv(str(prefix)+'.summary.tsv',separator='\t').row(0,named=True)
@@ -155,3 +159,12 @@ def test_joint_pgen_forwards_inclusive_neighbourhood(monkeypatch):
     result=_joint_pgen(probes,species='human',locus='TRB',threads=1,mismatches=1)
     assert result['pgen'].to_list()==[.25]
     assert calls==[dict(mismatches=1,threads=1)]
+
+
+def test_original_and_fuzzy_paths_share_reference_panel_sampler():
+    from vdjmatch.evalue.mock_reference import sample_stratified_panels,iter_epitope_mocks
+    probes=pl.DataFrame(dict(junction_aa=['CASSF','CASRF','CATSF','CQQQF'],v=['TRBV2']*4,j=['TRBJ1-1']*4,pgen_bin=[-20]*4))
+    reference=probes.head(1).with_columns(pl.lit('target').alias('group_id'))
+    original=sample_stratified_panels(reference,probes,replicates=200,seed=42)
+    fuzzy=pl.concat(iter_epitope_mocks(reference,probes,replicates=200,seed=42,policy='pgen'))
+    assert original.equals(fuzzy)
