@@ -499,6 +499,14 @@ preserves receptor identity throughout real and mock matching. The asymmetric
 TRB support with fuzzy TRA evidence for the same target; chain scores remain
 separate from repertoire significance.
 
+The established `unit`, `v-unit`, `weighted` and `v-weighted` families are also
+available through these matcher options. They reuse the graded edit-bounded
+alignment engine. An explicit chain `--*-radius-factor` bounds the best individual
+alignment cost divided by 1 (unit) or 400 (weighted); `--mismatches` sets the
+1–3 total-edit ceiling. Count each accepted receptor and its abundance once.
+Weak alignments cannot add up to cross this bound. Cohort validation and cutoff
+selection for this M3 port remain pending; summed evidence is deferred.
+
 Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, `gapblock`,
 `blosum62` or `positional-blosum62`. The direct BLOSUM presets require
 `--tra-radius-factor`/`--trb-radius-factor`: a dimensionless budget relative to

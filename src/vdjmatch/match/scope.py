@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from seqtree import SearchParams
 
+GRADED_FAMILIES = ('unit', 'v-unit', 'weighted', 'v-weighted')
+
 
 def parse_scope(spec: str) -> tuple[int, int, int, int]:
     """Parse ``"s,i,d,t"`` / ``"s,id,t"`` / ``"s"`` → (subs, ins, dels, total)."""
@@ -78,6 +80,18 @@ def graded_search_params(radius, matrix=None):
     return search_params(f'{radius},{indels},{indels},{radius}',
                          matrix=matrix if matrix is not None else '',
                          gap_open=gap, gap_extend=gap)
+
+
+def graded_family_params(family, radius, radius_factor):
+    """Shared M3 family validation, native geometry and dimensionless cost scale."""
+    import math
+    from .scoring import load_vdjam
+    if family not in GRADED_FAMILIES:
+        raise ValueError('unknown graded family')
+    if radius_factor is None or isinstance(radius_factor, bool) or not math.isfinite(radius_factor) or radius_factor < 0:
+        raise ValueError('graded family requires a finite nonnegative dimensionless radius factor')
+    weighted = family.endswith('weighted')
+    return graded_search_params(radius, load_vdjam() if weighted else None), 400. if weighted else 1.
 
 
 def blosum_radius_params(matcher, radius_factor, length):

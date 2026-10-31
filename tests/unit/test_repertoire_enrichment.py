@@ -519,3 +519,50 @@ def test_dimensionless_blosum_length_batches_preserve_identity(matcher):
     panels=obs.select('junction_aa','v','j').with_columns(pl.Series('group_id',['short','long']),pl.lit(-1).alias('replicate'))
     result=exact_reference_counts(obs,panels,matcher=matcher,radius_factor=.10)
     assert result.select('group_id','matched_records','matched_reads').rows()==[('long',1,3),('short',1,2)]
+
+
+@pytest.mark.parametrize('family', ['unit','v-unit','weighted','v-weighted'])
+def test_family_count_threshold_matches_existing_alignment_api(family):
+    from vdjmatch.api import Annotator
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    from vdjmatch.evalue.mock_reference import iter_epitope_mocks
+    from vdjmatch.match.scoring import load_vdjam
+    sample=pl.DataFrame(dict(receptor_id=['a','b','c'],locus=['TRB']*3,
+        junction_aa=['CASSF','CASRF','CYYYYF'],v=['TRBV19','TRBV5-1','TRBV19'],
+        j=['TRBJ2-7']*3,count=[2,7,11]))
+    ref=pl.DataFrame(dict(group_id=['X']*3,locus=['TRB']*3,
+        junction_aa=['CASSF','CASTF','CASAF'],v=['TRBV19']*3,
+        j=['TRBJ2-7']*3,pgen_bin=[-10]*3))
+    control=ref.drop('group_id').with_columns(pl.Series('junction_aa',['CARRF','CAYYF','CWWWF']))
+    matrix=load_vdjam() if family.endswith('weighted') else None
+    scale=400. if matrix is not None else 1.
+    for cutoff in [0., .5, 1.]:
+        options=dict(replicates=2,seed=7,trb_matcher=family,trb_radius_factor=cutoff,chain_mode='trb')
+        summary,mocks,hits=reference_enrichment(sample,ref,{'TRB':control},**options)
+        panels=[ref,*iter_epitope_mocks(ref,control,replicates=2,seed=8,policy='pgen')]
+        expected=[]
+        for panel in panels:
+            ann=Annotator.from_frame(panel.rename({'junction_aa':'cdr3','locus':'gene'}).with_columns(pl.lit('X').alias('epitope')))
+            candidates=ann.graded_candidates(sample,matrix=matrix,max_radius=1,match_v=family.startswith('v-'))
+            ids=candidates.filter(pl.col('nearest_score')/scale<=cutoff)['query_id']
+            accepted=sample.with_row_index('query_id').filter(pl.col('query_id').is_in(ids.implode()))
+            expected.append((accepted.height,accepted['count'].sum()))
+        assert summary.select('matched_receptors','matched_count').row(0)==expected[0]
+        assert mocks.sort('replicate').select('mock_receptors','mock_count').rows()==expected[1:]
+        assert hits['receptor_id'].n_unique()==expected[0][0]
+        if cutoff==0.:
+            # Three weak alignments must not accumulate into an accepted hit.
+            assert hits['receptor_id'].to_list()==['a']
+        parallel=reference_enrichment(sample,ref,{'TRB':control},threads=2,**options)
+        for actual,other in zip((summary,mocks,hits),parallel):
+            assert actual.equals(other)
+        if cutoff==.5:
+            two_targets=pl.concat([ref,ref.with_columns(pl.lit('Y').alias('group_id'))])
+            selected=reference_enrichment(sample,two_targets,{'TRB':control},target_groups=['X'],**options)
+            assert set(selected[2]['group_id'])<={'X'}
+            assert selected[0].select('matched_receptors','matched_count').row(0)==expected[0]
+            cohort=pl.concat([sample.with_columns(pl.lit(name).alias('sample_id')) for name in ['s1','s2']])
+            batched=reference_enrichment(cohort,ref,{'TRB':control},**options)
+            for actual,combined in zip((summary,mocks,hits),batched):
+                for name in ['s1','s2']:
+                    assert actual.equals(combined.filter(pl.col('sample_id')==name).select(actual.columns))

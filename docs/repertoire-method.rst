@@ -10,11 +10,26 @@ of hard V equality. Their NED score also retains the existing soft V weight
 when hard equality is disabled. The implementation is owned by
 ``Annotator.graded_candidates`` and the shared candidate reducer.
 
-The normalized BLOSUM repertoire experiments below do not reproduce this
-four-family comparison: they use a substitution-penalty bound and hard V
-matching. Their measured results remain valid for those declared settings,
-but do not select the optimal M3 family. M3 integration of the established
-families is unfinished. Exact Hamming reproduction is a baseline check.
+M3 now exposes those four geometries through the same matcher names. Supply
+``--tra-radius-factor`` or ``--trb-radius-factor`` as an explicit upper bound
+on an individual alignment's dimensionless distance: raw cost divided by 1
+for unit families and 400 for weighted families, using the existing graded
+score scales. ``--mismatches`` is the total edit ceiling (1–3), with insertion
+and deletion ceilings min(radius, 2). Weighted families use the existing VDJAM
+matrix and gap costs; they are not the normalized BLOSUM presets.
+
+A receptor contributes one hit if at least one alignment passes the bound,
+including equality. Its abundance contributes once. This is a nearest-distance
+endpoint: soft-V NED weights and summed weak evidence do not enter acceptance.
+The ``v-`` prefix enforces gene equality; without it V does not filter hits.
+Optional J equality remains separate. Real and mock panels use the same rule,
+with exact hits retained and each panel's complete model preserved.
+
+Software parity is checked against the existing graded API. The new M3
+four-family cohort comparison and operating-point selection are still pending;
+no cutoff is recommended by these software checks. Continuous-score summation
+is recorded as deferred at the author's request. The normalized BLOSUM
+experiments below remain results for their own declared settings.
 
 Start with the biological question
 ----------------------------------

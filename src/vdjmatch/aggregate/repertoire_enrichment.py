@@ -189,9 +189,12 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     Optional epitope/mhc_a/mhc_b/mhc_class columns preserve peptide identity
     across restrictions in the fuzzy background; otherwise group IDs are labels.
     Fuzzy models use production V geometry imputation, retaining raw V keys.
+    Graded unit/v-unit/weighted/v-weighted families instead threshold the nearest
+    individual alignment cost (unit scale1, weighted scale400) by radius_factor.
+    They reuse the graded edit/indel ceiling and never sum weak hits for acceptance.
     """
     from seqtree import Index
-    from ..match.scope import search_params, blosum_radius_params
+    from ..match.scope import search_params, blosum_radius_params, graded_family_params, GRADED_FAMILIES
     from ..evalue.mock_reference import iter_epitope_mocks
     from .candidates import PMHC
 
@@ -202,10 +205,13 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         raise ValueError("chain_mode must be tra, trb, union, intersection or all")
     matchers={"TRA":tra_matcher,"TRB":trb_matcher}
     weighted={'blosum62','positional-blosum62'}
-    if any(m not in {'hamming','stem4','gapblock',*weighted} for m in matchers.values()):raise ValueError('unknown chain matcher')
+    if any(m not in {'hamming','stem4','gapblock',*weighted,*GRADED_FAMILIES} for m in matchers.values()):raise ValueError('unknown chain matcher')
     factors={'TRA':tra_radius_factor,'TRB':trb_radius_factor}
+    family_params={}
     for locus,matcher in matchers.items():
         if matcher in weighted:blosum_radius_params(matcher,factors[locus],1)
+        elif matcher in GRADED_FAMILIES:
+            family_params[locus]=graded_family_params(matcher,mismatches,factors[locus])
         elif factors[locus] is not None:raise ValueError('radius factor requires a BLOSUM matcher')
     cutoffs={'TRA':tra_min_score,'TRB':trb_min_score}
     if any(not np.isfinite(c) or c<0 for c in cutoffs.values()):raise ValueError('finite nonnegative fuzzy score cutoffs required')
@@ -213,6 +219,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     from ..evalue.kernel import KERNEL_SCORERS
     if kernel_scorer not in KERNEL_SCORERS:raise ValueError("unknown kernel scorer")
     fuzzy_loci=[locus for locus,matcher in matchers.items() if matcher in {'stem4','gapblock'}]
+    family_loci=[locus for locus,matcher in matchers.items() if matcher in GRADED_FAMILIES]
     anchored=chain_mode=="intersection" and len(fuzzy_loci)==1
     required={'receptor_id','locus','junction_aa','v','j','count'}
     if not required <= set(observations.columns) or not observations.height:
@@ -265,17 +272,17 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         keys=part.select('junction_aa').unique().sort('junction_aa').with_row_index('_ri')
         indexed=part.join(keys,on='junction_aa',validate='m:1').rename({'v':'_sample_v','j':'_sample_j'}).with_columns(
             pl.col('_sample_v').str.replace(r'\*.*$','').alias('_match_v'),pl.col('_sample_j').str.replace(r'\*.*$','').alias('_match_j'))
-        indexes[locus]=(Index.build(keys['junction_aa'].to_list(),alphabet='aa'),indexed)
+        indexes[locus]=(None if locus in family_loci else Index.build(keys['junction_aa'].to_list(),alphabet='aa'),indexed)
     for (locus,),part in ref.partition_by('locus',as_dict=True).items():
         if locus not in controls:raise ValueError(f'missing {locus} control pool')
         samplers[locus]=iter_epitope_mocks(part,controls[locus],replicates=replicates,seed=seed+(0 if locus=='TRA' else 1),policy=policy,unavailable=unavailable)
     empty=pl.DataFrame(schema={'receptor_id':obs.schema['receptor_id'],'group_id':ref.schema['group_id'],'locus':pl.String,'junction_aa':pl.String,'v':pl.String,'j':pl.String})
-    fuzzy_by_locus={locus:obs.filter(pl.col('locus')==locus).with_row_index('query_id').rename({'junction_aa':'cdr3'}) for locus in fuzzy_loci}
+    fuzzy_by_locus={locus:obs.filter(pl.col('locus')==locus).with_row_index('query_id').rename({'junction_aa':'cdr3'}) for locus in fuzzy_loci+family_loci}
     weighted_params={(locus,length):blosum_radius_params(matcher,factors[locus],length)
         for locus,matcher in matchers.items() if matcher in weighted
         for length in obs.filter(pl.col('locus')==locus)['junction_aa'].str.len_chars().unique()}
     contexts = None
-    if any(frame.height for frame in fuzzy_by_locus.values()):
+    if any(fuzzy_by_locus[locus].height for locus in fuzzy_loci):
         from ..match.geometry import precompute_v_loop_distances
         matrices={'blosum62' if matchers[locus]=='stem4' else 'clipped' for locus in fuzzy_loci}
         contexts={matrix:precompute_v_loop_distances(species=species,alphabet='full',matrix=matrix,v_regions='cdr12plus') for matrix in sorted(matrices)}
@@ -287,6 +294,30 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         for (locus,),targets in population.partition_by('locus',as_dict=True).items():
             if locus not in indexes:continue
             index,samples=indexes[locus]
+            if locus in family_loci:
+                from ..api import Annotator
+                queries=fuzzy_by_locus[locus]
+                params,scale=family_params[locus]
+                model=targets.rename({'junction_aa':'cdr3','locus':'gene'}).join(labels,on='group_id',validate='m:1')
+                scores=Annotator.from_frame(model).candidates(queries,
+                    scope=params,threads=threads,
+                    match_v=matchers[locus].startswith('v-'),match_j=match_j,
+                    species=species,score_scale=scale,soft_v=False)
+                # One qualifying alignment suffices; weak alignments never add
+                # together to cross the distance threshold.
+                supported=scores.filter(pl.col('nearest_score')/scale<=factors[locus]).join(
+                    labels,on=PMHC,nulls_equal=True,validate='m:1').join(queries,on='query_id',validate='m:1')
+                if target_groups is not None:
+                    supported=supported.filter(pl.col('group_id').is_in(target_groups))
+                columns=['receptor_id','group_id','locus']
+                if detailed:
+                    supported=supported.rename({'cdr3':'junction_aa'})
+                    columns+=['junction_aa','v','j']
+                    if fuzzy_loci:
+                        supported=supported.with_columns(pl.lit(1.).alias('chain_score'))
+                        columns+=['chain_score']
+                parts.append(supported.select(columns).unique())
+                continue
             if locus in fuzzy_by_locus:
                 fuzzy_queries=fuzzy_by_locus[locus]
                 kernel=matchers[locus]

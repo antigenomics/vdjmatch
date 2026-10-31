@@ -1,5 +1,6 @@
 """Fresh strict Pgen/count-matched repertoire enrichment one repertoire and one mock at a time."""
 from pathlib import Path
+from ..match.scope import GRADED_FAMILIES, graded_family_params
 
 
 def _single_v(frame,column,*,species='human',locus='TRB',impute=True):
@@ -44,12 +45,12 @@ def register(subparsers):
     p.add_argument('--pgen-features-tra', help='validated TRA Pgen bank for paired mode')
     p.add_argument('--epitope', action='append', help='reported target peptide(s); full reference model and mock panels retained, reference-null only')
     p.add_argument('--kernel-scorer',choices=['v-bounded','vonly-bounded'],default='v-bounded',help='Existing fuzzy kernel reducer; vonly-bounded requires same-V target support')
-    p.add_argument('--tra-matcher',choices=['hamming','stem4','gapblock','blosum62','positional-blosum62'],default='hamming',help='TRA matching rule')
-    p.add_argument('--trb-matcher',choices=['hamming','stem4','gapblock','blosum62','positional-blosum62'],default='hamming',help='TRB matching rule')
+    p.add_argument('--tra-matcher',choices=['hamming','stem4','gapblock','blosum62','positional-blosum62',*GRADED_FAMILIES],default='hamming',help='TRA matching rule')
+    p.add_argument('--trb-matcher',choices=['hamming','stem4','gapblock','blosum62','positional-blosum62',*GRADED_FAMILIES],default='hamming',help='TRB matching rule')
     p.add_argument('--tra-min-score',type=float,default=0.,help='Dimensionless strict lower score bound for kernel TRA support')
     p.add_argument('--trb-min-score',type=float,default=0.,help='Dimensionless strict lower score bound for kernel TRB support')
-    p.add_argument('--tra-radius-factor',type=float,help='Dimensionless BLOSUM TRA radius / matrix substitution scale')
-    p.add_argument('--trb-radius-factor',type=float,help='Dimensionless BLOSUM TRB radius / matrix substitution scale')
+    p.add_argument('--tra-radius-factor',type=float,help='TRA normalized distance bound (BLOSUM or graded family)')
+    p.add_argument('--trb-radius-factor',type=float,help='TRB normalized distance bound (BLOSUM or graded family)')
     p.add_argument('--chain-mode',choices=['tra','trb','union','intersection','all'],default='union')
     p.add_argument('--single-chain-unit',choices=['junction-vj','source-row'],default='junction-vj',help='reference null: merge identical junction/V/J rows (default), or retain each input row as a clonotype')
     p.add_argument('--mismatches', type=int, choices=range(4), default=1)
@@ -73,6 +74,8 @@ def main(a):
         if matcher in {'blosum62','positional-blosum62'}:
             from ..match.scope import blosum_radius_params
             blosum_radius_params(matcher,factor,1)
+        elif matcher in GRADED_FAMILIES:
+            graded_family_params(matcher,a.mismatches,factor)
         elif factor is not None:raise ValueError('radius factor requires a BLOSUM matcher')
     if a.pgen_mismatches is None:a.pgen_mismatches = 0 if a.null == 'reference' else 1
     if a.reference_population is None:a.reference_population = 'curated-benchmark' if a.null == 'reference' else 'all-valid'

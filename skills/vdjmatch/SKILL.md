@@ -593,3 +593,14 @@ exposure P-value. Do not select only significant components or duplicate evidenc
 across chains and reducers. Retain full pMHC, HLA compatibility, orphan chains,
 zero hits, unavailable nulls and receptor/cell denominators. New comparisons or
 null calibration require explicit authorization; no Pgen result caches.
+
+### Graded-family M3 count endpoint
+
+`unit`, `v-unit`, `weighted`, `v-weighted` are supported chain matchers. Reuse
+`graded_family_params` and `Annotator.candidates`; do not duplicate native matching.
+An explicit chain radius factor bounds nearest individual cost / scale (1 unit,
+400 weighted), with `--mismatches` the1–3edit ceiling. No NED sum or soft-V weight
+enters this threshold. Count each qualifying receptor/abundance once through the
+existing chain reducer, identically for real and mock references. Weak matches
+cannot accumulate into a hit. Continuous-evidence summation is deferred. These
+software parity checks do not select a biological cutoff or establish10^7scaling.
