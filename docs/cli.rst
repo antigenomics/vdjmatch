@@ -2754,7 +2754,11 @@ of reference-null ``repertoire-enrichment`` described below.
 The probe table contains ``junction_aa``, ``v`` and ``j``. Optional
 ``joint_pgen`` values are an explicitly supplied gene-masked probability asset;
 otherwise the command computes joint probabilities with the native model,
-summing compatible V/J alleles. The original AA-only maximum reducer and
+summing compatible V/J alleles. ``--pgen-mismatches 0`` is the exact default; ``1`` requests the native
+inclusive Hamming-1 joint mass, independently of the matching predicate.
+Neighbourhood mass requires fresh computation rather than an unlabelled
+external probability column. It is an explicit comparison, not an automatic
+calibration improvement. The original AA-only maximum reducer and
 within-V, add-one J-usage correction define the strata, with the compiled
 notebook's ``2**-80`` floor. Model V/J counts are a separate ``v,j,records``
 table from the generation model, not experimental read counts.

@@ -16,6 +16,7 @@ def register(sub):
     p.add_argument('--selection-profile',help='Opt-in length | vj-length | vdjtools calibration JSON')
     p.add_argument('--source',default=None,help='Model source; default isalgo (legacy human: olga-legacy)')
     p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
+    p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact joint Pgen; 1 inclusive Hamming-1 joint mass')
     p.add_argument('--matcher',choices=['exact','hamming'],default='exact')
     p.add_argument('--mismatches',type=int,default=1,help='Hamming substitutions; exact V/J retained')
     p.add_argument('--sampler',choices=['numpy','r'],default='numpy')
@@ -49,12 +50,12 @@ def _source(path, *, locus):
         pl.col('v','j').str.split('*').list.first(),'count')
 
 
-def _joint_pgen(probes,*,species,locus,threads,source="isalgo",profile=None):
+def _joint_pgen(probes,*,species,locus,threads,source="isalgo",profile=None,mismatches=0):
     import polars as pl
     from vdjtools.model import load_bundled,native
     model=load_bundled(locus,source,organism=species,collapse=False)
     values=native.pgen_aa_gene_batch(model,probes['junction_aa'].to_list(),probes['v'].to_list(),
-                                   probes['j'].to_list(),mismatches=0,threads=threads)
+                                   probes['j'].to_list(),mismatches=mismatches,threads=threads)
     if profile is not None:
         from vdjtools.model.selection import selection_profile_factors
         values=selection_profile_factors(profile,probes['junction_aa'].str.len_chars().to_numpy(),
@@ -157,6 +158,8 @@ def main(a):
     else:
         a.source,a.selection_q,q_origin=_selection_options(a,external_pgen='joint_pgen' in probes.columns)
     if not set(keys)<=set(probes.columns):raise ValueError('control requires junction_aa,v,j')
+    if 'joint_pgen' in probes.columns and a.pgen_mismatches:
+        raise ValueError('neighbourhood Pgen requires fresh native probabilities')
     if 'joint_pgen' in probes.columns:
         probes=probes.select(*keys,pl.col('joint_pgen').cast(pl.Float64).alias('pgen'))
         if reference.select(keys).join(probes.select(keys),on=keys,how='anti').height:raise ValueError('external joint_pgen probes must include every reference key')
@@ -164,7 +167,7 @@ def main(a):
     else:
         model_identity=_pgen_model_identity(a.species,a.locus,source=a.source)
         probes=pl.concat([probes.select(keys),reference.select(keys)]).unique(maintain_order=True)
-        probes=_joint_pgen(probes,species=a.species,locus=a.locus,threads=a.threads,source=a.source,profile=shape)
+        probes=_joint_pgen(probes,species=a.species,locus=a.locus,threads=a.threads,source=a.source,profile=shape,mismatches=a.pgen_mismatches)
         pgen_origin='native gene-allele-summed joint probability'
     vj=[]
     for path in paths:

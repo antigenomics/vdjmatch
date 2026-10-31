@@ -141,3 +141,17 @@ def test_bulk_source_drops_noncoding_junctions(tmp_path):
     source=_source(path,locus='TRB')
     assert source['junction_aa'].to_list()==['CASSF']
     assert source['count'].to_list()==[3]
+
+
+def test_joint_pgen_forwards_inclusive_neighbourhood(monkeypatch):
+    from vdjmatch.cli.repertoire_exact import _joint_pgen
+    from vdjtools.model import native
+    calls=[]
+    def batch(model,sequences,v,j,**options):
+        calls.append(options)
+        return [.25]*len(sequences)
+    monkeypatch.setattr(native,'pgen_aa_gene_batch',batch)
+    probes=pl.DataFrame(dict(junction_aa=['CASSYVGSEQFF'],v=['TRBV19'],j=['TRBJ2-1']))
+    result=_joint_pgen(probes,species='human',locus='TRB',threads=1,mismatches=1)
+    assert result['pgen'].to_list()==[.25]
+    assert calls==[dict(mismatches=1,threads=1)]
