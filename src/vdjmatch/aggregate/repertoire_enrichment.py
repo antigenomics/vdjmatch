@@ -45,17 +45,7 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
     elif radius_factor is not None:raise ValueError('radius factor requires a BLOSUM matcher')
     if type(threads) is not int or threads<1 or type(mismatches) is not int or not 0<=mismatches<=3:
         raise ValueError('positive threads and zero to three mismatches required')
-    if matcher in GRADED_FAMILIES and counted.height:
-        from ..api import Annotator
-        roles=panels.select(groups).unique().sort(groups).with_row_index('_panel').with_columns(
-            pl.col('_panel').cast(pl.String).alias('epitope'))
-        model=panels.join(roles,on=groups,validate='m:1').rename({'junction_aa':'cdr3'}).with_columns(pl.lit(locus).alias('gene'))
-        queries=counted.with_row_index('query_id').with_columns(pl.lit(locus).alias('locus'))
-        scores=Annotator.from_frame(model).target_memberships(queries,scope=params,threads=threads,max_score=radius_factor,
-            match_v=matcher.startswith('v-'),match_j=True,species=species,score_scale=scale)
-        members=scores.select('query_id','epitope').join(
-            roles,on='epitope',validate='m:1').join(queries,on='query_id',validate='m:1')
-    elif matcher=='exact' or not counted.height:
+    if matcher=='exact' or not counted.height:
         members=panels.join(counted,on=keys,how='inner',validate='m:1')
     else:
         from seqtree import Index
@@ -66,20 +56,34 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
         buffers=[]
         def consume(start,stop,buffer):
             pairs=np.asarray(buffer)
+            if matcher in GRADED_FAMILIES:
+                pairs=pairs[pairs[:,2]/scale<=radius_factor]
             if len(pairs):
                 pairs=pairs[:,:2].copy();pairs[:,0]=query_ids[pairs[:,0]]
                 buffers.append(pairs)
         batches=(queries.with_columns(pl.col('junction_aa').str.len_chars().alias('_length')).partition_by('_length',as_dict=True).values() if matcher=='positional-blosum62' else [queries])
         for batch in batches:
             query_ids=batch['_qi'].to_numpy()
-            params=(blosum_radius_params(matcher,radius_factor,len(batch['junction_aa'][0])) if weighted else search_params(f'{mismatches},0,0,{mismatches}'))
+            if matcher not in GRADED_FAMILIES:
+                params=(blosum_radius_params(matcher,radius_factor,len(batch['junction_aa'][0])) if weighted else search_params(f'{mismatches},0,0,{mismatches}'))
             index.search_batch_consume(batch['junction_aa'].to_list(),params,consume,
                 threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
         pairs=pl.DataFrame(np.concatenate(buffers) if buffers else np.empty((0,2),dtype=np.uint32),
             schema=[('_qi',pl.UInt32),('_ri',pl.UInt32)],orient='row')
-        roles=panels.join(queries,on='junction_aa',validate='m:1').drop('junction_aa')
-        memberships=pairs.join(roles,on='_qi',validate='m:m').join(observed,on='_ri',validate='m:1').select(*groups,*keys).unique()
-        members=memberships.join(counted,on=keys,validate='m:1')
+        if matcher in GRADED_FAMILIES:
+            from ..evalue.control import impute_gene_calls
+            kinds=('v','j') if matcher.startswith('v-') else ('j',)
+            sampled=counted.with_row_index('_observation')
+            resolved=impute_gene_calls(sampled,species=species,locus=locus,kinds=kinds).join(observed,on='junction_aa',validate='m:1')
+            roles=impute_gene_calls(panels,species=species,locus=locus,kinds=kinds).join(queries,on='junction_aa',validate='m:1')
+            predicate=['_ri',*kinds]
+            linked=pairs.join(roles,on='_qi',validate='m:m').join(
+                resolved.select('_ri',*kinds,'_observation'),on=predicate,validate='m:m')
+            members=linked.select(*groups,'_observation').unique().join(sampled,on='_observation',validate='m:1')
+        else:
+            roles=panels.join(queries,on='junction_aa',validate='m:1').drop('junction_aa')
+            memberships=pairs.join(roles,on='_qi',validate='m:m').join(observed,on='_ri',validate='m:1').select(*groups,*keys).unique()
+            members=memberships.join(counted,on=keys,validate='m:1')
     matched=members.group_by(groups).agg(pl.col('matched_records','matched_reads').sum())
     return panels.select(groups).unique().join(matched,on=groups,how='left',validate='1:1').with_columns(
         pl.col('matched_records','matched_reads').fill_null(0)).sort(groups)

@@ -218,3 +218,24 @@ def test_graded_bulk_preserves_source_rows_reads_and_j(family):
     assert result.equals(exact_reference_counts(observations,panels,threads=2,**options))
     empty=exact_reference_counts(observations.head(0),panels,**options)
     assert empty.select('matched_records','matched_reads').rows()==[(0,0),(0,0)]
+
+
+@pytest.mark.parametrize('family',['unit','v-unit','weighted','v-weighted'])
+def test_bulk_reverse_search_matches_forward_memberships(family):
+    from vdjmatch.api import Annotator
+    from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
+    from vdjmatch.match.scope import graded_family_params
+    obs=pl.DataFrame(dict(junction_aa=['CASSF','CASRF','CASSAF','CASSF'],
+        v=['TRBV19','TRBV5-1','TRBV19','unknown'],j=['TRBJ2-7','TRBJ2-7','unknown','TRBJ2-7'],count=[2,3,5,7]))
+    panels=pl.DataFrame(dict(group_id=['X','X'],replicate=[-1,0],junction_aa=['CASSF','CARRF'],v=['TRBV19','unknown'],j=['TRBJ2-7']*2))
+    model=panels.rename({'junction_aa':'cdr3'}).with_columns(pl.lit('TRB').alias('gene'),pl.col('replicate').cast(pl.String).alias('epitope'))
+    ann=Annotator.from_frame(model)
+    for cutoff in [0.,.29,.5,1.,2.]:
+        params,scale=graded_family_params(family,3,cutoff)
+        expected=ann.target_memberships(obs.with_columns(pl.lit('TRB').alias('locus')),scope=params,max_score=cutoff,
+            score_scale=scale,match_v=family.startswith('v-'),match_j=True,species='human')
+        got=exact_reference_counts(obs,panels,matcher=family,mismatches=3,radius_factor=cutoff)
+        for row in got.iter_rows(named=True):
+            ids=expected.filter(pl.col('epitope')==str(row['replicate']))['query_id']
+            selected=obs.with_row_index('query_id').filter(pl.col('query_id').is_in(ids.implode()))
+            assert (row['matched_records'],row['matched_reads'])==(selected.height,selected['count'].sum())
