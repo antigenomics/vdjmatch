@@ -409,12 +409,20 @@ def test_fuzzy_same_v_reducer_preserves_model_and_excludes_cross_v_support(kerne
     assert strict[0]['n_receptors'].item()==2
 
 
-def test_fixed_kernel_panel_counts_keep_cohort_rows_and_other_peptide_context():
+def test_fixed_kernel_panel_counts_keep_cohort_rows_and_other_peptide_context(monkeypatch):
     from vdjmatch.aggregate.repertoire_enrichment import kernel_reference_counts
     obs=pl.DataFrame(dict(sample_id=['A','A','A','B','B'],junction_aa=['CASSIIDAYEQYF','CASSIIDAYEQYF','CASSMMDAYEQYF','CASSMMDAYEQYF','CWWWWWWWWWWWF'],v=['TRBV19']*5,j=['TRBJ2-7']*5,count=[2,3,7,11,13]))
     panels=pl.DataFrame(dict(group_id=['X','X'],replicate=[-1,0],junction_aa=['CASSIIDAYEQYF','CASSMMDAYEQYF'],v=['TRBV19']*2,j=['TRBJ2-7']*2))
     inventory=pl.DataFrame(dict(group_id=['X'],epitope=['LLWNGPMAV'],mhc_a=['HLA-A*02:01'],mhc_b=['B2M'],mhc_class=['MHCI']))
     full=pl.DataFrame(dict(cdr3=['CASSIIDAYEQYF','CWWWWWWWWWWWF'],v=['TRBV19']*2,j=['TRBJ2-7']*2,locus=['TRB']*2,epitope=['LLWNGPMAV','OTHER'],mhc_a=['HLA-A*02:01']*2,mhc_b=['B2M']*2,mhc_class=['MHCI']*2))
+    far='C'+'W'*70+'F'
+    obs=pl.concat([obs,obs.head(1).with_columns(pl.lit('B').alias('sample_id'),pl.lit(far).alias('junction_aa'),pl.lit(17,dtype=pl.Int64).alias('count'))])
+    import vdjmatch.runner.combined as combined
+    original_kernel=combined._kernel;seen=[]
+    def capture(queries,*args,**kwargs):
+        seen.extend(queries['cdr3'].to_list())
+        return original_kernel(queries,*args,**kwargs)
+    monkeypatch.setattr(combined,'_kernel',capture)
     original=full.clone()
     result=kernel_reference_counts(obs,panels,inventory,full,locus='TRB',species='human',min_score=.95)
     assert full.equals(original)
@@ -422,6 +430,7 @@ def test_fixed_kernel_panel_counts_keep_cohort_rows_and_other_peptide_context():
     for sample in ['A','B']:
         separate=kernel_reference_counts(obs.filter(pl.col('sample_id')==sample),panels,inventory,full,locus='TRB',species='human',min_score=.95)
         assert separate.equals(result.filter(pl.col('sample_id')==sample))
+    assert seen and far not in seen
 
 
 @pytest.mark.parametrize('anchored',[False,True])
@@ -467,3 +476,46 @@ def test_fuzzy_keeps_reference_rows_requiring_production_v_geometry_imputation(m
     control=reference.drop('group_id').with_columns(pl.Series('junction_aa',['CAVRDSNQQLIW','CAVRDSNHQLIW']))
     reference_enrichment(sample,reference,{'TRA':control},replicates=2,tra_matcher='stem4',chain_mode='tra',target_groups=['X'])
     assert observed[0]==reference.height
+
+
+@pytest.mark.parametrize('matcher,factor',[('blosum62',.55),('positional-blosum62',.77)])
+def test_dimensionless_blosum_radius_recovers_low_cost_multiple_substitutions(matcher,factor):
+    from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
+    obs=pl.DataFrame(dict(junction_aa=['CASSIIDAYEQYF','CASSMMDAYEQYF','CASSIIRAYEQYF'],v=['TRBV19']*3,j=['TRBJ2-7']*3,count=[2,3,5]))
+    panels=obs.head(1).select('junction_aa','v','j').with_columns(pl.lit('X').alias('group_id'),pl.lit(-1).alias('replicate'))
+    result=exact_reference_counts(obs,panels,matcher=matcher,radius_factor=factor)
+    assert result.select('matched_records','matched_reads').row(0)==(2,5)
+    strict=exact_reference_counts(obs,panels,matcher='hamming')
+    assert strict.select('matched_records','matched_reads').row(0)==(2,7)
+    exact=exact_reference_counts(obs,panels,matcher=matcher,radius_factor=.0001)
+    assert exact.select('matched_records','matched_reads').row(0)==(1,2)
+
+
+@pytest.mark.parametrize('matcher,factor',[('blosum62',.55),('positional-blosum62',.77)])
+@pytest.mark.parametrize('locus,v,j',[('TRA','TRAV12-2','TRAJ33'),('TRB','TRBV19','TRBJ2-7')])
+def test_dimensionless_blosum_reference_matching_is_symmetric(matcher,factor,locus,v,j):
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    sample=pl.DataFrame(dict(receptor_id=['exact','two_low','one_high'],locus=[locus]*3,junction_aa=['CASSIIDAYEQYF','CASSMMDAYEQYF','CASSIIRAYEQYF'],v=[v]*3,j=[j]*3,count=[2,3,5]))
+    reference=sample.head(1).select('locus','junction_aa','v','j').with_columns(pl.lit('X').alias('group_id'),pl.lit(-10).alias('pgen_bin'))
+    controls={locus:reference.drop('group_id').with_columns(pl.lit('CASSMMDAYEQYF').alias('junction_aa'))}
+    options={locus.lower()+'_matcher':matcher,locus.lower()+'_radius_factor':factor}
+    summary,_,hits=reference_enrichment(sample,reference,controls,replicates=2,**options)
+    assert sorted(hits['receptor_id'])==['exact','two_low']
+    assert summary['matched_count'].item()==5
+
+
+@pytest.mark.parametrize('matcher',['blosum62','positional-blosum62'])
+@pytest.mark.parametrize('factor',[None,0.,-1.,float('nan'),float('inf'),True])
+def test_dimensionless_blosum_rejects_invalid_factors(matcher,factor):
+    from vdjmatch.match.scope import blosum_radius_params
+    with pytest.raises(ValueError,match='dimensionless radius factor'):
+        blosum_radius_params(matcher,factor,12)
+
+
+@pytest.mark.parametrize('matcher',['blosum62','positional-blosum62'])
+def test_dimensionless_blosum_length_batches_preserve_identity(matcher):
+    from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
+    obs=pl.DataFrame(dict(junction_aa=['CASSIIDAYEQYF','CASSIIDAYEQYFF'],v=['TRBV19']*2,j=['TRBJ2-7']*2,count=[2,3]))
+    panels=obs.select('junction_aa','v','j').with_columns(pl.Series('group_id',['short','long']),pl.lit(-1).alias('replicate'))
+    result=exact_reference_counts(obs,panels,matcher=matcher,radius_factor=.10)
+    assert result.select('group_id','matched_records','matched_reads').rows()==[('long',1,3),('short',1,2)]

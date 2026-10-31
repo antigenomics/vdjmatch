@@ -44,10 +44,12 @@ def register(subparsers):
     p.add_argument('--pgen-features-tra', help='validated TRA Pgen bank for paired mode')
     p.add_argument('--epitope', action='append', help='reported target peptide(s); full reference model and mock panels retained, reference-null only')
     p.add_argument('--kernel-scorer',choices=['v-bounded','vonly-bounded'],default='v-bounded',help='Existing fuzzy kernel reducer; vonly-bounded requires same-V target support')
-    p.add_argument('--tra-matcher',choices=['hamming','stem4','gapblock'],default='hamming',help='TRA matching rule')
-    p.add_argument('--trb-matcher',choices=['hamming','stem4','gapblock'],default='hamming',help='TRB matching rule')
-    p.add_argument('--tra-min-score',type=float,default=0.,help='Dimensionless strict lower score bound for fuzzy TRA support')
-    p.add_argument('--trb-min-score',type=float,default=0.,help='Dimensionless strict lower score bound for fuzzy TRB support')
+    p.add_argument('--tra-matcher',choices=['hamming','stem4','gapblock','blosum62','positional-blosum62'],default='hamming',help='TRA matching rule')
+    p.add_argument('--trb-matcher',choices=['hamming','stem4','gapblock','blosum62','positional-blosum62'],default='hamming',help='TRB matching rule')
+    p.add_argument('--tra-min-score',type=float,default=0.,help='Dimensionless strict lower score bound for kernel TRA support')
+    p.add_argument('--trb-min-score',type=float,default=0.,help='Dimensionless strict lower score bound for kernel TRB support')
+    p.add_argument('--tra-radius-factor',type=float,help='Dimensionless BLOSUM TRA radius / matrix substitution scale')
+    p.add_argument('--trb-radius-factor',type=float,help='Dimensionless BLOSUM TRB radius / matrix substitution scale')
     p.add_argument('--chain-mode',choices=['tra','trb','union','intersection','all'],default='union')
     p.add_argument('--single-chain-unit',choices=['junction-vj','source-row'],default='junction-vj',help='reference null: merge identical junction/V/J rows (default), or retain each input row as a clonotype')
     p.add_argument('--mismatches', type=int, choices=range(4), default=1)
@@ -67,12 +69,17 @@ def main(a):
         if not math.isfinite(cutoff) or cutoff<0:raise ValueError('finite nonnegative fuzzy score cutoffs required')
         matcher=getattr(a,locus+'_matcher')
         if cutoff and matcher not in {'stem4','gapblock'}:raise ValueError('score cutoff requires a fuzzy matcher')
+        factor=getattr(a,locus+'_radius_factor',None)
+        if matcher in {'blosum62','positional-blosum62'}:
+            from ..match.scope import blosum_radius_params
+            blosum_radius_params(matcher,factor,1)
+        elif factor is not None:raise ValueError('radius factor requires a BLOSUM matcher')
     if a.pgen_mismatches is None:a.pgen_mismatches = 0 if a.null == 'reference' else 1
     if a.reference_population is None:a.reference_population = 'curated-benchmark' if a.null == 'reference' else 'all-valid'
     if a.null == 'reference':
         from .repertoire_reference import main as reference_main
         return reference_main(a)
-    if a.single_chain_unit != 'junction-vj' or a.batch_samples or a.model_source or a.tra_matcher != 'hamming' or a.trb_matcher != 'hamming' or a.tra_min_score != 0 or a.trb_min_score != 0 or a.chain_mode != 'union' or a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
+    if a.tra_radius_factor is not None or a.trb_radius_factor is not None or a.single_chain_unit != 'junction-vj' or a.batch_samples or a.model_source or a.tra_matcher != 'hamming' or a.trb_matcher != 'hamming' or a.tra_min_score != 0 or a.trb_min_score != 0 or a.chain_mode != 'union' or a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
         raise ValueError('reference-null options require --null reference')
     import json,time
     from importlib.metadata import version

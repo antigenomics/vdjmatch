@@ -2754,6 +2754,15 @@ clonotype row is one sample clonotype under this bulk reproduction contract.
 Real/mock panel sizes are equal; these fixed per-sample scale factors leave
 upper-tail empirical P-values unchanged. Noncoding
 junction rows are dropped by the standard input filter before counting.
+Direct ``--matcher blosum62`` and ``--matcher positional-blosum62`` use
+``--radius-factor``: the inclusive substitution budget divided by the maximum
+full-alphabet BLOSUM62 substitution penalty. The positional preset uses the
+existing mean-one end-anchored profile at its fixed native scale100; the radius
+is relative to the neutral positional weight. Weights are not fitted here.
+Both use at most three substitutions, no indels and the original exact V/J
+predicates. The native integer budget is rounded down; a sub-integer budget
+becomes exact matching. Only the dimensionless factor is selected.
+
 Fuzzy kernel comparisons use the existing ``stem4`` and ``gapblock`` modes
 of reference-null ``repertoire-enrichment`` described below.
 
@@ -2768,6 +2777,19 @@ It uses production V geometry imputation rather than dropping unresolved
 reference rows; original V identities remain in the model keys.
 Exact and Hamming keep their original V/J predicates. Geometry, positional
 weights, decay and ladder parameters are not fitted by this command.
+
+A fixed-radius support bound avoids unnecessary complete-score calculations
+for thresholds above ``exp(-1)``. For a target with ``N`` unique scoring keys,
+let ``c`` count keys within the existing radius, equal to the kernel scale.
+Because background denominators are at least one and V weights at most one,
+``score <= c/N + (1-c/N)*exp(-1)``. One native batch counts support across
+real/mock panels. Using panel-union counts and the smallest target population
+only loosens this bound. Queries are skipped only when the bound is below the
+chosen threshold; full reference models, outer ladders and zero-output rows
+remain unchanged. Temporary eligibility uses ``Q*B`` Boolean entries for ``Q``
+query keys and ``B`` real/mock panels; native count chunks stay below256MiB.
+This shortcut changes no score or statistical cutoff and provides no universal
+runtime bound. Thresholds at or below ``exp(-1)`` retain the complete route.
 
 The probe table contains ``junction_aa``, ``v`` and ``j``. Optional
 ``joint_pgen`` values are an explicitly supplied gene-masked probability asset;
@@ -2856,8 +2878,12 @@ TRA, Boolean support encoded as 1 for strict TRB). These are different evidence
 units, not probabilities to multiply. Repertoire P-values concern matched
 receptor counts/abundance under the chosen combined rule, not individual binding.
 
-Both ``--tra-matcher`` and ``--trb-matcher`` accept ``hamming``, ``stem4`` or
-``gapblock``. Either or both chains may use a fuzzy matcher.
+Both ``--tra-matcher`` and ``--trb-matcher`` accept ``hamming``, ``stem4``,
+``gapblock``, ``blosum62`` or ``positional-blosum62``. Either or both chains may
+use a fuzzy matcher. Direct BLOSUM modes require the dimensionless
+``--tra-radius-factor``/``--trb-radius-factor`` under the same fixed recipe
+as the bulk panel command; they retain exact V and optional exact J.
+Their support indicators are distinct from the kernel scores below.
 ``--mismatches`` controls Hamming arms.
 The CLI preserves peptide and MHC fields separately inside each fuzzy model.
 It retains reference rows using the production V geometry imputation rule.

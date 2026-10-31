@@ -482,8 +482,13 @@ preserves receptor identity throughout real and mock matching. The asymmetric
 TRB support with fuzzy TRA evidence for the same target; chain scores remain
 separate from repertoire significance.
 
-Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, or
-`gapblock`. `--tra-min-score` and `--trb-min-score` set dimensionless strict
+Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, `gapblock`,
+`blosum62` or `positional-blosum62`. The direct BLOSUM presets require
+`--tra-radius-factor`/`--trb-radius-factor`: a dimensionless budget relative to
+the matrix substitution scale, with fixed positional weights and at most three
+substitutions, no indels, exact V and optional exact J. The bulk panel command
+uses the same names with `--radius-factor` and retains exact V/J. These
+pairwise budgets are distinct from kernel scores. `--tra-min-score` and `--trb-min-score` set dimensionless strict
 lower bounds for fuzzy support; the same bounds apply to real and every mock
 panel. Keep calibrated scorer parameters fixed. The default zero accepts weak
 positive support and is a historical diagnostic, not a precision operating point. Use `--trb-matcher stem4 --chain-mode intersection` for the reverse

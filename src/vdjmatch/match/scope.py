@@ -62,3 +62,22 @@ def search_params(
     if pos_matrix is not None:
         p.pos_matrix = pos_matrix
     return p
+
+
+def blosum_radius_params(matcher, radius_factor, length):
+    """Fixed BLOSUM recipes; radius is relative to the matrix substitution scale."""
+    import math
+    from seqtree import SubstitutionMatrix
+    from .geometry import distance_units, _substitution_costs
+    from .regions import significance_pssm
+    if matcher not in {'blosum62','positional-blosum62'}:raise ValueError('unknown BLOSUM matcher')
+    if radius_factor is None or isinstance(radius_factor,bool) or not math.isfinite(radius_factor) or radius_factor<=0:
+        raise ValueError('explicit positive finite dimensionless radius factor required')
+    scale,_=distance_units(_substitution_costs('full','blosum62'))
+    budget=radius_factor*scale*(100 if matcher=='positional-blosum62' else 1)
+    if not math.isfinite(budget) or budget>2**31-1:raise ValueError('radius factor exceeds native integer support')
+    bound=math.floor(budget)
+    # Native zero penalty disables the bound; zero edit scope is its exact equivalent.
+    if not bound:return search_params('0,0,0,0')
+    options=({'pos_matrix':significance_pssm(length)} if matcher=='positional-blosum62' else {'matrix':SubstitutionMatrix.blosum62()})
+    return search_params('3,0,0,3',max_penalty=bound,**options)

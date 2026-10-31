@@ -170,7 +170,7 @@ def main(a):
         if a.batch_samples:
             cohort.append(obs.with_columns(pl.lit(sample).alias('sample_id')))
         else:
-            summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,kernel_scorer=a.kernel_scorer,target_groups=target_groups,progress=progress)
+            summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,kernel_scorer=a.kernel_scorer,tra_radius_factor=a.tra_radius_factor,trb_radius_factor=a.trb_radius_factor,target_groups=target_groups,progress=progress)
             summaries.append(summary.with_columns(pl.lit(sample).alias('sample_id')))
             mocks.append(mock.with_columns(pl.lit(sample).alias('sample_id')))
             hits.append(hit.with_columns(pl.lit(sample).alias('sample_id')))
@@ -181,7 +181,7 @@ def main(a):
         t=time.monotonic()
         def cohort_progress(stage,replicate):
             print(f'cohort: {stage} {replicate} after {time.monotonic()-t:.3f}s',flush=True)
-        summary,mock,hit=reference_enrichment(pl.concat(cohort),ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,kernel_scorer=a.kernel_scorer,target_groups=target_groups,progress=cohort_progress)
+        summary,mock,hit=reference_enrichment(pl.concat(cohort),ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,kernel_scorer=a.kernel_scorer,tra_radius_factor=a.tra_radius_factor,trb_radius_factor=a.trb_radius_factor,target_groups=target_groups,progress=cohort_progress)
         summaries.append(summary);mocks.append(mock);hits.append(hit)
         stages['cohort_seconds']=time.monotonic()-t
     summary=pl.concat(summaries)
@@ -213,7 +213,7 @@ def main(a):
         target_selection='output cases only; complete eligible reference and mock panels retained',
         paired_rule=f'{a.chain_mode} of available chain supports, counted once per receptor/target; same rule in real and mock panels',
         matchers={locus:(f'Hamming<={a.mismatches}, exact V'+(', exact J' if a.match_j else '') if matcher=='hamming' else matcher) for locus,matcher in [('TRA',a.tra_matcher),('TRB',a.trb_matcher)]},
-        fuzzy_v_geometry='production V geometry imputation; raw V keys retained',
+        kernel_v_geometry=('production V geometry imputation; raw V keys retained' if any(m in {'stem4','gapblock'} for m in [a.tra_matcher,a.trb_matcher]) else None),
         pgen_definition=f'marginal full-junction Hamming<={a.pgen_mismatches}; rounded log2(Pgen+2**-60)',
         control_law='uniform unique junction/V/J keys, without replacement per target/bin; source event/read weights are not sampling weights',
         archive_differences='marginal model Pgen without cohort-fitted VJ factor; complete zero-hit rows; explicit matching and conditional mock options; independent locus streams',

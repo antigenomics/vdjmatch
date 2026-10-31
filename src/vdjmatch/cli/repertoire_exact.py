@@ -17,8 +17,9 @@ def register(sub):
     p.add_argument('--source',default=None,help='Model source; default isalgo (legacy human: olga-legacy)')
     p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
     p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact joint Pgen; 1 inclusive Hamming-1 joint mass')
-    p.add_argument('--matcher',choices=['exact','hamming','stem4'],default='exact')
+    p.add_argument('--matcher',choices=['exact','hamming','stem4','blosum62','positional-blosum62'],default='exact')
     p.add_argument('--min-score',type=float,help='Explicit dimensionless stem4 score threshold; fixed geometry')
+    p.add_argument('--radius-factor',type=float,help='Dimensionless BLOSUM budget / maximum matrix substitution cost; fixed positional profile')
     p.add_argument('--mismatches',type=int,default=1,help='Hamming substitutions; exact V/J retained')
     p.add_argument('--sampler',choices=['numpy','r'],default='numpy')
     p.add_argument('--mock-replicates',type=int,default=200)
@@ -118,6 +119,11 @@ def main(a):
     if a.matcher!='stem4' and a.min_score is not None:raise ValueError('--min-score requires --matcher stem4')
     if a.matcher=='stem4' and (a.min_score is None or not 0<a.min_score<=1):
         raise ValueError('stem4 requires an explicit dimensionless threshold in (0,1]')
+    factor=getattr(a,'radius_factor',None)
+    if a.matcher in {'blosum62','positional-blosum62'}:
+        from ..match.scope import blosum_radius_params
+        blosum_radius_params(a.matcher,factor,1)
+    elif factor is not None:raise ValueError('--radius-factor requires a BLOSUM matcher')
     start=time.monotonic();meta_path=Path(a.metadata).expanduser().resolve();meta=_read_table(meta_path)
     needed=['sample_id','path',*a.fdr_group]
     if not set(needed)<=set(meta.columns) or not meta.height or meta['sample_id'].n_unique()!=meta.height:
@@ -201,7 +207,7 @@ def main(a):
         observations=_source(path,locus=a.locus)
         totals.append(dict(sample_id=sample,sample_clonotypes=observations.height,sample_reads=int(observations['count'].sum())))
         if a.matcher=='stem4':cohort.append(observations.with_columns(pl.lit(sample).alias('sample_id')))
-        else:counts.append(exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads).with_columns(pl.lit(sample).alias('sample_id')))
+        else:counts.append(exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads,radius_factor=factor).with_columns(pl.lit(sample).alias('sample_id')))
         print(f'loaded sample {i}/{len(paths)}',flush=True)
     if a.matcher=='stem4':
         score_inventory=inventory
@@ -233,7 +239,7 @@ def main(a):
     for suffix,frame in outputs.items():frame.write_csv(str(prefix)+'.'+suffix,separator='\t')
     if before!={str(p):sha256(p) for p in inputs} or source_before!={str(p):sha256(p) for p in source_files}:raise RuntimeError('inputs or source changed during calculation')
     if model_identity is not None and model_identity!=_pgen_model_identity(a.species,a.locus,source=a.source):raise RuntimeError('recombination model changed during calculation')
-    manifest=dict(inputs_frozen=True,source_frozen=True,inputs=before,source=source_before,options=vars(a)|{'func':None},pgen_origin=pgen_origin,probability='selection_q times AA-max joint Pgen times within-V add-one J usage ratio; floor2^-80',counting='source rows and reads; '+('fixed stem4 score; production V geometry imputation; no hard V/J predicate' if a.matcher=='stem4' else 'exact V/J; '+a.matcher+' junction membership'),fdr_family=['group_id',*a.fdr_group],seconds=time.monotonic()-start,software={n:version(n) for n in ['vdjmatch','vdjtools','polars','numpy']},outputs={Path(str(prefix)+'.'+s).name:sha256(Path(str(prefix)+'.'+s)) for s in outputs})
+    manifest=dict(inputs_frozen=True,source_frozen=True,inputs=before,source=source_before,options=vars(a)|{'func':None},pgen_origin=pgen_origin,probability='selection_q times AA-max joint Pgen times within-V add-one J usage ratio; floor2^-80',counting='source rows and reads; '+('fixed stem4 score; production V geometry imputation; no hard V/J predicate' if a.matcher=='stem4' else 'exact V/J; '+a.matcher+' junction membership'),fdr_family=['group_id',*a.fdr_group],seconds=time.monotonic()-start,software={n:version(n) for n in ['vdjmatch','vdjtools','seqtree','polars','numpy']},outputs={Path(str(prefix)+'.'+s).name:sha256(Path(str(prefix)+'.'+s)) for s in outputs})
     if a.sampler=='r':
         import subprocess,shutil
         manifest['r_version']=subprocess.run([shutil.which('Rscript'),'--version'],capture_output=True,text=True,check=True).stdout.strip()
@@ -242,6 +248,8 @@ def main(a):
     manifest['selection_q']=a.selection_q
     manifest['model_source']=a.source
     manifest['legacy']=a.legacy
+    if a.matcher in {'blosum62','positional-blosum62'}:
+        manifest['matching_model']=dict(preset=a.matcher,radius_factor=factor,scope='3,0,0,3',normalization='maximum matrix substitution penalty; positional weights use fixed scale100')
     if shape is not None:
         manifest['selection_profile_kind']=shape['kind']
         manifest['probability']='global Q times AA-max selected joint mass times residual within-V J usage ratio; floor2^-80'

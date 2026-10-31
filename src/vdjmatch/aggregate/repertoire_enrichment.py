@@ -10,7 +10,7 @@ from ..io.columns import _integer_count
 
 
 def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
-                           matcher='exact', mismatches=1, threads=1) -> pl.DataFrame:
+                           matcher='exact', mismatches=1, threads=1, radius_factor=None) -> pl.DataFrame:
     """Count source rows and reads against all exact V/J/junction panels at once.
 
     Observations contain junction_aa/v/j/count; panels additionally contain
@@ -33,8 +33,12 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
     if obs.select(pl.col('count').cast(pl.Int128).sum()).item()>np.iinfo(np.int64).max:
         raise ValueError('source read total exceeds int64')
     counted=obs.group_by(keys).agg(pl.len().cast(pl.Int64).alias('matched_records'),pl.col('count').sum().alias('matched_reads'))
-    if matcher not in {'exact','hamming'}:
+    weighted=matcher in {'blosum62','positional-blosum62'}
+    if matcher not in {'exact','hamming','blosum62','positional-blosum62'}:
         raise ValueError('unknown panel matcher')
+    from ..match.scope import blosum_radius_params
+    if weighted:blosum_radius_params(matcher,radius_factor,1)
+    elif radius_factor is not None:raise ValueError('radius factor requires a BLOSUM matcher')
     if type(threads) is not int or threads<1 or type(mismatches) is not int or not 0<=mismatches<=3:
         raise ValueError('positive threads and zero to three mismatches required')
     if matcher=='exact' or not counted.height:
@@ -51,10 +55,12 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
             if len(pairs):
                 pairs=pairs[:,:2].copy();pairs[:,0]=query_ids[pairs[:,0]]
                 buffers.append(pairs)
-        query_ids=queries['_qi'].to_numpy()
-        index.search_batch_consume(queries['junction_aa'].to_list(),
-            search_params(f'{mismatches},0,0,{mismatches}'),consume,
-            threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
+        batches=(queries.with_columns(pl.col('junction_aa').str.len_chars().alias('_length')).partition_by('_length',as_dict=True).values() if matcher=='positional-blosum62' else [queries])
+        for batch in batches:
+            query_ids=batch['_qi'].to_numpy()
+            params=(blosum_radius_params(matcher,radius_factor,len(batch['junction_aa'][0])) if weighted else search_params(f'{mismatches},0,0,{mismatches}'))
+            index.search_batch_consume(batch['junction_aa'].to_list(),params,consume,
+                threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
         pairs=pl.DataFrame(np.concatenate(buffers) if buffers else np.empty((0,2),dtype=np.uint32),
             schema=[('_qi',pl.UInt32),('_ri',pl.UInt32)],orient='row')
         roles=panels.join(queries,on='junction_aa',validate='m:1').drop('junction_aa')
@@ -159,7 +165,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                          controls: dict[str, pl.DataFrame], *, replicates: int = 200,
                          seed: int = 0, policy: str = 'pgen', threads: int = 1,
                          mismatches: int = 1, match_j: bool = False, chain_mode: str = "union",
-                         tra_matcher: str = "hamming", trb_matcher: str = "hamming", tra_min_score: float = 0., trb_min_score: float = 0., species: str = "human", target_groups=None, progress=None, kernel_scorer="v-bounded"):
+                         tra_matcher: str = "hamming", trb_matcher: str = "hamming", tra_min_score: float = 0., trb_min_score: float = 0., species: str = "human", target_groups=None, progress=None, kernel_scorer="v-bounded", tra_radius_factor=None, trb_radius_factor=None):
     """Test a fixed repertoire against fresh Pgen-matched mock target corpora.
 
     Observations: receptor_id/locus/junction_aa/v/j/count. Multiple chains with
@@ -185,7 +191,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     Fuzzy models use production V geometry imputation, retaining raw V keys.
     """
     from seqtree import Index
-    from ..match.scope import search_params
+    from ..match.scope import search_params, blosum_radius_params
     from ..evalue.mock_reference import iter_epitope_mocks
     from .candidates import PMHC
 
@@ -195,7 +201,12 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     if chain_mode not in {"tra", "trb", "union", "intersection", "all"}:
         raise ValueError("chain_mode must be tra, trb, union, intersection or all")
     matchers={"TRA":tra_matcher,"TRB":trb_matcher}
-    if any(m not in {'hamming','stem4','gapblock'} for m in matchers.values()):raise ValueError('unknown chain matcher')
+    weighted={'blosum62','positional-blosum62'}
+    if any(m not in {'hamming','stem4','gapblock',*weighted} for m in matchers.values()):raise ValueError('unknown chain matcher')
+    factors={'TRA':tra_radius_factor,'TRB':trb_radius_factor}
+    for locus,matcher in matchers.items():
+        if matcher in weighted:blosum_radius_params(matcher,factors[locus],1)
+        elif factors[locus] is not None:raise ValueError('radius factor requires a BLOSUM matcher')
     cutoffs={'TRA':tra_min_score,'TRB':trb_min_score}
     if any(not np.isfinite(c) or c<0 for c in cutoffs.values()):raise ValueError('finite nonnegative fuzzy score cutoffs required')
     if any(cutoffs[locus] and matcher not in {'stem4','gapblock'} for locus,matcher in matchers.items()):raise ValueError('score cutoff requires a fuzzy matcher')
@@ -260,6 +271,9 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         samplers[locus]=iter_epitope_mocks(part,controls[locus],replicates=replicates,seed=seed+(0 if locus=='TRA' else 1),policy=policy,unavailable=unavailable)
     empty=pl.DataFrame(schema={'receptor_id':obs.schema['receptor_id'],'group_id':ref.schema['group_id'],'locus':pl.String,'junction_aa':pl.String,'v':pl.String,'j':pl.String})
     fuzzy_by_locus={locus:obs.filter(pl.col('locus')==locus).with_row_index('query_id').rename({'junction_aa':'cdr3'}) for locus in fuzzy_loci}
+    weighted_params={(locus,length):blosum_radius_params(matcher,factors[locus],length)
+        for locus,matcher in matchers.items() if matcher in weighted
+        for length in obs.filter(pl.col('locus')==locus)['junction_aa'].str.len_chars().unique()}
     contexts = None
     if any(frame.height for frame in fuzzy_by_locus.values()):
         from ..match.geometry import precompute_v_loop_distances
@@ -317,10 +331,13 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                     pairs=pairs[:,:2].copy()
                     pairs[:,0]=query_ids[pairs[:,0]]
                     buffers.append(pairs)
-            query_ids=keys['_qi'].to_numpy()
-            index.search_batch_consume(keys['junction_aa'].to_list(),
-                search_params(f'{mismatches},0,0,{mismatches}'),consume,
-                threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
+            batches=(keys.with_columns(pl.col('junction_aa').str.len_chars().alias('_length')).partition_by('_length',as_dict=True).values() if matchers[locus] in weighted else [keys])
+            for batch in batches:
+                query_ids=batch['_qi'].to_numpy()
+                params=(weighted_params.get((locus,len(batch['junction_aa'][0]))) if matchers[locus] in weighted else search_params(f'{mismatches},0,0,{mismatches}'))
+                if params is None:continue  # No observed junction has this length.
+                index.search_batch_consume(batch['junction_aa'].to_list(),params,consume,
+                    threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
             # Join sparse hits once: native memory bounds can make callbacks tiny.
             if buffers:
                 pairs=pl.DataFrame(np.concatenate(buffers),schema=[('_qi',pl.UInt32),('_ri',pl.UInt32)],orient='row')
@@ -395,8 +412,9 @@ def kernel_reference_counts(observations, panels, inventory, full_reference, *,
     reference records stay fixed. No query is removed from any model.
     """
     from ..aggregate.candidates import PMHC
-    from ..runner.combined import _kernel
-    from ..match.geometry import precompute_v_loop_distances
+    from ..runner.combined import _kernel, _prepare_kernel_chain
+    from ..match.geometry import (precompute_v_loop_distances, grouped_total_distance_count_batch,
+                                 distance_units, distance_cutoff, _substitution_costs)
     if not np.isfinite(min_score) or min_score<=0:
         raise ValueError('stem4 requires an explicit positive dimensionless score threshold')
     keys=['junction_aa','v','j']
@@ -408,6 +426,38 @@ def kernel_reference_counts(observations, panels, inventory, full_reference, *,
     targets=inventory.select('group_id',*PMHC)
     background=full_reference.filter(~pl.col('epitope').is_in(targets['epitope'].to_list()))
     contexts={'blosum62':precompute_v_loop_distances(species=species,alphabet='full',matrix='blosum62',v_regions='cdr12plus')}
+    eligible=None
+    if min_score>np.exp(-1.):
+        # S <= c/N + (1-c/N)*exp(-1), with c target keys inside the fixed
+        # radius (= kernel scale). Model-union c and smallest target N loosen
+        # this bound. Only queries unable to pass are skipped, never references.
+        search_keys=['cdr3','_allele','_v_key']
+        models=panels.select('replicate').unique().sort('replicate').with_row_index('_model')
+        model_axis=dict(models.select('replicate','_model').iter_rows())
+        prepared=_prepare_kernel_chain(panels.rename({'junction_aa':'cdr3'}),contexts['blosum62']['model'],locus)
+        q=_prepare_kernel_chain(queries,contexts['blosum62']['model'],locus)
+        eligible=np.zeros((models.height,queries.height),dtype=bool)
+        if prepared.height and q.height:
+            sizes=prepared.select('replicate','group_id',*search_keys).unique().group_by('replicate','group_id').len().group_by('replicate').agg(pl.col('len').min())
+            minimum=models.join(sizes,on='replicate',how='left',maintain_order='left')['len'].cast(pl.Float64).fill_null(float('inf')).to_numpy()
+            whole=prepared.select(search_keys).unique().with_row_index('_ref')
+            members=prepared.select('replicate',*search_keys).unique().join(models,on='replicate',validate='m:1').join(whole,on=search_keys,validate='m:1').sort('_ref','_model')
+            lengths=whole.select('_ref').join(members.group_by('_ref').len(),on='_ref',how='left',maintain_order='left')['len'].to_numpy()
+            offsets=np.concatenate((np.zeros(1,dtype=np.uint64),np.cumsum(lengths,dtype=np.uint64)))
+            scale,_=distance_units(_substitution_costs('full','blosum62'))
+            axes=lambda frame:frame.select(pl.col('cdr3').alias('seq0'),pl.col('_allele').alias('v0'))
+            chunks=grouped_total_distance_count_batch(axes(q),axes(whole),[distance_cutoff(22.5*scale)],
+                species=species,threads=threads,ctrim=3,v_loop_weight=1,alphabet='full',stem_depth=4,
+                stem_weight=1.,matrix='blosum62',v_loop_distances=contexts['blosum62'],
+                reference_target_offsets=offsets,reference_target_ids=members['_model'].to_numpy(),
+                target_peptide_ids=np.zeros(models.height,dtype=np.int32),
+                reference_exclusive_peptide_ids=np.zeros(whole.height,dtype=np.int32),
+                chunk_size=min(65536,max(1,256*1024**2//((2*models.height+2)*4))))
+            for chunk in chunks:
+                close=np.asarray(chunk.counts)[:,1:1+models.height,0]
+                upper=np.exp(-1.)+(1-np.exp(-1.))*close/minimum[None,:]
+                eligible[:,q['query_id'].slice(chunk.start,chunk.stop-chunk.start).to_numpy()]=(upper>=min_score).T
+        del prepared,q
     results=[]
     for (replicate,),panel in panels.partition_by('replicate',as_dict=True).items():
         replacement=panel.join(targets,on='group_id',validate='m:1').select(
@@ -416,8 +466,10 @@ def kernel_reference_counts(observations, panels, inventory, full_reference, *,
         members=[]
         def consume(name,scores):
             members.append(scores.filter(pl.col('kernel_score')>min_score).select('query_id',*PMHC))
-        _kernel(queries,model,None,species=species,threads=threads,paired=False,
-            exclude_exact=False,contexts=contexts,kernels=('stem4',),_consume=consume,_targets=targets.select(PMHC),_impute_v=True)
+        active=queries if eligible is None else queries.filter(pl.Series(eligible[model_axis[replicate]]))
+        if active.height:
+            _kernel(active,model,None,species=species,threads=threads,paired=False,
+                exclude_exact=False,contexts=contexts,kernels=('stem4',),_consume=consume,_targets=targets.select(PMHC),_impute_v=True)
         supported=pl.concat(members) if members else queries.head(0).select('query_id').join(targets.select(PMHC),how='cross')
         support=supported.join(targets,on=PMHC,nulls_equal=True,validate='m:1').select('query_id','group_id').unique()
         matched=support.join(counted,on='query_id',validate='m:m').group_by('sample_id','group_id').agg(pl.col('matched_records','matched_reads').sum())

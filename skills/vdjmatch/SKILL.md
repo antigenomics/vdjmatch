@@ -514,7 +514,12 @@ Keep continuous TRA scores and strict-chain indicators distinct; do not multiply
 them as independent probabilities. This comparison is separate from compiled
 bulk exact reproduction.
 
-Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4` or `gapblock`.
+Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, `gapblock`,
+`blosum62` or `positional-blosum62`. Direct BLOSUM uses dimensionless
+`--tra-radius-factor`/`--trb-radius-factor`; bulk uses `--radius-factor`.
+Its fixed scope is3substitutions/noindels; V is exact, J exact in bulk and
+optional for reference-null. Reuse `match.scope.blosum_radius_params` and the
+existing positional profile. Never expose raw matrix penalty cutoffs.
 Keep calibrated scorer parameters fixed; select only dimensionless score thresholds.
 Pass full peptide/MHC metadata into fuzzy reference models; never rename a
 serialized pMHC group ID as the peptide, which changes background membership.
