@@ -483,9 +483,10 @@ TRB support with fuzzy TRA evidence for the same target; chain scores remain
 separate from repertoire significance.
 
 Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, or
-`gapblock`. `--tra-min-score` and `--trb-min-score` set strict lower bounds
-for fuzzy support (default zero); the same bounds apply to real and every
-mock panel. Use `--trb-matcher stem4 --chain-mode intersection` for the reverse
+`gapblock`. `--tra-min-score` and `--trb-min-score` set dimensionless strict
+lower bounds for fuzzy support; the same bounds apply to real and every mock
+panel. Keep calibrated scorer parameters fixed. The default zero accepts weak
+positive support and is a historical diagnostic, not a precision operating point. Use `--trb-matcher stem4 --chain-mode intersection` for the reverse
 asymmetric comparison. Cutoffs require calibration for their own kernel and
 locus; positive support alone is not calibrated binding confidence. Defaults
 remain Hamming on both chains. Full reference models are preserved.

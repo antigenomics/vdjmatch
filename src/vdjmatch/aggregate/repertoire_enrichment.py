@@ -172,7 +172,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     Returns summary, complete aggregate mock endpoints and real chain hit links.
     Full-junction Hamming matching uses one native batch per locus/population,
     with exact V and optional J gene matching. Each chain can instead use stem4
-    or gapblock, accepting scores strictly above its nonnegative min_score
+    or gapblock, accepting dimensionless scores strictly above its nonnegative min_score
     (zero by default), identically in every real/mock panel. Its
     chain_score is retained alongside strict-chain indicators, not a probability.
     chain_mode=all reuses searches and mock draws for all four reducers; outputs
