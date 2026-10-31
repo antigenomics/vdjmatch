@@ -395,8 +395,10 @@ For new fuzzy-matching comparisons, start from the established BLOSUM62 and
 end-anchored positional-BLOSUM62 implementations. Keep the one-mismatch baseline.
 The M4 conclusion is that BLOSUM62 is optimal among the tested substitution
 matrices: the substitution patterns reflect V(D)J rearrangement, N-insertion
-and positional conservation rather than amino-acid chemistry. VDJAM reproduces
-this generative structure. Keep the measured constructions distinct: the
+and positional conservation rather than amino-acid chemistry. The observed
+similar accuracy near the BLOSUM62/conservation upper cap supports the expectation
+that fully optimized VDJAM would converge to this same generative structure;
+this does not claim that optimization is complete. Keep the measured constructions distinct: the
 genetic-code substitution-accessibility comparator **VDJAMr** matches BLOSUM62,
 while the data-derived **VDJAM** matrix underperformed in the recorded retrieval
 comparison. Positional weighting provides the additional improvement below.
