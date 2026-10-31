@@ -4,6 +4,39 @@ import pytest
 from vdjmatch.aggregate.repertoire_enrichment import matched_enrichment
 
 
+@pytest.mark.parametrize('mode,bound',[('blosum62',1400),('positional-blosum62',2000)])
+@pytest.mark.parametrize('locus,v,j',[('TRA','TRAV12-2','TRAJ33'),('TRB','TRBV19','TRBJ2-7')])
+def test_blosum_reference_matcher(mode,bound,locus,v,j):
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    sample=pl.DataFrame(dict(receptor_id=['exact','two_low_cost','one_high_cost'],locus=[locus]*3,
+        junction_aa=['CASSIIDAYEQYF','CASSMMDAYEQYF','CASSIIRAYEQYF'],v=[v]*3,j=[j]*3,count=[2,3,5]))
+    reference=sample.head(1).select('locus','junction_aa','v','j').with_columns(pl.lit('X').alias('group_id'),pl.lit(-10).alias('pgen_bin'))
+    controls={locus:reference.drop('group_id').with_columns(pl.lit('CASSMMDAYEQYF').alias('junction_aa'))}
+    options={locus.lower()+'_matcher':mode,locus.lower()+'_max_penalty':bound}
+    result=reference_enrichment(sample,reference,controls,replicates=2,**options)
+    assert result[2]['receptor_id'].sort().to_list()==['exact','two_low_cost']
+    assert result[0]['matched_count'].item()==5
+    assert result[1]['mock_count'].sum()==10
+    strict=reference_enrichment(sample,reference,controls,replicates=2)
+    assert strict[2]['receptor_id'].sort().to_list()==['exact','one_high_cost']
+    parallel=reference_enrichment(sample,reference,controls,replicates=2,threads=2,**options)
+    for left,right in zip(result,parallel):assert left.equals(right)
+    options[locus.lower()+'_max_penalty']=0
+    with pytest.raises(ValueError,match='positive integer penalty'):
+        reference_enrichment(sample,reference,controls,replicates=2,**options)
+
+
+def test_blosum_length_batches_preserve_query_identity():
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    sample=pl.DataFrame(dict(receptor_id=['short','long'],locus=['TRB']*2,
+        junction_aa=['CASSIIDAYEQYF','CASSIIDAYEQYFF'],v=['TRBV19']*2,j=['TRBJ2-7']*2,count=[2,3]))
+    reference=sample.select('locus','junction_aa','v','j').with_columns(pl.lit('X').alias('group_id'),pl.lit(-10).alias('pgen_bin'))
+    control=reference.drop('group_id').with_columns(pl.Series('junction_aa',['CYYYYYYYYYYYYF','CWWWWWWWWWWWWF']))
+    summary,_,hits=reference_enrichment(sample,reference,{'TRB':control},replicates=2,trb_matcher='positional-blosum62',trb_max_penalty=100)
+    assert summary['matched_count'].item()==5
+    assert hits['receptor_id'].sort().to_list()==['long','short']
+
+
 def test_requested_targets_preserve_full_fuzzy_model_and_mock_draws():
     from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
     sample=pl.DataFrame(dict(receptor_id=['q','outer_ladder'],locus=['TRB']*2,
@@ -223,6 +256,8 @@ def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mo
         '--pgen-mismatches','0','--threads','1','--significance','both','--chain-mode',chain_mode,'--output-prefix',str(tmp_path/'result')]
     if chain_mode=='all':command.extend(['--model-source','isalgo'])
     if batch:command.append('--batch-samples')
+    if batch and chain_mode=='all':
+        command.extend(['--trb-matcher','positional-blosum62' if supported else 'blosum62','--trb-max-penalty','100'])
     result=subprocess.run(command,capture_output=True,text=True,timeout=30)
     assert result.returncode==0,result.stdout+result.stderr
     summary=pl.read_csv(tmp_path/'result.summary.tsv',separator='\t')

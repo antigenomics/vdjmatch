@@ -2827,8 +2827,19 @@ TRA, Boolean support encoded as 1 for strict TRB). These are different evidence
 units, not probabilities to multiply. Repertoire P-values concern matched
 receptor counts/abundance under the chosen combined rule, not individual binding.
 
-Both ``--tra-matcher`` and ``--trb-matcher`` accept ``hamming``, ``stem4``
-or ``gapblock``. Either or both chains may use a fuzzy kernel.
+Both ``--tra-matcher`` and ``--trb-matcher`` accept ``hamming``, ``stem4``,
+``gapblock``, ``blosum62`` or ``positional-blosum62``. Either or both chains may
+use a fuzzy matcher. The BLOSUM62 modes use at most three substitutions, no
+indels, exact V genes and optional exact J genes. They require an explicit
+positive integer ``--tra-max-penalty`` or ``--trb-max-penalty``; the bound is
+inclusive. Penalties are in native BLOSUM62 units multiplied by positional
+weights: flat100 for ``blosum62`` or the existing mean-one significance profile
+rounded after multiplication by100 for ``positional-blosum62``. Fixed-width
+positional matrices use one native query batch per length population, with no
+per-query worker pool. Real and mock references use the identical predicate.
+No BLOSUM penalty bound is recommended before calibration. These modes report
+match support, not kernel scores or probabilities; ``--*-min-score`` applies
+only to the stem4/gapblock kernels. ``--mismatches`` still controls Hamming arms.
 See :doc:`scoring` for the accepted BLOSUM62/positional-weighting evidence
 and the distinction between positive kernel support and calibrated matching.
 ``--tra-min-score`` and ``--trb-min-score`` require finite nonnegative values;

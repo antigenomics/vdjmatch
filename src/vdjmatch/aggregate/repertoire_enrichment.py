@@ -129,7 +129,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                          controls: dict[str, pl.DataFrame], *, replicates: int = 200,
                          seed: int = 0, policy: str = 'pgen', threads: int = 1,
                          mismatches: int = 1, match_j: bool = False, chain_mode: str = "union",
-                         tra_matcher: str = "hamming", trb_matcher: str = "hamming", tra_min_score: float = 0., trb_min_score: float = 0., species: str = "human", target_groups=None, progress=None):
+                         tra_matcher: str = "hamming", trb_matcher: str = "hamming", tra_min_score: float = 0., trb_min_score: float = 0., species: str = "human", tra_max_penalty: int | None = None, trb_max_penalty: int | None = None, target_groups=None, progress=None):
     """Test a fixed repertoire against fresh Pgen-matched mock target corpora.
 
     Observations: receptor_id/locus/junction_aa/v/j/count. Multiple chains with
@@ -145,6 +145,11 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     or gapblock, accepting scores strictly above its nonnegative min_score
     (zero by default), identically in every real/mock panel. Its
     chain_score is retained alongside strict-chain indicators, not a probability.
+    blosum62/positional-blosum62 use the existing native BLOSUM62 matrix,
+    respectively flat100 or significance_pssm positional weights, at most three
+    substitutions and no indels. Their explicit positive max_penalty is inclusive
+    in 100-scaled matrix units. Equal-length native batches share each fixed-width
+    PSSM; exact V and optional J predicates remain identical in real/mock tables.
     chain_mode=all reuses searches and mock draws for all four reducers; outputs
     then include chain_mode. No query Pgen is required.
     Optional sample_id batches an in-memory cohort with identical seeded mock
@@ -161,11 +166,18 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     if chain_mode not in {"tra", "trb", "union", "intersection", "all"}:
         raise ValueError("chain_mode must be tra, trb, union, intersection or all")
     matchers={"TRA":tra_matcher,"TRB":trb_matcher}
-    if any(m not in {"hamming","stem4","gapblock"} for m in matchers.values()):raise ValueError("chain matcher must be hamming, stem4 or gapblock")
+    weighted={'blosum62','positional-blosum62'}
+    if any(m not in {'hamming','stem4','gapblock',*weighted} for m in matchers.values()):raise ValueError('unknown chain matcher')
+    penalties={'TRA':tra_max_penalty,'TRB':trb_max_penalty}
+    for locus,matcher in matchers.items():
+        bound=penalties[locus]
+        if matcher in weighted:
+            if type(bound) is not int or bound<=0:raise ValueError('BLOSUM matching requires an explicit positive integer penalty bound')
+        elif bound is not None:raise ValueError('penalty bound requires a BLOSUM matcher')
     cutoffs={'TRA':tra_min_score,'TRB':trb_min_score}
     if any(not np.isfinite(c) or c<0 for c in cutoffs.values()):raise ValueError('finite nonnegative fuzzy score cutoffs required')
-    if any(cutoffs[locus] and matcher=='hamming' for locus,matcher in matchers.items()):raise ValueError('score cutoff requires a fuzzy matcher')
-    fuzzy_loci=[locus for locus,matcher in matchers.items() if matcher!="hamming"]
+    if any(cutoffs[locus] and matcher not in {'stem4','gapblock'} for locus,matcher in matchers.items()):raise ValueError('score cutoff requires a fuzzy matcher')
+    fuzzy_loci=[locus for locus,matcher in matchers.items() if matcher in {'stem4','gapblock'}]
     anchored=chain_mode=="intersection" and len(fuzzy_loci)==1
     required={'receptor_id','locus','junction_aa','v','j','count'}
     if not required <= set(observations.columns) or not observations.height:
@@ -217,6 +229,17 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         samplers[locus]=iter_epitope_mocks(part,controls[locus],replicates=replicates,seed=seed+(0 if locus=='TRA' else 1),policy=policy,unavailable=unavailable)
     empty=pl.DataFrame(schema={'receptor_id':obs.schema['receptor_id'],'group_id':ref.schema['group_id'],'locus':pl.String,'junction_aa':pl.String,'v':pl.String,'j':pl.String})
     fuzzy_by_locus={locus:obs.filter(pl.col('locus')==locus).with_row_index('query_id').rename({'junction_aa':'cdr3'}) for locus in fuzzy_loci}
+    weighted_params={}
+    if any(m in weighted for m in matchers.values()):
+        from seqtree import PositionalMatrix, SubstitutionMatrix
+        from ..match.regions import significance_pssm
+        matrix=SubstitutionMatrix.blosum62()
+        for locus,matcher in matchers.items():
+            if matcher not in weighted:continue
+            for length in obs.filter(pl.col('locus')==locus)['junction_aa'].str.len_chars().unique():
+                pssm=(significance_pssm(length) if matcher=='positional-blosum62' else
+                      PositionalMatrix.from_weights(matrix,[100]*length))
+                weighted_params[locus,length]=search_params('3,0,0,3',pos_matrix=pssm,max_penalty=penalties[locus])
     contexts = None
     if any(frame.height for frame in fuzzy_by_locus.values()):
         from ..match.geometry import precompute_v_loop_distances
@@ -273,9 +296,19 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
             buffers=[]
             def consume(start,stop,buffer):
                 pairs=np.asarray(buffer)
-                if len(pairs):buffers.append(pairs[:,:2].copy())
-            index.search_batch_consume(keys['junction_aa'].to_list(),search_params(f'{mismatches},0,0,{mismatches}'),consume,
-                threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
+                if len(pairs):
+                    pairs=pairs[:,:2].copy()
+                    pairs[:,0]=query_ids[pairs[:,0]]
+                    buffers.append(pairs)
+            if matchers[locus] in weighted:
+                batches=[(part,weighted_params[locus,length]) for (length,),part in
+                    keys.with_columns(pl.col('junction_aa').str.len_chars().alias('_length')).partition_by('_length',as_dict=True).items()
+                    if (locus,length) in weighted_params]
+            else:batches=[(keys,search_params(f'{mismatches},0,0,{mismatches}'))]
+            for batch,params in batches:
+                query_ids=batch['_qi'].to_numpy()
+                index.search_batch_consume(batch['junction_aa'].to_list(),params,consume,
+                    threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
             # Join sparse hits once: native memory bounds can make callbacks tiny.
             if buffers:
                 pairs=pl.DataFrame(np.concatenate(buffers),schema=[('_qi',pl.UInt32),('_ri',pl.UInt32)],orient='row')
