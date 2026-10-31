@@ -514,14 +514,8 @@ Keep continuous TRA scores and strict-chain indicators distinct; do not multiply
 them as independent probabilities. This comparison is separate from compiled
 bulk exact reproduction.
 
-Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, `gapblock`,
-`blosum62`, or `positional-blosum62`. The two BLOSUM62 modes reuse native
-fixed-width matrices: at most three substitutions, no indels, exact V and
-optional exact J, with explicit positive inclusive `--tra-max-penalty` and/or
-`--trb-max-penalty`. Flat weights are100; positional weights are the existing
-mean-one significance profile scaled by100 and rounded. No biological bound
-is recommended before calibration; use identical real/mock predicates.
-Keep these support indicators distinct from kernel scores.
+Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4` or `gapblock`.
+Keep calibrated scorer parameters fixed; select only dimensionless score thresholds.
  `--tra-min-score` and `--trb-min-score` set strict lower bounds
 for fuzzy support (default zero); the same bounds apply to real and every
 mock panel. Use `--trb-matcher stem4 --chain-mode intersection` for the reverse
