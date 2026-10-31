@@ -119,6 +119,26 @@ Apply each V rule identically to real and mock panels. Preserve raw missing-gene
 status and imputation; do not silently treat imputed equality as observed truth.
 This comparison is proposed, not a new recommendation or executed experiment.
 
+When can hard V equality be optimal?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Let H1 mean target-specific recognition and H0 mean matched background. For
+junction comparison d and V relationship g, the full likelihood ratio is
+L(d,g)=P(d,g|H1)/P(d,g|H0), wherever the denominator is positive. A hard V
+filter is justified without loss only under the strong assumption
+P(g is unequal|H1)=0 (and correctly observed V calls). Then every unequal-V
+case has zero numerator and can be rejected by an optimal likelihood-ratio
+rule. This assumption is not established by the present results. If unequal V
+occurs under H1, hard equality can discard real signal. Conversely, dropping V
+is lossless only if L(d,g) is independent of g conditional on the retained
+features. Neither condition follows from Pgen matching.
+
+Thus exact V, fuzzy loop geometry and no V correspond to different assumptions
+about germline contribution. Test their matched-case effects before declaring
+one optimal; do not justify hard equality simply because a database contains
+many same-gene neighbours. Gene imputation can further violate the correctly
+observed-V assumption and should be audited separately.
+
 Combining chains and targets
 ----------------------------
 
