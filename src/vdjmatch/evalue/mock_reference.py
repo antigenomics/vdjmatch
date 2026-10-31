@@ -391,7 +391,7 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
 
 
 def sample_stratified_panels(reference: pl.DataFrame, probes: pl.DataFrame, *,
-                        replicates=200, seed=42, sampler='numpy') -> pl.DataFrame:
+                        replicates=200, seed=42, sampler='numpy', unavailable=None) -> pl.DataFrame:
     """Draw fresh exact-bin reference panels; optionally reproduce base-R draws.
 
     NumPy uses the existing uniform-key sampler. The optional R backend is for
@@ -399,7 +399,8 @@ def sample_stratified_panels(reference: pl.DataFrame, probes: pl.DataFrame, *,
     All panels are transient in memory; no calculated panel cache is written.
     """
     if sampler=='numpy':
-        return pl.concat(iter_epitope_mocks(reference,probes,replicates=replicates,seed=seed))
+        return pl.concat(iter_epitope_mocks(reference,probes,replicates=replicates,seed=seed,unavailable=unavailable))
+    if unavailable is not None:raise ValueError('unavailable-null reporting requires the NumPy sampler')
     if sampler!='r':raise ValueError('sampler must be numpy or r')
     if type(replicates) is not int or replicates<1 or type(seed) is not int or not 0<=seed<2**31:
         raise ValueError('positive replicates and a nonnegative R integer seed required')
@@ -762,8 +763,9 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
         for (bin_id,),part in target.partition_by('pgen_bin',as_dict=True).items():
             candidates=bin_pools.get((bin_id,),empty_indices)
             blocked=excluded.get((group,bin_id),empty_indices)
-            if len(candidates)-len(excluded_positions(candidates,blocked))<part.height:
-                reject(group,f'insufficient control keys for group {group!r}, bin {bin_id}')
+            available=len(candidates)-len(excluded_positions(candidates,blocked))
+            if available<part.height:
+                reject(group,f'insufficient control keys for group {group!r}, bin {bin_id}: need {part.height}, have {available}')
                 break
             roles=[]
             strata=['v','j'] if policy=='pgen-vj' else ['v'] if policy=='pgen-different-v' else ['pgen_bin']

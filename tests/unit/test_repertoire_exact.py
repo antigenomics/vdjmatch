@@ -272,3 +272,38 @@ def test_missing_model_gene_uses_explicit_zero_mass_and_count_pseudocount():
     ordinary=_joint_pgen(known,species='human',locus='TRB',threads=1,source='olga-legacy')
     retained=_joint_pgen(known,species='human',locus='TRB',threads=1,source='olga-legacy',allow_missing_model_genes=True)
     assert retained['pgen_model_supported'].item() and retained['pgen'].item()==ordinary['pgen'].item()
+
+
+def test_unavailable_null_retains_observed_counts_without_inference(tmp_path):
+    (tmp_path/'sample.tsv').write_text('junction_aa\tv\tj\tcount\nCASSF\tTRBV2\tTRBJ1-1\t7\nCASRF\tTRBV2\tTRBJ1-1\t3\n')
+    (tmp_path/'meta.tsv').write_text('sample_id\tpath\nS\tsample.tsv\n')
+    (tmp_path/'reference.tsv').write_text('cdr3\tgene\tv\tj\tspecies\tepitope\nCASSF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tGOOD\nCASRF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tUNAVAILABLE\n')
+    (tmp_path/'probes.tsv').write_text('junction_aa\tv\tj\tjoint_pgen\nCASSF\tTRBV2\tTRBJ1-1\t0.0001\nCATSF\tTRBV2\tTRBJ1-1\t0.0001\nCASRF\tTRBV2\tTRBJ1-1\t0\n')
+    (tmp_path/'model.tsv').write_text('v\tj\trecords\nTRBV2\tTRBJ1-1\t100\n')
+    prefix=tmp_path/'out'
+    command=[sys.executable,'-m','vdjmatch.cli','repertoire-exact',str(tmp_path/'meta.tsv'),
+        '--vdjdb',str(tmp_path/'reference.tsv'),'--control',str(tmp_path/'probes.tsv'),
+        '--model-vj-counts',str(tmp_path/'model.tsv'),'--legacy','--pool-mhc',
+        '--allow-unavailable-null','--mock-replicates','2','--threads','1','--output-prefix',str(prefix)]
+    run=subprocess.run(command,capture_output=True,text=True,timeout=30)
+    assert run.returncode==0,run.stderr+run.stdout
+    table=pl.read_csv(str(prefix)+'.summary.tsv',separator='\t')
+    bad=table.filter(pl.col('epitope')=='UNAVAILABLE').row(0,named=True)
+    assert bad['matched_records']==1 and bad['matched_reads']==3 and bad['mock_replicates']==0
+    assert bad['null_status']=='unavailable' and 'need 1, have 0' in bad['null_reason']
+    for endpoint in ['records','reads']:
+        assert all(bad[p+endpoint] is None for p in ['p_','q_','original_p_','original_q_','excess_','significant_bh_','original_significant_bh_'])
+    good=table.filter(pl.col('epitope')=='GOOD').row(0,named=True)
+    assert good['null_status']=='available' and good['mock_replicates']==2 and good['p_records']==1/3
+    counts=pl.read_csv(str(prefix)+'.counts.tsv',separator='\t')
+    assert counts.height==4 and counts.filter(pl.col('replicate')==-1).height==2
+    all_bad=command+['--epitope','UNAVAILABLE']
+    all_bad[all_bad.index('--output-prefix')+1]=str(tmp_path/'all-bad')
+    run=subprocess.run(all_bad,capture_output=True,text=True,timeout=30)
+    assert run.returncode==0,run.stderr+run.stdout
+    only=pl.read_csv(tmp_path/'all-bad.summary.tsv',separator='\t').row(0,named=True)
+    assert only['matched_records']==1 and only['null_status']=='unavailable' and only['p_records'] is None
+    strict=[value for value in command if value!='--allow-unavailable-null']
+    strict[strict.index('--output-prefix')+1]=str(tmp_path/'strict')
+    run=subprocess.run(strict,capture_output=True,text=True,timeout=30)
+    assert run.returncode!=0 and 'insufficient control keys' in run.stderr

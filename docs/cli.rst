@@ -2833,6 +2833,15 @@ They are reproduction diagnostics, not interchangeable with complete-zero tails.
 Fresh counts, summary, V/J audit, reference-bin audit and input/source provenance
 are exported. No calculated mock panels are reused between invocations.
 
+With ``--allow-unavailable-null``, the NumPy sampler retains targets whose
+exact-bin controls are insufficient. Their observed counts and denominators
+remain in the exports, with ``null_status=unavailable``, the required/available
+control counts in ``null_reason``, zero mock replicates and missing inference.
+P-values, q-values, effects and call flags remain missing for these targets.
+``null-availability.tsv`` records each target disposition. The default still
+raises on insufficient controls; this option does not merge bins, sample with
+replacement or change the null law.
+
 ``--selection-q`` scales generation mass through
 ``vdjtools.model.selection.selection_mass`` before the V/J correction and binning.
 The modern default is the checked model-specific factor listed above;

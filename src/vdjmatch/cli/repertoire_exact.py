@@ -19,6 +19,7 @@ def register(sub):
     p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
     p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact joint Pgen; 1 inclusive Hamming-1 joint mass')
     p.add_argument('--allow-missing-model-genes',action='store_true',help='Retain absent model genes with zero joint mass and the existing add-one V/J-count smoothing; original calls are unchanged')
+    p.add_argument('--allow-unavailable-null',action='store_true',help='Retain observed counts and missing inference when exact-bin controls are insufficient; NumPy sampler only')
     p.add_argument('--matcher',choices=['exact','hamming','stem4','blosum62','positional-blosum62',*GRADED_FAMILIES],default='exact')
     p.add_argument('--min-score',type=float,help='Explicit dimensionless stem4 score threshold; fixed geometry')
     p.add_argument('--radius-factor',type=float,help='Normalized distance bound for BLOSUM or graded family matching')
@@ -89,7 +90,11 @@ def _summaries(counts):
         mock=part.filter(pl.col('replicate')>=0)
         present=mock.filter(pl.col('matched_records')>0)
         row=dict(sample_id=sample,group_id=target,matched_records=observed['matched_records'],matched_reads=observed['matched_reads'],mock_replicates=mock.height,original_present_mocks=present.height)
+        row['null_status']='available' if mock.height else 'unavailable'
         for endpoint in ['records','reads']:
+            if not mock.height:
+                row.update({stem+endpoint:None for stem in ['mock_mean_','p_','original_p_','original_mean_','original_sd_','original_effect_','excess_']})
+                continue
             actual=observed['matched_'+endpoint];values=mock['matched_'+endpoint].to_numpy()
             original=present['matched_'+endpoint].to_numpy()
             transformed=np.log2(original+1.) if endpoint=='reads' else original
@@ -110,7 +115,7 @@ def _summaries(counts):
                 row[denominator]=observed[denominator]
             for measure in ['normalized_clonotype_matches','matched_read_fraction']:
                 row[measure]=observed[measure]
-                row['mock_mean_'+measure]=float(mock[measure].mean())
+                row['mock_mean_'+measure]=float(mock[measure].mean()) if mock.height else None
         rows.append(row)
     return pl.DataFrame(rows,infer_schema_length=None)
 
@@ -154,6 +159,8 @@ def main(a):
         raise ValueError('selection profiles require modern mode and replace model V/J counts')
     if a.allow_missing_model_genes and a.selection_profile:
         raise ValueError('--allow-missing-model-genes requires model counts, not a selection profile')
+    if a.allow_unavailable_null and a.sampler!='numpy':
+        raise ValueError('--allow-unavailable-null requires the NumPy sampler')
     if not a.selection_profile and not a.model_vj_counts:
         raise ValueError('--model-vj-counts is required without a selection profile')
     inputs=[meta_path,Path(a.vdjdb).expanduser().resolve(),Path(a.control).expanduser().resolve(),*paths]
@@ -164,6 +171,7 @@ def main(a):
     prefix=_validate_output_paths(a.output_prefix,[str(p) for p in inputs])
     suffixes=['summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
     if a.allow_missing_model_genes:suffixes.append('missing-model-genes.tsv')
+    if a.allow_unavailable_null:suffixes.append('null-availability.tsv')
     if any(Path(str(prefix)+'.'+s).exists() for s in suffixes):raise FileExistsError('fresh output prefix required')
     before={str(p):sha256(p) for p in inputs}
     import seqtree._core as search_native
@@ -228,7 +236,8 @@ def main(a):
             model_vj_probabilities=selected)
     reference=reference.join(probes.select(*keys,'pgen_bin'),on=keys,validate='m:1')
     now=time.monotonic();stages['strata_and_reference_bins']=now-mark;mark=now
-    mocks=sample_stratified_panels(reference,probes.select(*keys,'pgen_bin'),replicates=a.mock_replicates,seed=a.seed,sampler=a.sampler)
+    unavailable=[] if a.allow_unavailable_null else None
+    mocks=sample_stratified_panels(reference,probes.select(*keys,'pgen_bin'),replicates=a.mock_replicates,seed=a.seed,sampler=a.sampler,unavailable=unavailable)
     panels=pl.concat([reference.select('group_id',*keys).with_columns(pl.lit(-1,dtype=pl.Int64).alias('replicate')),mocks.select('group_id',*keys,pl.col('replicate').cast(pl.Int64))])
     panel_sizes=panels.group_by('group_id','replicate').len(name='epitope_clonotypes')
     now=time.monotonic();stages['mock_panel_generation']=now-mark;mark=now
@@ -257,6 +266,9 @@ def main(a):
         (pl.col('matched_reads')/pl.col('sample_reads')).alias('matched_read_fraction'))
     now=time.monotonic();stages['cohort_kernel_and_count_assembly']=now-mark;mark=now
     summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
+    if unavailable is not None:
+        reasons=pl.DataFrame(unavailable,schema={'group_id':pl.String,'reason':pl.String}).rename({'reason':'null_reason'})
+        summary=summary.join(reasons,on='group_id',how='left',validate='m:1')
     parts=[]
     for part in summary.partition_by(['group_id',*a.fdr_group]):
         for endpoint in ['records','reads']:
@@ -274,6 +286,8 @@ def main(a):
     outputs={'summary.tsv':summary,'counts.tsv':counts,'vj-audit.tsv':audit,'reference-bins.tsv':reference.group_by('group_id','pgen_bin').len(name='reference_keys')}
     if 'pgen_model_supported' in probes.columns:
         outputs['missing-model-genes.tsv']=probes.filter(~pl.col('pgen_model_supported'))
+    if unavailable is not None:
+        outputs['null-availability.tsv']=summary.select('group_id','null_status','null_reason').unique().sort('group_id')
     prefix.parent.mkdir(parents=True,exist_ok=True)
     for suffix,frame in outputs.items():frame.write_csv(str(prefix)+'.'+suffix,separator='\t')
     now=time.monotonic();stages['table_export']=now-mark;mark=now
