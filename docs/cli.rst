@@ -2754,14 +2754,6 @@ clonotype row is one sample clonotype under this bulk reproduction contract.
 Real/mock panel sizes are equal; these fixed per-sample scale factors leave
 upper-tail empirical P-values unchanged. Noncoding
 junction rows are dropped by the standard input filter before counting.
-For a bounded substitution predicate, use the existing search option names
-``--matcher hamming --mismatches 3 --matrix blosum62 --position-significance
---max-penalty BOUND``. This reuses the end-anchored significance PSSM;
-positional penalties use weights scaled by100, while flat BLOSUM penalties
-use unscaled matrix units. An explicit positive bound is required. The bound
-is a calibration parameter, not a recommended operating point. Both real/mock
-panels use exactly the same predicate and retain exact V/J requirements.
-
 Fuzzy kernel comparisons use the existing ``stem4`` and ``gapblock`` modes
 of reference-null ``repertoire-enrichment`` described below.
 
@@ -2865,6 +2857,13 @@ per-query worker pool. Real and mock references use the identical predicate.
 No BLOSUM penalty bound is recommended before calibration. These modes report
 match support, not kernel scores or probabilities; ``--*-min-score`` applies
 only to the stem4/gapblock kernels. ``--mismatches`` still controls Hamming arms.
+Fuzzy ``--tra-min-score`` and ``--trb-min-score`` thresholds apply to the
+existing dimensionless kernel score. Keep its fitted geometry, positional
+weights and kernel scale fixed. Zero accepts positive support and is a
+historical diagnostic, not a precision operating point. Select the score
+threshold under the declared calibration contract; do not substitute raw
+matrix penalties or transfer a cutoff from another reference/species scope.
+
 ``--kernel-scorer vonly-bounded`` uses the existing same-V target-evidence
 reducer for either ``stem4`` or ``gapblock``, identically in real/mock panels.
 Default ``v-bounded`` retains soft cross-V evidence. Neither changes Hamming
