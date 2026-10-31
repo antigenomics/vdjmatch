@@ -17,12 +17,12 @@ except PackageNotFoundError:                  # pragma: no cover - source tree w
 
 def __getattr__(name):
     # CLI sets numerical budgets before importing the tabular/search runtime.
-    if name in {"Annotator", "annotate"}:
-        from .api import Annotator, annotate
-        return {"Annotator": Annotator, "annotate": annotate}[name]
+    if name in {"Annotator", "annotate", "TcrnetMatcher"}:
+        from .api import Annotator, annotate, TcrnetMatcher
+        return {"Annotator": Annotator, "annotate": annotate, "TcrnetMatcher": TcrnetMatcher}[name]
     if name == "annotate_repertoires":
         from .runner.annotation import annotate_repertoires
         return annotate_repertoires
     raise AttributeError(name)
 
-__all__ = ["Annotator", "annotate", "annotate_repertoires", "__version__"]
+__all__ = ["Annotator", "annotate", "TcrnetMatcher", "annotate_repertoires", "__version__"]

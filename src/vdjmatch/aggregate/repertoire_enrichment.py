@@ -9,6 +9,32 @@ from ..evalue.mock_reference import _sample_event_indices
 from ..io.columns import _integer_count
 
 
+def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame) -> pl.DataFrame:
+    """Count source rows and reads against all exact V/J/junction panels at once.
+
+    Observations contain junction_aa/v/j/count; panels additionally contain
+    group_id/replicate. Source rows sharing a key remain separate observations.
+    Panel keys must be unique within group/replicate. Zero-hit panels are kept.
+    This is the original bulk-repertoire counting unit, not paired-cell union.
+    """
+    keys=['junction_aa','v','j'];groups=['group_id','replicate']
+    if not {*keys,'count'}<=set(observations.columns) or not {*keys,*groups}<=set(panels.columns) or not panels.height:
+        raise ValueError('source keys/counts and nonempty reference panels required')
+    if panels.select(*groups,*keys).n_unique()!=panels.height:
+        raise ValueError('reference panel keys must be unique within group/replicate')
+    if any(panels[c].null_count() for c in [*groups,*keys]):
+        raise ValueError('reference panel identities and keys must be non-null')
+    obs=observations.select(*keys,_integer_count('count').alias('count'))
+    if obs['count'].null_count() or (obs['count']<0).any():
+        raise ValueError('nonnegative integer source counts required')
+    if obs.select(pl.col('count').cast(pl.Int128).sum()).item()>np.iinfo(np.int64).max:
+        raise ValueError('source read total exceeds int64')
+    counted=obs.group_by(keys).agg(pl.len().cast(pl.Int64).alias('matched_records'),pl.col('count').sum().alias('matched_reads'))
+    matched=panels.join(counted,on=keys,how='inner',validate='m:1').group_by(groups).agg(pl.col('matched_records','matched_reads').sum())
+    return panels.select(groups).unique().join(matched,on=groups,how='left',validate='1:1').with_columns(
+        pl.col('matched_records','matched_reads').fill_null(0)).sort(groups)
+
+
 def matched_enrichment(observations, control, matches, targets, *, replicates=200, seed=0, measure=None):
     """Return real/null counts, empirical upper-tail P-values and exact-bin audit.
 
@@ -97,3 +123,162 @@ def matched_enrichment(observations, control, matches, targets, *, replicates=20
         mock=pl.DataFrame(dict(_target=np.tile(np.arange(inventory.height),replicates),replicate=np.repeat(np.arange(replicates),inventory.height),mock_records=mock_records.ravel(),mock_reads=mock_reads.ravel())).with_columns(pl.col('_target').cast(inventory.schema['_target']),pl.lit(sample).alias('sample_id'))
         mock_tables.append(mock.join(inventory,on='_target',validate='m:1').drop('_target'))
     return pl.concat(summaries),pl.concat(mock_tables),pl.DataFrame(audits)
+
+
+def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
+                         controls: dict[str, pl.DataFrame], *, replicates: int = 200,
+                         seed: int = 0, policy: str = 'pgen', threads: int = 1,
+                         mismatches: int = 1, match_j: bool = False, chain_mode: str = "union",
+                         tra_matcher: str = "hamming", species: str = "human", progress=None):
+    """Test a fixed repertoire against fresh Pgen-matched mock target corpora.
+
+    Observations: receptor_id/locus/junction_aa/v/j/count. Multiple chains with
+    one receptor_id represent one receptor and must carry the same abundance.
+    Reference: group_id/locus/junction_aa/v/j/pgen_bin. Controls are normalized
+    unique junction/V/J keys with pgen_bin per locus. chain_mode selects separate
+    tra/trb, union or intersection support; paired receptors count once. Linked and unlinked
+    references both contribute. This calibrates the selected rule, not a paired score.
+    Counts are unique receptor identities and their summed abundance separately.
+    Returns summary, complete aggregate mock endpoints and real chain hit links.
+    Full-junction Hamming matching uses one native batch per locus/population,
+    with exact V and optional J gene matching. tra_matcher=stem4 instead uses
+    the existing continuous TRA kernel (positive support) in every panel. Its
+    chain_score is retained alongside strict-chain indicators, not a probability.
+    chain_mode=all reuses searches and mock draws for all four reducers; outputs
+    then include chain_mode. No query Pgen is required.
+    """
+    from seqtree import Index
+    from ..match.scope import search_params
+    from ..evalue.mock_reference import iter_epitope_mocks
+
+    if type(replicates) is not int or replicates < 1 or type(seed) is not int or seed < 0:
+        raise ValueError('positive replicates and nonnegative seed required')
+    from vdjtools.sc import chain_support
+    if chain_mode not in {"tra", "trb", "union", "intersection", "all"}:
+        raise ValueError("chain_mode must be tra, trb, union, intersection or all")
+    if tra_matcher not in {"hamming", "stem4"}:raise ValueError("tra_matcher must be hamming or stem4")
+    required={'receptor_id','locus','junction_aa','v','j','count'}
+    if not required <= set(observations.columns) or not observations.height:
+        raise ValueError('nonempty observations with receptor identities, chain keys and counts required')
+    obs=observations.select(sorted(required)).with_columns(_integer_count('count').alias('count'))
+    if any(obs[c].null_count() for c in required) or (obs['count']<0).any():
+        raise ValueError('non-null receptor keys and nonnegative integer counts required')
+    totals=obs.group_by('receptor_id').agg(pl.col('count').n_unique().alias('_n'),pl.col('count').first())
+    if (totals['_n']!=1).any():raise ValueError('all chains of a receptor must have the same count')
+    total_count=sum(totals['count'].to_list())
+    if total_count>np.iinfo(np.int64).max:raise ValueError('total count exceeds int64')
+    if type(threads) is not int or threads<1 or type(mismatches) is not int or mismatches not in (0,1,2,3):
+        raise ValueError('positive threads and Hamming mismatches from 0 to 3 required')
+    if not {'group_id','locus','junction_aa','v','j','pgen_bin'}<=set(reference.columns) or not reference.height:
+        raise ValueError('nonempty reference with target, locus, receptor keys and Pgen bins required')
+    ref=reference.select('group_id','locus','junction_aa','v','j','pgen_bin').unique().sort('group_id','locus','junction_aa','v','j')
+    for frame in [obs,ref]:
+        if not set(frame['locus'])<={'TRA','TRB'} or frame['locus'].null_count():raise ValueError('TRA/TRB loci required')
+        if not frame['junction_aa'].str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).all():
+            raise ValueError('valid full-junction amino acid sequences required')
+    modes=['tra','trb','union','intersection'] if chain_mode=='all' else [chain_mode]
+    inventory=ref.select('group_id').unique().sort('group_id')
+    if chain_mode=='all':inventory=inventory.join(pl.DataFrame({'chain_mode':modes}),how='cross')
+    inventory=inventory.with_row_index('_target')
+    indexes={};samplers={};unavailable=[]
+    for (locus,),part in obs.partition_by('locus',as_dict=True).items():
+        keys=part.select('junction_aa').unique().sort('junction_aa').with_row_index('_ri')
+        indexed=part.join(keys,on='junction_aa',validate='m:1').rename({'v':'_sample_v','j':'_sample_j'}).with_columns(
+            pl.col('_sample_v').str.replace(r'\*.*$','').alias('_match_v'),pl.col('_sample_j').str.replace(r'\*.*$','').alias('_match_j'))
+        indexes[locus]=(Index.build(keys['junction_aa'].to_list(),alphabet='aa'),indexed)
+    for (locus,),part in ref.partition_by('locus',as_dict=True).items():
+        if locus not in controls:raise ValueError(f'missing {locus} control pool')
+        samplers[locus]=iter_epitope_mocks(part,controls[locus],replicates=replicates,seed=seed+(0 if locus=='TRA' else 1),policy=policy,unavailable=unavailable)
+    empty=pl.DataFrame(schema={'receptor_id':obs.schema['receptor_id'],'group_id':ref.schema['group_id'],'locus':pl.String,'junction_aa':pl.String,'v':pl.String,'j':pl.String})
+    fuzzy_queries = obs.filter(pl.col('locus')=='TRA').with_row_index('query_id').rename({'junction_aa':'cdr3'}) if tra_matcher=='stem4' else None
+    contexts = None
+    if tra_matcher == 'stem4' and fuzzy_queries.height:
+        from ..match.geometry import precompute_v_loop_distances
+        contexts = {'blosum62':precompute_v_loop_distances(species=species,alphabet='full',matrix='blosum62',v_regions='cdr12plus')}
+    if tra_matcher == 'stem4':empty=empty.with_columns(pl.lit(None,dtype=pl.Float64).alias('chain_score'))
+    def measure(population, *, detailed=False):
+        parts=[]
+        for (locus,),targets in population.partition_by('locus',as_dict=True).items():
+            if locus not in indexes:continue
+            index,samples=indexes[locus]
+            if locus == 'TRA' and tra_matcher == 'stem4':
+                from ..runner.combined import _kernel
+                scored=[]
+                kernel_reference=targets.rename({'junction_aa':'cdr3','group_id':'epitope'}).with_columns(
+                    pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
+                def collect(name,frame):
+                    scored.append(frame.filter(pl.col('kernel_score')>0).select('query_id',pl.col('epitope').alias('group_id'),pl.col('kernel_score').alias('chain_score')))
+                _kernel(fuzzy_queries,kernel_reference,None,species=species,threads=threads,paired=False,
+                    exclude_exact=False,contexts=contexts,_consume=collect,kernels=('stem4',))
+                if scored:
+                    supported=pl.concat(scored).join(fuzzy_queries,on='query_id',validate='m:1').rename({'cdr3':'junction_aa'})
+                    columns=['receptor_id','group_id','locus']+(['junction_aa','v','j','chain_score'] if detailed else [])
+                    parts.append(supported.select(columns).unique())
+                continue
+            keys=targets.select('junction_aa').unique().sort('junction_aa').with_row_index('_qi')
+            roles=targets.join(keys,on='junction_aa',validate='m:1').select('_qi','group_id',
+                pl.col('v').str.replace(r'\*.*$','').alias('_match_v'),pl.col('j').str.replace(r'\*.*$','').alias('_match_j'))
+            buffers=[]
+            def consume(start,stop,buffer):
+                pairs=np.asarray(buffer)
+                if len(pairs):buffers.append(pairs[:,:2].copy())
+            index.search_batch_consume(keys['junction_aa'].to_list(),search_params(f'{mismatches},0,0,{mismatches}'),consume,
+                threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
+            # Join sparse hits once: native memory bounds can make callbacks tiny.
+            if buffers:
+                pairs=pl.DataFrame(np.concatenate(buffers),schema=[('_qi',pl.UInt32),('_ri',pl.UInt32)],orient='row')
+                predicate=['_ri','_match_v']+(['_match_j'] if match_j else [])
+                hits=pairs.join(roles,on='_qi',validate='m:m').join(samples,on=predicate,validate='m:m')
+                if detailed:
+                    detail=hits.select('receptor_id','group_id',pl.lit(locus).alias('locus'),'junction_aa',pl.col('_sample_v').alias('v'),pl.col('_sample_j').alias('j')).unique()
+                    if tra_matcher=='stem4':detail=detail.with_columns(pl.lit(1.).alias('chain_score'))
+                    parts.append(detail)
+                else:
+                    parts.append(hits.select('receptor_id','group_id').with_columns(pl.lit(locus).alias('locus')).unique())
+        members=pl.concat(parts).unique() if parts else empty
+        support=chain_support(members,by=['receptor_id','group_id'])
+        aggregates=[];details=[]
+        for mode in modes:
+            selected=support.filter(pl.col(mode+'_supported')).select('receptor_id','group_id')
+            aggregate=selected.join(totals.select('receptor_id','count'),on='receptor_id',validate='m:1').group_by('group_id').agg(pl.len().cast(pl.Int64).alias('receptors'),pl.col('count').sum())
+            if chain_mode=='all':aggregate=aggregate.with_columns(pl.lit(mode).alias('chain_mode'))
+            aggregates.append(aggregate)
+            if detailed:
+                detail=members.join(selected,on=['receptor_id','group_id'],how='inner')
+                if mode in {'tra','trb'}:detail=detail.filter(pl.col('locus')==mode.upper())
+                if chain_mode=='all':detail=detail.with_columns(pl.lit(mode).alias('chain_mode'))
+                details.append(detail)
+        keys=['group_id','chain_mode'] if chain_mode=='all' else ['group_id']
+        hits=pl.concat(details).sort('receptor_id',*keys,'locus') if detailed else empty
+        values=inventory.join(pl.concat(aggregates),on=keys,how='left',validate='1:1').fill_null(0).sort('_target')
+        return values['receptors'].to_numpy(),values['count'].to_numpy(),hits
+    actual,abundance,hits=measure(ref,detailed=True)
+    if progress is not None:progress('real',0)
+    null=np.empty((replicates,inventory.height,2),dtype=np.int64)
+    for b in range(replicates):
+        population=pl.concat([next(sampler) for sampler in samplers.values()])
+        if b==0 and progress is not None:progress('first_mock_draw',1)
+        null[b,:,0],null[b,:,1],_=measure(population)
+        if progress is not None and ((b+1)%20==0 or b+1==replicates):progress('mock',b+1)
+    summary=inventory.drop('_target').with_columns(pl.lit(totals.height).alias('n_receptors'),pl.lit(total_count).alias('total_count'))
+    for name,observed,values in [('receptors',actual,null[:,:,0]),('count',abundance,null[:,:,1])]:
+        mean=values.mean(axis=0)
+        ratio=np.divide(observed,mean,out=np.full(len(mean),np.nan),where=mean>0)
+        summary=summary.with_columns(pl.Series('matched_'+name,observed),pl.Series('mock_mean_'+name,mean),
+            pl.Series('mock_lower_'+name,np.quantile(values,.025,axis=0)),pl.Series('mock_upper_'+name,np.quantile(values,.975,axis=0)),
+            pl.Series('excess_'+name,observed-mean),pl.Series('enrichment_'+name,ratio).fill_nan(None),
+            pl.Series('p_'+name,(1+(values>=observed).sum(axis=0))/(replicates+1)))
+    mocks=pl.DataFrame(dict(_target=np.tile(np.arange(inventory.height,dtype=np.uint32),replicates),
+        replicate=np.repeat(np.arange(replicates),inventory.height),mock_receptors=null[:,:,0].ravel(),mock_count=null[:,:,1].ravel()))
+    mocks=mocks.join(inventory,on='_target',validate='m:1').drop('_target')
+    reasons={}
+    for row in unavailable:reasons.setdefault(row['group_id'],[]).append(row['reason'])
+    audit=inventory.with_columns(
+        pl.Series('status',['untestable_null' if g in reasons else 'ok' for g in inventory['group_id']]),
+        pl.Series('null_unavailable_reason',['; '.join(dict.fromkeys(reasons[g])) if g in reasons else None for g in inventory['group_id']],dtype=pl.String))
+    audit=audit.select('group_id','status','null_unavailable_reason').unique()
+    summary=summary.join(audit,on='group_id',validate='m:1',maintain_order='left')
+    inferred=[c for c in summary.columns if c.startswith(('mock_','excess_','enrichment_','p_'))]
+    summary=summary.with_columns(pl.when(pl.col('status')=='ok').then(pl.col(c)).otherwise(None).alias(c) for c in inferred)
+    mocks=mocks.with_columns(pl.when(~pl.col('group_id').is_in(list(reasons))).then(pl.col(c)).otherwise(None).alias(c) for c in ['mock_receptors','mock_count'])
+    return summary,mocks,hits

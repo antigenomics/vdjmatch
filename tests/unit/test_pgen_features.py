@@ -20,14 +20,16 @@ def _bank(tmp_path, monkeypatch):
     files = {'genes_v.tsv': 'a'*64, 'manifest.json': 'b'*64, 'genes_j.tsv': 'c'*64, 'v_choice.tsv': 'd'*64}
     metadata = dict(organism='human', locus='TRB', chain_type='VJ',
         events={'v_choice': {'kind': 'choice', 'given': []}})
-    monkeypatch.setattr(mocks, '_pgen_model_identity', lambda *args: {'files': files, 'metadata': metadata})
+    monkeypatch.setattr(mocks, '_pgen_model_identity', lambda *args, **kwargs: {'files': files, 'metadata': metadata})
     model_hash = hashlib.sha256(''.join(f'{name}\t{files[name]}\n' for name in sorted(files)).encode()).hexdigest()
     manifest = dict(features=dict(path=path.name, sha256=sha256(path)),
         options=dict(species='human', locus='TRB', mismatches=1),
         model=dict(files=files, sha256=model_hash, collapse_alleles=False,
             metadata=metadata, anchor_repair='vdjtools load_model'))
     from vdjtools.model import io as model_io, native as native_bridge
-    manifest['software']={'model_io_sha256':sha256(Path(model_io.__file__)), 'native_bridge_sha256':sha256(Path(native_bridge.__file__))}
+    from vdjtools import _core
+    from importlib.metadata import version
+    manifest['software']={'vdjtools':version('vdjtools'),'native_sha256':sha256(Path(_core.__file__)),'model_io_sha256':sha256(Path(model_io.__file__)), 'native_bridge_sha256':sha256(Path(native_bridge.__file__))}
     manifest_path = tmp_path/'bank.manifest.json'
     manifest_path.write_text(json.dumps(manifest))
     return path, manifest_path, frame, manifest
@@ -51,6 +53,7 @@ def test_feature_bank_checks_identity_and_complete_union(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('section,key,value', [
+    ('software','vdjtools','0.0.0'), ('software','native_sha256','invalid'),
     ('software','model_io_sha256','0'*64), ('software','native_bridge_sha256','0'*64),
     ('model','anchor_repair','unrepaired'),
     ('options', 'mismatches', 0), ('options', 'mismatches', True),
@@ -130,3 +133,31 @@ def test_feature_bank_can_move_with_its_manifest(tmp_path, monkeypatch):
     manifest_path.rename(destination/manifest_path.name)
     result, _ = load_pgen_features(destination/path.name, frame, frame)
     assert result.equals(frame.select('junction_aa', 'pgen'))
+
+
+def test_feature_bank_checks_selected_model_family(tmp_path, monkeypatch):
+    import vdjmatch.evalue.mock_reference as mocks
+    path, _, frame, manifest = _bank(tmp_path, monkeypatch)
+    calls=[]
+    def identity(species,locus,*,source=None):
+        calls.append(source)
+        return {'files':dict(manifest['model']['files'], **{'genes_v.tsv':'f'*64}),
+                'metadata':manifest['model']['metadata']}
+    monkeypatch.setattr(mocks,'_pgen_model_identity',identity)
+    with pytest.raises(ValueError,match='model files/metadata'):
+        load_pgen_features(path,frame,frame,source='isalgo')
+    assert calls==['isalgo']
+
+
+def test_bank_records_native_compatibility_and_rejects_missing_provenance(tmp_path,monkeypatch):
+    path,manifest_path,frame,manifest=_bank(tmp_path,monkeypatch)
+    manifest['software']['native_sha256']='0'*64
+    manifest_path.write_text(json.dumps(manifest))
+    _,identity=load_pgen_features(path,frame,frame)
+    assert identity['native_compatibility']['producer_native_sha256']=='0'*64
+    assert identity['native_compatibility']['native_binary_identical'] is False
+    for key in ['vdjtools','native_sha256']:
+        changed=json.loads(json.dumps(manifest));changed['software'].pop(key)
+        manifest_path.write_text(json.dumps(changed))
+        with pytest.raises(ValueError,match='producer'):
+            load_pgen_features(path,frame,frame)

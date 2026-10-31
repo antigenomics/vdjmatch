@@ -57,3 +57,18 @@ def test_match_config_threads_and_initialized_pool(tmp_path):
         assert error.value.code == 2
         assert observed == [2]
         assert os.environ['POLARS_MAX_THREADS'] == '1'
+
+
+@pytest.mark.parametrize('null,expected', [('reference','3'),('repertoire','1')])
+def test_repertoire_table_budget_is_parallel_only_for_reference_null(null,expected):
+    original=argparse.ArgumentParser.parse_args
+    observed=[]
+    def parse(parser,*args,**kwargs):
+        options=original(parser,*args,**kwargs)
+        options.func=lambda a: observed.append(os.environ['POLARS_MAX_THREADS']) or 0
+        return options
+    with patch('vdjtools.cores.available_cores',return_value=3), patch.object(
+            argparse.ArgumentParser,'parse_args',parse), patch.dict(os.environ,POLARS_MAX_THREADS='3'):
+        assert main(['repertoire-enrichment','unused','--vdjdb','unused','--control','unused',
+                     '--output-prefix','unused','--threads','3','--null',null])==0
+    assert observed==[expected]

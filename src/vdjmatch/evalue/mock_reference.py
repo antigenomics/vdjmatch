@@ -12,7 +12,7 @@ EVENT_SAMPLER = "uniform-event-slots-v1"
 PGEN_BINNING = "rounded log2(Pgen), ties-to-even; absent reference bins, including zero mass, share the lowest occupied control bin with enough event slots for all mapped source rows plus its existing occupants"
 
 
-def _pgen_model_identity(species, locus):
+def _pgen_model_identity(species, locus, *, source=None):
     """Hash the existing immutable bundled model inputs and native implementation."""
     import hashlib
     import json
@@ -22,7 +22,7 @@ def _pgen_model_identity(species, locus):
     from ..db.cache import sha256
 
     organism = _organism(species)
-    source = 'olga' if organism == 'human' else 'arda'
+    source = source or ('olga' if organism == 'human' else 'arda')
     root = bundled_model_path(locus, source, organism)
     hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
               for p in sorted(root.iterdir(), key=lambda p: p.name) if p.is_file()}
@@ -32,7 +32,7 @@ def _pgen_model_identity(species, locus):
         native_sha256=sha256(Path(native_core.__file__)))
 
 
-def load_pgen_features(path, reference, control, *, species='human', locus='TRB', mismatches=1):
+def load_pgen_features(path, reference, control, *, species='human', locus='TRB', mismatches=1, source=None):
     """Validate a durable feature bank with the requested probability and model preprocessing.
 
     These requested durable model features are distinct from resampled controls.
@@ -67,7 +67,7 @@ def load_pgen_features(path, reference, control, *, species='human', locus='TRB'
     if feature.get('sha256') != table_hash:
         raise ValueError('Pgen feature table SHA256 does not match its manifest')
     files, metadata = model.get('files'), model.get('metadata')
-    expected = _pgen_model_identity(organism, locus)
+    expected = _pgen_model_identity(organism, locus, source=source)
     if (model.get('collapse_alleles') is not False or not isinstance(files, dict) or not files or
             any(expected['files'].get(name) != digest for name, digest in files.items()) or
             not isinstance(metadata, dict) or _organism(metadata.get('organism')) != organism or metadata.get('locus') != locus):
@@ -89,6 +89,18 @@ def load_pgen_features(path, reference, control, *, species='human', locus='TRB'
         raise ValueError('Pgen feature model SHA256 does not match its consumed files')
     from vdjtools.model import io as model_io, native as native_bridge
     software = manifest.get('software', {})
+    from importlib.metadata import version
+    import re
+    import vdjtools._core as native_core
+    if (not isinstance(software, dict) or software.get('vdjtools') != version('vdjtools') or
+            not isinstance(software.get('native_sha256'), str) or
+            re.fullmatch(r'[0-9a-f]{64}', software['native_sha256']) is None):
+        raise ValueError('Pgen producer version/native hash missing or incompatible with current vdjtools')
+    current_native = sha256(Path(native_core.__file__))
+    compatibility = dict(policy='same-version-model-and-python-source-v1',
+        producer_vdjtools=software['vdjtools'], consumer_vdjtools=version('vdjtools'),
+        producer_native_sha256=software['native_sha256'], consumer_native_sha256=current_native,
+        native_binary_identical=software['native_sha256']==current_native)
     implementation = {'model_io_sha256': sha256(Path(model_io.__file__)),
         'native_bridge_sha256': sha256(Path(native_bridge.__file__))}
     if model.get('anchor_repair') != 'vdjtools load_model' or any(
@@ -111,7 +123,7 @@ def load_pgen_features(path, reference, control, *, species='human', locus='TRB'
     if missing:
         raise ValueError(f'Pgen features do not cover {missing} required reference/control junctions')
     identity = dict(path=str(path), sha256=table_hash, manifest_path=str(manifest_path),
-        manifest_sha256=sha256(manifest_path), options=options, model=model, rows=frame.height)
+        manifest_sha256=sha256(manifest_path), options=options, model=model, rows=frame.height, native_compatibility=compatibility)
     return frame.select('junction_aa', pl.col('pgen').cast(pl.Float64)), identity
 
 
@@ -290,10 +302,11 @@ def _normalize_control(frame, *, species, locus, gene_keys):
     return result.sort(['junction_aa', 'v', 'j'] if gene_keys else 'junction_aa')
 
 
-def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='human', locus='TRB', threads=1, mismatches=0) -> pl.DataFrame:
+def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='human', locus='TRB', threads=1, mismatches=0, source=None) -> pl.DataFrame:
     """Compute marginal full-junction Pgen once over the reference/control union.
 
-    Bundled human OLGA or mouse ARDA models are selected by species/locus.
+    source selects the bundled model family explicitly. Omission preserves the
+    historical human OLGA or mouse ARDA selection.
     Supplied Pgen columns are ignored; no calculated values are persisted.
     ``mismatches`` selects exact probability (0) or inclusive Hamming<=1 mass (1).
     """
@@ -303,13 +316,123 @@ def compute_pgen(reference: pl.DataFrame, control: pl.DataFrame, *, species='hum
     if locus not in {'TRA', 'TRB'} or threads < 1 or type(mismatches) is not int or mismatches not in (0,1):
         raise ValueError('Pgen requires TRA/TRB, positive threads and mismatches0or1')
     sequences = pl.concat([reference.select('junction_aa'), control.select('junction_aa')]).unique().sort('junction_aa')
-    model = load_bundled(locus, 'olga' if organism == 'human' else 'arda', organism=organism, collapse=False)
+    model = load_bundled(locus, source or ('olga' if organism == 'human' else 'arda'), organism=organism, collapse=False)
     probabilities = np.asarray(native.pgen_aa_batch(model, sequences['junction_aa'].to_list(),
         mismatches=mismatches, threads=threads), dtype=np.float64)
     if probabilities.shape != (sequences.height,) or not np.all(
             np.isfinite(probabilities) & (probabilities >= 0) & (probabilities <= 1)):
         raise RuntimeError('native Pgen returned invalid probabilities')
     return sequences.with_columns(pl.Series('pgen', probabilities))
+
+
+def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
+                  model_vj: pl.DataFrame | None = None, *, selection_q: float = 1.0,
+                  model_vj_probabilities: pl.DataFrame | None = None) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Reproduce the compiled reference-panel probability strata and V/J audit.
+
+    Probes contain unique junction_aa/v/j keys and joint gene-masked ``pgen``.
+    The original AA-only probability join takes the maximum over keys sharing
+    a junction. Count tables contain v/j/records (source rows, not read weights).
+    Add-one V/J frequencies are normalized within V, preserving the compiled
+    R notebook's retained dplyr grouping. The compiled floor is 2**-80.
+    An opt-in selection profile supplies exact normalized selected V/J ``p``
+    instead of generated model counts; the sample retains its add-one correction.
+    This removes the fitted V/J bias from the residual composition correction.
+    """
+    from vdjtools.model.selection import selection_mass
+    keys=['junction_aa','v','j']
+    if not {*keys,'pgen'}<=set(probes.columns) or not probes.height:
+        raise ValueError('nonempty probe keys and gene-masked pgen required')
+    if probes.select(keys).n_unique()!=probes.height:
+        raise ValueError('probe receptor keys must be unique')
+    if any(probes[c].null_count() for c in [*keys,'pgen']):
+        raise ValueError('non-null probe keys and probabilities required')
+    probabilities=probes['pgen'].to_numpy()
+    if not np.all(np.isfinite(probabilities)&(probabilities>=0)&(probabilities<=1)):
+        raise ValueError('probe probabilities must be finite and between zero and one')
+    counts=[]
+    for name,frame in [('sample',sample_vj)]+([('model',model_vj)] if model_vj_probabilities is None else []):
+        if not {'v','j','records'}<=set(frame.columns) or not frame.height:
+            raise ValueError('nonempty V/J record-count tables required')
+        frame=frame.select('v','j',_integer_count('records').alias(name+'_records'))
+        if frame[name+'_records'].null_count() or (frame[name+'_records']<0).any():
+            raise ValueError('nonnegative integer V/J record counts required')
+        counts.append(frame.group_by('v','j').agg(pl.col(name+'_records').sum()))
+    if model_vj_probabilities is None:
+        audit=counts[0].join(counts[1],on=['v','j'],how='full',coalesce=True,nulls_equal=True)
+        audit=audit.with_columns(pl.col('sample_records','model_records').fill_null(0)+1)
+        audit=audit.with_columns((pl.col(name+'_records')/pl.col(name+'_records').sum().over('v')).alias(name+'_probability') for name in ['sample','model'])
+    else:
+        if model_vj is not None:
+            raise ValueError('supply model counts or exact selected V/J probabilities, not both')
+        selected=model_vj_probabilities
+        if not {'v','j','p'}<=set(selected.columns) or not selected.height or selected.select('v','j').n_unique()!=selected.height:
+            raise ValueError('unique nonempty selected V/J probabilities required')
+        if any(selected[c].null_count() for c in ['v','j','p']) or not np.all(np.isfinite(selected['p'].to_numpy()) & (selected['p'].to_numpy()>0)) or not np.isclose(selected['p'].sum(),1.,rtol=1e-10,atol=1e-12):
+            raise ValueError('positive finite selected V/J probabilities summing to one required')
+        audit=counts[0].join(selected.select('v','j',pl.col('p').cast(pl.Float64).alias('model_probability')),
+            on=['v','j'],how='full',coalesce=True)
+        if audit['model_probability'].null_count():
+            raise ValueError('sample V/J pair outside selected model support')
+        audit=audit.with_columns((pl.col('sample_records').fill_null(0)+1).alias('sample_records'))
+        audit=audit.with_columns((pl.col('sample_records')/pl.col('sample_records').sum().over('v')).alias('sample_probability'),
+            (pl.col('model_probability')/pl.col('model_probability').sum().over('v')).alias('model_probability'))
+    audit=audit.with_columns((pl.col('sample_probability')/pl.col('model_probability')).alias('vj_factor')).sort('v','j',nulls_last=True)
+    result=probes.with_columns(pl.col('pgen').max().over('junction_aa').alias('pcdr')).join(
+        audit.select('v','j','vj_factor'),on=['v','j'],how='left',validate='m:1',maintain_order='left')
+    if result['vj_factor'].null_count():
+        raise ValueError('probe V/J keys absent from both count populations')
+    result=result.with_columns(pl.Series('selection_mass',selection_mass(result['pcdr'].to_numpy(),selection_q)))
+    result=result.with_columns((pl.col('selection_mass')*pl.col('vj_factor')+2.**-80).alias('adjusted_pgen'))
+    bins=np.rint(np.log2(result['adjusted_pgen'].to_numpy())).astype(np.int64)
+    return result.with_columns(pl.Series('pgen_bin',bins)),audit
+
+
+def sample_stratified_panels(reference: pl.DataFrame, probes: pl.DataFrame, *,
+                        replicates=200, seed=42, sampler='numpy') -> pl.DataFrame:
+    """Draw fresh exact-bin reference panels; optionally reproduce base-R draws.
+
+    NumPy uses the existing uniform-key sampler. The optional R backend is for
+    single-target notebook reproduction, preserving probe order and R's RNG.
+    All panels are transient in memory; no calculated panel cache is written.
+    """
+    if sampler=='numpy':
+        return pl.concat(iter_epitope_mocks(reference,probes,replicates=replicates,seed=seed))
+    if sampler!='r':raise ValueError('sampler must be numpy or r')
+    if type(replicates) is not int or replicates<1 or type(seed) is not int or not 0<=seed<2**31:
+        raise ValueError('positive replicates and a nonnegative R integer seed required')
+    keys=['junction_aa','v','j'];required=[*keys,'pgen_bin']
+    if not {*required,'group_id'}<=set(reference.columns) or not set(required)<=set(probes.columns):
+        raise ValueError('reference/probe keys and Pgen bins required')
+    if reference['group_id'].n_unique()!=1:
+        raise ValueError('R reproduction sampler requires one target')
+    for frame in [reference,probes]:
+        if not frame.height or frame.select(keys).n_unique()!=frame.height:
+            raise ValueError('nonempty unique receptor keys required')
+        if any(frame[c].null_count() for c in required) or not frame.schema['pgen_bin'].is_integer():
+            raise ValueError('non-null keys and integer Pgen bins required')
+    counts=reference.group_by('pgen_bin').len(name='required')
+    pool=probes.with_row_index('pool_row').join(reference.select(keys),on=keys,how='anti',maintain_order='left').join(counts,on='pgen_bin',how='inner',maintain_order='left')
+    available=counts.join(pool.group_by('pgen_bin').len(name='available'),on='pgen_bin',how='left').fill_null(0)
+    if available.filter(pl.col('available')<pl.col('required')).height:
+        raise ValueError('insufficient control keys for exact Pgen strata')
+    import io,shutil,subprocess
+    executable=shutil.which('Rscript')
+    if executable is None:raise RuntimeError('Rscript is required only for the optional R reproduction sampler')
+    code='''args <- commandArgs(trailingOnly=TRUE)
+set.seed(as.integer(args[2]))
+x <- read.delim(file("stdin"),check.names=FALSE)
+bins <- sort(unique(x$pgen_bin))
+parts <- lapply(bins,function(b) x[x$pgen_bin==b,])
+draws <- lapply(seq_len(as.integer(args[1])),function(i) {
+ rows <- unlist(lapply(parts,function(p) p$pool_row[sample.int(nrow(p),p$required[1])]),use.names=FALSE)
+ data.frame(pool_row=rows,replicate=i-1L)
+})
+write.table(do.call(rbind,draws),stdout(),sep="\\t",row.names=FALSE,quote=FALSE)
+'''
+    result=subprocess.run([executable,'--vanilla','-e',code,str(replicates),str(seed)],input=pool.select('pool_row','pgen_bin','required').write_csv(separator='\t'),text=True,capture_output=True,check=True)
+    draws=pl.read_csv(io.StringIO(result.stdout),separator='\t',schema_overrides={'pool_row':pl.UInt32,'replicate':pl.Int64})
+    return probes[draws['pool_row']].with_columns(draws['replicate'],pl.lit(reference['group_id'][0]).alias('group_id'))
 
 
 def pgen_strata(pgen: pl.DataFrame) -> pl.DataFrame:
@@ -567,3 +690,116 @@ def iter_mock_paired_references(reference: pl.DataFrame, control: pl.DataFrame, 
                 a.select(*[pl.col(c).alias(c + '_alpha') for c in columns]),
                 b.select(*[pl.col(c).alias(c + '_beta') for c in columns])], how='horizontal'))
         yield pl.concat(paired).sort('group_id', 'draw_id')
+
+
+def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
+                       replicates: int, seed: int = 0, policy: str = 'pgen', unavailable: list | None = None):
+    """Yield Pgen-matched replacement reference corpora, retaining source roles.
+
+    Inputs contain junction_aa/v/j/pgen_bin; reference also has group_id. Rows
+    represent distinct receptor keys, not reads or weighted recombination events.
+    Known target keys are excluded. ``pgen-vj`` additionally preserves V/J;
+    ``pgen-different-v`` excludes every target junction and changes each source V.
+    The latter samples source-V strata in fresh random order without replacement
+    within a target/bin; it is a sequential conditional law, not a uniform draw
+    over all feasible constrained assignments. Infeasible draws fail explicitly.
+    No bin widening, motif-neighbour rejection, or persistent memberships.
+    By default unavailable targets raise. With an ``unavailable`` audit list,
+    record their group/reason and omit them from draws; callers must mark their
+    entire null inference unavailable, including any earlier successful draws.
+    Extra reference columns (including pairing roles) follow the replaced row.
+    """
+    import hashlib
+
+    if policy not in {'pgen', 'pgen-vj', 'pgen-different-v'}:
+        raise ValueError('unknown mock reference policy')
+    if type(replicates) is not int or replicates < 1 or type(seed) is not int or seed < 0:
+        raise ValueError('positive replicates and nonnegative seed required')
+    keys = ['junction_aa', 'v', 'j']
+    required = [*keys, 'pgen_bin']
+    for frame, columns in [(reference, ['group_id', *required]), (control, required)]:
+        if not set(columns) <= set(frame.columns) or not frame.height:
+            raise ValueError('nonempty reference/control with receptor keys and Pgen bins required')
+        if any(frame[c].null_count() for c in columns) or not frame.schema['pgen_bin'].is_integer():
+            raise ValueError('non-null receptor keys and integer Pgen bins required')
+        if frame.select(pl.any_horizontal(pl.col(c).cast(pl.String).str.strip_chars() == '' for c in keys).any()).item():
+            raise ValueError('receptor keys cannot be empty')
+    if control.select(keys).n_unique() != control.height:
+        raise ValueError('control receptor keys must be unique')
+    # Source roles may repeat a chain key across different linked receptors.
+    source = reference.with_row_index('_source_row')
+    pool = control.select(required).sort(keys).with_row_index('_pool_row')
+    pool_index_dtype = pool['_pool_row'].to_numpy().dtype
+    def partitions(frame,columns):
+        grouped=frame.group_by(columns).agg(pl.col('_pool_row').sort())
+        return {key:values.to_numpy() for key,values in zip(grouped.select(columns).iter_rows(),grouped['_pool_row'])}
+    def excluded_positions(eligible,blocked):
+        positions=np.searchsorted(eligible,blocked)
+        valid=positions<len(eligible)
+        positions,blocked=positions[valid],blocked[valid]
+        return positions[eligible[positions]==blocked]
+    # Partition raw key indices once, rather than scanning the full pool per target.
+    bin_pools=partitions(pool,['pgen_bin'])
+    strata=['pgen_bin','v','j'] if policy=='pgen-vj' else ['pgen_bin','v']
+    conditional=partitions(pool,strata) if policy!='pgen' else {}
+    empty_indices=np.empty(0,dtype=np.uint32)
+    if policy=='pgen-different-v':
+        conditional={role:np.setdiff1d(bin_pools.get((role[0],),empty_indices),
+            conditional.get(role,empty_indices),assume_unique=True)
+            for role in source.select('pgen_bin','v').unique().iter_rows()}
+    exclusion_keys=['junction_aa'] if policy=='pgen-different-v' else keys
+    excluded=partitions(source.select('group_id',*exclusion_keys).unique().join(
+        pool.select(*exclusion_keys,'pgen_bin','_pool_row'),on=exclusion_keys,how='inner'),['group_id','pgen_bin'])
+    plans=[];rejected=set()
+    def reject(group,reason):
+        if unavailable is None:raise ValueError(reason)
+        rejected.add(group)
+        unavailable.append(dict(group_id=group,reason=reason))
+    for (group,),target in source.partition_by('group_id',as_dict=True).items():
+        groups=[]
+        for (bin_id,),part in target.partition_by('pgen_bin',as_dict=True).items():
+            candidates=bin_pools.get((bin_id,),empty_indices)
+            blocked=excluded.get((group,bin_id),empty_indices)
+            if len(candidates)-len(excluded_positions(candidates,blocked))<part.height:
+                reject(group,f'insufficient control keys for group {group!r}, bin {bin_id}')
+                break
+            roles=[]
+            strata=['v','j'] if policy=='pgen-vj' else ['v'] if policy=='pgen-different-v' else ['pgen_bin']
+            for role,members in part.partition_by(strata,as_dict=True).items():
+                eligible=candidates if policy=='pgen' else conditional.get((bin_id,*role),empty_indices)
+                blocked_positions=excluded_positions(eligible,blocked)
+                available=len(eligible)-len(blocked_positions)
+                if available<members.height:
+                    reject(group,f'insufficient control keys for group {group!r}, bin {bin_id}, role {role}: need {members.height}, have {available}')
+                    break
+                roles.append((members['_source_row'].to_numpy(),eligible,blocked_positions))
+            if group in rejected:break
+            groups.append(roles)
+        identity=int.from_bytes(hashlib.sha256(str(group).encode()).digest()[:8],'little')
+        if group not in rejected:plans.append((group,identity,groups))
+    for replicate in range(replicates):
+        selected = np.zeros(source.height, dtype=np.int64)
+        for group,identity,groups in plans:
+            if group in rejected:continue
+            rng = np.random.default_rng(np.random.SeedSequence([seed, identity, replicate]))
+            for roles in groups:
+                if group in rejected:break
+                # Match pool indices: mixed uint32/int64 searchsorted copies
+                # the complete control stratum even for an empty needle array.
+                used = np.empty(0, dtype=pool_index_dtype)
+                order = rng.permutation(len(roles)) if policy == 'pgen-different-v' else range(len(roles))
+                for i in order:
+                    positions,eligible,blocked_positions=roles[i]
+                    blocked=np.union1d(blocked_positions,excluded_positions(eligible,used))
+                    remaining=len(eligible)-len(blocked)
+                    if remaining < len(positions):
+                        reject(group,f'insufficient eligible keys in sequential different-V draw {replicate} for group {group!r}; enlarge the control pool')
+                        break
+                    ranks=rng.choice(remaining,len(positions),replace=False)
+                    # Map uniform ranks in the complement without materialising it.
+                    offsets=np.searchsorted(blocked-np.arange(len(blocked)),ranks,side='right')
+                    draw=eligible[ranks+offsets]
+                    selected[positions] = draw
+                    used = np.concatenate([used, draw])
+        replacement = pool[selected].select(keys)
+        yield reference.with_columns(*(replacement[c] for c in keys), pl.lit(replicate).alias('replicate')).filter(~pl.col('group_id').is_in(list(rejected)))

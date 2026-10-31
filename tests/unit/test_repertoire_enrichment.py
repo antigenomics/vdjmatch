@@ -135,3 +135,161 @@ def test_mixed_control_population_selected_before_imputation():
     events=_single_v(control_events(pooled,locus='TRB'),'v',impute=False)
     assert events['event_weight'].sum()==5 and events['v'].to_list()==['TRBV19']
     assert events['v_imputed'].all()
+
+
+def test_reference_mock_enrichment_counts_receptors_once_and_retains_no_hits():
+    from vdjmatch.aggregate import repertoire_enrichment as module
+    assert hasattr(module,'reference_enrichment'), 'M3 reference enrichment is missing'
+    sample=pl.DataFrame(dict(receptor_id=['r1','r1','r2'],locus=['TRA','TRB','TRB'],
+        junction_aa=['CAVSF','CASSF','CATSF'],v=['TRAV1','TRBV2','TRBV2'],j=['TRAJ1','TRBJ1','TRBJ1'],count=[3,3,2]))
+    reference=pl.DataFrame(dict(group_id=['X','X','X','Y'],locus=['TRA','TRB','TRB','TRB'],
+        junction_aa=['CAVSF','CASSF','CASSF','CWWEF'],v=['TRAV1','TRBV2','TRBV2','TRBV3'],j=['TRAJ1','TRBJ1','TRBJ1','TRBJ2'],pgen_bin=[-10]*4))
+    controls={locus:pl.DataFrame(dict(junction_aa=['CQQQF','CTTTF','CPPPF','CNNNF'],
+        v=[v]*4,j=[j]*4,pgen_bin=[-10]*4)) for locus,v,j in [('TRA','TRAV2','TRAJ2'),('TRB','TRBV4','TRBJ2')]}
+    summary,mocks,hits=module.reference_enrichment(sample,reference,controls,replicates=3,threads=1)
+    x=summary.filter(pl.col('group_id')=='X').row(0,named=True)
+    y=summary.filter(pl.col('group_id')=='Y').row(0,named=True)
+    assert (x['matched_receptors'],x['matched_count'],x['p_receptors'])==(2,5,.25)
+    assert (y['matched_receptors'],y['p_receptors'])==(0,1.)
+    assert mocks.height==6 and mocks['mock_receptors'].sum()==0
+    assert hits.select('receptor_id','group_id').n_unique()==2
+    assert x['n_receptors']==2 and x['total_count']==5
+    for mode,expected in [('tra',1),('trb',2),('intersection',1)]:
+        separate=module.reference_enrichment(sample,reference,controls,replicates=3,threads=1,chain_mode=mode)[0]
+        assert separate.filter(pl.col('group_id')=='X')['matched_receptors'].item()==expected
+    combined=module.reference_enrichment(sample,reference,controls,replicates=3,chain_mode='all')
+    for mode in ['tra','trb','union','intersection']:
+        separate=module.reference_enrichment(sample,reference,controls,replicates=3,chain_mode=mode)
+        for actual,expected in zip(combined,separate):
+            selected=actual.filter(pl.col('chain_mode')==mode).drop('chain_mode').select(expected.columns)
+            assert selected.sort(expected.columns).equals(expected.sort(expected.columns))
+    parallel=module.reference_enrichment(sample,reference,controls,replicates=3,threads=2)
+    assert all(a.equals(b) for a,b in zip((summary,mocks,hits),parallel))
+    with pytest.raises(ValueError,match='count'):
+        module.reference_enrichment(sample.with_columns(pl.Series('count',[3,4,2])),reference,controls,replicates=3)
+
+
+@pytest.mark.parametrize("supported", [True, False])
+@pytest.mark.parametrize("chain_mode", ["union", "all"])
+def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mode):
+    import subprocess,sys,json
+    from pathlib import Path
+    sample=tmp_path/'sample.tsv'
+    sample.write_text('junction_aa\tv_call\tj_call\tlocus\tduplicate_count\nCASSF\tTRBV2\tTRBJ1-1\tTRB\t7\n')
+    (tmp_path/'metadata.tsv').write_text('sample_id\tpath\nS\tsample.tsv\n')
+    (tmp_path/'reference.tsv').write_text('cdr3\tgene\tv\tj\tspecies\tepitope\tmhc_a\tmhc_b\tmhc_class\nCASSF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tSYNTHETIC\tHLA-A*02:01\tB2M\tMHCI\n')
+    (tmp_path/'control.tsv').write_text('junction_aa\tv\tj\toccurrences\nCASSF\t'+('TRBV3' if supported else 'TRBV2')+'\tTRBJ1-1\t100\n')
+    command=[sys.executable,'-m','vdjmatch.cli','repertoire-enrichment',str(tmp_path/'metadata.tsv'),
+        '--null','reference','--vdjdb',str(tmp_path/'reference.tsv'),'--control',str(tmp_path/'control.tsv'),
+        '--pgen-mismatches','0','--threads','1','--significance','both','--chain-mode',chain_mode,'--output-prefix',str(tmp_path/'result')]
+    if chain_mode=='all':command.extend(['--model-source','isalgo'])
+    result=subprocess.run(command,capture_output=True,text=True,timeout=30)
+    assert result.returncode==0,result.stdout+result.stderr
+    summary=pl.read_csv(tmp_path/'result.summary.tsv',separator='\t')
+    if chain_mode=='all':
+        assert summary.height==4
+        assert summary.filter(pl.col('chain_mode').is_in(['tra','intersection']))['matched_receptors'].sum()==0
+        summary=summary.filter(pl.col('chain_mode')=='union')
+    assert summary['matched_receptors'].item()==1
+    if supported:
+        assert summary['p_receptors'].item()==1/201
+        assert summary['significant_nominal'].item() and summary['significant_bh'].item()
+        assert summary['q_count'].item()==1/201
+        assert summary['significant_nominal_count'].item() and summary['significant_bh_count'].item()
+    else:
+        assert summary['status'].item()=='untestable_null'
+        assert summary['p_receptors'].item() is None and summary['q_receptors'].item() is None
+        assert summary['significant_nominal'].item() is None and summary['significant_bh'].item() is None
+        assert summary['q_count'].item() is None and summary['significant_bh_count'].item() is None
+        assert pl.read_parquet(tmp_path/'result.mocks.parquet')['mock_receptors'].null_count()==(800 if chain_mode=='all' else 200)
+    manifest=json.loads((tmp_path/'result.manifest.json').read_text())
+    assert manifest['null']=='reference' and manifest['inputs_frozen'] and manifest['source_frozen']
+    if chain_mode=='all':assert manifest['models']['TRB']['source']=='isalgo'
+    assert manifest['mock_policy']=='pgen' and manifest['counting_unit']=='unique receptor identity'
+    assert pl.read_csv(tmp_path/'result.hits.tsv',separator='\t').height==(2 if chain_mode=='all' else 1)
+
+
+def test_reference_cli_rejects_unattainable_tail_resolution(tmp_path):
+    from argparse import Namespace
+    from vdjmatch.cli.repertoire_reference import main
+    with pytest.raises(ValueError,match='resolution'):
+        main(Namespace(mock_replicates=200,seed=0,threads=1,nominal_alpha=.001,fdr_alpha=.1,significance='nominal'))
+
+
+def test_projected_control_read_preserves_population_and_keys(tmp_path):
+    from vdjmatch.io.airr import _read_table
+    from vdjmatch.evalue.mock_reference import control_events
+    import polars.selectors as cs
+    p=tmp_path/'control.tsv'
+    p.write_text('cdr3aa\tv\tj\toccurrences\tspecies\tlocus\tunused\nCASSF\tTRBV2\tTRBJ1-1\t3\thuman\tTRB\textra\nCATSF\tTRBV3\tTRBJ1-1\t0\thuman\tTRB\textra\n')
+    projected=_read_table(p,columns=cs.exclude('unused'))
+    assert projected.columns==['cdr3aa','v','j','occurrences','species','locus']
+    assert control_events(projected).equals(control_events(_read_table(p)))
+
+
+def test_exact_reference_panel_counts_preserve_source_rows_and_reads():
+    from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
+    obs=pl.DataFrame(dict(junction_aa=['CASSF','CASSF','CASSF','CASRF'],
+        v=['V1','V1','V1','V1'],j=['J1','J1','J2','J1'],count=[7,3,20,4]))
+    panels=pl.DataFrame(dict(group_id=['X','X','X','Y'],replicate=[-1,0,1,-1],
+        junction_aa=['CASSF','CASRF','CATSF','CATSF'],v=['V1']*4,j=['J1']*4))
+    out=exact_reference_counts(obs,panels)
+    assert out.select('group_id','replicate','matched_records','matched_reads').rows()==[
+        ('X',-1,2,10),('X',0,1,4),('X',1,0,0),('Y',-1,0,0)]
+    with pytest.raises(ValueError,match='unique'):
+        exact_reference_counts(obs,pl.concat([panels,panels.head(1)]))
+    with pytest.raises(ValueError,match='nonnegative'):
+        exact_reference_counts(obs.with_columns(pl.lit(-1).alias('count')),panels)
+
+
+@pytest.mark.parametrize('mismatches,expected',[(0,['exact']),(1,['exact','one'])])
+def test_reference_lookup_zero_and_one_mismatch_memberships(mismatches,expected):
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    sample=pl.DataFrame(dict(receptor_id=['exact','one','two','wrong_v'],locus=['TRB']*4,
+        junction_aa=['CASSF','CATSF','CATRF','CASSF'],v=['TRBV2']*3+['TRBV3'],j=['TRBJ1']*4,count=[2,3,5,7]))
+    reference=pl.DataFrame(dict(group_id=['X'],locus=['TRB'],junction_aa=['CASSF'],v=['TRBV2'],j=['TRBJ1'],pgen_bin=[-10]))
+    controls={'TRB':pl.DataFrame(dict(junction_aa=['CQQQF','CWWWF','CNNNF'],v=['TRBV2']*3,j=['TRBJ1']*3,pgen_bin=[-10]*3))}
+    summary,mocks,hits=reference_enrichment(sample,reference,controls,mismatches=mismatches,replicates=3,threads=1)
+    assert hits['receptor_id'].sort().to_list()==expected
+    assert summary['matched_count'].item()==(2 if mismatches==0 else 5)
+    assert mocks['mock_receptors'].sum()==0
+
+
+def test_strict_beta_with_fuzzy_alpha_preserves_pairing():
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    sample=pl.DataFrame(dict(receptor_id=['pair','pair','beta_only','alpha_only'],locus=['TRA','TRB','TRB','TRA'],
+        junction_aa=['CAVRDSNFQLIW','CASSLGRAYEQYF','CASSLGRAYEQYF','CAVRDSNFQLIW'],
+        v=['TRAV12-2*01','TRBV19*01','TRBV19*01','TRAV12-2*01'],j=['TRAJ33*01','TRBJ2-7*01','TRBJ2-7*01','TRAJ33*01'],count=[5,5,3,2]))
+    reference=pl.DataFrame(dict(group_id=['X','X'],locus=['TRA','TRB'],junction_aa=['CAVRDSNYQLIW','CASSLGQAYEQYF'],
+        v=['TRAV12-2*01','TRBV19*01'],j=['TRAJ33*01','TRBJ2-7*01'],pgen_bin=[-10,-10]))
+    controls={locus:pl.DataFrame(dict(junction_aa=['CAVRRNTGGFKTIF','CAVRDDNTGGFKTIF'],v=[v]*2,j=[j]*2,pgen_bin=[-10]*2))
+        for locus,v,j in [('TRA','TRAV1-2*01','TRAJ9*01'),('TRB','TRBV4-1*01','TRBJ1-1*01')]}
+    summary,mocks,hits=reference_enrichment(sample,reference,controls,replicates=2,threads=1,
+        chain_mode='intersection',tra_matcher='stem4',mismatches=1)
+    assert summary['matched_receptors'].item()==1 and summary['matched_count'].item()==5
+    assert set(hits['receptor_id'])=={'pair'} and set(hits['locus'])=={'TRA','TRB'}
+    assert hits.filter(pl.col('locus')=='TRA')['chain_score'].min()>0
+    assert mocks['mock_receptors'].sum()==0
+    parallel=reference_enrichment(sample,reference,controls,replicates=2,threads=2,chain_mode='intersection',tra_matcher='stem4',mismatches=1)
+    assert all(a.sort(a.columns).equals(b.sort(b.columns)) for a,b in zip((summary,mocks,hits),parallel))
+    combined=reference_enrichment(sample,reference,controls,replicates=2,threads=1,chain_mode='all',tra_matcher='stem4')
+    for actual,expected in zip(combined,(summary,mocks,hits)):
+        selected=actual.filter(pl.col('chain_mode')=='intersection').drop('chain_mode').select(expected.columns)
+        assert selected.sort(expected.columns).equals(expected.sort(expected.columns))
+    exact=reference_enrichment(sample,reference,controls,replicates=2,threads=1,
+        chain_mode='intersection',tra_matcher='stem4',mismatches=0)[0]
+    assert exact['matched_receptors'].item()==0
+
+
+def test_abundance_enrichment_can_differ_from_receptor_enrichment():
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    sample=pl.DataFrame(dict(receptor_id=['expanded','small'],locus=['TRB']*2,
+        junction_aa=['CASSF','CATSF'],v=['TRBV2']*2,j=['TRBJ1']*2,count=[7,1]))
+    reference=pl.DataFrame(dict(group_id=['X'],locus=['TRB'],junction_aa=['CASSF'],
+        v=['TRBV2'],j=['TRBJ1'],pgen_bin=[-10]))
+    controls={'TRB':pl.DataFrame(dict(junction_aa=['CATSF'],v=['TRBV2'],j=['TRBJ1'],pgen_bin=[-10]))}
+    summary,_,_=reference_enrichment(sample,reference,controls,replicates=200,mismatches=0)
+    assert summary['matched_receptors'].item()==1 and summary['mock_mean_receptors'].item()==1
+    assert summary['p_receptors'].item()==1
+    assert summary['matched_count'].item()==7 and summary['mock_mean_count'].item()==1
+    assert summary['p_count'].item()==1/201

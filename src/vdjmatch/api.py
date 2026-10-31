@@ -1143,3 +1143,18 @@ def annotate(data, *, reference=None, **kw):
         else Annotator.latest()
     )
     return ann.annotate(data, **kw)
+
+
+def repertoire_enrichment(observations, reference, controls, **options):
+    """Reference-null repertoire test; see aggregate.reference_enrichment contracts.
+
+    Returns summary, complete mock counts and real chain hit links. Inputs are
+    normalized tables with explicit Pgen bins; the CLI owns raw-file ingestion
+    and model-backed Pgen computation. Existing annotation scores are unchanged.
+    """
+    from .aggregate.repertoire_enrichment import reference_enrichment
+    return reference_enrichment(observations, reference, controls, **options)
+
+
+# Fixed-background reference filtering is shared across samples in a fresh cohort.
+from .aggregate.repertoire_tcrnet import TcrnetMatcher

@@ -79,6 +79,9 @@ def test_native_pgen_one_union_batch_and_ignores_supplied_scores(monkeypatch):
     assert result['pgen'].to_list() == [0.01, 0.01]
     assert calls == [(('TRA', 'arda'), {'organism': 'mouse', 'collapse': False}),
                      ('model', ['CAAF', 'CATF'], {'mismatches': 0, 'threads': 2})]
+    calls.clear()
+    compute_pgen(reference,control,species='human',locus='TRA',threads=2,source='isalgo')
+    assert calls[0] == (('TRA','isalgo'), {'organism':'human','collapse':False})
 
 
 def test_mixed_population_filter_and_weighted_stream():
@@ -363,3 +366,101 @@ def test_imputation_retains_original_aa_event_keys_and_infers_missing_declared_l
     counted=raw.with_columns(pl.Series('locus',['TRB',None]),pl.Series('occurrences',[2,3]))
     assert control_events(counted)['event_weight'].sum()==5
     assert control_events(counted.with_columns(pl.col('locus').fill_null('')))['event_weight'].sum()==5
+
+
+def test_epitope_mock_policies_preserve_bins_and_exclude_reference_keys():
+    from vdjmatch.evalue import mock_reference as m
+    assert hasattr(m, 'iter_epitope_mocks'), 'M3 reference mock sampler is missing'
+    reference = pl.DataFrame(dict(group_id=['X','X'], junction_aa=['CASSF','CATSF'],
+                                 v=['TRBV2','TRBV3'], j=['TRBJ1-1']*2, pgen_bin=[-10]*2))
+    control = pl.DataFrame(dict(junction_aa=['CASSF','CASRF','CAVRF','CARRF','CAARF','CAGRF'],
+                               v=['TRBV2','TRBV2','TRBV3','TRBV3','TRBV4','TRBV4'],
+                               j=['TRBJ1-1']*6,pgen_bin=[-10]*6))
+    for policy in ['pgen','pgen-vj','pgen-different-v']:
+        draws=list(m.iter_epitope_mocks(reference,control,replicates=3,seed=7,policy=policy))
+        assert all(x.height==2 and x['pgen_bin'].to_list()==[-10,-10] for x in draws)
+        assert all('CASSF' not in x['junction_aa'].to_list() for x in draws)
+        assert all(x.select('junction_aa','v','j').n_unique()==2 for x in draws)
+        if policy=='pgen':
+            import hashlib,numpy as np
+            keys=['junction_aa','v','j']
+            eligible=control.sort(keys).join(reference.select(keys),on=keys,how='anti')
+            identity=int.from_bytes(hashlib.sha256(b'X').digest()[:8],'little')
+            for b,draw in enumerate(draws):
+                rng=np.random.default_rng(np.random.SeedSequence([7,identity,b]))
+                expected=eligible[rng.choice(eligible.height,2,replace=False)]
+                assert draw.select(keys).equals(expected.select(keys))
+        if policy=='pgen-vj':
+            assert all(x['v'].to_list()==reference['v'].to_list() for x in draws)
+        if policy=='pgen-different-v':
+            assert all((x['v']!=reference['v']).all() for x in draws)
+        again=list(m.iter_epitope_mocks(reference,control,replicates=3,seed=7,policy=policy))
+        assert all(a.equals(b) for a,b in zip(draws,again))
+    with pytest.raises(ValueError,match='insufficient'):
+        list(m.iter_epitope_mocks(reference,control.head(1),replicates=1))
+    with pytest.raises(ValueError,match='bin'):
+        list(m.iter_epitope_mocks(reference,control.with_columns(pl.lit(-11).alias('pgen_bin')),replicates=1))
+
+
+def test_mock_sampler_keeps_pool_index_dtype(monkeypatch):
+    """Mixed signed/unsigned search keys copy the entire large control stratum."""
+    import numpy as np
+    from vdjmatch.evalue.mock_reference import iter_epitope_mocks
+    searchsorted = np.searchsorted
+    def checked(a, v, *args, **kwargs):
+        if a.dtype == np.dtype('uint32'):
+            assert v.dtype == a.dtype
+        return searchsorted(a, v, *args, **kwargs)
+    monkeypatch.setattr(np, 'searchsorted', checked)
+    control = pl.DataFrame(dict(junction_aa=['CAAF','CABF','CACF','CADF'],
+        v=['V1','V2','V1','V2'], j=['J1']*4, pgen_bin=[-10]*4))
+    reference = control.head(2).with_columns(pl.lit('X').alias('group_id'))
+    for policy in ['pgen', 'pgen-vj', 'pgen-different-v']:
+        assert len(list(iter_epitope_mocks(reference, control, replicates=2, policy=policy))) == 2
+
+
+def test_compiled_reference_strata_preserves_compiled_r_grouping():
+    from vdjmatch.evalue.mock_reference import compiled_reference_strata
+    probes=pl.DataFrame(dict(junction_aa=['CAAF','CAAF','CACF'],
+        v=['V1','V2','V1'],j=['J1','J1','J2'],pgen=[2.**-20,2.**-18,0.]))
+    sample=pl.DataFrame(dict(v=['V1','V1','V2'],j=['J1','J2','J1'],records=[3,1,100]))
+    model=pl.DataFrame(dict(v=['V1','V1','V2','V2'],j=['J1','J2','J1','J2'],records=[1,3,1,1]))
+    result,audit=compiled_reference_strata(probes,sample,model)
+    # Original AA-only join/max; V/J correction is normalized within V because
+    # dplyr summarise retains the V grouping. Zero uses the compiled 2^-80 floor.
+    assert result['pcdr'].to_list()==[2.**-18,2.**-18,0.]
+    assert result['pgen_bin'].to_list()==[-17,-17,-80]
+    selected,_=compiled_reference_strata(probes,sample,model,selection_q=4)
+    assert selected['pgen_bin'].to_list()==[-15,-15,-80]
+    with pytest.raises(ValueError,match='selection_q'):
+        compiled_reference_strata(probes,sample,model,selection_q=0)
+    assert result['vj_factor'].to_list()==pytest.approx([2.,202/102,.5])
+    assert audit.filter(pl.col('v')=='V1')['sample_probability'].sum()==pytest.approx(1.)
+    with pytest.raises(ValueError,match='unique'):
+        compiled_reference_strata(pl.concat([probes,probes.head(1)]),sample,model)
+
+
+def test_reference_panel_r_sampler_matches_base_r_seed42():
+    import shutil
+    if not shutil.which('Rscript'):pytest.skip('optional R reproduction sampler')
+    from vdjmatch.evalue.mock_reference import sample_stratified_panels
+    probes=pl.DataFrame(dict(junction_aa=['CAAF','CACF','CADF','CAEF','CAFF','CAGF'],
+        v=['V1']*6,j=['J1']*6,pgen_bin=[-10]*6))
+    reference=probes.head(2).with_columns(pl.lit('X').alias('group_id'))
+    result=sample_stratified_panels(reference,probes,replicates=3,seed=42,sampler='r')
+    # R: set.seed(42); replicate(3, sample.int(4,2)) => (1,4),(1,4),(2,4).
+    assert result['junction_aa'].to_list()==['CADF','CAGF','CADF','CAGF','CAEF','CAGF']
+    assert result['replicate'].to_list()==[0,0,1,1,2,2]
+
+
+def test_profile_strata_corrects_against_selected_vj_probabilities():
+    from vdjmatch.evalue.mock_reference import compiled_reference_strata
+    probes=pl.DataFrame({'junction_aa':['CASSF','CATSF'], 'v':['V','V'], 'j':['J1','J2'], 'pgen':[.01,.02]})
+    sample=pl.DataFrame({'v':['V','V'], 'j':['J1','J2'], 'records':[3,1]})
+    selected=pl.DataFrame({'v':['V','V'], 'j':['J1','J2'], 'p':[.8,.2]})
+    scored,audit=compiled_reference_strata(probes,sample,model_vj_probabilities=selected,selection_q=2.)
+    assert audit['model_probability'].to_list()==[.8,.2]
+    assert scored['vj_factor'].to_list()==pytest.approx([(4/6)/.8,(2/6)/.2])
+    assert scored['adjusted_pgen'].to_list()==pytest.approx([.02*(4/6)/.8,.04*(2/6)/.2])
+    with pytest.raises(ValueError,match='positive'):
+        compiled_reference_strata(probes,sample,model_vj_probabilities=selected.with_columns(pl.lit(0.).alias('p')))

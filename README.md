@@ -440,3 +440,70 @@ export was an artefact — the dense release makes controls findable too).
 ## License
 
 ISALGO LAB Academic and Non-Commercial Research License v1.0. See [`LICENSE`](LICENSE).
+
+### Repertoire-level enrichment (M3)
+
+`vdjmatch repertoire-exact samples.tsv --vdjdb reference.zip --control probes.tsv --model-vj-counts model-vj.tsv --output-prefix enrichment`
+preserves the compiled reference-panel bulk calculation: exact junction/V/J matching,
+source clonotype rows and read abundance, joint Pgen with the original AA-max
+reducer and within-V J-usage correction. Use `--sampler r --pool-mhc` for the
+original single-epitope sampling convention; declare replicate-level correction
+families explicitly with repeated `--fdr-group` options. NumPy is the default
+sampler. Complete-zero tests and original-notebook statistics are separate columns.
+
+The following flexible-matching mode uses a different null and counting unit;
+it is not a reproduction of the compiled reference-panel calculation.
+
+
+`vdjmatch repertoire-enrichment samples.tsv --null reference --vdjdb reference.zip --control control.tsv.gz --threads 4 --output-prefix enrichment`
+holds each repertoire fixed and compares its unique receptor support against fresh
+Pgen-matched mock epitope corpora. `--mock-policy pgen-vj` preserves V/J usage;
+`pgen-different-v` changes V and junction identities. Paired inputs retain orphan
+chains and count a receptor once per target. `--significance nominal|bh|both`
+selects explicit inference options; no binary significance call is the default.
+All no-hit targets remain in the outputs. See the
+[CLI contract](https://docs.isalgo.dev/vdjmatch/cli.html) for matching, Pgen,
+replicate resolution, test families and input schemas. The historical
+`--null repertoire` mode remains separate.
+
+For paired reference-null comparisons, `--chain-mode tra|trb|union|intersection|all`
+preserves receptor identity throughout real and mock matching. The asymmetric
+`--tra-matcher stem4 --mismatches 1 --chain-mode intersection` combines strict
+TRB support with fuzzy TRA evidence for the same target; chain scores remain
+separate from repertoire significance.
+
+An independent counts-only comparison filters both the sample and each pMHC
+reference with the existing TCRnet neighbourhood test, then runs flexible
+VDJmatch matching:
+
+```sh
+vdjmatch repertoire-tcrnet samples.tsv --vdjdb reference.zip \
+  --control control.tsv.gz --tcrnet-fdr 0.1 --scope 3,1,1,3 \
+  --threads 4 --output-prefix filtered
+```
+
+This mode exports filter evidence, matching hits and raw-denominator counts;
+it does not produce repertoire P-values or assume random backgrounds filter to
+an empty set. Paired inputs retain orphan chains and count each receptor once.
+
+
+For inputs too large to retain as one sample, `vdjmatch.io.iter_rearrangement`
+yields normalized batches with file-wide positional IDs. The underlying
+`vdjtools.io.iter_table_batches` supports projected raw CSV/TSV/gzip/Parquet
+batches. Prefer the simpler one-sample-at-a-time path when profiling shows it
+fits; within-sample batching does not by itself bound reference/control memory.
+
+`--chain-mode all` computes the four chain rules from the same native searches and mock draws.
+Summary, mock and hit tables include a chain_mode column. BH correction is
+performed separately for each rule within the selected target or cohort family.
+
+Reference-null repertoire enrichment accepts ``--model-source isalgo`` or
+``--model-source olga-legacy``. Fresh probabilities, model identity checks and
+prepared feature validation use that same family. Omission retains historical
+model selection until the calibrated-default release is finalized.
+
+Reference-null significance reports both unique-receptor and abundance endpoints.
+``q_count``, ``significant_nominal_count`` and ``significant_bh_count`` describe
+summed abundance (reads in bulk data, supplied cell counts in single-cell data).
+Existing unsuffixed call flags describe receptor counts. Each endpoint uses the
+selected correction family separately; positive excess is required for a call.

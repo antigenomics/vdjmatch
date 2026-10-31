@@ -144,3 +144,35 @@ An invalid V gene in the second cohort file produces ``no_support`` rather than
 losing the row. For real data, start with these same commands and replace the
 input and reference paths. See :doc:`explanation` for significance and
 :doc:`algorithms` for the scoring steps.
+
+Testing a repertoire for enrichment
+-----------------------------------
+
+For the compiled bulk reference-panel calculation use ``repertoire-exact``.
+Supply a sample manifest, VDJdb reference, distinct junction/V/J probes and
+model-generated V/J counts. Optional ``joint_pgen`` probe values preserve a
+specific probability model asset. Choose ``--sampler r --pool-mhc`` only when
+reproducing the original single-epitope union; ordinary target labels retain
+full pMHC. Declare correction groups with ``--fdr-group`` and inspect both
+source-row and read-abundance endpoints. The complete command is in :doc:`cli`.
+
+The flexible mode below uses marginal Pgen and distinct-receptor counting,
+so it is a separate comparison rather than the same calculation.
+
+
+Use ``vdjmatch repertoire-enrichment samples.tsv --null reference`` for a fixed
+observed repertoire tested against Pgen-matched mock epitope corpora. The sample
+manifest contains ``sample_id`` and ``path``; pass the VDJdb reference and raw
+control population explicitly. ``--mock-policy pgen`` samples reference-size
+controls, ``pgen-vj`` also preserves V/J usage, and ``pgen-different-v`` changes V
+and junction identities. Set the policy, matching radius, replicate count and
+significance family before examining outcome scores. See :doc:`cli` for a complete
+command and paired-input requirements. A significant sample is enriched relative
+to that null; its contributing receptors are not thereby experimentally validated.
+
+A separate filtering-first comparison is available with ``repertoire-tcrnet``.
+It runs the existing TCRnet neighbourhood test on samples and reference targets,
+then flexible VDJmatch lookup. Use its raw-denominator counts, longitudinal
+changes and linked assay evidence; it does not emit repertoire P-values. Keep
+its filter FDR and matching scope explicit and separate from reference-null
+enrichment settings.

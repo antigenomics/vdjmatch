@@ -128,12 +128,16 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
         pl.col('original_supported').fill_null(False))
 
 
-def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts, _consume=None):
+def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts, _consume=None, kernels=("gapblock", "stem4")):
     import numpy as np
     from ..evalue.kernel import grouped_kernel_enrichment, ladder_cutoffs
     from ..match.geometry import (resolve_v_alleles, distance_units, _substitution_costs)
 
-    model = contexts['clipped']['model']
+    definitions = [('gapblock','clipped',0),('stem4','blosum62',4)]
+    if not kernels or not set(kernels)<= {'gapblock','stem4'}:
+        raise ValueError('unknown kernel selection')
+    definitions = [item for item in definitions if item[0] in kernels]
+    model = contexts['clipped' if 'clipped' in contexts else 'blosum62']['model']
     if paired:
         q = queries
         r = reference
@@ -166,7 +170,7 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
     if cases is None:
         if not callable(_consume):
             raise ValueError('all-label kernel scoring requires a batch consumer')
-        for name,matrix,depth in [('gapblock','clipped',0),('stem4','blosum62',4)]:
+        for name,matrix,depth in definitions:
             scale,_ = distance_units(_substitution_costs('full',matrix))
             grouped_kernel_enrichment(q,r,groups,query_keys=query_keys,search_keys=search_keys,
                 paired=paired,cutoffs=ladder_cutoffs(scale),radius=22.5*scale,kernel_scale=22.5*scale,
@@ -186,7 +190,7 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
     codes = codes[order]
     case_indices = case_rows['_kernel_case'].to_numpy()[order]
     del case_rows, order, target_rows
-    for name, matrix, depth in [('gapblock', 'clipped', 0), ('stem4', 'blosum62', 4)]:
+    for name, matrix, depth in definitions:
         values = np.full(cases.height, np.nan)
         seen = np.zeros(cases.height, dtype=bool)
         def consume(scores):

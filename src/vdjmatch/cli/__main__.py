@@ -934,6 +934,10 @@ def main(argv: list[str] | None = None) -> int:
     register_reference_density(sub)
     from .repertoire_enrichment import register as register_repertoire_enrichment
     register_repertoire_enrichment(sub)
+    from .repertoire_tcrnet import register as register_repertoire_tcrnet
+    register_repertoire_tcrnet(sub)
+    from .repertoire_exact import register as register_repertoire_exact
+    register_repertoire_exact(sub)
     from .fixed_scope import register as register_fixed_scope
     register_fixed_scope(sub)
     register_fixed_scope(sub, trained=True)
@@ -945,7 +949,8 @@ def main(argv: list[str] | None = None) -> int:
     native_threads = None
     evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     evidence_commands.add('paired-score')
-    evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment'})
+    evidence_commands.add('repertoire-exact')
+    evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment', 'repertoire-tcrnet'})
     if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
         evidence_commands.add('annotate')
     kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
@@ -976,7 +981,9 @@ def main(argv: list[str] | None = None) -> int:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
             if table_threads < 1:
                 p.error("POLARS_MAX_THREADS must be a positive integer")
-            if a.cmd in {'database-evidence', 'repertoire-enrichment'} or (a.cmd == 'annotate' and a.cmd in evidence_commands):
+            if (a.cmd == 'database-evidence' or
+                    (a.cmd == 'repertoire-enrichment' and a.null != 'reference') or
+                    (a.cmd == 'annotate' and a.cmd in evidence_commands)):
                 table_threads = 1
             os.environ["POLARS_MAX_THREADS"] = str(min(threads, table_threads))
     os.environ.update(dict.fromkeys(previous_kernels, "1"))

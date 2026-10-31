@@ -271,3 +271,93 @@ implemented. Full VDJmatch-score, selected-label and paired search adapters
 must repeat their complete statistic, including reference-derived weights,
 inside the null calculation. See :doc:`control-calibration` for the equations,
 event/unique-key distinction and dependence-safe maximum proof.
+
+Exact bulk reference-panel enrichment
+-------------------------------------
+
+``repertoire-exact`` preserves source clonotype rows and their read abundance.
+It matches exact junction/V/J keys and counts all reference panels in one table
+join per sample. Duplicate amino-acid keys in the sample retain their source-row
+multiplicity; duplicate reference keys do not multiply a sample's contribution.
+
+For each junction, the compiled calculation takes the maximum joint Pgen across
+its probe V/J keys. It multiplies that value by the experimental-to-model ratio
+of add-one-smoothed J frequencies conditional on V. Experimental frequencies
+pool source rows from the declared cohort, not reads. Rounded log2 probabilities
+with a 2**-80 additive floor define the sampling strata. Uniform sampling excludes
+complete target keys, preserves the reference stratum counts and uses no
+replacement within a panel. Pgen is used to construct the null, not again as a
+matching score. R sampling reproduces original seeded panels; NumPy sampling
+uses the same law with a different random generator.
+
+Complete-zero empirical tails include every panel. The separate ``original_*``
+columns reproduce the original omission of zero-hit panels, sample standard
+deviations and log2(reads+1) effects. BH families are explicit metadata groups
+within each target. These two statistics must not be interchanged silently.
+Supplied joint-Pgen assets preserve historical model values; native generation
+uses the installed model, including its documented anchor repairs.
+
+Repertoire enrichment with mock target corpora
+----------------------------------------------
+
+M3's reference-null test fixes a sample and counts its distinct receptor identities
+supporting each pMHC. A receptor matches when an available chain satisfies the
+specified full-junction Hamming radius and gene predicate. Chain union is evaluated
+inside every real and mock calculation, so paired receptors cannot be counted twice.
+The sample index is execution-owned; each real or mock target population is searched
+in one native batch per locus with bounded primitive hit buffers.
+
+For target ``e``, let ``K_e`` be the observed matched-receptor count, ``B`` the number
+of fresh mock target corpora, and ``K_eb`` the count for mock ``b``. The one-sided
+empirical tail is ``(1 + sum_b I[K_eb >= K_e]) / (B + 1)``. Ties and zero-hit mocks
+are retained. The expected count is the mean of ``K_eb``; excess is observed minus
+expected. The same calculations on summed receptor abundance are descriptive
+secondary endpoints. Biological donor replication is distinct from mock replication.
+
+The construction matches reference publicity while
+removing selected target identities. It uses native marginal full-junction Pgen,
+not the historical snippet's conditional probability and cohort-fitted V/J factor.
+Binning is ``round(log2(Pgen + 2**-60))``. Explicit options preserve V/J composition
+or require different V/junction identities; these change the null hypothesis and
+must not be selected by suppressing unfavourable results. See :doc:`cli` for the
+sampling laws, significance families and complete output contracts.
+
+If a target has insufficient eligible control keys, its observed count and hits
+are retained with ``status=untestable_null`` and a reason. All mock-derived
+inference is missing, including earlier draws if a sequential different-V draw
+later becomes infeasible. BH retains these targets as nonrejectable family
+members; their output P/q-values are not fabricated as negative evidence.
+
+The independent TCRnet-filtered route uses the existing unique-junction
+neighbourhood test within each sample/locus and full-pMHC/locus reference
+population. It removes the target self-hit while retaining exact background
+hits. After filtering, original gene variants and receptor identities are
+restored and existing flexible VDJmatch lookup supplies real hit links. The
+raw receptor denominator is retained; paired/orphan chain support is unioned
+per receptor and target. Only descriptive repertoire counts are returned.
+Filtering q-values are not combined, and no repertoire P-value or guaranteed
+empty random background is inferred.
+
+Large-control ingestion
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Controls with explicit occurrence counts are read in projected raw batches,
+normalized with the existing control adapter, then reduced globally by
+junction/V/J. Cross-batch weights are summed exactly. The normalized key pool
+remains in memory for mock sampling; the complete raw table does not. If gene
+imputation is needed, ingestion uses the existing whole-population path so modal
+replacements cannot depend on batch boundaries. Other event representations
+retain their established whole-population normalization.
+
+
+Asymmetric chain support
+------------------------
+
+The reference-null comparison can use strict V-matched Hamming lookup for TRB
+and the existing stem4 kernel for TRA. Positive kernel support supplies the TRA
+membership indicator, while its continuous value remains in real hit exports.
+The shared vdjtools reducer combines chains only within a receptor/full-target
+key. The selected separate, union or intersection rule is identical in real and
+mock panels; repertoire inference tests counts and abundance under that rule.
+No chain-score product or independence assumption is introduced. The complete
+TRA reference panel supplies its fixed kernel model for every query in that draw.

@@ -11,6 +11,7 @@ import time
 import sys
 import ctypes
 import errno
+from contextlib import nullcontext
 
 import psutil
 
@@ -37,7 +38,7 @@ def _accounted_memory(pid, rss):
     return max(rss, usage.values[7])
 
 
-def profile(command, log, *, timeout=300, max_rss_bytes=None):
+def profile(command, log, *, timeout=300, max_rss_bytes=None, trace_path=None):
     """Measure a fresh command; optional RSS ceiling fails and kills its process tree."""
     start = time.perf_counter()
     cpu_by_pid = {}
@@ -48,7 +49,9 @@ def profile(command, log, *, timeout=300, max_rss_bytes=None):
     completed = False
     failure_kind = None
     processes = []
-    with Path(log).open('w') as stream:
+    with Path(log).open('w') as stream, (Path(trace_path).open('w') if trace_path else nullcontext()) as trace:
+        if trace:
+            trace.write('seconds\ttree_rss_bytes\taccounted_bytes\tcpu_seconds\tlive_threads\n')
         child = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT)
         try:
             parent = psutil.Process(child.pid)
@@ -75,6 +78,9 @@ def profile(command, log, *, timeout=300, max_rss_bytes=None):
                         continue
                 cpu = sum(cpu_by_pid.values())
                 observed = time.perf_counter()
+                if trace:
+                    trace.write(f'{observed-start:.6f}\t{rss}\t{accounted}\t{cpu:.6f}\t{threads}\n')
+                    trace.flush()
                 peak_rss = max(peak_rss, rss)
                 peak_accounted = max(peak_accounted, accounted)
                 peak_threads = max(peak_threads, threads)
