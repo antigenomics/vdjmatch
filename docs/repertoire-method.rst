@@ -174,6 +174,24 @@ not select the most powerful sample-level count test across these four
 alignment families. M3 can keep the trained scoring parameters fixed while
 comparing individual-distance cutoffs using the recorded sample endpoints.
 
+The completed evidence addresses three different endpoints:
+
+* Earlier sequence-level comparisons associate shared V usage with greater
+  neighbour co-specificity and favour local, position-aware evidence. This
+  motivates retaining V information without proving hard equality optimal.
+* The selected-kernel generated-null check fits six curated species/chain
+  contexts at a nominal 1% withheld-call target, then evaluates 100,000 generated
+  queries per context. It retains no-score queries and paired axis selection.
+  Those cutoffs belong to that score, reference and selected-call event.
+* M3 compares thresholded membership followed by sample-level counts under its
+  fixed mock-reference law. A broader matcher can admit both more response
+  receptors and more mock support. Its detection endpoint therefore requires
+  the matched cohort comparison, even with scoring parameters held fixed.
+
+Thus the previous training and calibration remain useful: they establish their
+own scoring and operating-point evidence. They do not analytically settle M3's
+choice of distance threshold or V predicate.
+
 V and J matching are part of the hypothesis
 -------------------------------------------
 
