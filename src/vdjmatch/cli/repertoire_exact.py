@@ -115,6 +115,7 @@ def main(a):
     a.threads = kernel_threads(a.threads)
     if a.mock_replicates<2 or a.seed<0 or a.threads<1:raise ValueError('at least two mocks, nonnegative seed and positive threads required')
     if not 0<=a.mismatches<=3:raise ValueError('zero to three mismatches required')
+    if a.matcher!='stem4' and a.min_score is not None:raise ValueError('--min-score requires --matcher stem4')
     if a.matcher=='stem4' and (a.min_score is None or not 0<a.min_score<=1):
         raise ValueError('stem4 requires an explicit dimensionless threshold in (0,1]')
     start=time.monotonic();meta_path=Path(a.metadata).expanduser().resolve();meta=_read_table(meta_path)

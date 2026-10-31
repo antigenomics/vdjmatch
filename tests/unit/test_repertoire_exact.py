@@ -184,3 +184,13 @@ def test_stem4_cli_uses_original_panels_and_explicit_dimensionless_threshold(tmp
     assert counts.height==3
     assert counts.filter(pl.col('replicate')==-1).select('matched_records','matched_reads').row(0)==(2,5)
     assert counts['sample_clonotypes'].to_list()==[3]*3
+
+
+def test_stem4_threshold_errors_precede_input_loading():
+    base=[sys.executable,'-m','vdjmatch.cli','repertoire-exact','missing.tsv','--vdjdb','missing-reference.tsv','--control','missing-control.tsv','--output-prefix','unused','--threads','1']
+    for threshold in [None,'0','-0.1','1.1','nan']:
+        command=base+['--matcher','stem4']+([] if threshold is None else ['--min-score',threshold])
+        result=subprocess.run(command,capture_output=True,text=True,timeout=15)
+        assert result.returncode!=0 and 'dimensionless threshold' in result.stderr
+    result=subprocess.run(base+['--min-score','.5'],capture_output=True,text=True,timeout=15)
+    assert result.returncode!=0 and '--min-score requires --matcher stem4' in result.stderr
