@@ -18,6 +18,9 @@ def register(sub):
     p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
     p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact joint Pgen; 1 inclusive Hamming-1 joint mass')
     p.add_argument('--matcher',choices=['exact','hamming'],default='exact')
+    p.add_argument('--matrix',choices=['none','blosum62'],default='none')
+    p.add_argument('--position-significance',action='store_true')
+    p.add_argument('--max-penalty',type=int,help='Explicit inclusive search penalty in the selected matrix units')
     p.add_argument('--mismatches',type=int,default=1,help='Hamming substitutions; exact V/J retained')
     p.add_argument('--sampler',choices=['numpy','r'],default='numpy')
     p.add_argument('--mock-replicates',type=int,default=200)
@@ -114,6 +117,9 @@ def main(a):
     a.threads = kernel_threads(a.threads)
     if a.mock_replicates<2 or a.seed<0 or a.threads<1:raise ValueError('at least two mocks, nonnegative seed and positive threads required')
     if not 0<=a.mismatches<=3:raise ValueError('zero to three mismatches required')
+    if a.matrix!='none' and (a.matcher=='exact' or a.max_penalty is None or a.max_penalty<=0):
+        raise ValueError('weighted search requires substitution matching and a positive penalty')
+    if a.position_significance and a.matrix=='none':raise ValueError('position significance requires a matrix')
     start=time.monotonic();meta_path=Path(a.metadata).expanduser().resolve();meta=_read_table(meta_path)
     needed=['sample_id','path',*a.fdr_group]
     if not set(needed)<=set(meta.columns) or not meta.height or meta['sample_id'].n_unique()!=meta.height:
@@ -134,11 +140,12 @@ def main(a):
     suffixes=['summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
     if any(Path(str(prefix)+'.'+s).exists() for s in suffixes):raise FileExistsError('fresh output prefix required')
     before={str(p):sha256(p) for p in inputs}
+    import seqtree._core as search_native
     import vdjtools._core as native_core
     import vdjtools.model.io as model_io
     import vdjtools.model.native as model_native
     import vdjtools.model.selection as model_selection
-    source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(native_core.__file__),Path(model_io.__file__),Path(model_native.__file__),Path(model_selection.__file__),Path(model_selection.__file__).with_name('selection_factors.json'),Path(model_selection.__file__).with_name('selection_profiles.json')]
+    source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(native_core.__file__),Path(search_native.__file__),Path(model_io.__file__),Path(model_native.__file__),Path(model_selection.__file__),Path(model_selection.__file__).with_name('selection_factors.json'),Path(model_selection.__file__).with_name('selection_profiles.json')]
     source_before={str(p):sha256(p) for p in source_files}
     reference=db.load(inputs[1],species={'human':'HomoSapiens','mouse':'MusMusculus'}[a.species]).filter(pl.col('gene')==a.locus)
     if a.epitope:
@@ -193,7 +200,7 @@ def main(a):
     counts=[]
     for i,(sample,path) in enumerate(zip(meta['sample_id'],paths),1):
         observations=_source(path,locus=a.locus)
-        counted=exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads).join(panel_sizes,on=['group_id','replicate'],validate='1:1')
+        counted=exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads,matrix=a.matrix,position_significance=a.position_significance,max_penalty=a.max_penalty).join(panel_sizes,on=['group_id','replicate'],validate='1:1')
         counted=counted.with_columns(pl.lit(sample).alias('sample_id'),
             pl.lit(observations.height).alias('sample_clonotypes'),pl.lit(int(observations['count'].sum())).alias('sample_reads'))
         counted=counted.with_columns((pl.col('matched_records')/pl.col('sample_clonotypes')/pl.col('epitope_clonotypes')).alias('normalized_clonotype_matches'),

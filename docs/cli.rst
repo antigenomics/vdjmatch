@@ -2754,6 +2754,14 @@ clonotype row is one sample clonotype under this bulk reproduction contract.
 Real/mock panel sizes are equal; these fixed per-sample scale factors leave
 upper-tail empirical P-values unchanged. Noncoding
 junction rows are dropped by the standard input filter before counting.
+For a bounded substitution predicate, use the existing search option names
+``--matcher hamming --mismatches 3 --matrix blosum62 --position-significance
+--max-penalty BOUND``. This reuses the end-anchored significance PSSM;
+positional penalties use weights scaled by100, while flat BLOSUM penalties
+use unscaled matrix units. An explicit positive bound is required. The bound
+is a calibration parameter, not a recommended operating point. Both real/mock
+panels use exactly the same predicate and retain exact V/J requirements.
+
 Fuzzy kernel comparisons use the existing ``stem4`` and ``gapblock`` modes
 of reference-null ``repertoire-enrichment`` described below.
 

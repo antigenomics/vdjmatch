@@ -10,7 +10,8 @@ from ..io.columns import _integer_count
 
 
 def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
-                           matcher='exact', mismatches=1, threads=1) -> pl.DataFrame:
+                           matcher='exact', mismatches=1, threads=1,
+                           matrix='none', position_significance=False, max_penalty=None) -> pl.DataFrame:
     """Count source rows and reads against all exact V/J/junction panels at once.
 
     Observations contain junction_aa/v/j/count; panels additionally contain
@@ -37,10 +38,15 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
         raise ValueError('unknown panel matcher')
     if type(threads) is not int or threads<1 or type(mismatches) is not int or not 0<=mismatches<=3:
         raise ValueError('positive threads and zero to three mismatches required')
+    if matrix not in {'none','blosum62'}:raise ValueError('unknown search matrix')
+    if matrix!='none' and (matcher=='exact' or type(max_penalty) is not int or max_penalty<=0):
+        raise ValueError('weighted search requires a positive penalty and substitution matching')
+    if position_significance and matrix=='none':raise ValueError('position significance requires a matrix')
     if matcher=='exact' or not counted.height:
         members=panels.join(counted,on=keys,how='inner',validate='m:1')
     else:
-        from seqtree import Index
+        from seqtree import Index, SubstitutionMatrix
+        from ..match.regions import significance_pssm
         from ..match.scope import search_params
         observed=counted.select('junction_aa').unique().sort('junction_aa').with_row_index('_ri')
         queries=panels.select('junction_aa').unique().sort('junction_aa').with_row_index('_qi')
@@ -51,10 +57,14 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
             if len(pairs):
                 pairs=pairs[:,:2].copy();pairs[:,0]=query_ids[pairs[:,0]]
                 buffers.append(pairs)
-        query_ids=queries['_qi'].to_numpy()
-        index.search_batch_consume(queries['junction_aa'].to_list(),
-            search_params(f'{mismatches},0,0,{mismatches}'),consume,
-            threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
+        batches=(queries.with_columns(pl.col('junction_aa').str.len_chars().alias('_length')).partition_by('_length',as_dict=True).values() if position_significance else [queries])
+        for batch in batches:
+            query_ids=batch['_qi'].to_numpy()
+            options=({'pos_matrix':significance_pssm(batch['_length'][0])} if position_significance else
+                     {'matrix':SubstitutionMatrix.blosum62()} if matrix=='blosum62' else {})
+            index.search_batch_consume(batch['junction_aa'].to_list(),
+                search_params(f'{mismatches},0,0,{mismatches}',max_penalty=max_penalty or 0,**options),consume,
+                threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
         pairs=pl.DataFrame(np.concatenate(buffers) if buffers else np.empty((0,2),dtype=np.uint32),
             schema=[('_qi',pl.UInt32),('_ri',pl.UInt32)],orient='row')
         roles=panels.join(queries,on='junction_aa',validate='m:1').drop('junction_aa')

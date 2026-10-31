@@ -441,3 +441,11 @@ def test_fuzzy_same_v_reducer_preserves_model_and_excludes_cross_v_support(kerne
     assert strict[2]['receptor_id'].to_list()==['same']
     assert strict[0]['matched_count'].item()==3
     assert strict[0]['n_receptors'].item()==2
+
+
+def test_bulk_uses_existing_positional_search_predicate():
+    from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
+    obs=pl.DataFrame(dict(junction_aa=['CASSIIDAYEQYF','CASSMMDAYEQYF','CASSIIRAYEQYF','CWWWWWWWWWWWF'],v=['TRBV19']*4,j=['TRBJ2-7']*4,count=[2,3,5,100]))
+    panels=obs.head(1).drop('count').with_columns(pl.lit('X').alias('group_id'),pl.lit(-1).alias('replicate'))
+    result=exact_reference_counts(obs,panels,matcher='hamming',mismatches=3,matrix='blosum62',position_significance=True,max_penalty=2000)
+    assert result.select('matched_records','matched_reads').row(0)==(2,5)
