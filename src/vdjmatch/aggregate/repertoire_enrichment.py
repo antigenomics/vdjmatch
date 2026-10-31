@@ -162,6 +162,8 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     required={'receptor_id','locus','junction_aa','v','j','count'}
     if not required <= set(observations.columns) or not observations.height:
         raise ValueError('nonempty observations with receptor identities, chain keys and counts required')
+    if any(observations[c].null_count() for c in required):
+        raise ValueError('non-null receptor keys and nonnegative integer counts required')
     cohort = 'sample_id' in observations.columns
     if cohort:
         if observations['sample_id'].null_count() or observations['sample_id'].cast(pl.String).str.strip_chars().eq('').any():

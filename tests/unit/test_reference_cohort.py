@@ -1,4 +1,5 @@
 """Cohort batching preserves separate seeded calls, including shared receptor IDs."""
+import pytest
 import polars as pl
 from polars.testing import assert_frame_equal
 from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
@@ -23,3 +24,7 @@ def test_cohort_matches_separate_samples():
         for batch,single in zip(actual,expected):
             selected=batch.filter(pl.col('sample_id')==name).drop('sample_id').select(single.columns)
             assert_frame_equal(selected.sort(single.columns),single.sort(single.columns),check_dtypes=False)
+
+    invalid=cohort.with_columns(pl.when(pl.col('locus')=='TRA').then(None).otherwise(pl.col('receptor_id')).alias('receptor_id'))
+    with pytest.raises(ValueError,match='non-null'):
+        reference_enrichment(invalid,reference,controls,replicates=3)
