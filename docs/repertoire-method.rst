@@ -85,6 +85,32 @@ the minimum empirical P-value is 1/201. Retain unavailable-null rows as missing
 inference, not negative evidence. Preserve nominal and BH results and name the
 original correction family.
 
+Large repertoire, small target panel
+------------------------------------
+
+With N=10^7 repertoire observations and M=100 reference keys, enumerating every
+comparison means N*M=10^9 sequence pairs. The counting task only needs qualifying
+memberships. Exact membership uses the existing columnar key join; bounded graded
+matching uses the existing native repertoire index and batches the smaller panel
+as queries. For B=200 mock panels of M keys, deduplicating the real and mock
+query keys gives at most (B+1)*M=20,100 queries for this one target, often fewer.
+Search direction can be exchanged for symmetric graded costs with equal
+insertion/deletion budgets, while preserving V/J predicates and source-row/read
+weights. It cannot be exchanged on that argument alone for position-dependent
+or query-conditioned scores. The current positional implementation groups
+panel queries by length and uses its producing geometry.
+
+This reduces redundant traversal and avoids a dense pair matrix; it does not
+prove constant search time or biological optimality. Index construction, emitted
+hit count, joins, mock preparation and all targets still contribute to runtime.
+The current measured cohorts do not establish ten-million-observation scaling.
+Nor does a small panel make weak per-receptor hits harmless: if b is the null
+probability that one observation has any qualifying target match, linearity
+gives E[K]=N*b, even without independence. At b=10^-6 and N=10^7 that is ten
+background observations. Matching geometry therefore remains a signal-versus-null
+choice evaluated through the declared count endpoint; changing the search
+direction accelerates that same test rather than selecting its threshold.
+
 Two algorithms, two null hypotheses
 -----------------------------------
 

@@ -614,3 +614,6 @@ enters this threshold. Count each qualifying receptor/abundance once through the
 existing chain reducer, identically for real and mock references. Weak matches
 cannot accumulate into a hit. Continuous-evidence summation is deferred. These
 software parity checks do not select a biological cutoff or establish10^7scaling.
+For large repertoires and small panels, reuse the existing columnar exact join
+or repertoire-indexed native batch. Reverse only a geometry whose symmetry has
+been established; query-conditioned scores need their own directional contract.

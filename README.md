@@ -508,10 +508,6 @@ remains the strongest recorded bulk choice (5/7 and 7/7), using pooled J-usage
 correction within V. Paired four-family evaluation is running; those conclusions
 remain open. Summed continuous evidence is deferred.
 
-## License
-
-ISALGO LAB Academic and Non-Commercial Research License v1.0. See [`LICENSE`](LICENSE).
-
 Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, `gapblock`,
 `blosum62` or `positional-blosum62`. The direct BLOSUM presets require
 `--tra-radius-factor`/`--trb-radius-factor`: a dimensionless budget relative to
@@ -566,3 +562,7 @@ For cohorts that fit in memory, reference-null ``repertoire-enrichment --batch-s
 shares each seeded mock draw and native search across samples. It preserves
 per-sample receptor identities, counts, null statistics and the selected BH family.
 The default still loads and processes one sample at a time.
+
+## License
+
+ISALGO LAB Academic and Non-Commercial Research License v1.0. See [`LICENSE`](LICENSE).
