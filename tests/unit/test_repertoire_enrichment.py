@@ -424,14 +424,3 @@ def test_bulk_panel_matchers_count_each_source_row_once(matcher,bound):
     assert result.equals(parallel)
     empty=exact_reference_counts(obs.head(0),panels,matcher=matcher,max_penalty=bound)
     assert empty['matched_records'].sum()==empty['matched_reads'].sum()==0
-
-
-@pytest.mark.parametrize('matcher,bound',[('hamming',None),('blosum62',1400),('positional-blosum62',2000)])
-def test_bulk_fuzzy_nonproductive_rows_are_no_hits(matcher,bound):
-    from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
-    obs=pl.DataFrame(dict(junction_aa=['CASSF','CAS_F'],v=['V']*2,j=['J']*2,count=[3,100]))
-    panels=pl.DataFrame(dict(group_id=['X'],replicate=[-1],junction_aa=['CASSF'],v=['V'],j=['J']))
-    out=exact_reference_counts(obs,panels,matcher=matcher,max_penalty=bound)
-    assert out.select('matched_records','matched_reads').row(0)==(1,3)
-    out=exact_reference_counts(obs.tail(1),panels,matcher=matcher,max_penalty=bound)
-    assert out.select('matched_records','matched_reads').row(0)==(0,0)

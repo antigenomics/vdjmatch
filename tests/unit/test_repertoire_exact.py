@@ -132,3 +132,12 @@ def test_profile_joint_pgen_weights_before_aa_max(monkeypatch):
     import numpy as np
     np.testing.assert_allclose(result['pgen'],[.1,.2*np.exp(-2)])
     assert result['pgen'].max()==.1
+
+
+def test_bulk_source_drops_noncoding_junctions(tmp_path):
+    from vdjmatch.cli.repertoire_exact import _source
+    path=tmp_path/'sample.tsv'
+    path.write_text('junction_aa\tv\tj\tcount\nCASSF\tTRBV2\tTRBJ1-1\t3\nCAS_F\tTRBV2\tTRBJ1-1\t100\nCAS*F\tTRBV2\tTRBJ1-1\t50\n')
+    source=_source(path,locus='TRB')
+    assert source['junction_aa'].to_list()==['CASSF']
+    assert source['count'].to_list()==[3]

@@ -45,7 +45,7 @@ def _selection_options(args, *, external_pgen=False):
 def _source(path, *, locus):
     import polars as pl
     from .. import io
-    frame=io.read_rearrangement(path,valid_aa=False).filter(pl.col("locus")==locus)
+    frame=io.read_rearrangement(path,valid_aa=True).filter(pl.col("locus")==locus)
     return frame.select(pl.col('cdr3').alias('junction_aa'),
         pl.col('v','j').str.split('*').list.first(),'count')
 
@@ -182,12 +182,9 @@ def main(a):
     reference=reference.join(probes.select(*keys,'pgen_bin'),on=keys,validate='m:1')
     mocks=sample_stratified_panels(reference,probes.select(*keys,'pgen_bin'),replicates=a.mock_replicates,seed=a.seed,sampler=a.sampler)
     panels=pl.concat([reference.select('group_id',*keys).with_columns(pl.lit(-1,dtype=pl.Int64).alias('replicate')),mocks.select('group_id',*keys,pl.col('replicate').cast(pl.Int64))])
-    counts=[];ingestion=[]
+    counts=[]
     for i,(sample,path) in enumerate(zip(meta['sample_id'],paths),1):
-        observations=_source(path,locus=a.locus)
-        invalid=observations.filter(~pl.col('junction_aa').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False))
-        ingestion.append(dict(sample_id=sample,source_records=observations.height,source_reads=int(observations['count'].sum()),noncanonical_records=invalid.height,noncanonical_reads=int(invalid['count'].sum())))
-        counts.append(exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,max_penalty=a.max_penalty,threads=a.threads).with_columns(pl.lit(sample).alias('sample_id')))
+        counts.append(exact_reference_counts(_source(path,locus=a.locus),panels,matcher=a.matcher,mismatches=a.mismatches,max_penalty=a.max_penalty,threads=a.threads).with_columns(pl.lit(sample).alias('sample_id')))
         print(f'counted sample {i}/{len(paths)}',flush=True)
     counts=pl.concat(counts);summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
     parts=[]
@@ -208,7 +205,7 @@ def main(a):
     for suffix,frame in outputs.items():frame.write_csv(str(prefix)+'.'+suffix,separator='\t')
     if before!={str(p):sha256(p) for p in inputs} or source_before!={str(p):sha256(p) for p in source_files}:raise RuntimeError('inputs or source changed during calculation')
     if model_identity is not None and model_identity!=_pgen_model_identity(a.species,a.locus,source=a.source):raise RuntimeError('recombination model changed during calculation')
-    manifest=dict(inputs_frozen=True,source_frozen=True,inputs=before,source=source_before,options=vars(a)|{'func':None},pgen_origin=pgen_origin,probability='selection_q times AA-max joint Pgen times within-V add-one J usage ratio; floor2^-80',counting='source rows and reads; exact V/J; '+a.matcher+' junction membership',ingestion=ingestion,fdr_family=['group_id',*a.fdr_group],seconds=time.monotonic()-start,software={n:version(n) for n in ['vdjmatch','vdjtools','polars','numpy']},outputs={Path(str(prefix)+'.'+s).name:sha256(Path(str(prefix)+'.'+s)) for s in outputs})
+    manifest=dict(inputs_frozen=True,source_frozen=True,inputs=before,source=source_before,options=vars(a)|{'func':None},pgen_origin=pgen_origin,probability='selection_q times AA-max joint Pgen times within-V add-one J usage ratio; floor2^-80',counting='source rows and reads; exact V/J; '+a.matcher+' junction membership',fdr_family=['group_id',*a.fdr_group],seconds=time.monotonic()-start,software={n:version(n) for n in ['vdjmatch','vdjtools','polars','numpy']},outputs={Path(str(prefix)+'.'+s).name:sha256(Path(str(prefix)+'.'+s)) for s in outputs})
     if a.sampler=='r':
         import subprocess,shutil
         manifest['r_version']=subprocess.run([shutil.which('Rscript'),'--version'],capture_output=True,text=True,check=True).stdout.strip()

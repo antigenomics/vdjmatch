@@ -440,8 +440,8 @@ Hamming uses `--mismatches` (default one); BLOSUM modes require `--max-penalty`
 in 100-scaled matrix units and allow at most three substitutions, no indels.
 Exact V/J remains mandatory. All real/mock panels share the same matcher;
 multiple matching references count a source row only once per panel.
-Noncanonical junction rows remain in source totals and V/J sampling counts,
-but are not searched by fuzzy modes; the manifest reports their row/read counts.
+Noncoding junction rows are dropped by the standard amino-acid input filter
+before source counting and V/J sampling.
 These are calibration options, not promoted biological operating points.
 Keep complete-zero tests separate from `original_*` statistics that omit
 zero-hit mock groups. See the compiled-reference-panel section in docs/cli.rst.
