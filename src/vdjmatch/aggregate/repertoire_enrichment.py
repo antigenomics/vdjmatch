@@ -51,9 +51,9 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
             pl.col('_panel').cast(pl.String).alias('epitope'))
         model=panels.join(roles,on=groups,validate='m:1').rename({'junction_aa':'cdr3'}).with_columns(pl.lit(locus).alias('gene'))
         queries=counted.with_row_index('query_id').with_columns(pl.lit(locus).alias('locus'))
-        scores=Annotator.from_frame(model).candidates(queries,scope=params,threads=threads,
-            match_v=matcher.startswith('v-'),match_j=True,species=species,score_scale=scale,soft_v=False)
-        members=scores.filter(pl.col('nearest_score')/scale<=radius_factor).select('query_id','epitope').join(
+        scores=Annotator.from_frame(model).target_memberships(queries,scope=params,threads=threads,max_score=radius_factor,
+            match_v=matcher.startswith('v-'),match_j=True,species=species,score_scale=scale)
+        members=scores.select('query_id','epitope').join(
             roles,on='epitope',validate='m:1').join(queries,on='query_id',validate='m:1')
     elif matcher=='exact' or not counted.height:
         members=panels.join(counted,on=keys,how='inner',validate='m:1')
@@ -313,13 +313,13 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                 queries=fuzzy_by_locus[locus]
                 params,scale=family_params[locus]
                 model=targets.rename({'junction_aa':'cdr3','locus':'gene'}).join(labels,on='group_id',validate='m:1')
-                scores=Annotator.from_frame(model).candidates(queries,
-                    scope=params,threads=threads,
+                scores=Annotator.from_frame(model).target_memberships(queries,
+                    scope=params,threads=threads,max_score=factors[locus],
                     match_v=matchers[locus].startswith('v-'),match_j=match_j,
-                    species=species,score_scale=scale,soft_v=False)
+                    species=species,score_scale=scale)
                 # One qualifying alignment suffices; weak alignments never add
                 # together to cross the distance threshold.
-                supported=scores.filter(pl.col('nearest_score')/scale<=factors[locus]).join(
+                supported=scores.join(
                     labels,on=PMHC,nulls_equal=True,validate='m:1').join(queries,on='query_id',validate='m:1')
                 if target_groups is not None:
                     supported=supported.filter(pl.col('group_id').is_in(target_groups))

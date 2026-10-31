@@ -210,6 +210,7 @@ class Annotator:
         retain_hits=True,
         _prepare_consumer=False,
         _hit_consumer=None,
+        _membership_max_score=None,
     ):
         import math
 
@@ -226,6 +227,8 @@ class Annotator:
             raise ValueError(
                 "V/J-restricted calibration requires V/J-labelled controls; sequence-only controls cannot apply that predicate"
             )
+        if _membership_max_score is not None and (not math.isfinite(_membership_max_score) or _membership_max_score < 0):
+            raise ValueError('finite nonnegative membership score bound required')
         active = sorted(set(self.loci) & set(q["locus"].drop_nulls()))
         if not retain_hits and any(not callable(getattr(self._index.index_for(gene),
                 'search_batch_consume', None)) for gene in active):
@@ -308,6 +311,9 @@ class Annotator:
                     h = h.join(exclude_epitopes, on=['query_id', 'epitope'], how='anti')
                 if _hit_consumer is not None:
                     _hit_consumer(h)
+                if _membership_max_score is not None:
+                    cs.append(h.filter(pl.col('score')/score_scale <= _membership_max_score).select('query_id', *PMHC).unique())
+                    return h
                 for radius in radii if radii is not None else [None]:
                     distance = pl.col("n_subs").cast(pl.UInt32) + pl.col("n_ins") + pl.col("n_dels")
                     selected = h if radius is None else h.filter(distance <= radius)
@@ -350,7 +356,7 @@ class Annotator:
                 h = consume(h)
                 hs.append(h)
         candidates = pl.concat(cs, how='diagonal_relaxed') if cs else pl.DataFrame(schema=candidate_schema(q.schema['query_id']))
-        if not retain_hits and candidates.height:
+        if not retain_hits and candidates.height and _membership_max_score is None:
             candidates = candidates.sort('query_locus', *(['radius'] if radii is not None else []), 'query_id', 'rank')
         return (
             pl.concat(hs, how="diagonal_relaxed")
@@ -358,6 +364,14 @@ class Annotator:
             else _empty_hits(q.schema["query_id"]),
             candidates,
         )
+
+    def target_memberships(self, data, *, scope, max_score, score_scale=1.,
+                           threads=1, match_v=False, match_j=False, species=None):
+        """Unique query/pMHC memberships from individually accepted native alignments."""
+        _, q = _prepare(data)
+        return self._evidence(q, scope, threads=threads, match_v=match_v,
+            match_j=match_j, species=species, score_scale=score_scale,
+            retain_hits=False, _membership_max_score=max_score)[1].select('query_id', *PMHC).unique()
 
     def graded_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
                           threads=1, control=None, calibrate=False, species=None,
