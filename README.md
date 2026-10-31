@@ -393,11 +393,14 @@ These new modes require seqtree1.0.2; see the CLI reference for scoring and null
 
 For new fuzzy-matching comparisons, start from the established BLOSUM62 and
 end-anchored positional-BLOSUM62 implementations. Keep the one-mismatch baseline.
-The genetic-code substitution-accessibility comparator **VDJAMr** is distinct
-from the data-derived **VDJAM** matrix; the evidence below does not recommend
-VDJAM or a chemistry-driven replacement. An available experimental mode is not
-evidence that it improves matching. Reuse the recorded comparisons before
-proposing another matrix.
+The M4 conclusion is that BLOSUM62 is optimal among the tested substitution
+matrices: the substitution patterns reflect V(D)J rearrangement, N-insertion
+and positional conservation rather than amino-acid chemistry. VDJAM reproduces
+this generative structure. Keep the measured constructions distinct: the
+genetic-code substitution-accessibility comparator **VDJAMr** matches BLOSUM62,
+while the data-derived **VDJAM** matrix underperformed in the recorded retrieval
+comparison. Positional weighting provides the additional improvement below.
+Reuse these recorded comparisons before proposing another matrix.
 
 An empirical study on VDJdb (see `appendix/vdjmatch_scoring.tex`; regenerated on the **2026-06-11-ZENODO**
 release with composition controls and balanced metrics) settles the scoring question honestly:
