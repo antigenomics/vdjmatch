@@ -391,7 +391,7 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
 
 
 def sample_stratified_panels(reference: pl.DataFrame, probes: pl.DataFrame, *,
-                        replicates=200, seed=42, sampler='numpy', unavailable=None) -> pl.DataFrame:
+                        replicates=200, seed=42, sampler='numpy') -> pl.DataFrame:
     """Draw fresh exact-bin reference panels; optionally reproduce base-R draws.
 
     NumPy uses the existing uniform-key sampler. The optional R backend is for
@@ -399,8 +399,7 @@ def sample_stratified_panels(reference: pl.DataFrame, probes: pl.DataFrame, *,
     All panels are transient in memory; no calculated panel cache is written.
     """
     if sampler=='numpy':
-        return pl.concat(iter_epitope_mocks(reference,probes,replicates=replicates,seed=seed,unavailable=unavailable))
-    if unavailable is not None:raise ValueError('unavailable-null reporting requires the NumPy sampler')
+        return pl.concat(iter_epitope_mocks(reference,probes,replicates=replicates,seed=seed))
     if sampler!='r':raise ValueError('sampler must be numpy or r')
     if type(replicates) is not int or replicates<1 or type(seed) is not int or not 0<=seed<2**31:
         raise ValueError('positive replicates and a nonnegative R integer seed required')
@@ -701,7 +700,9 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
 
     Inputs contain junction_aa/v/j/pgen_bin; reference also has group_id. Rows
     represent distinct receptor keys, not reads or weighted recombination events.
-    Known target keys are excluded. ``pgen-vj`` additionally preserves V/J;
+    ``pgen`` draws with replacement from pre-binned controls, retaining event
+    multiplicity and mapping reference mass below the control minimum to that
+    minimum bin. It does not exclude target keys. ``pgen-vj`` preserves V/J;
     ``pgen-different-v`` excludes every target junction and changes each source V.
     The latter samples source-V strata in fresh random order without replacement
     within a target/bin; it is a sequential conditional law, not a uniform draw
@@ -729,6 +730,20 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
             raise ValueError('receptor keys cannot be empty')
     if control.select(keys).n_unique() != control.height:
         raise ValueError('control receptor keys must be unique')
+    if policy == 'pgen':
+        pool=control.sort(['pgen_bin',*keys]).with_row_index('_pool_row')
+        bins={b[0]:np.repeat(p['_pool_row'].to_numpy(),p['event_weight'].to_numpy() if 'event_weight' in p.columns else 1)
+              for b,p in pool.partition_by('pgen_bin',as_dict=True).items()}
+        source=reference.with_columns(pl.col('pgen_bin').clip(lower_bound=min(bins))).sort(['group_id','pgen_bin',*keys]).with_row_index('_source_row')
+        positions={b[0]:p['_source_row'].to_numpy() for b,p in source.partition_by('pgen_bin',as_dict=True).items()}
+        if positions.keys()-bins.keys():raise ValueError('control has empty requested Pgen bins')
+        rng=np.random.default_rng(seed)
+        for replicate in range(replicates):
+            selected=np.empty(source.height,dtype=np.uint32)
+            for b,rows in positions.items():selected[rows]=bins[b][rng.integers(len(bins[b]),size=len(rows))]
+            replacement=pool[selected]
+            yield source.drop('_source_row').with_columns(*(replacement[c] for c in keys),pl.lit(replicate).alias('replicate'))
+        return
     # Source roles may repeat a chain key across different linked receptors.
     source = reference.with_row_index('_source_row')
     pool = control.select(required).sort(keys).with_row_index('_pool_row')
@@ -763,9 +778,8 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
         for (bin_id,),part in target.partition_by('pgen_bin',as_dict=True).items():
             candidates=bin_pools.get((bin_id,),empty_indices)
             blocked=excluded.get((group,bin_id),empty_indices)
-            available=len(candidates)-len(excluded_positions(candidates,blocked))
-            if available<part.height:
-                reject(group,f'insufficient control keys for group {group!r}, bin {bin_id}: need {part.height}, have {available}')
+            if len(candidates)-len(excluded_positions(candidates,blocked))<part.height:
+                reject(group,f'insufficient control keys for group {group!r}, bin {bin_id}')
                 break
             roles=[]
             strata=['v','j'] if policy=='pgen-vj' else ['v'] if policy=='pgen-different-v' else ['pgen_bin']

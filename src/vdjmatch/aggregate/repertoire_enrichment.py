@@ -16,7 +16,7 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
 
     Observations contain junction_aa/v/j/count; panels additionally contain
     group_id/replicate. Source rows sharing a key remain separate observations.
-    Panel keys must be unique within group/replicate. Zero-hit panels are kept.
+    Repeated sampled panel keys do not multiply observed counts. Zero-hit panels are kept.
     This is the original bulk-repertoire counting unit, not paired-cell union.
     Optional Hamming matching changes junction membership only; exact
     V/J and one count per source observation per panel remain mandatory.
@@ -24,10 +24,9 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
     keys=['junction_aa','v','j'];groups=['group_id','replicate']
     if not {*keys,'count'}<=set(observations.columns) or not {*keys,*groups}<=set(panels.columns) or not panels.height:
         raise ValueError('source keys/counts and nonempty reference panels required')
-    if panels.select(*groups,*keys).n_unique()!=panels.height:
-        raise ValueError('reference panel keys must be unique within group/replicate')
     if any(panels[c].null_count() for c in [*groups,*keys]):
         raise ValueError('reference panel identities and keys must be non-null')
+    panels=panels.unique(subset=[*groups,*keys],maintain_order=True)
     obs=observations.select(*keys,_integer_count('count').alias('count'))
     if obs['count'].null_count() or (obs['count']<0).any():
         raise ValueError('nonnegative integer source counts required')

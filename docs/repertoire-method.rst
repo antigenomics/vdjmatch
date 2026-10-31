@@ -160,9 +160,10 @@ For the reference-null route:
 
 1. Load and normalize the raw sample, curated reference and raw controls.
 2. Compute the selected model's full-junction Pgen and rounded log2 strata.
-3. Retain the full reference model and target inventory. Sample unique control
-   junction/V/J keys without replacement within target/bin, excluding known
-   target keys. Optional V/J-conditional policies change this sampling law.
+3. Retain the full reference model and target inventory. Prepare control-bin index arrays once, then draw the required number
+   of control event slots with replacement for each reference bin. Reference
+   values below the smallest control bin use that bin; repeated clonotypes
+   remain eligible and observed receptors are counted once. Optional V/J-conditional policies change this sampling law.
 4. Apply exactly the same locus-specific matching and reducer to real and mock
    panels, in native batches. Keep zero-hit observations.
 5. Export observed support, mean mock support, excess, empirical upper tails,
@@ -199,9 +200,9 @@ proof of enrichment-test power. The latter also depends on sample size,
 abundance, reference diversity, null variance and tail discreteness.
 
 Potential design bias still deserves attention: an exact-Pgen stratum does not
-necessarily match neighbourhood mass for broad weighted distances. Known-target
-exclusion also means the sampler is a conditional reference law rather than
-unconditional random labeling. These observations motivate a comparison; they
+necessarily match neighbourhood mass for broad weighted distances. The earlier distinct-key comparisons excluded known target keys; the
+author-requested binned control draw now retains incidental matches and clips
+values below the control minimum. Earlier results retain their producing law. These observations motivate a comparison; they
 do not establish that the existing result is invalid or guarantee an alternative
 will improve it. No new null model or threshold sweep is introduced here.
 

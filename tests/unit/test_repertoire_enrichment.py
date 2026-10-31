@@ -238,11 +238,13 @@ def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mo
         assert summary['q_count'].item()==1/201
         assert summary['significant_nominal_count'].item() and summary['significant_bh_count'].item()
     else:
-        assert summary['status'].item()=='untestable_null'
-        assert summary['p_receptors'].item() is None and summary['q_receptors'].item() is None
-        assert summary['significant_nominal'].item() is None and summary['significant_bh'].item() is None
-        assert summary['q_count'].item() is None and summary['significant_bh_count'].item() is None
-        assert pl.read_parquet(tmp_path/'result.mocks.parquet')['mock_receptors'].null_count()==(800 if chain_mode=='all' else 200)
+        assert summary['status'].item()=='ok'
+        assert summary['p_receptors'].item()==summary['q_receptors'].item()==1.
+        assert not summary['significant_nominal'].item() and not summary['significant_bh'].item()
+        assert summary['q_count'].item()==1. and not summary['significant_bh_count'].item()
+        mocks=pl.read_parquet(tmp_path/'result.mocks.parquet')
+        if chain_mode=='all':mocks=mocks.filter(pl.col('chain_mode')=='union')
+        assert mocks.height==200 and mocks['mock_receptors'].to_list()==[1]*200
     manifest=json.loads((tmp_path/'result.manifest.json').read_text())
     assert manifest['null']=='reference' and manifest['inputs_frozen'] and manifest['source_frozen']
     if chain_mode=='all':assert manifest['models']['TRB']['source']=='isalgo'
@@ -277,8 +279,7 @@ def test_exact_reference_panel_counts_preserve_source_rows_and_reads():
     out=exact_reference_counts(obs,panels)
     assert out.select('group_id','replicate','matched_records','matched_reads').rows()==[
         ('X',-1,2,10),('X',0,1,4),('X',1,0,0),('Y',-1,0,0)]
-    with pytest.raises(ValueError,match='unique'):
-        exact_reference_counts(obs,pl.concat([panels,panels.head(1)]))
+    assert exact_reference_counts(obs,pl.concat([panels,panels.head(1)])).equals(out)
     with pytest.raises(ValueError,match='nonnegative'):
         exact_reference_counts(obs.with_columns(pl.lit(-1).alias('count')),panels)
 

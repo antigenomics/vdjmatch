@@ -2639,21 +2639,23 @@ full MHC context remains separate. Exact annotation hits remain included.
 
 Three reference mock laws are available:
 
-* ``pgen`` samples distinct control junction/V/J keys without replacement within
-  each target's exact Pgen bins, excluding known complete target keys.
+* ``pgen`` draws from pre-binned control event slots with replacement. Reference
+  Pgen below the smallest control bin uses that smallest bin. Repeated
+  clonotypes and incidental target-key matches remain eligible.
 * ``pgen-vj`` additionally retains the source V/J composition in each bin.
 * ``pgen-different-v`` changes each source V and excludes every junction in that
   target. Source-V strata are visited in fresh random order; eligible keys are
   sampled without replacement. This sequential conditional law is not uniform
   over every possible constrained assignment.
 
-The controls' read/event weights are not sampling weights in this mode. Different
+For ``pgen``, event multiplicities are retained; read abundance is not a control-event weight. Conditional policies retain their distinct-key sampling. Different
 receptor identities do not guarantee absence of a similar motif: random motif
-neighbours remain eligible. Missing or insufficient strata produce explicit
+neighbours remain eligible. Infeasible conditional policies produce explicit
 ``untestable_null`` target rows with a reason. Observed hits remain available;
 null summaries, P/q-values and binary calls are missing. These hypotheses remain
-nonrejectable members of the declared BH family. Bins are never widened. The
-same mock corpora are drawn for every sample using stable target identities and
+nonrejectable members of the declared BH family. The ``pgen`` lower-bin clipping
+is specified above; conditional policies do not widen bins. The same mock
+corpora are drawn for every sample using a fixed seed and
 separate locus streams, supporting a consistent longitudinal comparison.
 
 ``--significance none`` (default) emits no binary call. ``nominal`` uses the
@@ -2822,8 +2824,9 @@ Metadata requires ``sample_id,path``. Repeated ``--fdr-group COLUMN`` options
 select metadata-defined BH families within each target. Default target labels
 retain full pMHC; ``--pool-mhc`` explicitly reproduces the original epitope
 union. ``--sampler r`` requires Rscript and reproduces base-R sampling for one
-target, preserving probe order. The default NumPy sampler has the same uniform
-stratified sampling law but does not promise identical seeded draws to R.
+target, preserving probe order. The NumPy sampler uses pre-binned event slots with replacement and clips
+reference values below the control minimum to that minimum bin. The R sampler
+retains the historical distinct-key law and seeded reproduction.
 
 Both record and read endpoints include complete-zero empirical tails, nominal
 P<0.05 and BH q<0.1 positive-enrichment calls. Separate ``original_*`` columns
@@ -2832,15 +2835,6 @@ standard deviations, log2(reads+1) effects and significance calculation.
 They are reproduction diagnostics, not interchangeable with complete-zero tails.
 Fresh counts, summary, V/J audit, reference-bin audit and input/source provenance
 are exported. No calculated mock panels are reused between invocations.
-
-With ``--allow-unavailable-null``, the NumPy sampler retains targets whose
-exact-bin controls are insufficient. Their observed counts and denominators
-remain in the exports, with ``null_status=unavailable``, the required/available
-control counts in ``null_reason``, zero mock replicates and missing inference.
-P-values, q-values, effects and call flags remain missing for these targets.
-``null-availability.tsv`` records each target disposition. The default still
-raises on insufficient controls; this option does not merge bins, sample with
-replacement or change the null law.
 
 ``--selection-q`` scales generation mass through
 ``vdjtools.model.selection.selection_mass`` before the V/J correction and binning.
