@@ -536,14 +536,14 @@ def test_family_count_threshold_matches_existing_alignment_api(family):
     control=ref.drop('group_id').with_columns(pl.Series('junction_aa',['CARRF','CAYYF','CWWWF']))
     matrix=load_vdjam() if family.endswith('weighted') else None
     scale=400. if matrix is not None else 1.
-    for cutoff in [0., .5, 1.]:
-        options=dict(replicates=2,seed=7,trb_matcher=family,trb_radius_factor=cutoff,chain_mode='trb')
+    for cutoff in [0., .29, .5, 1.]:
+        options=dict(replicates=2,seed=7,mismatches=3,trb_matcher=family,trb_radius_factor=cutoff,chain_mode='trb')
         summary,mocks,hits=reference_enrichment(sample,ref,{'TRB':control},**options)
         panels=[ref,*iter_epitope_mocks(ref,control,replicates=2,seed=8,policy='pgen')]
         expected=[]
         for panel in panels:
             ann=Annotator.from_frame(panel.rename({'junction_aa':'cdr3','locus':'gene'}).with_columns(pl.lit('X').alias('epitope')))
-            candidates=ann.graded_candidates(sample,matrix=matrix,max_radius=1,match_v=family.startswith('v-'))
+            candidates=ann.graded_candidates(sample,matrix=matrix,max_radius=3,match_v=family.startswith('v-')).filter(pl.col('radius')==3)
             ids=candidates.filter(pl.col('nearest_score')/scale<=cutoff)['query_id']
             accepted=sample.with_row_index('query_id').filter(pl.col('query_id').is_in(ids.implode()))
             expected.append((accepted.height,accepted['count'].sum()))

@@ -91,7 +91,14 @@ def graded_family_params(family, radius, radius_factor):
     if radius_factor is None or isinstance(radius_factor, bool) or not math.isfinite(radius_factor) or radius_factor < 0:
         raise ValueError('graded family requires a finite nonnegative dimensionless radius factor')
     weighted = family.endswith('weighted')
-    return graded_search_params(radius, load_vdjam() if weighted else None), 400. if weighted else 1.
+    scale = 400. if weighted else 1.
+    params = graded_search_params(radius, load_vdjam() if weighted else None)
+    budget = scale * radius_factor
+    if 0 < budget < 2**31:
+        # Round outward; the caller retains the exact normalized comparison.
+        # Native zero means unbounded, so zero-cutoff searches stay post-filtered.
+        params.max_penalty = math.ceil(budget)
+    return params, scale
 
 
 def blosum_radius_params(matcher, radius_factor, length):
