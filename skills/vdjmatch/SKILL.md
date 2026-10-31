@@ -597,7 +597,10 @@ null calibration require explicit authorization; no Pgen result caches.
 ### Graded-family M3 count endpoint
 
 `unit`, `v-unit`, `weighted`, `v-weighted` are supported chain matchers. Reuse
-`graded_family_params` and `Annotator.candidates`; do not duplicate native matching.
+`graded_family_params` for the shared geometry. Flexible counts use
+`Annotator.target_memberships`; bulk `exact_reference_counts` reuses the existing
+repertoire-indexed native batch and shared gene-imputation helper. Do not
+reimplement distances, gene matching or candidate rankings for this endpoint.
 An explicit chain radius factor bounds nearest individual cost / scale (1 unit,
 400 weighted), with `--mismatches` the1–3edit ceiling. No NED sum or soft-V weight
 enters this threshold. Count each qualifying receptor/abundance once through the
