@@ -594,6 +594,13 @@ across chains and reducers. Retain full pMHC, HLA compatibility, orphan chains,
 zero hits, unavailable nulls and receptor/cell denominators. New comparisons or
 null calibration require explicit authorization; no Pgen result caches.
 
+Keep the matching V predicate separate from null composition correction. The
+historical bulk correction adjusts J usage conditional on V; marginal V usage
+is a different factor. Its sample list changes the pooled V/J correction and
+mock strata, so one-library versus whole-cohort mocks are not a thread-parity
+test. Compare conditioning choices with the matcher fixed and apply common
+final donor/day FDR families to the exported CLI P-values.
+
 ### Graded-family M3 count endpoint
 
 `unit`, `v-unit`, `weighted`, `v-weighted` are supported chain matchers. Reuse

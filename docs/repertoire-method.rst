@@ -226,10 +226,24 @@ results favour enforcing V for this exact-junction bulk endpoint; they do not
 assume that cross-V recognition is impossible. The separate day-1 read call
 remains in the complete record.
 
-The remaining four-family bound comparisons are running. An isolated fuzzy-V
-contrast remains a proposal: keep the junction rule and other settings fixed,
-and apply the V rule identically to real and mock panels. Preserve raw missing
-gene status and imputation; imputed equality is not an observed gene call.
+The fourteen-setting bulk comparison is complete under its fixed pooled null.
+Hard-V weighted bounds 0.1 and 0.2 preserve every exact-baseline call; none of
+these settings improves on the recorded positional BLOSUM62 bound-0.30 result.
+An isolated fuzzy-V contrast remains a proposal: keep the junction rule and
+other settings fixed, and apply the V rule identically to real and mock panels.
+Preserve raw missing gene status and imputation; imputed equality is not an
+observed gene call.
+
+V matching and V-usage correction are separate decisions. The historical bulk
+correction is ``P_sample(J|V) / P_model(J|V)``, with add-one frequencies on the
+declared V/J support. It adjusts J usage within V. A joint-frequency correction
+would multiply this ratio by ``P_sample(V) / P_model(V)``. This identity follows
+from ``P(V,J) = P(J|V) P(V)``; it does not establish which null best represents
+the biological background. Pooling samples versus fitting each sample also
+changes those frequencies and hence the Pgen strata and mock law. Compare those
+choices with matching held fixed, preserving observed counts and common final
+FDR families. The separate sample-specific comparison is in progress; it does
+not change the accepted pooled results or introduce a marginal-V correction.
 
 When can hard V equality be optimal?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
