@@ -520,7 +520,7 @@ Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, `gapblock`,
 Its fixed scope is3substitutions/noindels; V is exact, J exact in bulk and
 optional for reference-null. Reuse `match.scope.blosum_radius_params` and the
 existing positional profile. Never expose raw matrix penalty cutoffs.
-Keep calibrated scorer parameters fixed; select only dimensionless score thresholds.
+Keep calibrated parameters fixed; select dimensionless kernel-score cutoffs or normalized BLOSUM radii.
 Pass full peptide/MHC metadata into fuzzy reference models; never rename a
 serialized pMHC group ID as the peptide, which changes background membership.
 Use production V geometry imputation; do not drop unresolved reference rows.
