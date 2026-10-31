@@ -449,3 +449,26 @@ def test_bulk_uses_existing_positional_search_predicate():
     panels=obs.head(1).drop('count').with_columns(pl.lit('X').alias('group_id'),pl.lit(-1).alias('replicate'))
     result=exact_reference_counts(obs,panels,matcher='hamming',mismatches=3,matrix='blosum62',position_significance=True,max_penalty=2000)
     assert result.select('matched_records','matched_reads').row(0)==(2,5)
+
+
+def test_positional_panel_counts_match_brute_force_with_overlaps_and_lengths():
+    from seqtree import amino_acids
+    from vdjmatch.match.regions import significance_pssm
+    from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
+    obs=pl.DataFrame(dict(junction_aa=['CASSIIDAYEQYF','CASSIIDAYEQYF','CASSMMDAYEQYF','CASSIIDAYEQYFF','CASSIIDAYEQYF','CASSIIDAYEQYF'],v=['TRBV19']*5+['TRBV7-9'],j=['TRBJ2-7']*4+['TRBJ1-1','TRBJ2-7'],count=[2,3,5,7,11,13]))
+    panels=pl.DataFrame(dict(group_id=['X','X','X','X','Y'],replicate=[-1,-1,-1,0,0],junction_aa=['CASSIIDAYEQYF','CASSMIDAYEQYF','CASSIIDAYEQYFF','CASSMMDAYEQYF','CWWWWWWWWWWWF'],v=['TRBV19']*5,j=['TRBJ2-7']*5))
+    alphabet=amino_acids();expected=[]
+    for (group,replicate),part in panels.partition_by('group_id','replicate',as_dict=True).items():
+        selected=[]
+        for row in obs.iter_rows(named=True):
+            for ref in part.iter_rows(named=True):
+                if (row['v'],row['j'])!=(ref['v'],ref['j']):continue
+                a,b=row['junction_aa'],ref['junction_aa']
+                if len(a)!=len(b) or sum(x!=y for x,y in zip(a,b))>3:continue
+                matrix=significance_pssm(len(a))
+                if sum(matrix.penalty(i,alphabet.index(x),alphabet.index(y)) for i,(x,y) in enumerate(zip(a,b)))<=2000:
+                    selected.append(row);break
+        expected.append((group,replicate,len(selected),sum(r['count'] for r in selected)))
+    for threads in [1,2]:
+        result=exact_reference_counts(obs,panels,matcher='hamming',mismatches=3,matrix='blosum62',position_significance=True,max_penalty=2000,threads=threads)
+        assert result.rows()==sorted(expected)
