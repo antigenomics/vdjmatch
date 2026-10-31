@@ -93,6 +93,9 @@ def graded_family_params(family, radius, radius_factor):
     weighted = family.endswith('weighted')
     scale = 400. if weighted else 1.
     params = graded_search_params(radius, load_vdjam() if weighted else None)
+    if not weighted and radius_factor < 1:
+        # Every nonidentity unit edit costs at least one: use native exact search.
+        params.max_subs = params.max_ins = params.max_dels = params.max_total_edits = 0
     budget = scale * radius_factor
     if 0 < budget < 2**31:
         # Round outward; the caller retains the exact normalized comparison.

@@ -232,6 +232,7 @@ def test_bulk_reverse_search_matches_forward_memberships(family):
     ann=Annotator.from_frame(model)
     for cutoff in [0.,.29,.5,1.,2.]:
         params,scale=graded_family_params(family,3,cutoff)
+        if family.endswith('unit') and cutoff<1:assert params.max_total_edits==0
         expected=ann.target_memberships(obs.with_columns(pl.lit('TRB').alias('locus')),scope=params,max_score=cutoff,
             score_scale=scale,match_v=family.startswith('v-'),match_j=True,species='human')
         got=exact_reference_counts(obs,panels,matcher=family,mismatches=3,radius_factor=cutoff)
