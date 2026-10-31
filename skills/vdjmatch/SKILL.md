@@ -5,6 +5,20 @@ description: Annotate single or paired TCR repertoires against VDJdb with the vd
 
 # VDJmatch repertoire annotation
 
+## Read before selecting a scorer
+
+Read [the accepted scoring evidence](../../README.md#scoring-what-works-and-what-doesnt)
+and [score definitions](../../docs/scoring.rst) before choosing a fuzzy mode.
+Preserve one-mismatch matching; prioritize BLOSUM62 and the established
+end-anchored positional-BLOSUM62 recipe. Data-derived VDJAM underperformed
+BLOSUM62. VDJAMr means genetic-code substitution accessibility, a different
+comparator; neither is a reason to introduce a chemistry-driven replacement.
+Reuse `match.regions.significance_weights/significance_pssm` and the existing
+historical matcher. Mode availability is not evidence of improved accuracy.
+Keep penalties, full kernel scores and sample-level P-values separate.
+Positive kernel support alone is not a calibrated precision threshold, and
+nominal-radius pruning drops its outer-ladder contributions.
+
 `reference-structure --control` exports length KL(reference||control) and
 equal-mixture Jensen–Shannon divergence in bits per junction/V/J key in
 `.spectratype.tsv`. Unsupported control lengths give infinite KL; JS remains
@@ -49,7 +63,7 @@ Permutation/matched-control envelopes are not Efron bootstrap CIs.
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)
 for advanced scorers. Run `vdjmatch annotate --help` to verify installed options.
-Use released `seqtree>=1.3.2` and `vdjtools>=5.4.0` for native search and ingestion.
+Use released `seqtree>=1.3.2` and `vdjtools>=5.5.0` for native search and ingestion.
 Version 0.6.0 defaults to `--reference-population curated-benchmark`, the manuscript
 primary population. Preserve `--reference-population all-valid` for the accepted
 all-valid baseline. Curation excludes KLGGALQAK and PMID 40498839 source records;
@@ -437,7 +451,11 @@ Do not claim these laws equivalent or motif-free. Controls are distinct keys,
 not read/event-weighted. Exact Pgen bins cannot be widened or source rows dropped.
 `--pgen-features` accepts validated durable model inputs, never predictions.
 
-Bulk counts use unique junction/V/J identities and summed abundance. For
+Bulk counts default to unique junction/V/J identities and summed abundance.
+`--single-chain-unit source-row` retains each input clonotype row, including
+distinct nucleotide clonotypes sharing one amino-acid junction/V/J key.
+Choose the experimental counting unit before comparing cohorts; abundance
+is unchanged. The manifest records `receptor_identity`. For
 `--locus paired`, every long-form chain row needs pair_id and consistent count;
 `--control` supplies TRB and `--control-tra` TRA. Any-chain target support counts
 once per receptor, including orphans and unlinked marginal references. This
@@ -501,6 +519,9 @@ mock panel. Use `--trb-matcher stem4 --chain-mode intersection` for the reverse
 asymmetric comparison. Cutoffs require calibration for their own kernel and
 locus; positive support alone is not calibrated binding confidence. Defaults
 remain Hamming on both chains. Full reference models are preserved.
+`--epitope` restricts reported cases only; the complete eligible reference and
+all seeded mock panels remain unchanged. The API uses `target_groups` for
+this selection. BH still applies to the explicitly selected testing family.
 
 `--chain-mode all` computes the four chain rules from the same native searches and mock draws.
 Summary, mock and hit tables include a chain_mode column. BH correction is

@@ -2829,6 +2829,8 @@ receptor counts/abundance under the chosen combined rule, not individual binding
 
 Both ``--tra-matcher`` and ``--trb-matcher`` accept ``hamming``, ``stem4``
 or ``gapblock``. Either or both chains may use a fuzzy kernel.
+See :doc:`scoring` for the accepted BLOSUM62/positional-weighting evidence
+and the distinction between positive kernel support and calibrated matching.
 ``--tra-min-score`` and ``--trb-min-score`` require finite nonnegative values;
 support requires a score strictly greater than the selected bound (default zero).
 Nonzero cutoffs are rejected for Hamming arms. Real and mock panels use identical

@@ -391,6 +391,14 @@ These new modes require seqtree1.0.2; see the CLI reference for scoring and null
 
 ## Scoring: what works (and what doesn't)
 
+For new fuzzy-matching comparisons, start from the established BLOSUM62 and
+end-anchored positional-BLOSUM62 implementations. Keep the one-mismatch baseline.
+The genetic-code substitution-accessibility comparator **VDJAMr** is distinct
+from the data-derived **VDJAM** matrix; the evidence below does not recommend
+VDJAM or a chemistry-driven replacement. An available experimental mode is not
+evidence that it improves matching. Reuse the recorded comparisons before
+proposing another matrix.
+
 An empirical study on VDJdb (see `appendix/vdjmatch_scoring.tex`; regenerated on the **2026-06-11-ZENODO**
 release with composition controls and balanced metrics) settles the scoring question honestly:
 
