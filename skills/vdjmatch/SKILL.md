@@ -589,7 +589,10 @@ separately; kernel geometry is not a V-only contrast. Apply matching identically
 to observed and mock panels. Interpret statistics at sample-chain/epitope-chain
 level; retain paired/union outputs as descriptive. Fisher's -2 sum log P is an
 evidence score here, with target count and component tests, not a calibrated
-exposure P-value. Do not select only significant components or duplicate evidence
+exposure P-value. The existing exporter sets nonpositive-excess terms to 1 and
+takes the minimum over compatible HLA entries per peptide; k includes peptides
+with P=1. That within-peptide selection is not calibrated by peptide independence.
+Do not select only significant components or duplicate evidence
 across chains and reducers. Retain full pMHC, HLA compatibility, orphan chains,
 zero hits, unavailable nulls and receptor/cell denominators. New comparisons or
 null calibration require explicit authorization; no Pgen result caches.

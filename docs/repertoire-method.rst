@@ -64,6 +64,42 @@ endpoints. Technical replicas are not independent donors.
 Recommended choices from completed M3 comparisons
 -------------------------------------------------
 
+.. list-table:: Current recorded operating choices
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * - Property
+     - Bulk longitudinal cohort
+     - Paired single-cell cohort
+   * - Shipping command
+     - repertoire-exact
+     - repertoire-enrichment --null reference
+   * - Current cohort choice
+     - positional-blosum62, radius factor 0.30
+     - Hamming <=1 substitution on each chain
+   * - V / J predicates
+     - Gene equality for both V and J
+     - Gene equality for V; J equality off
+   * - Count units
+     - Source rows and reads, once per panel
+     - Unique sample-receptors and cell abundance, once per target
+   * - Pgen / composition
+     - Exact joint olga-legacy, Q=1; pooled J|V correction
+     - Exact marginal isalgo; fixed pgen-matched reference null
+   * - Mock settings
+     - 200 replicates, seed 42
+     - 200 replicates, seed 42
+   * - Reported decision
+     - Original conditional tail, donor/day BH q<0.10 and positive effect
+     - Chain nominal P<0.05 with positive excess; cohort BH retained
+   * - Observed coverage
+     - 5/7 day15 libraries by rows, 7/7 by reads; 0/12 day0
+     - 5/6 day14 donors, 6/6 ever post; 0/6 baseline, paired descriptive heuristic
+
+These settings reproduce the currently strongest recorded cohort endpoints.
+They are not promoted software defaults; the paired four-family comparison
+must finish before its final recommendation is selected.
+
 There is no single matching setting demonstrated optimal across both cohorts.
 For the bulk longitudinal cohort, positional BLOSUM62 radius factor 0.30 improved
 significant day15 clonotype libraries from 4/7 to 5/7 while retaining 7/7 read
@@ -307,6 +343,17 @@ single-chain coverage and orphan receptors. Neither is a calibrated exposure
 P-value in the current manuscript interpretation. Sum counts only after
 receptor deduplication: one receptor matching several epitopes must not become
 several observed cells in an exposure denominator.
+
+The actual exposure exporter first restricts each sample to compatible COVID
+pMHC tests with available chain inference. For peptide i and compatible HLA
+entry h, let p_ih be its empirical chain tail and e_ih its observed excess.
+It sets u_ih=p_ih when e_ih>0, and u_ih=1 otherwise, then uses
+p_i=min_h(u_ih) over available HLA entries for that peptide. A peptide with
+only nonpositive excess remains present with p_i=1 and contributes zero to
+the sum. The exported k counts all retained peptides, including those terms;
+unavailable tests remain explicit. This minimum is a selection within each
+peptide, so independence between peptide labels alone cannot give p_i a
+uniform null distribution. No HLA-minimum correction is applied or implied.
 
 For evidence from k distinct epitopes, Fisher's score is
 T=-2 sum(log(p_i)), where p_i are the specified chain-level P-values. Under
