@@ -2804,6 +2804,12 @@ matched count; abundance is unchanged. The manifest records ``receptor_identity`
 This option requires the reference null and is rejected for paired inputs, whose
 identity remains ``pair_id``.
 
+Target selection with ``--epitope`` restricts reported cases only. The complete
+eligible reference remains the fuzzy scoring model, and mock panels are drawn
+for that same complete population. Selecting a target therefore preserves its
+raw score and empirical tail probability from an otherwise identical all-target
+run. BH correction still uses the explicitly selected testing family.
+
 The chosen rule is applied to real and every mock panel through
 ``vdjtools.sc.chain_support``. Union retains orphan support; intersection requires
 both chains of the same observed receptor to support the same full target.

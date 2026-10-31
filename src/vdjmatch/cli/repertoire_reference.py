@@ -135,9 +135,9 @@ def main(a):
     if a.epitope:
         missing=set(a.epitope)-set(reference['epitope'])
         if missing:raise ValueError(f'requested epitopes absent from reference: {sorted(missing)}')
-        reference=reference.filter(pl.col('epitope').is_in(a.epitope))
     if not reference.height:raise ValueError('no eligible reference records')
     inventory=reference.select(PMHC).unique().sort(PMHC,nulls_last=True).with_columns(pl.struct(PMHC).struct.json_encode().alias('group_id'))
+    target_groups=inventory.filter(pl.col('epitope').is_in(a.epitope))['group_id'].to_list() if a.epitope else None
     reference=reference.join(inventory,on=PMHC,validate='m:1',nulls_equal=True)
     pools={};ref_parts=[];audits=[];prepared={};stages={}
     for locus in loci:
@@ -170,7 +170,7 @@ def main(a):
         if a.batch_samples:
             cohort.append(obs.with_columns(pl.lit(sample).alias('sample_id')))
         else:
-            summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,progress=progress)
+            summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,target_groups=target_groups,progress=progress)
             summaries.append(summary.with_columns(pl.lit(sample).alias('sample_id')))
             mocks.append(mock.with_columns(pl.lit(sample).alias('sample_id')))
             hits.append(hit.with_columns(pl.lit(sample).alias('sample_id')))
@@ -181,7 +181,7 @@ def main(a):
         t=time.monotonic()
         def cohort_progress(stage,replicate):
             print(f'cohort: {stage} {replicate} after {time.monotonic()-t:.3f}s',flush=True)
-        summary,mock,hit=reference_enrichment(pl.concat(cohort),ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,progress=cohort_progress)
+        summary,mock,hit=reference_enrichment(pl.concat(cohort),ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,trb_matcher=a.trb_matcher,tra_min_score=a.tra_min_score,trb_min_score=a.trb_min_score,species=a.species,target_groups=target_groups,progress=cohort_progress)
         summaries.append(summary);mocks.append(mock);hits.append(hit)
         stages['cohort_seconds']=time.monotonic()-t
     summary=pl.concat(summaries)
@@ -210,6 +210,7 @@ def main(a):
         models=models,prepared_pgen=prepared,software={n:version(n) for n in ['vdjmatch','vdjtools','seqtree','polars','numpy','scipy']},
         options=vars(a)|{'func':a.func.__name__},reference_population=population,counting_unit='unique receptor identity',
         receptor_identity=('pair_id' if a.locus=='paired' else a.single_chain_unit),
+        target_selection='output cases only; complete eligible reference and mock panels retained',
         paired_rule=f'{a.chain_mode} of available chain supports, counted once per receptor/target; same rule in real and mock panels',
         matchers={locus:(f'Hamming<={a.mismatches}, exact V'+(', exact J' if a.match_j else '') if matcher=='hamming' else matcher) for locus,matcher in [('TRA',a.tra_matcher),('TRB',a.trb_matcher)]},
         pgen_definition=f'marginal full-junction Hamming<={a.pgen_mismatches}; rounded log2(Pgen+2**-60)',

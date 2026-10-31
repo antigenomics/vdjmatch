@@ -129,7 +129,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                          controls: dict[str, pl.DataFrame], *, replicates: int = 200,
                          seed: int = 0, policy: str = 'pgen', threads: int = 1,
                          mismatches: int = 1, match_j: bool = False, chain_mode: str = "union",
-                         tra_matcher: str = "hamming", trb_matcher: str = "hamming", tra_min_score: float = 0., trb_min_score: float = 0., species: str = "human", progress=None):
+                         tra_matcher: str = "hamming", trb_matcher: str = "hamming", tra_min_score: float = 0., trb_min_score: float = 0., species: str = "human", target_groups=None, progress=None):
     """Test a fixed repertoire against fresh Pgen-matched mock target corpora.
 
     Observations: receptor_id/locus/junction_aa/v/j/count. Multiple chains with
@@ -149,6 +149,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     then include chain_mode. No query Pgen is required.
     Optional sample_id batches an in-memory cohort with identical seeded mock
     panels and shared native searches; receptor IDs remain local to each sample.
+    target_groups restricts reported targets, never reference models or mock draws.
     """
     from seqtree import Index
     from ..match.scope import search_params
@@ -196,6 +197,10 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
             raise ValueError('valid full-junction amino acid sequences required')
     modes=['tra','trb','union','intersection'] if chain_mode=='all' else [chain_mode]
     inventory=ref.select('group_id').unique().sort('group_id')
+    if target_groups is not None:
+        if not target_groups or not set(target_groups)<=set(inventory['group_id']):
+            raise ValueError('target_groups must be a nonempty subset of reference groups')
+        inventory=inventory.filter(pl.col('group_id').is_in(target_groups))
     if chain_mode=='all':inventory=inventory.join(pl.DataFrame({'chain_mode':modes}),how='cross')
     if cohort:
         inventory=inventory.join(identities.select('sample_id').unique().sort('sample_id'),how='cross')
@@ -234,12 +239,18 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                     pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
                 def collect(name,frame):
                     scored.append(frame.filter(pl.col('kernel_score')>cutoffs[locus]).select('query_id',pl.col('epitope').alias('group_id'),pl.col('kernel_score').alias('chain_score')))
+                cases=None
                 if anchored:
                     if not parts:continue
                     cases=pl.concat(parts).select('receptor_id','group_id').unique().join(
                         fuzzy_queries.select('query_id','receptor_id'),on='receptor_id',validate='m:m').select(
                         'query_id',pl.col('group_id').alias('epitope')).with_columns(
                         pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
+                elif target_groups is not None:
+                    cases=fuzzy_queries.select('query_id').join(
+                        inventory.select(pl.col('group_id').alias('epitope')).unique(),how='cross').with_columns(
+                        pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
+                if cases is not None:
                     if not cases.height:continue
                     queries=fuzzy_queries.join(cases.select('query_id').unique(),on='query_id',how='semi')
                     result=_kernel(queries,kernel_reference,cases,species=species,threads=threads,paired=False,
@@ -253,6 +264,9 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                     columns=['receptor_id','group_id','locus']+(['junction_aa','v','j','chain_score'] if detailed else [])
                     parts.append(supported.select(columns).unique())
                 continue
+            if target_groups is not None:
+                targets=targets.filter(pl.col('group_id').is_in(target_groups))
+                if not targets.height:continue
             keys=targets.select('junction_aa').unique().sort('junction_aa').with_row_index('_qi')
             roles=targets.join(keys,on='junction_aa',validate='m:1').select('_qi','group_id',
                 pl.col('v').str.replace(r'\*.*$','').alias('_match_v'),pl.col('j').str.replace(r'\*.*$','').alias('_match_j'))

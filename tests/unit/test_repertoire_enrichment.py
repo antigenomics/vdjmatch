@@ -4,6 +4,22 @@ import pytest
 from vdjmatch.aggregate.repertoire_enrichment import matched_enrichment
 
 
+def test_requested_targets_preserve_full_fuzzy_model_and_mock_draws():
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    sample=pl.DataFrame(dict(receptor_id=['q'],locus=['TRB'],junction_aa=['CASSLGRAYEQYF'],
+        v=['TRBV19*01'],j=['TRBJ2-7*01'],count=[3]))
+    reference=pl.DataFrame(dict(group_id=['X','Y'],locus=['TRB']*2,
+        junction_aa=['CASSLGQAYEQYF','CASSLGRAYEQYF'],v=['TRBV19*01']*2,j=['TRBJ2-7*01']*2,pgen_bin=[-10]*2))
+    controls={'TRB':reference.drop('group_id')}
+    options=dict(replicates=2,trb_matcher='stem4',chain_mode='trb')
+    full=reference_enrichment(sample,reference,controls,**options)
+    selected=reference_enrichment(sample,reference,controls,target_groups=['X'],**options)
+    for all_rows,selected_rows in zip(full,selected):
+        assert all_rows.filter(pl.col('group_id')=='X').equals(selected_rows)
+    truncated=reference_enrichment(sample,reference.head(1),controls,**options)
+    assert selected[2]['chain_score'].item()<truncated[2]['chain_score'].item()
+
+
 def test_single_chain_source_rows_preserve_clonotype_endpoint():
     from vdjmatch.cli.repertoire_reference import _observations
     from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
