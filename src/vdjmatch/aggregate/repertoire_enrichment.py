@@ -146,6 +146,8 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     chain_score is retained alongside strict-chain indicators, not a probability.
     chain_mode=all reuses searches and mock draws for all four reducers; outputs
     then include chain_mode. No query Pgen is required.
+    Optional sample_id batches an in-memory cohort with identical seeded mock
+    panels and shared native searches; receptor IDs remain local to each sample.
     """
     from seqtree import Index
     from ..match.scope import search_params
@@ -160,6 +162,13 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     required={'receptor_id','locus','junction_aa','v','j','count'}
     if not required <= set(observations.columns) or not observations.height:
         raise ValueError('nonempty observations with receptor identities, chain keys and counts required')
+    cohort = 'sample_id' in observations.columns
+    if cohort:
+        if observations['sample_id'].null_count() or observations['sample_id'].cast(pl.String).str.strip_chars().eq('').any():
+            raise ValueError('sample_id cannot be missing')
+        identities = observations.select('sample_id','receptor_id').unique().with_columns(
+            pl.struct('sample_id','receptor_id').struct.json_encode().alias('_cohort_id'))
+        observations = observations.join(identities,on=['sample_id','receptor_id'],validate='m:1').drop('receptor_id').rename({'_cohort_id':'receptor_id'})
     obs=observations.select(sorted(required)).with_columns(_integer_count('count').alias('count'))
     if any(obs[c].null_count() for c in required) or (obs['count']<0).any():
         raise ValueError('non-null receptor keys and nonnegative integer counts required')
@@ -179,6 +188,9 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     modes=['tra','trb','union','intersection'] if chain_mode=='all' else [chain_mode]
     inventory=ref.select('group_id').unique().sort('group_id')
     if chain_mode=='all':inventory=inventory.join(pl.DataFrame({'chain_mode':modes}),how='cross')
+    if cohort:
+        inventory=inventory.join(identities.select('sample_id').unique().sort('sample_id'),how='cross')
+        totals=totals.join(identities.select(pl.col('_cohort_id').alias('receptor_id'),'sample_id'),on='receptor_id',validate='1:1')
     inventory=inventory.with_row_index('_target')
     indexes={};samplers={};unavailable=[]
     for (locus,),part in obs.partition_by('locus',as_dict=True).items():
@@ -240,7 +252,7 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         aggregates=[];details=[]
         for mode in modes:
             selected=support.filter(pl.col(mode+'_supported')).select('receptor_id','group_id')
-            aggregate=selected.join(totals.select('receptor_id','count'),on='receptor_id',validate='m:1').group_by('group_id').agg(pl.len().cast(pl.Int64).alias('receptors'),pl.col('count').sum())
+            aggregate=selected.join(totals.select('receptor_id','count',*(['sample_id'] if cohort else [])),on='receptor_id',validate='m:1').group_by('group_id',*(['sample_id'] if cohort else [])).agg(pl.len().cast(pl.Int64).alias('receptors'),pl.col('count').sum())
             if chain_mode=='all':aggregate=aggregate.with_columns(pl.lit(mode).alias('chain_mode'))
             aggregates.append(aggregate)
             if detailed:
@@ -249,7 +261,8 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                 if chain_mode=='all':detail=detail.with_columns(pl.lit(mode).alias('chain_mode'))
                 details.append(detail)
         keys=['group_id','chain_mode'] if chain_mode=='all' else ['group_id']
-        hits=pl.concat(details).sort('receptor_id',*keys,'locus') if detailed else empty
+        if cohort:keys.append('sample_id')
+        hits=pl.concat(details).sort('receptor_id','group_id','locus') if detailed else empty
         values=inventory.join(pl.concat(aggregates),on=keys,how='left',validate='1:1').fill_null(0).sort('_target')
         return values['receptors'].to_numpy(),values['count'].to_numpy(),hits
     actual,abundance,hits=measure(ref,detailed=True)
@@ -260,7 +273,12 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         if b==0 and progress is not None:progress('first_mock_draw',1)
         null[b,:,0],null[b,:,1],_=measure(population)
         if progress is not None and ((b+1)%20==0 or b+1==replicates):progress('mock',b+1)
-    summary=inventory.drop('_target').with_columns(pl.lit(totals.height).alias('n_receptors'),pl.lit(total_count).alias('total_count'))
+    if cohort:
+        denominators=totals.group_by('sample_id').agg(pl.len().alias('n_receptors'),pl.col('count').sum().alias('total_count'))
+        summary=inventory.drop('_target').join(denominators,on='sample_id',validate='m:1',maintain_order='left')
+        hits=hits.rename({'receptor_id':'_cohort_id'}).join(identities,on='_cohort_id',validate='m:1').drop('_cohort_id')
+    else:
+        summary=inventory.drop('_target').with_columns(pl.lit(totals.height).alias('n_receptors'),pl.lit(total_count).alias('total_count'))
     for name,observed,values in [('receptors',actual,null[:,:,0]),('count',abundance,null[:,:,1])]:
         mean=values.mean(axis=0)
         ratio=np.divide(observed,mean,out=np.full(len(mean),np.nan),where=mean>0)

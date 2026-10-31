@@ -529,3 +529,8 @@ coarse factors with parameter-identity checks. Omit --model-vj-counts: exact
 selected V/J marginals replace them in the residual composition correction.
 Apply the shape before AA-max, global Q once afterward. Reject external Pgen
 or legacy mixing. Raw Pgen remains unselected; profiles are explicit.
+
+For cohorts that fit in memory, reference-null ``repertoire-enrichment --batch-samples``
+shares each seeded mock draw and native search across samples. It preserves
+per-sample receptor identities, counts, null statistics and the selected BH family.
+The default still loads and processes one sample at a time.

@@ -156,19 +156,29 @@ def main(a):
         stages[locus+'_prepare_seconds']=time.monotonic()-t
         print(f'{locus}: {part.height} reference records, {control.height} distinct control keys',flush=True)
     ref=pl.concat(ref_parts)
-    summaries=[];mocks=[];hits=[];reports=[]
+    summaries=[];mocks=[];hits=[];reports=[];cohort=[]
     for number,(sample,path) in enumerate(zip(metadata['sample_id'],paths)):
         t=time.monotonic();frame,report=io.read_rearrangement(path,valid_aa=False,return_report=True)
         selected,obs=_observations(frame,locus=a.locus,species=a.species)
         def progress(stage,replicate):
             print(f'sample {number+1}/{len(paths)}: {stage} {replicate} after {time.monotonic()-t:.3f}s',flush=True)
-        summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,species=a.species,progress=progress)
-        summaries.append(summary.with_columns(pl.lit(sample).alias('sample_id')))
-        mocks.append(mock.with_columns(pl.lit(sample).alias('sample_id')))
-        hits.append(hit.with_columns(pl.lit(sample).alias('sample_id')))
+        if a.batch_samples:
+            cohort.append(obs.with_columns(pl.lit(sample).alias('sample_id')))
+        else:
+            summary,mock,hit=reference_enrichment(obs,ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,species=a.species,progress=progress)
+            summaries.append(summary.with_columns(pl.lit(sample).alias('sample_id')))
+            mocks.append(mock.with_columns(pl.lit(sample).alias('sample_id')))
+            hits.append(hit.with_columns(pl.lit(sample).alias('sample_id')))
         reports.append(dict(sample_id=sample,**report,selected_chain_rows=selected.height,excluded_rows=frame.height-selected.height,imputed_v_rows=int(selected['v_imputed'].sum()),unique_receptors=obs['receptor_id'].n_unique()))
         stages[f'sample_{number+1}_seconds']=time.monotonic()-t
         print(f'sample {number+1}/{len(paths)} complete in {stages[f"sample_{number+1}_seconds"]:.3f}s',flush=True)
+    if a.batch_samples:
+        t=time.monotonic()
+        def cohort_progress(stage,replicate):
+            print(f'cohort: {stage} {replicate} after {time.monotonic()-t:.3f}s',flush=True)
+        summary,mock,hit=reference_enrichment(pl.concat(cohort),ref,pools,replicates=a.mock_replicates,seed=a.seed,policy=a.mock_policy,threads=a.threads,mismatches=a.mismatches,match_j=a.match_j,chain_mode=a.chain_mode,tra_matcher=a.tra_matcher,species=a.species,progress=cohort_progress)
+        summaries.append(summary);mocks.append(mock);hits.append(hit)
+        stages['cohort_seconds']=time.monotonic()-t
     summary=pl.concat(summaries)
     for endpoint in ['receptors','count']:
         suffix='' if endpoint=='receptors' else '_count'

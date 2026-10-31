@@ -171,7 +171,8 @@ def test_reference_mock_enrichment_counts_receptors_once_and_retains_no_hits():
 
 @pytest.mark.parametrize("supported", [True, False])
 @pytest.mark.parametrize("chain_mode", ["union", "all"])
-def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mode):
+@pytest.mark.parametrize("batch", [False, True])
+def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mode,batch):
     import subprocess,sys,json
     from pathlib import Path
     sample=tmp_path/'sample.tsv'
@@ -183,6 +184,7 @@ def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mo
         '--null','reference','--vdjdb',str(tmp_path/'reference.tsv'),'--control',str(tmp_path/'control.tsv'),
         '--pgen-mismatches','0','--threads','1','--significance','both','--chain-mode',chain_mode,'--output-prefix',str(tmp_path/'result')]
     if chain_mode=='all':command.extend(['--model-source','isalgo'])
+    if batch:command.append('--batch-samples')
     result=subprocess.run(command,capture_output=True,text=True,timeout=30)
     assert result.returncode==0,result.stdout+result.stderr
     summary=pl.read_csv(tmp_path/'result.summary.tsv',separator='\t')

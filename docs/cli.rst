@@ -2837,3 +2837,8 @@ Reference-null significance reports both unique-receptor and abundance endpoints
 summed abundance (reads in bulk data, supplied cell counts in single-cell data).
 Existing unsuffixed call flags describe receptor counts. Each endpoint uses the
 selected correction family separately; positive excess is required for a call.
+
+For cohorts that fit in memory, reference-null ``repertoire-enrichment --batch-samples``
+shares each seeded mock draw and native search across samples. It preserves
+per-sample receptor identities, counts, null statistics and the selected BH family.
+The default still loads and processes one sample at a time.
