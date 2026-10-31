@@ -257,7 +257,13 @@ def test_reference_lookup_zero_and_one_mismatch_memberships(mismatches,expected)
     assert mocks['mock_receptors'].sum()==0
 
 
-def test_strict_beta_with_fuzzy_alpha_preserves_pairing():
+def test_strict_beta_with_fuzzy_alpha_preserves_pairing(monkeypatch):
+    from vdjmatch.runner import combined
+    original=combined._kernel;scopes=[]
+    def capture(queries,reference,cases,**options):
+        scopes.append((queries.height,cases is not None))
+        return original(queries,reference,cases,**options)
+    monkeypatch.setattr(combined,"_kernel",capture)
     from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
     sample=pl.DataFrame(dict(receptor_id=['pair','pair','beta_only','alpha_only'],locus=['TRA','TRB','TRB','TRA'],
         junction_aa=['CAVRDSNFQLIW','CASSLGRAYEQYF','CASSLGRAYEQYF','CAVRDSNFQLIW'],
@@ -272,6 +278,7 @@ def test_strict_beta_with_fuzzy_alpha_preserves_pairing():
     assert set(hits['receptor_id'])=={'pair'} and set(hits['locus'])=={'TRA','TRB'}
     assert hits.filter(pl.col('locus')=='TRA')['chain_score'].min()>0
     assert mocks['mock_receptors'].sum()==0
+    assert scopes[0]==(1,True)
     parallel=reference_enrichment(sample,reference,controls,replicates=2,threads=2,chain_mode='intersection',tra_matcher='stem4',mismatches=1)
     assert all(a.sort(a.columns).equals(b.sort(b.columns)) for a,b in zip((summary,mocks,hits),parallel))
     combined=reference_enrichment(sample,reference,controls,replicates=2,threads=1,chain_mode='all',tra_matcher='stem4')

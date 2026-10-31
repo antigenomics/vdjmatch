@@ -212,6 +212,8 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     if tra_matcher == 'stem4':empty=empty.with_columns(pl.lit(None,dtype=pl.Float64).alias('chain_score'))
     def measure(population, *, detailed=False):
         parts=[]
+        if tra_matcher=='stem4' and chain_mode=='intersection':
+            population=population.sort('locus',descending=True,maintain_order=True)
         for (locus,),targets in population.partition_by('locus',as_dict=True).items():
             if locus not in indexes:continue
             index,samples=indexes[locus]
@@ -222,8 +224,20 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                     pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
                 def collect(name,frame):
                     scored.append(frame.filter(pl.col('kernel_score')>0).select('query_id',pl.col('epitope').alias('group_id'),pl.col('kernel_score').alias('chain_score')))
-                _kernel(fuzzy_queries,kernel_reference,None,species=species,threads=threads,paired=False,
-                    exclude_exact=False,contexts=contexts,_consume=collect,kernels=('stem4',))
+                if chain_mode=='intersection':
+                    if not parts:continue
+                    cases=pl.concat(parts).select('receptor_id','group_id').unique().join(
+                        fuzzy_queries.select('query_id','receptor_id'),on='receptor_id',validate='m:m').select(
+                        'query_id',pl.col('group_id').alias('epitope')).with_columns(
+                        pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
+                    if not cases.height:continue
+                    queries=fuzzy_queries.join(cases.select('query_id').unique(),on='query_id',how='semi')
+                    result=_kernel(queries,kernel_reference,cases,species=species,threads=threads,paired=False,
+                        exclude_exact=False,contexts=contexts,kernels=('stem4',))
+                    collect('stem4',result.rename({'stem4_score':'kernel_score'}))
+                else:
+                    _kernel(fuzzy_queries,kernel_reference,None,species=species,threads=threads,paired=False,
+                        exclude_exact=False,contexts=contexts,_consume=collect,kernels=('stem4',))
                 if scored:
                     supported=pl.concat(scored).join(fuzzy_queries,on='query_id',validate='m:1').rename({'cdr3':'junction_aa'})
                     columns=['receptor_id','group_id','locus']+(['junction_aa','v','j','chain_score'] if detailed else [])
