@@ -6,8 +6,9 @@ from vdjmatch.aggregate.repertoire_enrichment import matched_enrichment
 
 def test_requested_targets_preserve_full_fuzzy_model_and_mock_draws():
     from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
-    sample=pl.DataFrame(dict(receptor_id=['q'],locus=['TRB'],junction_aa=['CASSLGRAYEQYF'],
-        v=['TRBV19*01'],j=['TRBJ2-7*01'],count=[3]))
+    sample=pl.DataFrame(dict(receptor_id=['q','outer_ladder'],locus=['TRB']*2,
+        junction_aa=['CASSLGRAYEQYF','C'+'W'*18+'F'],
+        v=['TRBV19*01']*2,j=['TRBJ2-7*01']*2,count=[3,5]))
     reference=pl.DataFrame(dict(group_id=['X','Y'],locus=['TRB']*2,
         junction_aa=['CASSLGQAYEQYF','CASSLGRAYEQYF'],v=['TRBV19*01']*2,j=['TRBJ2-7*01']*2,pgen_bin=[-10]*2))
     controls={'TRB':reference.drop('group_id')}
@@ -17,7 +18,9 @@ def test_requested_targets_preserve_full_fuzzy_model_and_mock_draws():
     for all_rows,selected_rows in zip(full,selected):
         assert all_rows.filter(pl.col('group_id')=='X').equals(selected_rows)
     truncated=reference_enrichment(sample,reference.head(1),controls,**options)
-    assert selected[2]['chain_score'].item()<truncated[2]['chain_score'].item()
+    assert selected[2].filter(pl.col('receptor_id')=='q')['chain_score'].item()<truncated[2].filter(pl.col('receptor_id')=='q')['chain_score'].item()
+    # Outer ladder support extends beyond the nominal radius and must survive.
+    assert selected[2].filter(pl.col('receptor_id')=='outer_ladder')['chain_score'].item()>0
 
 
 def test_single_chain_source_rows_preserve_clonotype_endpoint():
