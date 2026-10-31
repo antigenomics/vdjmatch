@@ -128,7 +128,7 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
         pl.col('original_supported').fill_null(False))
 
 
-def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts, _consume=None, kernels=("gapblock", "stem4"), scorer="v-bounded"):
+def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts, _consume=None, kernels=("gapblock", "stem4"), scorer="v-bounded", _targets=None):
     import numpy as np
     from ..evalue.kernel import grouped_kernel_enrichment, ladder_cutoffs, KERNEL_SCORERS
     if scorer not in KERNEL_SCORERS:raise ValueError("unknown kernel scorer")
@@ -160,7 +160,7 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
         query_keys, search_keys = ['cdr3', '_allele'], ['cdr3', '_allele']
     groups = []
     requested_groups = None if cases is None else cases.partition_by(PMHC, as_dict=True)
-    targets = (reference.select(PMHC).unique(maintain_order=True).iter_rows() if cases is None else requested_groups.keys())
+    targets = ((reference.select(PMHC).unique(maintain_order=True) if _targets is None else _targets.select(PMHC).unique()).iter_rows() if cases is None else requested_groups.keys())
     for key in targets:
         task = dict(zip(PMHC, key))
         part = r.filter(pl.all_horizontal(*[pl.col(name).eq_missing(value) for name, value in task.items()]))

@@ -168,3 +168,19 @@ def test_original_and_fuzzy_paths_share_reference_panel_sampler():
     original=sample_stratified_panels(reference,probes,replicates=200,seed=42)
     fuzzy=pl.concat(iter_epitope_mocks(reference,probes,replicates=200,seed=42,policy='pgen'))
     assert original.equals(fuzzy)
+
+
+def test_stem4_cli_uses_original_panels_and_explicit_dimensionless_threshold(tmp_path):
+    (tmp_path/'sample.tsv').write_text('junction_aa\tv\tj\tcount\nCASSIIDAYEQYF\tTRBV19\tTRBJ2-7\t2\nCASSIIDAYEQYF\tTRBV19\tTRBJ2-7\t3\nCASSMMDAYEQYF\tTRBV19\tTRBJ2-7\t7\n')
+    (tmp_path/'meta.tsv').write_text('sample_id\tpath\nS\tsample.tsv\n')
+    (tmp_path/'reference.tsv').write_text('cdr3\tgene\tv\tj\tspecies\tepitope\tmhc_a\tmhc_b\tmhc_class\nCASSIIDAYEQYF\tTRB\tTRBV19\tTRBJ2-7\tHomoSapiens\tLLWNGPMAV\tHLA-A*02:01\tB2M\tMHCI\nCWWWWWWWWWWWF\tTRB\tTRBV19\tTRBJ2-7\tHomoSapiens\tOTHER\tHLA-A*02:01\tB2M\tMHCI\n')
+    (tmp_path/'probes.tsv').write_text('junction_aa\tv\tj\tjoint_pgen\nCASSIIDAYEQYF\tTRBV19\tTRBJ2-7\t.0001\nCASSMMDAYEQYF\tTRBV19\tTRBJ2-7\t.0001\nCWWWWWWWWWWWF\tTRBV19\tTRBJ2-7\t.0001\n')
+    (tmp_path/'model.tsv').write_text('v\tj\trecords\nTRBV19\tTRBJ2-7\t100\n')
+    prefix=tmp_path/'out'
+    command=[sys.executable,'-m','vdjmatch.cli','repertoire-exact',str(tmp_path/'meta.tsv'),'--vdjdb',str(tmp_path/'reference.tsv'),'--control',str(tmp_path/'probes.tsv'),'--model-vj-counts',str(tmp_path/'model.tsv'),'--legacy','--epitope','LLWNGPMAV','--pool-mhc','--matcher','stem4','--min-score','.95','--mock-replicates','2','--threads','1','--output-prefix',str(prefix)]
+    result=subprocess.run(command,capture_output=True,text=True,timeout=30)
+    assert result.returncode==0,result.stderr
+    counts=pl.read_csv(str(prefix)+'.counts.tsv',separator='\t')
+    assert counts.height==3
+    assert counts.filter(pl.col('replicate')==-1).select('matched_records','matched_reads').row(0)==(2,5)
+    assert counts['sample_clonotypes'].to_list()==[3]*3

@@ -404,3 +404,44 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     summary=summary.with_columns(pl.when(pl.col('status')=='ok').then(pl.col(c)).otherwise(None).alias(c) for c in inferred)
     mocks=mocks.with_columns(pl.when(~pl.col('group_id').is_in(list(reasons))).then(pl.col(c)).otherwise(None).alias(c) for c in ['mock_receptors','mock_count'])
     return summary,mocks,hits
+
+
+def kernel_reference_counts(observations, panels, inventory, full_reference, *,
+                            locus, species, min_score, threads=1):
+    """Count original real/mock panels with the fixed stem4 dimensionless score.
+
+    One model per panel scores all cohort queries together. Other-peptide
+    reference records stay fixed. No query is removed from any model.
+    """
+    from ..aggregate.candidates import PMHC
+    from ..runner.combined import _kernel
+    from ..match.geometry import precompute_v_loop_distances
+    if not np.isfinite(min_score) or min_score<=0:
+        raise ValueError('stem4 requires an explicit positive dimensionless score threshold')
+    keys=['junction_aa','v','j']
+    counted=observations.group_by('sample_id',*keys).agg(
+        pl.len().cast(pl.Int64).alias('matched_records'),pl.col('count').sum().alias('matched_reads'))
+    queries=counted.select(keys).unique().sort(keys).with_row_index('query_id')
+    counted=counted.join(queries,on=keys,validate='m:1')
+    queries=queries.rename({'junction_aa':'cdr3'}).with_columns(pl.lit(locus).alias('locus'))
+    targets=inventory.select('group_id',*PMHC)
+    background=full_reference.filter(~pl.col('epitope').is_in(targets['epitope'].to_list()))
+    contexts={'blosum62':precompute_v_loop_distances(species=species,alphabet='full',matrix='blosum62',v_regions='cdr12plus')}
+    results=[]
+    for (replicate,),panel in panels.partition_by('replicate',as_dict=True).items():
+        replacement=panel.join(targets,on='group_id',validate='m:1').select(
+            pl.col('junction_aa').alias('cdr3'),'v','j',pl.lit(locus).alias('locus'),*PMHC)
+        model=pl.concat([background.select(replacement.columns),replacement])
+        members=[]
+        def consume(name,scores):
+            members.append(scores.filter(pl.col('kernel_score')>min_score).select('query_id',*PMHC))
+        _kernel(queries,model,None,species=species,threads=threads,paired=False,
+            exclude_exact=False,contexts=contexts,kernels=('stem4',),_consume=consume,_targets=targets.select(PMHC))
+        supported=pl.concat(members) if members else queries.head(0).select('query_id').join(targets.select(PMHC),how='cross')
+        support=supported.join(targets,on=PMHC,nulls_equal=True,validate='m:1').select('query_id','group_id').unique()
+        matched=support.join(counted,on='query_id',validate='m:m').group_by('sample_id','group_id').agg(pl.col('matched_records','matched_reads').sum())
+        complete=targets.select('group_id').join(observations.select('sample_id').unique(),how='cross').join(
+            matched,on=['sample_id','group_id'],how='left',validate='1:1').with_columns(
+            pl.col('matched_records','matched_reads').fill_null(0),pl.lit(replicate).alias('replicate'))
+        results.append(complete)
+    return pl.concat(results).sort('sample_id','group_id','replicate')

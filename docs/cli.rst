@@ -2757,6 +2757,16 @@ junction rows are dropped by the standard input filter before counting.
 Fuzzy kernel comparisons use the existing ``stem4`` and ``gapblock`` modes
 of reference-null ``repertoire-enrichment`` described below.
 
+``--matcher stem4 --min-score THRESHOLD`` applies the existing fixed stem4
+scorer with an explicit positive dimensionless threshold (strictly greater).
+It uses the same original joint-Pgen panels and statistical reducers as exact
+matching. All cohort queries share each real/mock model; other-peptide
+reference observations remain fixed, including conflicting metadata. Target
+selection restricts scored outputs, never the background model. The preset
+retains its existing V-loop weighting and does not add a hard J predicate.
+Exact and Hamming keep their original V/J predicates. Geometry, positional
+weights, decay and ladder parameters are not fitted by this command.
+
 The probe table contains ``junction_aa``, ``v`` and ``j``. Optional
 ``joint_pgen`` values are an explicitly supplied gene-masked probability asset;
 otherwise the command computes joint probabilities with the native model,

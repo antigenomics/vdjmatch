@@ -441,3 +441,15 @@ def test_fuzzy_same_v_reducer_preserves_model_and_excludes_cross_v_support(kerne
     assert strict[2]['receptor_id'].to_list()==['same']
     assert strict[0]['matched_count'].item()==3
     assert strict[0]['n_receptors'].item()==2
+
+
+def test_fixed_kernel_panel_counts_keep_cohort_rows_and_other_peptide_context():
+    from vdjmatch.aggregate.repertoire_enrichment import kernel_reference_counts
+    obs=pl.DataFrame(dict(sample_id=['A','A','A','B','B'],junction_aa=['CASSIIDAYEQYF','CASSIIDAYEQYF','CASSMMDAYEQYF','CASSMMDAYEQYF','CWWWWWWWWWWWF'],v=['TRBV19']*5,j=['TRBJ2-7']*5,count=[2,3,7,11,13]))
+    panels=pl.DataFrame(dict(group_id=['X','X'],replicate=[-1,0],junction_aa=['CASSIIDAYEQYF','CASSMMDAYEQYF'],v=['TRBV19']*2,j=['TRBJ2-7']*2))
+    inventory=pl.DataFrame(dict(group_id=['X'],epitope=['LLWNGPMAV'],mhc_a=['HLA-A*02:01'],mhc_b=['B2M'],mhc_class=['MHCI']))
+    full=pl.DataFrame(dict(cdr3=['CASSIIDAYEQYF','CWWWWWWWWWWWF'],v=['TRBV19']*2,j=['TRBJ2-7']*2,locus=['TRB']*2,epitope=['LLWNGPMAV','OTHER'],mhc_a=['HLA-A*02:01']*2,mhc_b=['B2M']*2,mhc_class=['MHCI']*2))
+    original=full.clone()
+    result=kernel_reference_counts(obs,panels,inventory,full,locus='TRB',species='human',min_score=.95)
+    assert full.equals(original)
+    assert result.select('sample_id','replicate','matched_records','matched_reads').rows()==[('A',-1,2,5),('A',0,1,7),('B',-1,0,0),('B',0,1,11)]

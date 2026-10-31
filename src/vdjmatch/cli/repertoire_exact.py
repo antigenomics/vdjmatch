@@ -17,7 +17,8 @@ def register(sub):
     p.add_argument('--source',default=None,help='Model source; default isalgo (legacy human: olga-legacy)')
     p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
     p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact joint Pgen; 1 inclusive Hamming-1 joint mass')
-    p.add_argument('--matcher',choices=['exact','hamming'],default='exact')
+    p.add_argument('--matcher',choices=['exact','hamming','stem4'],default='exact')
+    p.add_argument('--min-score',type=float,help='Explicit dimensionless stem4 score threshold; fixed geometry')
     p.add_argument('--mismatches',type=int,default=1,help='Hamming substitutions; exact V/J retained')
     p.add_argument('--sampler',choices=['numpy','r'],default='numpy')
     p.add_argument('--mock-replicates',type=int,default=200)
@@ -107,13 +108,15 @@ def main(a):
     from ..db.cache import sha256
     from ..io.airr import _read_table
     from ..aggregate.candidates import PMHC
-    from ..aggregate.repertoire_enrichment import exact_reference_counts
+    from ..aggregate.repertoire_enrichment import exact_reference_counts,kernel_reference_counts
     from ..evalue.mock_reference import compiled_reference_strata,sample_stratified_panels,_pgen_model_identity
     from ..runner.annotation import _validate_output_paths
     from vdjtools.cores import kernel_threads
     a.threads = kernel_threads(a.threads)
     if a.mock_replicates<2 or a.seed<0 or a.threads<1:raise ValueError('at least two mocks, nonnegative seed and positive threads required')
     if not 0<=a.mismatches<=3:raise ValueError('zero to three mismatches required')
+    if a.matcher=='stem4' and (a.min_score is None or not 0<a.min_score<=1):
+        raise ValueError('stem4 requires an explicit dimensionless threshold in (0,1]')
     start=time.monotonic();meta_path=Path(a.metadata).expanduser().resolve();meta=_read_table(meta_path)
     needed=['sample_id','path',*a.fdr_group]
     if not set(needed)<=set(meta.columns) or not meta.height or meta['sample_id'].n_unique()!=meta.height:
@@ -142,6 +145,7 @@ def main(a):
     source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(native_core.__file__),Path(search_native.__file__),Path(model_io.__file__),Path(model_native.__file__),Path(model_selection.__file__),Path(model_selection.__file__).with_name('selection_factors.json'),Path(model_selection.__file__).with_name('selection_profiles.json')]
     source_before={str(p):sha256(p) for p in source_files}
     reference=db.load(inputs[1],species={'human':'HomoSapiens','mouse':'MusMusculus'}[a.species]).filter(pl.col('gene')==a.locus)
+    full_reference=reference.clone()
     if a.epitope:
         if set(a.epitope)-set(reference['epitope']):raise ValueError('requested epitope absent from selected reference population')
         reference=reference.filter(pl.col('epitope').is_in(a.epitope))
@@ -191,17 +195,25 @@ def main(a):
     mocks=sample_stratified_panels(reference,probes.select(*keys,'pgen_bin'),replicates=a.mock_replicates,seed=a.seed,sampler=a.sampler)
     panels=pl.concat([reference.select('group_id',*keys).with_columns(pl.lit(-1,dtype=pl.Int64).alias('replicate')),mocks.select('group_id',*keys,pl.col('replicate').cast(pl.Int64))])
     panel_sizes=panels.group_by('group_id','replicate').len(name='epitope_clonotypes')
-    counts=[]
+    counts=[];cohort=[];totals=[]
     for i,(sample,path) in enumerate(zip(meta['sample_id'],paths),1):
         observations=_source(path,locus=a.locus)
-        counted=exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads).join(panel_sizes,on=['group_id','replicate'],validate='1:1')
-        counted=counted.with_columns(pl.lit(sample).alias('sample_id'),
-            pl.lit(observations.height).alias('sample_clonotypes'),pl.lit(int(observations['count'].sum())).alias('sample_reads'))
-        counted=counted.with_columns((pl.col('matched_records')/pl.col('sample_clonotypes')/pl.col('epitope_clonotypes')).alias('normalized_clonotype_matches'),
-            (pl.col('matched_reads')/pl.col('sample_reads')).alias('matched_read_fraction'))
-        counts.append(counted)
-        print(f'counted sample {i}/{len(paths)}',flush=True)
-    counts=pl.concat(counts);summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
+        totals.append(dict(sample_id=sample,sample_clonotypes=observations.height,sample_reads=int(observations['count'].sum())))
+        if a.matcher=='stem4':cohort.append(observations.with_columns(pl.lit(sample).alias('sample_id')))
+        else:counts.append(exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads).with_columns(pl.lit(sample).alias('sample_id')))
+        print(f'loaded sample {i}/{len(paths)}',flush=True)
+    if a.matcher=='stem4':
+        score_inventory=inventory
+        if a.pool_mhc:
+            classes=full_reference.filter(pl.col('epitope').is_in(inventory['epitope'])).select('epitope','mhc_class').unique()
+            if classes['epitope'].n_unique()!=classes.height:raise ValueError('pooled kernel targets require one MHC class per peptide')
+            score_inventory=inventory.join(classes,on='epitope',validate='1:1').with_columns(pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'))
+        counts=kernel_reference_counts(pl.concat(cohort),panels,score_inventory,full_reference.rename({'gene':'locus'}),locus=a.locus,species=a.species,min_score=a.min_score,threads=a.threads)
+    else:counts=pl.concat(counts)
+    counts=counts.join(panel_sizes,on=['group_id','replicate'],validate='m:1').join(pl.DataFrame(totals),on='sample_id',validate='m:1').with_columns(
+        (pl.col('matched_records')/pl.col('sample_clonotypes')/pl.col('epitope_clonotypes')).alias('normalized_clonotype_matches'),
+        (pl.col('matched_reads')/pl.col('sample_reads')).alias('matched_read_fraction'))
+    summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
     parts=[]
     for part in summary.partition_by(['group_id',*a.fdr_group]):
         for endpoint in ['records','reads']:
