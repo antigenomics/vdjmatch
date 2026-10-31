@@ -39,11 +39,12 @@ are joined to the sparse hits before deduplicating source observations. This
 reuses the existing native search for large-repertoire/small-panel workloads;
 receptor-level NED rankings keep their own query-conditioned interpretation.
 
-Software parity is checked against the existing graded API. The new M3
-four-family cohort comparison and operating-point selection are still pending;
-no cutoff is recommended by these software checks. Continuous-score summation
-is recorded as deferred at the author's request. The normalized BLOSUM
-experiments below remain results for their own declared settings.
+Software parity is checked against the existing graded API. The fourteen-setting
+bulk comparison and the separate pooled/sample-specific conditioning assessment
+are complete; their observed operating choices are reported below. The paired
+four-family comparison is still running. Software parity alone does not select
+a biological cutoff. Continuous-score summation remains deferred. Normalized
+BLOSUM results retain their separate presets and producing settings.
 
 Start with the biological question
 ----------------------------------

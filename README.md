@@ -450,11 +450,7 @@ Leave-one-out NN annotation (`bench/shortlist_accuracy.py`, subs 1, exact self e
 **~44–47% top-1**, modestly above single-reference controls (the dramatic 3× gap on a sparse older
 export was an artefact — the dense release makes controls findable too).
 
-## License
-
-ISALGO LAB Academic and Non-Commercial Research License v1.0. See [`LICENSE`](LICENSE).
-
-### Repertoire-level enrichment (M3)
+## Repertoire-level enrichment (M3)
 
 Start with the [algorithm and parameter guide](docs/repertoire-method.rst).
 It explains the two null models, matching/V/J choices, chain and epitope
@@ -504,8 +500,17 @@ available through these matcher options. They reuse the graded edit-bounded
 alignment engine. An explicit chain `--*-radius-factor` bounds the best individual
 alignment cost divided by 1 (unit) or 400 (weighted); `--mismatches` sets the
 1–3 total-edit ceiling. Count each accepted receptor and its abundance once.
-Weak alignments cannot add up to cross this bound. Cohort validation and cutoff
-selection for this M3 port remain pending; summed evidence is deferred.
+Weak alignments cannot add up to cross this bound. The fourteen-setting bulk
+comparison is complete: hard-V exact and hard-V weighted bounds 0.1/0.2 retain 4/7 day15
+clonotype and 7/7 read calls, with 0/12 day0 calls. Weighted bound 0.1 is exact
+membership by construction. The separate positional BLOSUM62 preset at 0.30
+remains the strongest recorded bulk choice (5/7 and 7/7), using pooled J-usage
+correction within V. Paired four-family evaluation is running; those conclusions
+remain open. Summed continuous evidence is deferred.
+
+## License
+
+ISALGO LAB Academic and Non-Commercial Research License v1.0. See [`LICENSE`](LICENSE).
 
 Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, `gapblock`,
 `blosum62` or `positional-blosum62`. The direct BLOSUM presets require
