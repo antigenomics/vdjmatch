@@ -2857,6 +2857,11 @@ receptor counts/abundance under the chosen combined rule, not individual binding
 Both ``--tra-matcher`` and ``--trb-matcher`` accept ``hamming``, ``stem4`` or
 ``gapblock``. Either or both chains may use a fuzzy matcher.
 ``--mismatches`` controls Hamming arms.
+The CLI preserves peptide and MHC fields separately inside each fuzzy model.
+API references may supply ``epitope,mhc_a,mhc_b,mhc_class`` alongside
+``group_id``; these must map one-to-one to full targets. Without those fields,
+group IDs are independent labels. MHC variants of one peptide must retain
+the same peptide identity for the existing other-peptide background rule.
 Fuzzy ``--tra-min-score`` and ``--trb-min-score`` thresholds apply to the
 existing dimensionless kernel score. Keep its fitted geometry, positional
 weights and kernel scale fixed. Zero accepts positive support and is a

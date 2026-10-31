@@ -180,10 +180,13 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
     Optional sample_id batches an in-memory cohort with identical seeded mock
     panels and shared native searches; receptor IDs remain local to each sample.
     target_groups restricts reported targets, never reference models or mock draws.
+    Optional epitope/mhc_a/mhc_b/mhc_class columns preserve peptide identity
+    across restrictions in the fuzzy background; otherwise group IDs are labels.
     """
     from seqtree import Index
     from ..match.scope import search_params
     from ..evalue.mock_reference import iter_epitope_mocks
+    from .candidates import PMHC
 
     if type(replicates) is not int or replicates < 1 or type(seed) is not int or seed < 0:
         raise ValueError('positive replicates and nonnegative seed required')
@@ -221,6 +224,14 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         raise ValueError('positive threads and Hamming mismatches from 0 to 3 required')
     if not {'group_id','locus','junction_aa','v','j','pgen_bin'}<=set(reference.columns) or not reference.height:
         raise ValueError('nonempty reference with target, locus, receptor keys and Pgen bins required')
+    if set(PMHC)&set(reference.columns):
+        if not set(PMHC)<=set(reference.columns):raise ValueError('complete pMHC metadata required')
+        labels=reference.select('group_id',pl.col(PMHC).cast(pl.String)).unique()
+        if labels.height!=reference['group_id'].n_unique() or labels.select(PMHC).n_unique()!=labels.height:
+            raise ValueError('group IDs and full pMHC targets must map one-to-one')
+    else:
+        labels=reference.select('group_id').unique().with_columns(pl.col('group_id').cast(pl.String).alias('epitope'),
+            pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
     ref=reference.select('group_id','locus','junction_aa','v','j','pgen_bin').unique().sort('group_id','locus','junction_aa','v','j')
     for frame in [obs,ref]:
         if not set(frame['locus'])<={'TRA','TRB'} or frame['locus'].null_count():raise ValueError('TRA/TRB loci required')
@@ -266,21 +277,18 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
                 kernel=matchers[locus]
                 from ..runner.combined import _kernel
                 scored=[]
-                kernel_reference=targets.rename({'junction_aa':'cdr3','group_id':'epitope'}).with_columns(
-                    pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
+                kernel_reference=targets.rename({'junction_aa':'cdr3'}).join(labels,on='group_id',validate='m:1')
                 def collect(name,frame):
-                    scored.append(frame.filter(pl.col('kernel_score')>cutoffs[locus]).select('query_id',pl.col('epitope').alias('group_id'),pl.col('kernel_score').alias('chain_score')))
+                    scored.append(frame.filter(pl.col('kernel_score')>cutoffs[locus]).join(labels,on=PMHC,nulls_equal=True,validate='m:1').select('query_id','group_id',pl.col('kernel_score').alias('chain_score')))
                 cases=None
                 if anchored:
                     if not parts:continue
                     cases=pl.concat(parts).select('receptor_id','group_id').unique().join(
-                        fuzzy_queries.select('query_id','receptor_id'),on='receptor_id',validate='m:m').select(
-                        'query_id',pl.col('group_id').alias('epitope')).with_columns(
-                        pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
+                        fuzzy_queries.select('query_id','receptor_id'),on='receptor_id',validate='m:m').join(
+                        labels,on='group_id',validate='m:1').select('query_id',*PMHC)
                 elif target_groups is not None:
                     cases=fuzzy_queries.select('query_id').join(
-                        inventory.select(pl.col('group_id').alias('epitope')).unique(),how='cross').with_columns(
-                        pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'),pl.lit('MHCI').alias('mhc_class'))
+                        inventory.select('group_id').unique().join(labels,on='group_id',validate='1:1').select(PMHC),how='cross')
                 if cases is not None:
                     if not cases.height:continue
                     queries=fuzzy_queries.join(cases.select('query_id').unique(),on='query_id',how='semi')

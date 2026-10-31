@@ -214,15 +214,16 @@ def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mo
     import subprocess,sys,json
     from pathlib import Path
     sample=tmp_path/'sample.tsv'
-    sample.write_text('junction_aa\tv_call\tj_call\tlocus\tduplicate_count\nCASSF\tTRBV2\tTRBJ1-1\tTRB\t7\n')
+    sample.write_text('junction_aa\tv_call\tj_call\tlocus\tduplicate_count\nCASSIIDAYEQYF\tTRBV2\tTRBJ1-1\tTRB\t7\n')
     (tmp_path/'metadata.tsv').write_text('sample_id\tpath\nS\tsample.tsv\n')
-    (tmp_path/'reference.tsv').write_text('cdr3\tgene\tv\tj\tspecies\tepitope\tmhc_a\tmhc_b\tmhc_class\nCASSF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tSYNTHETIC\tHLA-A*02:01\tB2M\tMHCI\n')
-    (tmp_path/'control.tsv').write_text('junction_aa\tv\tj\toccurrences\nCASSF\t'+('TRBV3' if supported else 'TRBV2')+'\tTRBJ1-1\t100\n')
+    (tmp_path/'reference.tsv').write_text('cdr3\tgene\tv\tj\tspecies\tepitope\tmhc_a\tmhc_b\tmhc_class\nCASSIIDAYEQYF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tSYNTHETIC\tHLA-A*02:01\tB2M\tMHCI\n')
+    (tmp_path/'control.tsv').write_text('junction_aa\tv\tj\toccurrences\nCASSIIDAYEQYF\t'+('TRBV3' if supported else 'TRBV2')+'\tTRBJ1-1\t100\n')
     command=[sys.executable,'-m','vdjmatch.cli','repertoire-enrichment',str(tmp_path/'metadata.tsv'),
         '--null','reference','--vdjdb',str(tmp_path/'reference.tsv'),'--control',str(tmp_path/'control.tsv'),
         '--pgen-mismatches','0','--threads','1','--significance','both','--chain-mode',chain_mode,'--output-prefix',str(tmp_path/'result')]
     if chain_mode=='all':command.extend(['--model-source','isalgo'])
     if batch:command.append('--batch-samples')
+    if batch and chain_mode=='all':command.extend(['--trb-matcher','stem4','--trb-min-score','0.50'])
     result=subprocess.run(command,capture_output=True,text=True,timeout=30)
     assert result.returncode==0,result.stdout+result.stderr
     summary=pl.read_csv(tmp_path/'result.summary.tsv',separator='\t')
@@ -421,3 +422,32 @@ def test_fixed_kernel_panel_counts_keep_cohort_rows_and_other_peptide_context():
     for sample in ['A','B']:
         separate=kernel_reference_counts(obs.filter(pl.col('sample_id')==sample),panels,inventory,full,locus='TRB',species='human',min_score=.95)
         assert separate.equals(result.filter(pl.col('sample_id')==sample))
+
+
+@pytest.mark.parametrize('anchored',[False,True])
+@pytest.mark.parametrize('target_groups',[None,['X']])
+def test_fuzzy_preserves_peptide_background_across_mhc_restrictions(anchored,target_groups):
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    from vdjmatch.runner.combined import _kernel
+    from vdjmatch.match.geometry import precompute_v_loop_distances
+    from vdjmatch.aggregate.candidates import PMHC
+    sample=pl.DataFrame(dict(receptor_id=['q'],locus=['TRB'],junction_aa=['CASSLGRAYEQYF'],v=['TRBV19*01'],j=['TRBJ2-7*01'],count=[3]))
+    reference=pl.DataFrame(dict(group_id=['X','Y','Z'],locus=['TRB']*3,
+        junction_aa=['CASSLGQAYEQYF','CASSLGRAYEQYF','CASSWWWWYEQYF'],v=['TRBV19*01']*3,j=['TRBJ2-7*01']*3,pgen_bin=[-10]*3,
+        epitope=['SYNTHETIC','SYNTHETIC','OTHER'],mhc_a=['HLA-A*02:01','HLA-A*03:01','HLA-A*02:01'],mhc_b=['B2M']*3,mhc_class=['MHCI']*3))
+    reference=reference.with_columns(pl.lit(None).alias('mhc_b'))
+    control=reference.head(1).select('locus','junction_aa','v','j','pgen_bin').with_columns(pl.lit('CASSYYYYYEQYF').alias('junction_aa'))
+    query=sample.rename({'junction_aa':'cdr3'}).with_row_index('query_id')
+    cases=query.select('query_id').join(reference.head(1).select(PMHC),how='cross')
+    expected=_kernel(query,reference.rename({'junction_aa':'cdr3'}),cases,species='human',threads=1,paired=False,
+        exclude_exact=False,contexts={'blosum62':precompute_v_loop_distances(species='human',alphabet='full',matrix='blosum62',v_regions='cdr12plus')},kernels=('stem4',))['stem4_score'].item()
+    controls={'TRB':control}
+    if anchored:
+        alpha=lambda frame:frame.with_columns(pl.lit('TRA').alias('locus'),pl.lit('CAVRDSNYQLIW').alias('junction_aa'),pl.lit('TRAV1-1*01').alias('v'),pl.lit('TRAJ33*01').alias('j'))
+        sample=pl.concat([sample,alpha(sample)])
+        reference=pl.concat([reference,alpha(reference.head(1))])
+        controls['TRA']=alpha(control).with_columns(pl.lit('CAVRDSNYQLIF').alias('junction_aa'))
+    _,_,hits=reference_enrichment(sample,reference,controls,replicates=2,trb_matcher='stem4',chain_mode='intersection' if anchored else 'trb',target_groups=target_groups)
+    scored=hits.filter((pl.col('group_id')=='X')&(pl.col('locus')=='TRB'))
+    assert scored.height==1
+    assert scored['chain_score'].item()==pytest.approx(expected,rel=0,abs=1e-15)

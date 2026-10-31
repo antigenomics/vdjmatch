@@ -157,7 +157,7 @@ def main(a):
         part=part.join(bins,on='junction_aa',validate='m:1')
         pools[locus]=control.join(bins,on='junction_aa',validate='m:1')
         audits.append(part.group_by('group_id','locus','pgen_bin').agg(pl.len().alias('source_records'),pl.struct('junction_aa','v','j').n_unique().alias('reference_keys')))
-        ref_parts.append(part.select('group_id','locus','junction_aa','v','j','pgen_bin'))
+        ref_parts.append(part.select('group_id',*PMHC,'locus','junction_aa','v','j','pgen_bin'))
         stages[locus+'_prepare_seconds']=time.monotonic()-t
         print(f'{locus}: {part.height} reference records, {control.height} distinct control keys',flush=True)
     ref=pl.concat(ref_parts)
