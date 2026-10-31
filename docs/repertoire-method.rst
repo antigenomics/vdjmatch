@@ -192,6 +192,16 @@ Thus the previous training and calibration remain useful: they establish their
 own scoring and operating-point evidence. They do not analytically settle M3's
 choice of distance threshold or V predicate.
 
+A low weighted bound can equal exact matching by construction. In the bundled
+VDJAM matrix, the smallest nonidentity substitution penalty is 76; gap opening
+and extension cost 100. All costs are nonnegative. At weighted bound 0.1 the
+budget is ``400 * 0.1 = 40``. Every nonidentity alignment exceeds that budget,
+whereas an identical junction has cost zero. Consequently weighted bound 0.1
+and unit bound zero have identical membership when their V/J predicates and
+inputs agree. This equivalence concerns thresholded counts, not NED scores or
+the biological optimality of exact matching. Higher bounds can admit genuine
+substitutions or indels and need their own comparison.
+
 V and J matching are part of the hypothesis
 -------------------------------------------
 
