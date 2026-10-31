@@ -10,7 +10,8 @@ from ..io.columns import _integer_count
 
 
 def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
-                           matcher='exact', mismatches=1, threads=1, radius_factor=None) -> pl.DataFrame:
+                           matcher='exact', mismatches=1, threads=1, radius_factor=None,
+                           locus='TRB', species='human') -> pl.DataFrame:
     """Count source rows and reads against all exact V/J/junction panels at once.
 
     Observations contain junction_aa/v/j/count; panels additionally contain
@@ -34,14 +35,27 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
         raise ValueError('source read total exceeds int64')
     counted=obs.group_by(keys).agg(pl.len().cast(pl.Int64).alias('matched_records'),pl.col('count').sum().alias('matched_reads'))
     weighted=matcher in {'blosum62','positional-blosum62'}
-    if matcher not in {'exact','hamming','blosum62','positional-blosum62'}:
+    from ..match.scope import GRADED_FAMILIES, graded_family_params
+    if matcher not in {'exact','hamming','blosum62','positional-blosum62',*GRADED_FAMILIES}:
         raise ValueError('unknown panel matcher')
     from ..match.scope import blosum_radius_params
     if weighted:blosum_radius_params(matcher,radius_factor,1)
+    elif matcher in GRADED_FAMILIES:
+        params,scale=graded_family_params(matcher,mismatches,radius_factor)
     elif radius_factor is not None:raise ValueError('radius factor requires a BLOSUM matcher')
     if type(threads) is not int or threads<1 or type(mismatches) is not int or not 0<=mismatches<=3:
         raise ValueError('positive threads and zero to three mismatches required')
-    if matcher=='exact' or not counted.height:
+    if matcher in GRADED_FAMILIES and counted.height:
+        from ..api import Annotator
+        roles=panels.select(groups).unique().sort(groups).with_row_index('_panel').with_columns(
+            pl.col('_panel').cast(pl.String).alias('epitope'))
+        model=panels.join(roles,on=groups,validate='m:1').rename({'junction_aa':'cdr3'}).with_columns(pl.lit(locus).alias('gene'))
+        queries=counted.with_row_index('query_id').with_columns(pl.lit(locus).alias('locus'))
+        scores=Annotator.from_frame(model).candidates(queries,scope=params,threads=threads,
+            match_v=matcher.startswith('v-'),match_j=True,species=species,score_scale=scale,soft_v=False)
+        members=scores.filter(pl.col('nearest_score')/scale<=radius_factor).select('query_id','epitope').join(
+            roles,on='epitope',validate='m:1').join(queries,on='query_id',validate='m:1')
+    elif matcher=='exact' or not counted.height:
         members=panels.join(counted,on=keys,how='inner',validate='m:1')
     else:
         from seqtree import Index

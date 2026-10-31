@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 import polars as pl
+import pytest
 
 
 def test_reference_panel_cli_preserves_rows_reads_zero_panels_and_fdr_groups(tmp_path, monkeypatch):
@@ -32,8 +33,8 @@ def test_reference_panel_cli_preserves_rows_reads_zero_panels_and_fdr_groups(tmp
     assert manifest['inputs_frozen'] and manifest['source_frozen']
     assert manifest['fdr_family']==['group_id','family']
     assert manifest['legacy'] and manifest['selection_q'] == 1.
-    for mode in ['blosum62','positional-blosum62']:
-        weighted=command+['--matcher',mode,'--radius-factor','0.10']
+    for mode in ['blosum62','positional-blosum62','unit','v-unit','weighted','v-weighted']:
+        weighted=command+['--matcher',mode,'--radius-factor','0.10' if 'blosum62' in mode else '0']
         weighted[weighted.index('--output-prefix')+1]=str(tmp_path/mode)
         run=subprocess.run(weighted,capture_output=True,text=True,timeout=30)
         assert run.returncode==0,run.stderr+run.stdout
@@ -200,3 +201,20 @@ def test_stem4_threshold_errors_precede_input_loading():
         assert result.returncode!=0 and 'dimensionless threshold' in result.stderr
     result=subprocess.run(base+['--min-score','.5'],capture_output=True,text=True,timeout=15)
     assert result.returncode!=0 and '--min-score requires --matcher stem4' in result.stderr
+
+
+@pytest.mark.parametrize('family',['unit','v-unit','weighted','v-weighted'])
+def test_graded_bulk_preserves_source_rows_reads_and_j(family):
+    from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
+    observations=pl.DataFrame(dict(junction_aa=['CASSF']*4,
+        v=['TRBV19','TRBV19','TRBV5-1','TRBV19'],
+        j=['TRBJ2-7']*3+['TRBJ1-1'],count=[2,3,5,11]))
+    panels=pl.DataFrame(dict(group_id=['X','X'],replicate=[-1,0],
+        junction_aa=['CASSF','CASRF'],v=['TRBV19']*2,j=['TRBJ2-7']*2))
+    expected=(2,5) if family.startswith('v-') else (3,10)
+    options=dict(matcher=family,mismatches=1,radius_factor=0.)
+    result=exact_reference_counts(observations,panels,**options)
+    assert result.select('matched_records','matched_reads').rows()==[expected,(0,0)]
+    assert result.equals(exact_reference_counts(observations,panels,threads=2,**options))
+    empty=exact_reference_counts(observations.head(0),panels,**options)
+    assert empty.select('matched_records','matched_reads').rows()==[(0,0),(0,0)]

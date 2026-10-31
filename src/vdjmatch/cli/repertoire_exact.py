@@ -1,5 +1,6 @@
 """Exact reference-panel enrichment preserving source-row and read counts."""
 from pathlib import Path
+from ..match.scope import GRADED_FAMILIES, graded_family_params
 
 
 def register(sub):
@@ -17,10 +18,10 @@ def register(sub):
     p.add_argument('--source',default=None,help='Model source; default isalgo (legacy human: olga-legacy)')
     p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
     p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact joint Pgen; 1 inclusive Hamming-1 joint mass')
-    p.add_argument('--matcher',choices=['exact','hamming','stem4','blosum62','positional-blosum62'],default='exact')
+    p.add_argument('--matcher',choices=['exact','hamming','stem4','blosum62','positional-blosum62',*GRADED_FAMILIES],default='exact')
     p.add_argument('--min-score',type=float,help='Explicit dimensionless stem4 score threshold; fixed geometry')
-    p.add_argument('--radius-factor',type=float,help='Dimensionless BLOSUM budget / maximum matrix substitution cost; fixed positional profile')
-    p.add_argument('--mismatches',type=int,default=1,help='Hamming substitutions; exact V/J retained')
+    p.add_argument('--radius-factor',type=float,help='Normalized distance bound for BLOSUM or graded family matching')
+    p.add_argument('--mismatches',type=int,default=1,help='Hamming substitutions or graded total edits; bulk retains exact J')
     p.add_argument('--sampler',choices=['numpy','r'],default='numpy')
     p.add_argument('--mock-replicates',type=int,default=200)
     p.add_argument('--seed',type=int,default=42)
@@ -123,7 +124,9 @@ def main(a):
     if a.matcher in {'blosum62','positional-blosum62'}:
         from ..match.scope import blosum_radius_params
         blosum_radius_params(a.matcher,factor,1)
-    elif factor is not None:raise ValueError('--radius-factor requires a BLOSUM matcher')
+    elif a.matcher in GRADED_FAMILIES:
+        graded_family_params(a.matcher,a.mismatches,factor)
+    elif factor is not None:raise ValueError('--radius-factor requires a BLOSUM or graded family matcher')
     start=time.monotonic();meta_path=Path(a.metadata).expanduser().resolve();meta=_read_table(meta_path)
     needed=['sample_id','path',*a.fdr_group]
     if not set(needed)<=set(meta.columns) or not meta.height or meta['sample_id'].n_unique()!=meta.height:
@@ -207,7 +210,7 @@ def main(a):
         observations=_source(path,locus=a.locus)
         totals.append(dict(sample_id=sample,sample_clonotypes=observations.height,sample_reads=int(observations['count'].sum())))
         if a.matcher=='stem4':cohort.append(observations.with_columns(pl.lit(sample).alias('sample_id')))
-        else:counts.append(exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads,radius_factor=factor).with_columns(pl.lit(sample).alias('sample_id')))
+        else:counts.append(exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads,radius_factor=factor,locus=a.locus,species=a.species).with_columns(pl.lit(sample).alias('sample_id')))
         print(f'loaded sample {i}/{len(paths)}',flush=True)
     if a.matcher=='stem4':
         score_inventory=inventory
@@ -250,6 +253,10 @@ def main(a):
     manifest['legacy']=a.legacy
     if a.matcher in {'blosum62','positional-blosum62'}:
         manifest['matching_model']=dict(preset=a.matcher,radius_factor=factor,scope='3,0,0,3',normalization='maximum matrix substitution penalty; positional weights use fixed scale100')
+    if a.matcher in GRADED_FAMILIES:
+        _,scale=graded_family_params(a.matcher,a.mismatches,factor)
+        manifest['matching_model']=dict(preset=a.matcher,radius_factor=factor,max_edits=a.mismatches,normalization=scale,match_v=a.matcher.startswith('v-'),match_j=True)
+        manifest['counting']='source rows and reads; individual alignment distance threshold; exact J; hard V only for v-prefixed families'
     if shape is not None:
         manifest['selection_profile_kind']=shape['kind']
         manifest['probability']='global Q times AA-max selected joint mass times residual within-V J usage ratio; floor2^-80'

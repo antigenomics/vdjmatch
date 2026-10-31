@@ -25,6 +25,12 @@ The ``v-`` prefix enforces gene equality; without it V does not filter hits.
 Optional J equality remains separate. Real and mock panels use the same rule,
 with exact hits retained and each panel's complete model preserved.
 
+The bulk ``repertoire-exact`` command accepts the same four names through
+``--matcher`` and the bound through ``--radius-factor``. It preserves its original
+panel sampler and source-row/read units, including repeated source rows. Exact J
+is retained in every bulk family; V equality applies only to ``v-`` families.
+It searches all observed/mock panel memberships in one native batch per sample.
+
 Software parity is checked against the existing graded API. The new M3
 four-family cohort comparison and operating-point selection are still pending;
 no cutoff is recommended by these software checks. Continuous-score summation
