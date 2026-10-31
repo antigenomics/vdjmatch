@@ -57,8 +57,10 @@ def _read_control(path,*,species,locus,batch_size=65536):
 
     return control_events(_read_table(path,columns=control_columns),species=species,locus=locus)
 
-def _observations(frame,*,locus,species):
+def _observations(frame,*,locus,species,single_chain_unit='junction-vj'):
     import polars as pl
+    if single_chain_unit not in {'junction-vj','source-row'}:raise ValueError('unknown single-chain counting unit')
+    if locus=='paired' and single_chain_unit!='junction-vj':raise ValueError('source-row counting requires single-chain input')
     loci=['TRA','TRB'] if locus=='paired' else [locus]
     if locus!='paired':frame=frame.with_columns(pl.col('locus').fill_null(locus))
     valid=pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False)&pl.col('locus').is_in(loci).fill_null(False)
@@ -69,6 +71,8 @@ def _observations(frame,*,locus,species):
     if locus=='paired':
         if selected['pair_id'].null_count() or selected['pair_id'].str.strip_chars().eq('').any():raise ValueError('paired mode requires non-null pair_id for every chain, including orphans')
         obs=selected.select(pl.col('pair_id').alias('receptor_id'),'locus',pl.col('cdr3').alias('junction_aa'),'v','j','count')
+    elif single_chain_unit=='source-row':
+        obs=selected.with_row_index('_id').select(pl.col('_id').cast(pl.String).alias('receptor_id'),'locus',pl.col('cdr3').alias('junction_aa'),'v','j','count')
     else:
         obs=selected.group_by('locus','cdr3','v','j').agg(pl.col('count').sum()).sort('locus','cdr3','v','j').with_row_index('_id').select(pl.col('_id').cast(pl.String).alias('receptor_id'),'locus',pl.col('cdr3').alias('junction_aa'),'v','j','count')
     return selected,obs
@@ -94,6 +98,7 @@ def main(a):
     for mode,alpha in [('nominal',a.nominal_alpha),('bh',a.fdr_alpha)]:
         if a.significance in (mode,'both') and 1/(a.mock_replicates+1)>=alpha:
             raise ValueError(f'mock resolution cannot reach {mode} threshold; increase --mock-replicates')
+    if a.locus=='paired' and a.single_chain_unit!='junction-vj':raise ValueError('source-row counting requires single-chain input')
     metadata_path=Path(a.metadata).expanduser().resolve()
     metadata=_read_table(metadata_path)
     if not {'sample_id','path'}<=set(metadata.columns) or not metadata.height or metadata['sample_id'].n_unique()!=metadata.height:
@@ -159,7 +164,7 @@ def main(a):
     summaries=[];mocks=[];hits=[];reports=[];cohort=[]
     for number,(sample,path) in enumerate(zip(metadata['sample_id'],paths)):
         t=time.monotonic();frame,report=io.read_rearrangement(path,valid_aa=False,return_report=True)
-        selected,obs=_observations(frame,locus=a.locus,species=a.species)
+        selected,obs=_observations(frame,locus=a.locus,species=a.species,single_chain_unit=a.single_chain_unit)
         def progress(stage,replicate):
             print(f'sample {number+1}/{len(paths)}: {stage} {replicate} after {time.monotonic()-t:.3f}s',flush=True)
         if a.batch_samples:
@@ -204,6 +209,7 @@ def main(a):
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(dict(null='reference',mock_policy=a.mock_policy,inputs=before,inputs_frozen=True,source=source_before,source_frozen=True,
         models=models,prepared_pgen=prepared,software={n:version(n) for n in ['vdjmatch','vdjtools','seqtree','polars','numpy','scipy']},
         options=vars(a)|{'func':a.func.__name__},reference_population=population,counting_unit='unique receptor identity',
+        receptor_identity=('pair_id' if a.locus=='paired' else a.single_chain_unit),
         paired_rule=f'{a.chain_mode} of available chain supports, counted once per receptor/target; same rule in real and mock panels',
         matchers={locus:(f'Hamming<={a.mismatches}, exact V'+(', exact J' if a.match_j else '') if matcher=='hamming' else matcher) for locus,matcher in [('TRA',a.tra_matcher),('TRB',a.trb_matcher)]},
         pgen_definition=f'marginal full-junction Hamming<={a.pgen_mismatches}; rounded log2(Pgen+2**-60)',

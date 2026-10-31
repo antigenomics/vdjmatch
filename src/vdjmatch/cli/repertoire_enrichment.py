@@ -48,6 +48,7 @@ def register(subparsers):
     p.add_argument('--tra-min-score',type=float,default=0.,help='Strict lower score bound for fuzzy TRA support')
     p.add_argument('--trb-min-score',type=float,default=0.,help='Strict lower score bound for fuzzy TRB support')
     p.add_argument('--chain-mode',choices=['tra','trb','union','intersection','all'],default='union')
+    p.add_argument('--single-chain-unit',choices=['junction-vj','source-row'],default='junction-vj',help='reference null: merge identical junction/V/J rows (default), or retain each input row as a clonotype')
     p.add_argument('--mismatches', type=int, choices=range(4), default=1)
     p.add_argument('--batch-samples', action='store_true', help='reference null: share seeded mock panels and native searches across the in-memory cohort')
     p.add_argument('--match-j', action='store_true')
@@ -69,7 +70,7 @@ def main(a):
     if a.null == 'reference':
         from .repertoire_reference import main as reference_main
         return reference_main(a)
-    if a.batch_samples or a.model_source or a.tra_matcher != 'hamming' or a.trb_matcher != 'hamming' or a.tra_min_score != 0 or a.trb_min_score != 0 or a.chain_mode != 'union' or a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
+    if a.single_chain_unit != 'junction-vj' or a.batch_samples or a.model_source or a.tra_matcher != 'hamming' or a.trb_matcher != 'hamming' or a.tra_min_score != 0 or a.trb_min_score != 0 or a.chain_mode != 'union' or a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
         raise ValueError('reference-null options require --null reference')
     import json,time
     from importlib.metadata import version

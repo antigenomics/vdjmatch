@@ -2795,6 +2795,15 @@ records the profile kind and freezes the shipped parameter asset or supplied rep
 
 
 Reference-null ``repertoire-enrichment`` accepts ``--chain-mode tra|trb|union|intersection|all``.
+For bulk single-chain inputs, ``--single-chain-unit junction-vj`` (default)
+merges identical amino-acid junction/V/J rows and sums their abundance.
+Use ``--single-chain-unit source-row`` when each input row is the experimental
+clonotype unit, including distinct nucleotide clonotypes with the same amino-acid
+junction. This preserves each retained row in the clonotype denominator and
+matched count; abundance is unchanged. The manifest records ``receptor_identity``.
+This option requires the reference null and is rejected for paired inputs, whose
+identity remains ``pair_id``.
+
 The chosen rule is applied to real and every mock panel through
 ``vdjtools.sc.chain_support``. Union retains orphan support; intersection requires
 both chains of the same observed receptor to support the same full target.

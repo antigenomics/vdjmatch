@@ -4,6 +4,25 @@ import pytest
 from vdjmatch.aggregate.repertoire_enrichment import matched_enrichment
 
 
+def test_single_chain_source_rows_preserve_clonotype_endpoint():
+    from vdjmatch.cli.repertoire_reference import _observations
+    from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
+    frame=pl.DataFrame(dict(locus=['TRB']*3,cdr3=['CASSLGQAYEQYF']*3,
+        v=['TRBV19*01']*3,j=['TRBJ2-7*01']*3,count=[7,3,2]))
+    _,collapsed=_observations(frame,locus='TRB',species='human')
+    _,rows=_observations(frame,locus='TRB',species='human',single_chain_unit='source-row')
+    assert collapsed.height==1 and rows.height==3
+    reference=rows.head(1).select('locus','junction_aa','v','j').with_columns(pl.lit('X').alias('group_id'),pl.lit(-10).alias('pgen_bin'))
+    controls={'TRB':reference.drop('group_id').with_columns(pl.lit('CASSWWWWYEQYF').alias('junction_aa'))}
+    for observations,n in [(collapsed,1),(rows,3)]:
+        summary,_,_=reference_enrichment(observations,reference,controls,replicates=2,mismatches=0)
+        assert summary['matched_receptors'].item()==n
+        assert summary['n_receptors'].item()==n
+        assert summary['matched_count'].item()==12
+    with pytest.raises(ValueError,match='single-chain'):
+        _observations(frame,locus='paired',species='human',single_chain_unit='source-row')
+
+
 def test_exact_bin_count_matching_and_both_endpoints():
     observations=pl.DataFrame({"sample_id":["s"]*3,"query_id":[0,1,2],"count":[7,3,5],"pgen_bin":[-8,-8,-12]})
     control=pl.DataFrame({"query_id":[3,4,5],"event_weight":[1,1,1],"pgen_bin":[-8,-8,-12]})
