@@ -173,6 +173,58 @@ evidence for structurally forbidden events. A BLOSUM prior, if used for
 shrinkage, is declared as reference supervision and is not evidence of
 recovering BLOSUM from VDJdb.
 
+**The bridge from codons to a genetic-code baseline.** Let
+:math:`u_s(c)` be the productive pure-N codon distribution in a fully
+specified stratum :math:`s`, and let :math:`\tau(c)` translate codon
+:math:`c`. For independent codon draws in that stratum,
+
+.. math::
+
+
+    f_{s,a}=\sum_{c:\tau(c)=a}u_s(c),\qquad
+    q^0_{s,ab}=f_{s,a}f_{s,b}.
+
+This factorization is a conditional construction; it does not assert
+independence of junction positions. If the ascertainment rule also fixes
+shared flanking context :math:`h`, the pooled opportunity is instead a
+mixture :math:`\sum_h w_h f_{s,h,a}f_{s,h,b}`, where :math:`w_h` are
+normalized context weights under that rule. Such context mixing must be
+accounted for before assigning its conservation to recognition.
+
+To obtain a one-nucleotide genetic-code proposal, explicitly define a
+codon coupling :math:`J_s(c,d)`, for example one supported on sense
+codons separated by one nucleotide, and project it through translation:
+
+.. math::
+
+
+    K^0_{s,ab}=\sum_{c,d}J_s(c,d)
+    \mathbf1\{\tau(c)=a,\ \tau(d)=b\}.
+
+Here :math:`J_s` is a specified joint proposal mass, and :math:`K^0_s`
+is its amino-acid pushforward; synonymous proposals contribute to the
+diagonal. This is a compatibility hypothesis for independently
+rearranged receptors, with no implied mutational ancestry. It differs
+from independent draws and must be declared when interpreting a
+genetic-core comparison. For a recognition multiplier
+:math:`R_{s,ab}\ge0`, write
+
+.. math::
+
+
+    q^+_{s,ab}=\frac{K^0_{s,ab}R_{s,ab}}{Z_s},\qquad
+    Z_s=\sum_{a,b}K^0_{s,ab}R_{s,ab}.
+
+Then log-odds against the normalized proposal recover
+:math:`\log_2R_{s,ab}` up to a stratum constant, which cancels in the
+diagonal-zero distance. This explicitly separates the codon proposal,
+its amino-acid frequencies and recognition compatibility. A strict
+one-nucleotide proposal cannot represent observed exchanges outside its
+support; any finite-time codon walk or added proposal component used to
+expand that support must be specified before fitting. Model-inferred
+nucleotides remain unsuitable as independent evidence for selecting this
+coupling.
+
 **One-substitution neighbours require an ascertainment correction.**
 When the input contains only Hamming-one neighbours, observing a change
 at :math:`p` requires every other compared site to match. Under an
