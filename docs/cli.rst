@@ -2840,6 +2840,11 @@ For raw marginal Pgen, ``--pgen-features PREFIX.features.parquet`` reuses a
 verified current-model feature input and its original control events. This
 path bins the probabilities directly; it applies no prior, V/J ratio, Q,
 AA-only maximum or selection correction. Correction options are rejected.
+``--chao1`` additionally estimates matched source-clonotype richness using
+``vdjtools.stats.inext.asymptotic_diversity(q=0,se=False)`` for the real panel
+and every mock panel. It exports flat abundance spectra, Chao1 estimates and
+the same tail/BH comparisons as the existing endpoints. Zero matches give zero
+richness; no internal bootstrap or source-row merging is introduced.
 The NumPy sampler uses pre-binned event slots with replacement and clips
 reference values below the control minimum to that minimum bin. The R sampler
 retains the historical distinct-key law and seeded reproduction.

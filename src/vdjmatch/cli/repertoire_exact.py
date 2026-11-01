@@ -8,6 +8,7 @@ def register(sub):
     p.add_argument('metadata',help='TSV sample_id,path and optional FDR-group columns')
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--control',required=True,help='Distinct junction_aa,v,j probe keys; optional joint_pgen column')
+    p.add_argument('--chao1',action='store_true',help='Compare matched source-clonotype Chao1 from vdjtools against the same mock panels')
     p.add_argument('--pgen-features',help='Verified marginal Pgen features; use raw probabilities and bins without corrections')
     p.add_argument('--model-vj-counts',help='Generated-model v,j,records counts from the selected source')
     p.add_argument('--model-vj-probabilities',help='Exact model v,j,p probabilities; alternative to generated V/J counts')
@@ -111,7 +112,7 @@ def _summaries(counts):
         mock=part.filter(pl.col('replicate')>=0)
         present=mock.filter(pl.col('matched_records')>0)
         row=dict(sample_id=sample,group_id=target,matched_records=observed['matched_records'],matched_reads=observed['matched_reads'],mock_replicates=mock.height,original_present_mocks=present.height)
-        for endpoint in ['records','reads']:
+        for endpoint in ['records','reads']+(['chao1'] if 'matched_chao1' in counts.columns else []):
             actual=observed['matched_'+endpoint];values=mock['matched_'+endpoint].to_numpy()
             original=present['matched_'+endpoint].to_numpy()
             transformed=np.log2(original+1.) if endpoint=='reads' else original
@@ -121,7 +122,7 @@ def _summaries(counts):
             with np.errstate(divide='ignore',invalid='ignore'):
                 effect=float(np.divide(effect_actual-mean,sd)) if sd is not None else None
             if effect is not None and np.isnan(effect):effect=None
-            row.update({'mock_mean_'+endpoint:float(values.mean()),'p_'+endpoint:float((1+(values>=actual).sum())/(len(values)+1)),
+            row.update({'matched_'+endpoint:actual,'mock_mean_'+endpoint:float(values.mean()),'p_'+endpoint:float((1+(values>=actual).sum())/(len(values)+1)),
                 'original_p_'+endpoint:float((1+(original>=actual).sum())/(len(original)+1)) if observed['matched_records']>0 else None,
                 'original_mean_'+endpoint:mean,'original_sd_'+endpoint:sd,
                 'original_effect_'+endpoint:effect,
@@ -151,6 +152,8 @@ def main(a):
     from ..runner.annotation import _validate_output_paths
     from vdjtools.cores import kernel_threads
     a.threads = kernel_threads(a.threads)
+    chao1=getattr(a,'chao1',False)
+    if chao1 and a.matcher=='stem4':raise ValueError('--chao1 requires a membership-count matcher')
     if a.mock_replicates<2 or a.seed<0 or a.threads<1:raise ValueError('at least two mocks, nonnegative seed and positive threads required')
     if not 0<=a.mismatches<=3:raise ValueError('zero to three mismatches required')
     if a.matcher!='stem4' and a.min_score is not None:raise ValueError('--min-score requires --matcher stem4')
@@ -195,6 +198,7 @@ def main(a):
     prefix=_validate_output_paths(a.output_prefix,[str(p) for p in inputs])
     suffixes=['v-repairs.tsv','source-audit.tsv','summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
     if a.allow_missing_model_genes or a.include_nonfunctional:suffixes.append('missing-model-genes.tsv')
+    if chao1:suffixes.append('abundance-spectra.tsv')
     if any(Path(str(prefix)+'.'+s).exists() for s in suffixes):raise FileExistsError('fresh output prefix required')
     before={str(p):sha256(p) for p in inputs}
     import seqtree._core as search_native
@@ -203,6 +207,9 @@ def main(a):
     import vdjtools.model.native as model_native
     import vdjtools.model.selection as model_selection
     source_files=[*Path(__file__).resolve().parents[1].rglob('*.py'),Path(native_core.__file__),Path(search_native.__file__),Path(model_io.__file__),Path(model_native.__file__),Path(model_selection.__file__),Path(model_selection.__file__).with_name('selection_factors.json'),Path(model_selection.__file__).with_name('selection_profiles.json')]
+    if chao1:
+        from vdjtools.stats.inext import asymptotic_diversity
+        source_files.append(Path(asymptotic_diversity.__code__.co_filename))
     source_before={str(p):sha256(p) for p in source_files}
     now=time.monotonic();stages['input_validation_and_freeze']=now-mark;mark=now
     reference=db.load(inputs[1],species={'human':'HomoSapiens','mouse':'MusMusculus'}[a.species]).filter(pl.col('gene')==a.locus)
@@ -329,7 +336,7 @@ def main(a):
         loaded=time.monotonic()
         totals.append(dict(sample_id=sample,sample_clonotypes=observations.height,sample_reads=int(observations['count'].sum())))
         if a.matcher=='stem4':cohort.append(observations.with_columns(pl.lit(sample).alias('sample_id')))
-        else:counts.append(exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads,radius_factor=factor,locus=a.locus,species=a.species).with_columns(pl.lit(sample).alias('sample_id')))
+        else:counts.append(exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads,radius_factor=factor,locus=a.locus,species=a.species,with_abundances=chao1).with_columns(pl.lit(sample).alias('sample_id')))
         finished=time.monotonic()
         sample_timings.append(dict(sample_id=sample,records=observations.height,load_seconds=loaded-sample_start,match_or_stage_seconds=finished-loaded))
         print(f'loaded sample {i}/{len(paths)}; load={loaded-sample_start:.3f}s match_or_stage={finished-loaded:.3f}s elapsed={finished-start:.3f}s',flush=True)
@@ -342,6 +349,12 @@ def main(a):
             score_inventory=inventory.join(classes,on='epitope',validate='1:1').with_columns(pl.lit(None,dtype=pl.String).alias('mhc_a'),pl.lit(None,dtype=pl.String).alias('mhc_b'))
         counts=kernel_reference_counts(pl.concat(cohort),panels,score_inventory,full_reference.rename({'gene':'locus'}),locus=a.locus,species=a.species,min_score=a.min_score,threads=a.threads,progress=lambda replicate:print(f'scored reference panel {replicate}',flush=True))
     else:counts=pl.concat(counts)
+    if chao1:
+        vectors=counts['matched_abundances'].to_list()
+        counts=counts.with_columns(pl.Series('matched_chao1',[
+            float(asymptotic_diversity(v,q=0,se=False)['estimator'][0]) if any(v) else 0. for v in vectors]))
+        spectra=counts.select('sample_id','group_id','replicate','matched_abundances').explode('matched_abundances',empty_as_null=True).drop_nulls('matched_abundances').rename({'matched_abundances':'reads_per_source_row'}).group_by('sample_id','group_id','replicate','reads_per_source_row').len(name='source_rows').sort('sample_id','group_id','replicate','reads_per_source_row')
+        counts=counts.with_columns(pl.col('matched_abundances').list.count_matches(1).alias('matched_singletons'),pl.col('matched_abundances').list.count_matches(2).alias('matched_doubletons')).drop('matched_abundances')
     counts=counts.join(panel_sizes,on=['group_id','replicate'],validate='m:1').join(pl.DataFrame(totals),on='sample_id',validate='m:1').with_columns(
         (pl.col('matched_records')/pl.col('sample_clonotypes')/pl.col('epitope_clonotypes')).alias('normalized_clonotype_matches'),
         (pl.col('matched_reads')/pl.col('sample_reads')).alias('matched_read_fraction'))
@@ -349,7 +362,7 @@ def main(a):
     summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
     parts=[]
     for part in summary.partition_by(['group_id',*a.fdr_group]):
-        for endpoint in ['records','reads']:
+        for endpoint in ['records','reads']+(['chao1'] if chao1 else []):
             for stem in ['', 'original_']:
                 col=stem+'p_'+endpoint
                 values=part[col].to_list()
@@ -362,6 +375,7 @@ def main(a):
     summary=pl.concat(parts).join(inventory,on='group_id',validate='m:1')
     now=time.monotonic();stages['statistics_and_fdr']=now-mark;mark=now
     outputs={'source-audit.tsv':pl.DataFrame(source_audit),'summary.tsv':summary,'counts.tsv':counts,'vj-audit.tsv':audit,'reference-bins.tsv':reference.group_by('group_id','pgen_bin').len(name='reference_keys')}
+    if chao1:outputs['abundance-spectra.tsv']=spectra
     if v_repairs:outputs['v-repairs.tsv']=pl.concat(v_repairs)
     if 'pgen_model_supported' in probes.columns:
         outputs['missing-model-genes.tsv']=probes.filter(~pl.col('pgen_model_supported'))
@@ -378,6 +392,7 @@ def main(a):
     if a.model_informed_prior:
         manifest['probability']='selection_q times AA-max joint Pgen times within-V model-informed J usage ratio; one total prior observation per supported V; missing/zero mass goes to lowest control bin'
     if marginal:manifest.update(probability='raw marginal junction Pgen; no corrections',prepared_pgen=feature_identity)
+    if chao1:manifest['chao1']=dict(api='vdjtools.stats.inext.asymptotic_diversity(q=0,se=False)',unit='matched source-row clonotypes; read abundances',empty_matches=0,internal_bootstrap=False,mock_replicates=a.mock_replicates)
     manifest['functional_filter']=filter_audit
     manifest['model_identity']=model_identity
     manifest['selection_q_origin']=q_origin

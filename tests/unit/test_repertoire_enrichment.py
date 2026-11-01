@@ -574,3 +574,14 @@ def test_family_count_threshold_matches_existing_alignment_api(family,monkeypatc
                 assert set(combined['sample_id'])==set(names)
                 for name in ['s1','s2']:
                     assert actual.equals(combined.filter(pl.col('sample_id')==name).select(actual.columns))
+
+
+def test_panel_abundances_preserve_source_clones_and_deduplicate_panel_keys():
+    from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
+    obs=pl.DataFrame(dict(junction_aa=['CAAF','CAAF','CACF'],v=['V']*3,j=['J']*3,count=[1,1,2]))
+    panels=pl.DataFrame(dict(group_id=['X']*4,replicate=[-1,-1,-1,0],junction_aa=['CAAF','CAAF','CACF','CATF'],v=['V']*4,j=['J']*4))
+    out=exact_reference_counts(obs,panels,with_abundances=True).sort('replicate')
+    assert out['matched_records'].to_list()==[3,0]
+    assert out['matched_reads'].to_list()==[4,0]
+    assert sorted(out['matched_abundances'][0].to_list())==[1,1,2]
+    assert out['matched_abundances'][1].to_list()==[]

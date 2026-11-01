@@ -11,12 +11,14 @@ from ..io.columns import _integer_count
 
 def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
                            matcher='exact', mismatches=1, threads=1, radius_factor=None,
-                           locus='TRB', species='human') -> pl.DataFrame:
+                           locus='TRB', species='human', with_abundances=False) -> pl.DataFrame:
     """Count source rows and reads against all exact V/J/junction panels at once.
 
     Observations contain junction_aa/v/j/count; panels additionally contain
     group_id/replicate. Source rows sharing a key remain separate observations.
     Repeated sampled panel keys do not multiply observed counts. Zero-hit panels are kept.
+    with_abundances retains the original matched source-row read counts per panel,
+    including separate source rows sharing an AA/V/J key, for library estimators.
     This is the original bulk-repertoire counting unit, not paired-cell union.
     Optional Hamming matching changes junction membership only; exact
     V/J and one count per source observation per panel remain mandatory.
@@ -32,7 +34,9 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
         raise ValueError('nonnegative integer source counts required')
     if obs.select(pl.col('count').cast(pl.Int128).sum()).item()>np.iinfo(np.int64).max:
         raise ValueError('source read total exceeds int64')
-    counted=obs.group_by(keys).agg(pl.len().cast(pl.Int64).alias('matched_records'),pl.col('count').sum().alias('matched_reads'))
+    aggregations=[pl.len().cast(pl.Int64).alias('matched_records'),pl.col('count').sum().alias('matched_reads')]
+    if with_abundances:aggregations.append(pl.col('count').alias('matched_abundances'))
+    counted=obs.group_by(keys).agg(aggregations)
     weighted=matcher in {'blosum62','positional-blosum62'}
     from ..match.scope import GRADED_FAMILIES, graded_family_params
     if matcher not in {'exact','hamming','blosum62','positional-blosum62',*GRADED_FAMILIES}:
@@ -83,9 +87,12 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
             roles=panels.join(queries,on='junction_aa',validate='m:1').drop('junction_aa')
             memberships=pairs.join(roles,on='_qi',validate='m:m').join(observed,on='_ri',validate='m:1').select(*groups,*keys).unique()
             members=memberships.join(counted,on=keys,validate='m:1')
-    matched=members.group_by(groups).agg(pl.col('matched_records','matched_reads').sum())
-    return panels.select(groups).unique().join(matched,on=groups,how='left',validate='1:1').with_columns(
+    aggregations=[pl.col('matched_records','matched_reads').sum()]
+    if with_abundances:aggregations.append(pl.col('matched_abundances').list.explode(keep_nulls=False,empty_as_null=False))
+    matched=members.group_by(groups).agg(aggregations)
+    result=panels.select(groups).unique().join(matched,on=groups,how='left',validate='1:1').with_columns(
         pl.col('matched_records','matched_reads').fill_null(0)).sort(groups)
+    return result.with_columns(pl.col('matched_abundances').fill_null(pl.lit([],dtype=pl.List(pl.Int64)))) if with_abundances else result
 
 
 def matched_enrichment(observations, control, matches, targets, *, replicates=200, seed=0, measure=None):

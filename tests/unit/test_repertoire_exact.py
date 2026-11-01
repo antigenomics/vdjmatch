@@ -328,7 +328,21 @@ def test_raw_marginal_features_bypass_all_probability_corrections(tmp_path,monke
     def forbidden(*a,**kw):raise AssertionError('raw marginal path must not correct or rescore probability')
     monkeypatch.setattr(mock_reference,'compiled_reference_strata',forbidden)
     parser=argparse.ArgumentParser();register(parser.add_subparsers())
-    args=parser.parse_args(['repertoire-exact',str(tmp_path/'meta.tsv'),'--vdjdb',str(tmp_path/'ref.tsv'),'--control',str(tmp_path/'control.tsv'),'--pgen-features',str(tmp_path/'raw.features.parquet'),'--mock-replicates','2','--threads','1','--output-prefix',str(tmp_path/'out')])
+    args=parser.parse_args(['repertoire-exact',str(tmp_path/'meta.tsv'),'--vdjdb',str(tmp_path/'ref.tsv'),'--control',str(tmp_path/'control.tsv'),'--pgen-features',str(tmp_path/'raw.features.parquet'),'--chao1','--mock-replicates','2','--threads','1','--output-prefix',str(tmp_path/'out')])
     assert args.func(args)==0
     assert pl.read_csv(tmp_path/'out.reference-bins.tsv',separator='\t')['pgen_bin'].to_list()==[-24]
     m=json.loads((tmp_path/'out.manifest.json').read_text());assert m['probability']=='raw marginal junction Pgen; no corrections'
+
+    c=pl.read_csv(tmp_path/'out.counts.tsv',separator='\t')
+    assert c.filter(pl.col('replicate')==-1)['matched_chao1'].item()==1.
+    assert 'original_q_chao1' in pl.read_csv(tmp_path/'out.summary.tsv',separator='\t').columns
+    spectrum=pl.read_csv(tmp_path/'out.abundance-spectra.tsv',separator='\t')
+    assert spectrum.filter(pl.col('replicate')==-1).select('reads_per_source_row','source_rows').row(0)==(7,1)
+
+
+def test_chao1_summary_keeps_fractional_richness_and_same_mock_tail():
+    from vdjmatch.cli.repertoire_exact import _summaries
+    counts=pl.DataFrame(dict(sample_id=['S']*4,group_id=['X']*4,replicate=[-1,0,1,2],matched_records=[3,3,4,0],matched_reads=[4,5,6,0],matched_chao1=[4.5,4.4,4.6,0.]))
+    s=_summaries(counts).row(0,named=True)
+    assert s['matched_chao1']==4.5 and s['p_chao1']==.5
+    assert s['original_p_chao1']==pytest.approx(2/3)
