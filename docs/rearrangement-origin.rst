@@ -245,6 +245,35 @@ condition through sequence context, codon phase and selection. A
 neighbour incidence per exposed site may exceed one and is an intensity,
 not a per-site probability.
 
+**An identifiable exchange-intensity fit.** Let :math:`s` denote the
+declared chain, length, position, gene and origin stratum; let
+:math:`E^0_{s,ab}` be its baseline pair opportunity after applying
+exactly the observed neighbour rule. A working count model is
+
+.. math::
+
+
+    O_{s,ab}\sim\operatorname{Poisson}(\mu_{s,ab}),\qquad
+    \mu_{s,ab}=E^0_{s,ab}\exp(\alpha_s+\beta_{ab}).
+
+Here :math:`O` counts observed pairs, :math:`\alpha_s` sets stratum
+density and :math:`\beta_{ab}=\beta_{ba}` describes relative exchange
+enrichment. Fix the additive gauge, for example by
+:math:`\sum_{a<b}\beta_{ab}=0` over the declared supported cells. With a
+single unrestricted cell multiplier and no shared intercept, the
+likelihood equation is :math:`\widehat{\exp\beta}_{ab}=O_{ab}/E^0_{ab}`;
+shared effects instead solve :math:`\sum_s(O_{s,ab}-\mu_{s,ab})=0`. Thus
+raw mismatch frequency is not the fitted compatibility: it must be
+divided by its opportunity. A structural zero opportunity is excluded
+from this likelihood and retained in the support table; a positive
+observation there diagnoses a model, origin or alignment mismatch.
+Fractional origin-weighted counts use this as a weighted estimating
+equation, not as literal independent Poisson observations. Neither this
+working likelihood nor fractional counts justify independent-pair
+uncertainty, because receptors and studies are reused. Position-only or
+residue-only factors are restrictions on these effects, to be compared
+with the joint effect rather than assumed from raw endpoint frequencies.
+
 **PAM-style compatibility process.** Origin-weighted N-region exchange
 counts can define a reversible compatibility walk. Let
 :math:`A_{ab}=A_{ba}` be off-diagonal exchange counts and :math:`f_a>0`
@@ -259,13 +288,20 @@ identical weighting and coordinate scope. Set
 
 Choose :math:`c` to state a mean rate unit, and verify
 :math:`f_aQ_{ab}=f_bQ_{ba}`, nonnegative off-diagonals and zero row
-sums. Then :math:`P(t)=\exp(tQ)` gives :math:`q_{ab}(t)=f_aP_{ab}(t)`,
-from which the same log-odds distance follows. Neither the walk nor
-:math:`t` is an ancestral mutation process or biological elapsed time.
-Hamming-one counts alone do not identify holding probabilities or a
-unique finite-time distance. Reference comparisons therefore state a
-fixed time/information convention and distinguish logarithmic distances
-from linear genetic-code propensities.
+sums. When :math:`\sum_a f_a=1`, setting
+:math:`c=(\sum_{a\ne b}A_{ab})^{-1}` gives :math:`-\sum_a f_aQ_{aa}=1`:
+one expected compatibility jump per unit walk time. The relative escape
+intensity is :math:`-Q_{aa}=c\sum_{b\ne a}A_{ab}/f_a`, which separates
+residue abundance from its exchange count. Reversibility follows from
+symmetrizing unordered convergence pairs; it is imposed by this
+construction, not evidence of an evolutionary equilibrium. Then
+:math:`P(t)=\exp(tQ)` gives :math:`q_{ab}(t)=f_aP_{ab}(t)`, from which
+the same log-odds distance follows. Neither the walk nor :math:`t` is an
+ancestral mutation process or biological elapsed time. Hamming-one
+counts alone do not identify holding probabilities or a unique
+finite-time distance. Reference comparisons therefore state a fixed
+time/information convention and distinguish logarithmic distances from
+linear genetic-code propensities.
 
 **Indels are changes of rearrangement histories.** Let :math:`G_k(x,y)`
 indicate that the existing alignment convention accepts exactly one
@@ -298,6 +334,30 @@ owning aligner convention or an explicit placement posterior. Summing
 placements as independent observations overcounts repetitive sequence.
 Fit recognition multipliers against these opportunities, with the same
 exposure-offset logic as substitutions.
+
+To define the requested gap-size probability, normalize the
+opportunities only after specifying the conditioning:
+
+.. math::
+
+
+    P_0(k\mid L,C,\text{one-gap neighbour})=
+    \frac{\sum_z E^0_{z,L,C,k}}
+         {\sum_{j\ge1}\sum_z E^0_{z,L,C,j}}.
+
+Here :math:`j` indexes allowed positive gap sizes, not a J gene; the
+denominator must be positive. This conditional size distribution does
+not identify how often one-gap neighbours occur among all eligible
+pairs. The latter requires the total pair exposure, including pairs
+without a gap event. For observed counts :math:`I_{z,L,C,k}`, fit
+:math:`\nu_{z,L,C,k}=E^0_{z,L,C,k}\exp(\gamma_{L,C}+\delta_{z,k})`, with
+an explicit gauge for :math:`\delta`, and normalize :math:`\sum_z\nu` to
+obtain the recognition-conditioned size distribution. The structural
+allowed set is :math:`\{k:\sum_zE^0_{z,L,C,k}>0\}` under the specified
+model; distinguish this from finite sampling and floating-point
+underflow. There is no universal shortest-length-only list of allowed
+gaps when V/J choice, trimming bounds and insertion-length support
+differ.
 
 **Generalization across epitopes.** Define the target epitope mixture
 before estimating a general matrix. Pair pooling estimates the sampled
