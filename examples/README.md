@@ -157,3 +157,9 @@ For manuscript reporting notebooks, consume the authoritative final CLI tables
 with their manifests. Replotting does not authorize rescoring. Inspect chain
 P-values beside nominal/BH families; show paired/union support without statistical
 borders. Keep all timepoints and separate technical libraries from donors.
+
+For completed repertoire enrichment, `repertoire_report.sh COUNTS SUMMARY PREFIX`
+uses the shipping `repertoire-report` CLI to show all 200 mocks and recorded q
+values. Supply `records` as a fourth argument for raw source-clonotype counts.
+Use final tables produced under the same model, reference and null law. Private
+YF/COVID tables and identifiers are intentionally not bundled with this example.

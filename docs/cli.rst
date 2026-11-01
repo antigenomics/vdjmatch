@@ -2987,3 +2987,28 @@ integer matched-read depth supported by all real/mock panels within a library.
 It also exports Gini–Simpson (1-1/q2); extrapolated values are excluded.
 All endpoints use the same reference mocks and existing FDR families; no-match
 libraries cannot receive a positive detection call.
+
+Show the complete reference-null evidence
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``repertoire-report`` displays the observed endpoint against all 200 recorded
+mock values, annotates the primary empirical P value and secondary BH q value, and exports the real/mock effect
+ratio. It reads final CLI tables without drawing mocks or refitting inference::
+
+   vdjmatch repertoire-report full.counts.tsv full.summary.tsv \
+     --metric curve_mean --output-prefix figures/richness
+
+Outputs include a paginated PDF, page PNGs and an evidence TSV. Install the
+``notebook`` extra for Matplotlib. Each sample/target must contain one observed
+row (replicate -1), 200 distinct mock replicates and one summary. Report mock
+variation as a reference-null distribution, rather than a confidence interval
+for the observed repertoire. A mean curve alone does not show significance.
+
+Mean rarefied matched richness measures excess discoverable source clonotypes
+at a common whole-library effort. Each type contributes at most one, while
+expansion increases its probability of discovery. Compare recorded raw-count
+and richness effects to explain recovered libraries. Conditional matched-read
+Hill diversity measures concentration; retain its changing eligible library
+counts at every depth. Paired COVID exposure summaries additionally require
+same-receptor, same-pMHC and HLA compatibility; any-target support is descriptive
+and does not inherit a calibrated exposure P value from chain enrichment.

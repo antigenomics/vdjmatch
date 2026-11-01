@@ -191,3 +191,20 @@ The vaccination notebook reports annotation neighbourhood evidence, not the
 mock-reference enrichment test. Read :doc:`repertoire-method` for the tested
 bulk and paired operating points, V/J restrictions and aggregation choices,
 and :doc:`how-to` for an explicit paired chain-test command.
+
+Repertoire enrichment with complete mock evidence
+-------------------------------------------------
+
+Use ``repertoire-exact --abundance-metrics`` to retain abundance-aware matched
+richness and the matched-subset Hill comparisons. For a completed calculation,
+``repertoire-report`` shows the observed endpoint against all 200 mock panels,
+with primary empirical P values, secondary BH q values and real/mock ratios.
+The worked shell example is ``examples/repertoire_report.sh``. It consumes final
+CLI tables; it performs no new sampling or inference.
+
+Lead interpretation with detectable enrichment after challenge and the recorded
+prechallenge result. Preserve donor replicas, report the best observed
+postchallenge timepoint explicitly, and retain all timepoints in the evidence
+record. Compare raw-count and finite-effort richness effects for recovered
+libraries. Paired receptor support additionally requires the declared chain,
+pMHC and HLA predicates and remains distinct from chain-level significance.

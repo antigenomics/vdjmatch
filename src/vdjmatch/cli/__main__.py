@@ -938,6 +938,8 @@ def main(argv: list[str] | None = None) -> int:
     register_repertoire_tcrnet(sub)
     from .repertoire_exact import register as register_repertoire_exact
     register_repertoire_exact(sub)
+    from .repertoire_report import register as register_repertoire_report
+    register_repertoire_report(sub)
     from .fixed_scope import register as register_fixed_scope
     register_fixed_scope(sub)
     register_fixed_scope(sub, trained=True)
