@@ -577,6 +577,7 @@ def origin_block_matrices(clonotypes, origins, known_labels=None):
     )
     rows = []
     counts = {}
+    short_counts = {}
     contrast = None
     if selected.height:
         ids = queries["query_id"].to_list()
@@ -604,6 +605,8 @@ def origin_block_matrices(clonotypes, origins, known_labels=None):
                 encoded, np.arange(block.height), mask
             )
             counts.setdefault(epitope, np.zeros((20, 20)))[:] += observed
+            if length < 8:
+                short_counts.setdefault(epitope, np.zeros((20, 20)))[:] += observed
             rows.append(
                 dict(
                     epitope=epitope,
@@ -690,6 +693,24 @@ def origin_block_matrices(clonotypes, origins, known_labels=None):
     )
     if contrast is None:
         contrast = _matched_origin_background(None, None, None, None, None)
+    contrast["short-epitope-pairs"] = pl.DataFrame(
+        [
+            dict(
+                epitope=e,
+                a=AA[i],
+                b=AA[j],
+                n_weighted_ordered_site_pairs=float(c[i, j]),
+            )
+            for e, c in sorted(short_counts.items())
+            for i, j in zip(*np.nonzero(c))
+        ],
+        schema={
+            "epitope": pl.String,
+            "a": pl.String,
+            "b": pl.String,
+            "n_weighted_ordered_site_pairs": pl.Float64,
+        },
+    )
     return (
         matrix,
         blocks.sort("epitope", "v", "j", "length"),
@@ -710,6 +731,9 @@ def _matched_origin_background(selected, weights, lookup, aa_lookup, known_label
     positive = {}
     background = {}
     directional_background = {}
+    short_positive = {}
+    short_background = {}
+    short_directional = {}
     support_rows = []
     if selected is not None and selected.height:
         primary = selected.select("query_id", "epitope").unique()
@@ -747,6 +771,9 @@ def _matched_origin_background(selected, weights, lookup, aa_lookup, known_label
                 positive.setdefault(epitope, np.zeros((20, 20)))
                 background.setdefault(epitope, np.zeros((20, 20)))
                 directional_background.setdefault(epitope, np.zeros((20, 20)))
+                short_positive.setdefault(epitope, np.zeros((20, 20)))
+                short_background.setdefault(epitope, np.zeros((20, 20)))
+                short_directional.setdefault(epitope, np.zeros((20, 20)))
                 in_group = np.array([epitope in g for g in groups])
                 in_query = in_group[ids]
                 n = int(in_query.sum())
@@ -777,6 +804,12 @@ def _matched_origin_background(selected, weights, lookup, aa_lookup, known_label
                         directional_background[epitope] += directed * (
                             2 * pos_mass / neg_mass
                         )
+                        if length < 8:
+                            short_positive[epitope] += pos
+                            short_background[epitope] += neg * (pos_mass / neg_mass)
+                            short_directional[epitope] += directed * (
+                                2 * pos_mass / neg_mass
+                            )
                     support_rows.append(
                         dict(
                             epitope=epitope,
@@ -803,6 +836,13 @@ def _matched_origin_background(selected, weights, lookup, aa_lookup, known_label
                         background_pair_weight=float(background[epitope][i, k]),
                         directional_background_pair_weight=float(
                             directional_background[epitope][i, k]
+                        ),
+                        short_positive_pair_weight=float(short_positive[epitope][i, k]),
+                        short_background_pair_weight=float(
+                            short_background[epitope][i, k]
+                        ),
+                        short_directional_background_pair_weight=float(
+                            short_directional[epitope][i, k]
                         ),
                     )
                 )
@@ -872,6 +912,9 @@ def _matched_origin_background(selected, weights, lookup, aa_lookup, known_label
                 "positive_pair_weight": pl.Float64,
                 "background_pair_weight": pl.Float64,
                 "directional_background_pair_weight": pl.Float64,
+                "short_positive_pair_weight": pl.Float64,
+                "short_background_pair_weight": pl.Float64,
+                "short_directional_background_pair_weight": pl.Float64,
             },
         ),
         "recognition-support": pl.DataFrame(

@@ -1622,7 +1622,12 @@ Origin-aware block matrices
 --output-prefix OUT`` derives an N-region convergence matrix using vdjtools 5.7
 or newer. ``--species`` selects the species-matched isalgo model. Eligibility is
 at least ``--min-records 30`` curated valid source records per epitope/chain,
-before deduplication; junctions then require standard amino acids and length >=8.
+before deduplication; junctions require standard amino acids. Every producer-declared
+junction length is retained. No anchor-letter screen is applied: trimming and
+mixed codons can change boundary amino acids without mutating retained templates.
+``.length-band-support.tsv`` accounts separately for lengths below eight, and
+``.short-epitope-pairs.tsv`` retains their additive count contribution for
+comparison with the earlier length-filtered diagnostic.
 
 The command computes exact pure-N probabilities in one native batch and weights
 each distinct junction/V/J clonotype pair by the product of its two site

@@ -144,7 +144,6 @@ def origin_matrix(a):
         (pl.col("gene") == a.locus)
         & pl.col("reference_valid").fill_null(False)
         & pl.col("cdr3").str.contains("^[ACDEFGHIKLMNPQRSTVWY]+$")
-        & (pl.col("cdr3").str.len_chars() >= 8)
     ).select(
         "epitope", "cdr3", pl.col("v").alias("source_v"), pl.col("j").alias("source_j")
     )
@@ -152,7 +151,6 @@ def origin_matrix(a):
         (pl.col("gene") == a.locus)
         & pl.col("reference_valid").fill_null(False)
         & pl.col("cdr3").str.contains("^[ACDEFGHIKLMNPQRSTVWY]+$")
-        & (pl.col("cdr3").str.len_chars() >= 8)
     ).select(
         "epitope", "cdr3", pl.col("v").alias("source_v"), pl.col("j").alias("source_j")
     )
@@ -231,23 +229,30 @@ def origin_matrix(a):
         pl.when(pl.col("origin_supported"))
         .then(pl.lit("origin_supported"))
         .otherwise(pl.lit("zero_sequence_likelihood"))
-        .alias("status")
+        .alias("status"),
+        (pl.col("cdr3").str.len_chars() < 8).alias("legacy_length_lt8"),
     )
-    accounting = resolved.group_by("epitope", "status").agg(
+    accounting = resolved.group_by("epitope", "status", "legacy_length_lt8").agg(
         pl.col("source_records").sum(), pl.len().alias("clonotypes")
     )
     missing = (
         source.filter(pl.col("v").is_null() | pl.col("j").is_null())
-        .group_by("epitope")
+        .with_columns((pl.col("cdr3").str.len_chars() < 8).alias("legacy_length_lt8"))
+        .group_by("epitope", "legacy_length_lt8")
         .agg(
             pl.len().alias("source_records"),
             pl.struct("cdr3", "source_v", "source_j").n_unique().alias("clonotypes"),
         )
         .with_columns(pl.lit("unresolved_call").alias("status"))
     )
-    accounting = pl.concat(
+    length_accounting = pl.concat(
         [accounting, missing.select(accounting.columns)], how="vertical_relaxed"
-    ).sort("epitope", "status")
+    ).sort("epitope", "status", "legacy_length_lt8")
+    accounting = (
+        length_accounting.group_by("epitope", "status")
+        .agg(pl.col("source_records").sum(), pl.col("clonotypes").sum())
+        .sort("epitope", "status")
+    )
     if int(accounting["source_records"].sum()) != source.height:
         raise RuntimeError("origin accounting lost source records")
     sites = (
@@ -282,6 +287,7 @@ def origin_matrix(a):
         "exposures": exposures,
         "blocks": blocks,
         "support": accounting,
+        "length-band-support": length_accounting,
         "calls": pl.DataFrame(
             call_rows,
             schema={
@@ -337,6 +343,7 @@ def origin_matrix(a):
         ],
         known_label_source_records=all_labels.height,
         known_label_query_memberships=known_labels.height,
+        length_policy="all producer-declared junction lengths retained; no anchor motif screen or fabrication; legacy_length_lt8 is an audit band only",
         weighting=["pair-mass pooled", "equal contributing epitope"],
         score="unrounded log2(q_ab/(p_a*p_b)); distance=max(0,S_aa+S_bb-2*S_ab), bits",
         missing="zero-likelihood and unresolved calls retained in support; unsupported cells null; no pseudocount",

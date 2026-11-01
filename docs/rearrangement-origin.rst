@@ -34,7 +34,11 @@ trimming/P events, N lengths and N nucleotide realizations. Write
 :math:`T(r)=x` for translation and :math:`P_0(r\mid C)` for the
 specified recombination model. The observed gene calls enter as
 conditioning evidence with their ambiguity retained. Known retained
-templates are not repaired by allowing mutations inside germline.
+templates are not repaired by allowing mutations inside germline. Every
+producer-declared junction length is retained. Anchor letters alone are not
+a compatibility filter: trimming and mixed codons can change boundary amino
+acids without mutation of retained templates. Compatibility follows from the
+conditioned model mass; unsupported records remain in the accounting.
 
 For each nucleotide coordinate :math:`t`, retain an origin label
 :math:`Z_r(t)\in\{G,P,N\}`. The germline label :math:`G` also records
@@ -273,11 +277,22 @@ directional log odds:
 
 In the stated independent-profile case this becomes
 :math:`(\log_2t_a+\log_2t_b)/2`, so its diagonal-zero contrast is zero.
-The implementation reports these two estimands separately. This
-cancellation is a mathematical single-stratum property; context mixing,
-finite-pair corrections and incomplete empirical support still require
-accounting. A block density contrast remains distinct from a
-composition-adjusted neighbour exchange model.
+The implementation reports these two estimands separately. For any
+symmetric positive count matrix and the same directed background
+:math:`B`, the raw contrasts satisfy the more general identity
+
+.. math::
+
+
+    D^{\mathrm{unordered}}_{ab}-D^{\mathrm{role}}_{ab}
+    =\log_2\frac{(B_{ab}+B_{ba})^2}{4B_{ab}B_{ba}}\ge0,
+
+where the required entries are positive. Nonnegative clipping can reduce
+this excess but preserves its direction. This cancellation is a
+mathematical single-stratum property; context mixing, finite-pair
+corrections and incomplete empirical support still require accounting. A
+block density contrast remains distinct from a composition-adjusted
+neighbour exchange model.
 
 **One-substitution neighbours require an ascertainment correction.**
 When the input contains only Hamming-one neighbours, observing a change

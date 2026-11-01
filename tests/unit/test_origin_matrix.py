@@ -115,6 +115,8 @@ def test_origin_cli_preserves_source_units_and_zero_support(tmp_path, monkeypatc
             reference_valid=[True] * 5,
         )
     )
+    short = frame.slice(0, 1).with_columns(pl.lit("C").alias("cdr3"))
+    frame = pl.concat([frame, short])
     tail = frame[[0, 2]].with_columns(pl.lit("TAIL").alias("epitope"))
     complete = pl.concat([frame, tail])
     monkeypatch.setattr(db, "load", lambda *args, **kwargs: complete)
@@ -131,7 +133,7 @@ def test_origin_cli_preserves_source_units_and_zero_support(tmp_path, monkeypatc
 
     def posterior(model, cdr3_aas, **kwargs):
         assert (
-            len(cdr3_aas) == 3
+            len(cdr3_aas) == 4
         )  # Duplicate source records do not become extra origin queries.
         assert all("," not in v for v in kwargs["v"])
         return pl.DataFrame(
@@ -174,16 +176,18 @@ def test_origin_cli_preserves_source_units_and_zero_support(tmp_path, monkeypatc
     )
     assert args.func(args) == 0
     support = pl.read_csv(str(prefix) + ".support.tsv", separator="\t")
-    assert support["source_records"].sum() == 5
+    assert support["source_records"].sum() == 6
     observed = {r["status"]: r["source_records"] for r in support.to_dicts()}
     assert observed == dict(
-        origin_supported=3, zero_sequence_likelihood=1, unresolved_call=1
+        origin_supported=4, zero_sequence_likelihood=1, unresolved_call=1
     )
     calls = pl.read_csv(str(prefix) + ".calls.tsv", separator="\t")
     assert calls.filter(pl.col("status") == "ambiguous_call").height == 1
     manifest = json.loads((tmp_path / "origin.provenance.json").read_text())
-    assert manifest["origin_queries"] == 3 and manifest["source_records"] == 5
+    assert manifest["origin_queries"] == 4 and manifest["source_records"] == 6
     assert pl.read_csv(str(prefix) + ".matrix.tsv", separator="\t").height == 800
+    band = pl.read_csv(str(prefix) + ".length-band-support.tsv", separator="\t")
+    assert band.filter(pl.col("legacy_length_lt8"))["source_records"].sum() == 1
 
 
 def test_matched_background_uses_disjoint_complete_labels_and_same_N_opportunity():
