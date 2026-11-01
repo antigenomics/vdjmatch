@@ -375,6 +375,7 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
         selected=model_vj_probabilities
         if not {'v','j','p'}<=set(selected.columns) or not selected.height or selected.select('v','j').n_unique()!=selected.height:
             raise ValueError('unique nonempty selected V/J probabilities required')
+        selected=selected.with_columns(pl.col('p').cast(pl.Float64))
         if any(selected[c].null_count() for c in ['v','j','p']) or not np.all(np.isfinite(selected['p'].to_numpy()) & (selected['p'].to_numpy()>=(0 if model_informed_prior else np.nextafter(0.,1.)))) or not np.isclose(selected['p'].sum(),1.,rtol=1e-10,atol=1e-12):
             raise ValueError('positive finite selected V/J probabilities summing to one required')
         audit=counts[0].join(selected.select('v','j',pl.col('p').cast(pl.Float64).alias('model_probability')),

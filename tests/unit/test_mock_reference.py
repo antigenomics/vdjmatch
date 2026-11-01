@@ -493,6 +493,8 @@ def test_compiled_reference_strata_model_informed_prior():
     selected=model.select('v','j',(pl.col('records')/10).alias('p'))
     _,exact=compiled_reference_strata(probes,sample,model_vj_probabilities=selected,model_informed_prior=True)
     assert exact['sample_probability'].to_list()==pytest.approx(audit['sample_probability'].to_list())
+    _,text=compiled_reference_strata(probes,sample,model_vj_probabilities=selected.with_columns(pl.col('p').cast(pl.String)),model_informed_prior=True)
+    assert text['sample_probability'].to_list()==pytest.approx(audit['sample_probability'].to_list())
     missing,audit=compiled_reference_strata(probes,sample,model.with_columns(pl.when(pl.col('j')=='J1').then(0).otherwise(pl.col('records')).alias('records')),model_informed_prior=True)
     assert missing['zero_model_mass'].to_list()==[True,False]
     assert audit['sample_prior_records'].to_list()==pytest.approx([0.,1.])
