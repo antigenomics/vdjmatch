@@ -2976,3 +2976,14 @@ For cohorts that fit in memory, reference-null ``repertoire-enrichment --batch-s
 shares each seeded mock draw and native search across samples. It preserves
 per-sample receptor identities, counts, null statistics and the selected BH family.
 The default still loads and processes one sample at a time.
+
+``repertoire-exact --abundance-metrics`` includes Chao1 and adds matched-source
+Shannon effective diversity (lower-tail concentration), inverse Simpson diversity
+(lower-tail concentration), and mean whole-library rarefied richness (upper tail). The latter
+uses the minimum eligible cohort read depth and a fixed 513-point integer grid;
+outputs retain the coarse-grid numerical delta and observed/mock discovery curves.
+The additional q=0,1,2 iNEXT table compares lower-tail diversity at each
+integer matched-read depth supported by all real/mock panels within a library.
+It also exports Gini–Simpson (1-1/q2); extrapolated values are excluded.
+All endpoints use the same reference mocks and existing FDR families; no-match
+libraries cannot receive a positive detection call.

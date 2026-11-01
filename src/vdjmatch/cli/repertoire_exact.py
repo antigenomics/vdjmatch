@@ -8,6 +8,7 @@ def register(sub):
     p.add_argument('metadata',help='TSV sample_id,path and optional FDR-group columns')
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--control',required=True,help='Distinct junction_aa,v,j probe keys; optional joint_pgen column')
+    p.add_argument('--abundance-metrics',action='store_true',help='Compare full-depth curve-average richness, Shannon and Simpson Hill diversity against reference mocks (includes Chao1)')
     p.add_argument('--chao1',action='store_true',help='Compare matched source-clonotype Chao1 from vdjtools against the same mock panels')
     p.add_argument('--pgen-features',help='Verified marginal Pgen features; use raw probabilities and bins without corrections')
     p.add_argument('--model-vj-counts',help='Generated-model v,j,records counts from the selected source')
@@ -112,7 +113,8 @@ def _summaries(counts):
         mock=part.filter(pl.col('replicate')>=0)
         present=mock.filter(pl.col('matched_records')>0)
         row=dict(sample_id=sample,group_id=target,matched_records=observed['matched_records'],matched_reads=observed['matched_reads'],mock_replicates=mock.height,original_present_mocks=present.height)
-        for endpoint in ['records','reads']+(['chao1'] if 'matched_chao1' in counts.columns else []):
+        for endpoint in ['records','reads']+[e for e in ['chao1','curve_mean','shannon','simpson','hill0','hill1','hill2'] if 'matched_'+e in counts.columns]:
+            direction=-1 if endpoint in {'shannon','simpson','hill0','hill1','hill2'} else 1
             actual=observed['matched_'+endpoint];values=mock['matched_'+endpoint].to_numpy()
             original=present['matched_'+endpoint].to_numpy()
             transformed=np.log2(original+1.) if endpoint=='reads' else original
@@ -120,13 +122,13 @@ def _summaries(counts):
             mean=float(transformed.mean()) if len(original) else None
             sd=float(transformed.std(ddof=1)) if len(original)>1 else None
             with np.errstate(divide='ignore',invalid='ignore'):
-                effect=float(np.divide(effect_actual-mean,sd)) if sd is not None else None
+                effect=float(np.divide(direction*(effect_actual-mean),sd)) if sd is not None else None
             if effect is not None and np.isnan(effect):effect=None
-            row.update({'matched_'+endpoint:actual,'mock_mean_'+endpoint:float(values.mean()),'p_'+endpoint:float((1+(values>=actual).sum())/(len(values)+1)),
-                'original_p_'+endpoint:float((1+(original>=actual).sum())/(len(original)+1)) if observed['matched_records']>0 else None,
+            row.update({'matched_'+endpoint:actual,'mock_mean_'+endpoint:float(values.mean()),'p_'+endpoint:float((1+(direction*values>=direction*actual).sum())/(len(values)+1)),
+                'original_p_'+endpoint:float((1+(direction*original>=direction*actual).sum())/(len(original)+1)) if observed['matched_records']>0 else None,
                 'original_mean_'+endpoint:mean,'original_sd_'+endpoint:sd,
                 'original_effect_'+endpoint:effect,
-                'excess_'+endpoint:float(actual-values.mean())})
+                'excess_'+endpoint:float(direction*(actual-values.mean()))})
         if 'sample_clonotypes' in part.columns:
             for denominator in ['sample_clonotypes','epitope_clonotypes','sample_reads']:
                 if part[denominator].n_unique()!=1:raise ValueError('real/mock normalization denominators must agree')
@@ -138,11 +140,28 @@ def _summaries(counts):
     return pl.DataFrame(rows,infer_schema_length=None)
 
 
+def _adjust_summary(summary,endpoints,fdr_groups):
+    import polars as pl
+    from vdjtools.biomarker.stats import fdr_bh
+    parts=[]
+    for part in summary.partition_by(['group_id',*fdr_groups]):
+        for endpoint in endpoints:
+            for stem in ['', 'original_']:
+                col=stem+'p_'+endpoint
+                values=part[col].to_list()
+                adjusted=iter(fdr_bh(part[col].drop_nulls().to_numpy()))
+                part=part.with_columns(pl.Series(stem+'q_'+endpoint,[next(adjusted) if value is not None else None for value in values],dtype=pl.Float64))
+            part=part.with_columns(((pl.col('matched_records')>0)&(pl.col('p_'+endpoint)<.05)&(pl.col('excess_'+endpoint)>0)).alias('significant_nominal_'+endpoint),
+                ((pl.col('matched_records')>0)&(pl.col('q_'+endpoint)<.1)&(pl.col('excess_'+endpoint)>0)).alias('significant_bh_'+endpoint),
+                ((pl.col('original_q_'+endpoint)<.1)&(pl.col('original_effect_'+endpoint)>0)).alias('original_significant_bh_'+endpoint))
+        parts.append(part)
+    return pl.concat(parts)
+
+
 def main(a):
     import json,time
     from importlib.metadata import version
     import polars as pl
-    from vdjtools.biomarker.stats import fdr_bh
     from .. import db
     from ..db.cache import sha256
     from ..io.airr import _read_table
@@ -152,7 +171,8 @@ def main(a):
     from ..runner.annotation import _validate_output_paths
     from vdjtools.cores import kernel_threads
     a.threads = kernel_threads(a.threads)
-    chao1=getattr(a,'chao1',False)
+    abundance_metrics=getattr(a,'abundance_metrics',False)
+    chao1=getattr(a,'chao1',False) or abundance_metrics
     if chao1 and a.matcher=='stem4':raise ValueError('--chao1 requires a membership-count matcher')
     if a.mock_replicates<2 or a.seed<0 or a.threads<1:raise ValueError('at least two mocks, nonnegative seed and positive threads required')
     if not 0<=a.mismatches<=3:raise ValueError('zero to three mismatches required')
@@ -199,6 +219,7 @@ def main(a):
     suffixes=['v-repairs.tsv','source-audit.tsv','summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
     if a.allow_missing_model_genes or a.include_nonfunctional:suffixes.append('missing-model-genes.tsv')
     if chao1:suffixes.append('abundance-spectra.tsv')
+    if abundance_metrics:suffixes.extend(['discovery-curves.tsv','hill-rarefaction.tsv'])
     if any(Path(str(prefix)+'.'+s).exists() for s in suffixes):raise FileExistsError('fresh output prefix required')
     before={str(p):sha256(p) for p in inputs}
     import seqtree._core as search_native
@@ -210,6 +231,9 @@ def main(a):
     if chao1:
         from vdjtools.stats.inext import asymptotic_diversity
         source_files.append(Path(asymptotic_diversity.__code__.co_filename))
+    if abundance_metrics:
+        from vdjtools.stats import subset_rarefaction_batch,shannon_wiener,inverse_simpson,inext_batch
+        source_files.extend(Path(f.__code__.co_filename) for f in [subset_rarefaction_batch,shannon_wiener,inverse_simpson,inext_batch])
     source_before={str(p):sha256(p) for p in source_files}
     now=time.monotonic();stages['input_validation_and_freeze']=now-mark;mark=now
     reference=db.load(inputs[1],species={'human':'HomoSapiens','mouse':'MusMusculus'}[a.species]).filter(pl.col('gene')==a.locus)
@@ -355,27 +379,53 @@ def main(a):
             float(asymptotic_diversity(v,q=0,se=False)['estimator'][0]) if any(v) else 0. for v in vectors]))
         spectra=counts.select('sample_id','group_id','replicate','matched_abundances').explode('matched_abundances',empty_as_null=True).drop_nulls('matched_abundances').rename({'matched_abundances':'reads_per_source_row'}).group_by('sample_id','group_id','replicate','reads_per_source_row').len(name='source_rows').sort('sample_id','group_id','replicate','reads_per_source_row')
         counts=counts.with_columns(pl.col('matched_abundances').list.count_matches(1).alias('matched_singletons'),pl.col('matched_abundances').list.count_matches(2).alias('matched_doubletons')).drop('matched_abundances')
-    counts=counts.join(panel_sizes,on=['group_id','replicate'],validate='m:1').join(pl.DataFrame(totals),on='sample_id',validate='m:1').with_columns(
+    counts=counts.join(panel_sizes,on=['group_id','replicate'],validate='m:1',maintain_order='left').join(pl.DataFrame(totals),on='sample_id',validate='m:1',maintain_order='left').with_columns(
         (pl.col('matched_records')/pl.col('sample_clonotypes')/pl.col('epitope_clonotypes')).alias('normalized_clonotype_matches'),
         (pl.col('matched_reads')/pl.col('sample_reads')).alias('matched_read_fraction'))
+    if abundance_metrics:
+        import numpy as np
+        from scipy.integrate import trapezoid
+        depth=int(counts['sample_reads'].min())
+        grid=np.unique(np.linspace(0,depth,513).astype(np.int64))
+        curves=subset_rarefaction_batch(vectors,counts['sample_reads'].to_numpy(),sizes=grid,threads=a.threads)
+        matrix=curves['qD'].to_numpy().reshape(len(vectors),len(grid))
+        means=trapezoid(matrix,x=grid,axis=1)/depth
+        coarse_indices=np.unique(np.append(np.arange(0,len(grid),2),len(grid)-1))
+        coarse=trapezoid(matrix[:,coarse_indices],x=grid[coarse_indices],axis=1)/depth
+        counts=counts.with_columns(pl.Series('matched_curve_mean',means),
+            pl.Series('curve_mean_grid_delta',means-coarse),
+            pl.Series('matched_shannon',[shannon_wiener(np.asarray(v)) if any(v) else 0. for v in vectors]),
+            pl.Series('matched_simpson',[inverse_simpson(np.asarray(v)) if any(v) else 0. for v in vectors]))
+        curves=curves.join(counts.with_row_index('sample').select('sample','sample_id','group_id','replicate'),on='sample',validate='m:1')
+        curve_summary=curves.group_by('sample_id','group_id','m').agg(
+            pl.col('qD').filter(pl.col('replicate')==-1).first().alias('observed_richness'),
+            pl.col('qD').filter(pl.col('replicate')>=0).mean().alias('mock_mean_richness'),
+            pl.col('qD').filter(pl.col('replicate')>=0).std().alias('mock_sd_richness')).sort('sample_id','group_id','m')
+        del curves,matrix
+        limits=counts.group_by('sample_id','group_id').agg(pl.col('matched_reads').min().alias('hill_max_depth'))
+        max_hill_depth=int(limits['hill_max_depth'].max())
+        hill_keys=counts.with_row_index('sample').select('sample','sample_id','group_id','replicate','matched_records','matched_reads').join(limits,on=['sample_id','group_id'],validate='m:1',maintain_order='left').filter(pl.col('hill_max_depth')>0)
+        if hill_keys.height:
+            hill=inext_batch([vectors[i] for i in hill_keys['sample']],q=(0,1,2),sizes=range(1,max_hill_depth+1),se=False,threads=a.threads)
+            hill=hill.join(hill_keys.drop('sample').with_row_index('sample'),on='sample',validate='m:1').filter(pl.col('m')<=pl.col('hill_max_depth'))
+        else:hill=pl.DataFrame(schema={'m':pl.Int64})
+        hill_parts=[]
+        for (m,),part in hill.partition_by('m',as_dict=True).items():
+            wide=part.pivot(on='order_q',index=['sample_id','group_id','replicate','matched_records','matched_reads'],values='qD').rename({'0':'matched_hill0','1':'matched_hill1','2':'matched_hill2'})
+            h=_summaries(wide).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
+            h=_adjust_summary(h,['hill0','hill1','hill2'],a.fdr_group).with_columns(pl.lit(m).alias('matched_read_depth'),(1-1/pl.col('matched_hill2')).alias('gini_simpson'))
+            hill_parts.append(h)
+        hill_summary=(pl.concat(hill_parts).join(limits,on=['sample_id','group_id'],validate='m:1') if hill_parts else limits.clear().with_columns(pl.lit(None,dtype=pl.Int64).alias('matched_read_depth')))
+        unavailable=limits.filter(pl.col('hill_max_depth')==0).with_columns(pl.lit(None,dtype=pl.Int64).alias('matched_read_depth'))
+        hill_summary=pl.concat([hill_summary,unavailable],how='diagonal_relaxed').sort('sample_id','group_id','matched_read_depth')
+        counts=counts.with_columns(pl.when(pl.col('matched_simpson')>0).then(1-1/pl.col('matched_simpson')).otherwise(0.).alias('gini_simpson'))
     now=time.monotonic();stages['cohort_kernel_and_count_assembly']=now-mark;mark=now
     summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
-    parts=[]
-    for part in summary.partition_by(['group_id',*a.fdr_group]):
-        for endpoint in ['records','reads']+(['chao1'] if chao1 else []):
-            for stem in ['', 'original_']:
-                col=stem+'p_'+endpoint
-                values=part[col].to_list()
-                adjusted=iter(fdr_bh(part[col].drop_nulls().to_numpy()))
-                part=part.with_columns(pl.Series(stem+'q_'+endpoint,[next(adjusted) if value is not None else None for value in values],dtype=pl.Float64))
-            part=part.with_columns(((pl.col('p_'+endpoint)<.05)&(pl.col('excess_'+endpoint)>0)).alias('significant_nominal_'+endpoint),
-                ((pl.col('q_'+endpoint)<.1)&(pl.col('excess_'+endpoint)>0)).alias('significant_bh_'+endpoint),
-                ((pl.col('original_q_'+endpoint)<.1)&(pl.col('original_effect_'+endpoint)>0)).alias('original_significant_bh_'+endpoint))
-        parts.append(part)
-    summary=pl.concat(parts).join(inventory,on='group_id',validate='m:1')
+    summary=_adjust_summary(summary,['records','reads']+(['chao1'] if chao1 else [])+(['curve_mean','shannon','simpson'] if abundance_metrics else []),a.fdr_group).join(inventory,on='group_id',validate='m:1')
     now=time.monotonic();stages['statistics_and_fdr']=now-mark;mark=now
     outputs={'source-audit.tsv':pl.DataFrame(source_audit),'summary.tsv':summary,'counts.tsv':counts,'vj-audit.tsv':audit,'reference-bins.tsv':reference.group_by('group_id','pgen_bin').len(name='reference_keys')}
     if chao1:outputs['abundance-spectra.tsv']=spectra
+    if abundance_metrics:outputs.update({'discovery-curves.tsv':curve_summary,'hill-rarefaction.tsv':hill_summary})
     if v_repairs:outputs['v-repairs.tsv']=pl.concat(v_repairs)
     if 'pgen_model_supported' in probes.columns:
         outputs['missing-model-genes.tsv']=probes.filter(~pl.col('pgen_model_supported'))
@@ -393,6 +443,7 @@ def main(a):
         manifest['probability']='selection_q times AA-max joint Pgen times within-V model-informed J usage ratio; one total prior observation per supported V; missing/zero mass goes to lowest control bin'
     if marginal:manifest.update(probability='raw marginal junction Pgen; no corrections',prepared_pgen=feature_identity)
     if chao1:manifest['chao1']=dict(api='vdjtools.stats.inext.asymptotic_diversity(q=0,se=False)',unit='matched source-row clonotypes; read abundances',empty_matches=0,internal_bootstrap=False,mock_replicates=a.mock_replicates)
+    if abundance_metrics:manifest['abundance_metrics']=dict(curve_mean=dict(api='vdjtools.stats.subset_rarefaction_batch',maximum_depth=depth,grid=grid.tolist(),integration='scipy.integrate.trapezoid / maximum_depth',coarse_grid_max_absolute_delta=float(np.max(np.abs(means-coarse)))),shannon='vdjtools.stats.shannon_wiener: exp(H), lower-tail concentration',simpson='vdjtools.stats.inverse_simpson: lower-tail concentration',hill_rarefaction='vdjtools.stats.inext_batch(q=(0,1,2),se=False); integer matched-read depths 1 through each library minimum real/mock matched mass; lower tails; no extrapolated values used',empty_matches=0,unit='original source-row clonotypes with producer read abundances',tails=dict(chao1='upper',curve_mean='upper',shannon='lower',simpson='lower',hill0='lower',hill1='lower',hill2='lower'))
     manifest['functional_filter']=filter_audit
     manifest['model_identity']=model_identity
     manifest['selection_q_origin']=q_origin

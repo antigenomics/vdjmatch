@@ -314,7 +314,8 @@ def test_cli_functional_default_and_zero_mass_opt_in(tmp_path):
         assert bins['pgen_bin'].n_unique()==1
 
 
-def test_raw_marginal_features_bypass_all_probability_corrections(tmp_path,monkeypatch):
+@pytest.mark.parametrize('include_empty',[False,True])
+def test_raw_marginal_features_bypass_all_probability_corrections(tmp_path,monkeypatch,include_empty):
     import argparse
     from vdjmatch.cli.repertoire_exact import register
     from vdjmatch.evalue import mock_reference
@@ -322,19 +323,29 @@ def test_raw_marginal_features_bypass_all_probability_corrections(tmp_path,monke
     (tmp_path/'meta.tsv').write_text('sample_id\tpath\nS\tsample.tsv\n')
     (tmp_path/'ref.tsv').write_text('cdr3\tgene\tv\tj\tspecies\tepitope\tmhc_a\tmhc_b\tmhc_class\nCASSF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tLLWNGPMAV\tHLA-A*02:01\tB2M\tMHCI\n')
     (tmp_path/'control.tsv').write_text('cdr3aa\tv\tj\toccurrences\nCASSF\tTRBV2\tTRBJ1-1\t3\nCASRF\tTRBV2\tTRBJ1-1\t1\n')
+    if not include_empty:(tmp_path/'control.tsv').write_text('cdr3aa\tv\tj\toccurrences\nCASSF\tTRBV2\tTRBJ1-1\t3\n')
     (tmp_path/'raw.features.parquet').write_bytes(b'feature fixture');(tmp_path/'raw.manifest.json').write_text('{}')
     probabilities=pl.DataFrame(dict(junction_aa=['CASSF','CASRF'],pgen=[2.**-24]*2))
     monkeypatch.setattr(mock_reference,'load_pgen_features',lambda *a,**kw:(probabilities,{'verified_fixture':True}))
     def forbidden(*a,**kw):raise AssertionError('raw marginal path must not correct or rescore probability')
     monkeypatch.setattr(mock_reference,'compiled_reference_strata',forbidden)
     parser=argparse.ArgumentParser();register(parser.add_subparsers())
-    args=parser.parse_args(['repertoire-exact',str(tmp_path/'meta.tsv'),'--vdjdb',str(tmp_path/'ref.tsv'),'--control',str(tmp_path/'control.tsv'),'--pgen-features',str(tmp_path/'raw.features.parquet'),'--chao1','--mock-replicates','2','--threads','1','--output-prefix',str(tmp_path/'out')])
+    args=parser.parse_args(['repertoire-exact',str(tmp_path/'meta.tsv'),'--vdjdb',str(tmp_path/'ref.tsv'),'--control',str(tmp_path/'control.tsv'),'--pgen-features',str(tmp_path/'raw.features.parquet'),'--abundance-metrics','--mock-replicates','2','--threads','1','--output-prefix',str(tmp_path/'out')])
     assert args.func(args)==0
     assert pl.read_csv(tmp_path/'out.reference-bins.tsv',separator='\t')['pgen_bin'].to_list()==[-24]
     m=json.loads((tmp_path/'out.manifest.json').read_text());assert m['probability']=='raw marginal junction Pgen; no corrections'
 
     c=pl.read_csv(tmp_path/'out.counts.tsv',separator='\t')
     assert c.filter(pl.col('replicate')==-1)['matched_chao1'].item()==1.
+    observed=c.filter(pl.col('replicate')==-1).row(0,named=True)
+    assert observed['matched_curve_mean']==pytest.approx(6.5/7)
+    assert observed['matched_shannon']==1. and observed['matched_simpson']==1. and observed['gini_simpson']==0.
+    assert m['abundance_metrics']['curve_mean']['maximum_depth']==7
+    hill=pl.read_csv(tmp_path/'out.hill-rarefaction.tsv',separator='\t')
+    if not include_empty:
+        assert hill.height==7 and hill['matched_hill0'].to_list()==[1.]*7
+        assert not hill['original_significant_bh_hill1'].any()
+    else:assert hill['matched_read_depth'].null_count()==1
     assert 'original_q_chao1' in pl.read_csv(tmp_path/'out.summary.tsv',separator='\t').columns
     spectrum=pl.read_csv(tmp_path/'out.abundance-spectra.tsv',separator='\t')
     assert spectrum.filter(pl.col('replicate')==-1).select('reads_per_source_row','source_rows').row(0)==(7,1)
@@ -346,3 +357,11 @@ def test_chao1_summary_keeps_fractional_richness_and_same_mock_tail():
     s=_summaries(counts).row(0,named=True)
     assert s['matched_chao1']==4.5 and s['p_chao1']==.5
     assert s['original_p_chao1']==pytest.approx(2/3)
+
+
+def test_shannon_concentration_uses_lower_tail():
+    from vdjmatch.cli.repertoire_exact import _summaries
+    counts=pl.DataFrame(dict(sample_id=['S']*3,group_id=['X']*3,replicate=[-1,0,1],matched_records=[3]*3,matched_reads=[6]*3,matched_shannon=[1.2,2.,3.],matched_simpson=[1.2,2.,3.]))
+    s=_summaries(counts).row(0,named=True)
+    assert s['p_shannon']==pytest.approx(1/3) and s['p_simpson']==pytest.approx(1/3)
+    assert s['original_effect_shannon']>0 and s['original_effect_simpson']>0
