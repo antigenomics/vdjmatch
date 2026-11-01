@@ -383,6 +383,16 @@ accepts an explicit integer cost table. Both files are hash-bound and frozen
 across the run. These experimental inputs do not change defaults or inherit
 existing call calibration; see the CLI documentation for file contracts.
 
+For core/bundle ablations, `neighbours` or `evidence` accepts
+`--distance-matrix COSTS.tsv --matrix-bundle DIRECTORY` with compact uniform
+VDJdb-other kernel output (`--selection-only` or `--evidence-only`). The
+hash-pinned `vdjam-bundle-v1` manifest names `residue.tsv` and `gaps.tsv`;
+coordinates are anchored junction length/position, with gap length conditioned
+on the shorter junction. Missing cells are neutral. The bundle is fixed across
+queries, applies to paired marginal searches, and does not transfer calibration.
+See `docs/cli.rst` for exact table schemas. It is separate from the older
+reference-only `--position-profile` input; neither is a promoted default.
+
 For explicit linked-first paired label decisions, use `paired-labels` with
 native all-target stem4 VDJdb-other paired evidence, selection and manifest.
 Keep all linked maximum peptides when linked support exists; otherwise retain

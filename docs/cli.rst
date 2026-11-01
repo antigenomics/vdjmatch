@@ -260,6 +260,27 @@ The matrix extras are ``--distance-matrix pam250``, ``mj`` and ``vdjam``;
 their recorded geometries use ``--stem-depth 0 --junction-ends trim3``.
 They retain unclipped Gram penalties and use the same matrix units for V loops,
 junctions, gaps and the ladder.
+For explicit matrix comparisons, ``--distance-matrix COSTS.tsv`` accepts the
+existing ``aa.1``, ``aa.2``, ``cost`` table format. Its hash is recorded.
+Experimental ``--matrix-bundle DIRECTORY`` adds residue/position/length and
+gap/shorter-length multipliers to that core. It requires uniform
+``vdjdb-other`` kernel scoring with ``--selection-only`` or ``--evidence-only``;
+it cannot be combined with geometry extras or supplied marginal tables.
+
+The directory contains ``manifest.json`` with ``format: vdjam-bundle-v1`` and
+``outputs_sha256`` entries for ``residue.tsv`` and ``gaps.tsv``. Residue columns
+are ``species, locus, length, position, aa, multiplier``; gap columns are
+``species, locus, length, gap, multiplier`` (tab-separated, in that order).
+Species is ``human`` or ``mouse``, locus is ``TRA`` or ``TRB``. Lengths and
+zero-based positions refer to the full anchored junction; gap-table length
+is the shorter junction. Multipliers must be finite and nonnegative, and
+coordinates unique. Missing cells retain multiplier one. Native trimming,
+V/stem terms and radius units remain unchanged; substitutions use the native
+maximum of aligned query/reference weights. Gap multipliers scale the core's
+block cost while retaining its placement penalty. All-ones tables reproduce
+the core geometry, including paired marginal searches. These opt-in models do
+not change defaults or inherit a fitted call calibration.
+
 ``--position-weighting significance-trimmed`` selects the recorded ``sig``
 geometry with ``--distance-matrix clipped --stem-depth 0 --junction-ends trim3``;
 ``sigb62`` changes the matrix to ``blosum62``. These require compact output.
