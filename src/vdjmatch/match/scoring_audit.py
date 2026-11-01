@@ -421,3 +421,265 @@ def loo_audit(frame, *, locus, retention, significance, structural, min_epi=30,
     results = pl.DataFrame(rows).sort('epitope', 'method')
     summary = results.group_by('method').agg(pl.len().alias('tasks'), pl.col('balanced_pr_auc').mean().alias('mean_balanced_pr_auc')).sort('method')
     return results, summary, pl.concat(predictions), queries, refs
+
+
+# Origin-aware block estimation; legacy matrix/LOO functions above remain unchanged.
+def column_pair_counts(encoded, labels, mask, *, include_within=False):
+    """BLOSUM between-cluster counts and the column-composition expectation.
+
+    Boolean masks and fractional pure-N posterior weights use the same counter.
+    Unknown origins must be accounted separately; NaNs are rejected.
+    The existing cluster weights carry unit mass per cluster. Both returned
+    matrices count ordered residue pairs, and therefore have equal total mass.
+    """
+    encoded = np.asarray(encoded)
+    labels = np.asarray(labels)
+    if (
+        encoded.ndim != 2
+        or labels.shape != (len(encoded),)
+        or not np.issubdtype(labels.dtype, np.integer)
+        or np.any(labels < 0)
+    ):
+        raise ValueError(
+            "encoded sites need one nonnegative integer cluster label per row"
+        )
+    if (
+        not np.issubdtype(encoded.dtype, np.integer)
+        or np.any(encoded < 0)
+        or np.any(encoded > 20)
+    ):
+        raise ValueError("encoded residues must be integers 0..20 (20 denotes a gap)")
+    _, labels = np.unique(labels, return_inverse=True)
+    mask = np.asarray(mask)
+    if (
+        mask.shape != encoded.shape
+        or not np.isfinite(mask).all()
+        or np.any(mask < 0)
+        or np.any(mask > 1)
+    ):
+        raise ValueError(
+            "origin weights must be finite probabilities matching encoded sites"
+        )
+    n_clusters = int(labels.max() + 1) if len(labels) else 0
+    size = np.bincount(labels, minlength=n_clusters).astype(float)
+    observed = np.zeros((20, 20))
+    expected = np.zeros((20, 20))
+    stats = dict(masked_columns=0, kept_columns=0, column_pairs=0.0)
+    if n_clusters < 2 and not include_within:
+        return observed, expected, stats
+    for column in range(encoded.shape[1]):
+        usable = (mask[:, column] > 0) & (encoded[:, column] < 20)
+        if usable.sum() < 2:
+            stats["masked_columns"] += 1
+            continue
+        c = np.zeros((n_clusters, 20))
+        np.add.at(c, (labels[usable], encoded[usable, column]), mask[usable, column])
+        c /= size[:, None]
+        total = c.sum(axis=0)
+        cross = np.outer(total, total)
+        if not include_within:
+            cross -= c.T @ c
+        cross = np.maximum((cross + cross.T) / 2, 0.0)
+        mass = cross.sum()
+        if mass <= 0:
+            continue
+        observed += cross
+        marginal = cross.sum(axis=1) / mass
+        expected += mass * np.outer(marginal, marginal)
+        stats["kept_columns"] += 1
+        stats["column_pairs"] += float(mass / 2)
+    return observed, expected, stats
+
+
+def similarity_from_counts(
+    observed, expected=None, lambda_bits=0.5, *, round_scores=True
+):
+    """Normalized ordered-pair log odds; shared by ungapped and gapped builders."""
+    if not np.isfinite(observed).all() or observed.sum() <= 0:
+        raise ValueError("no finite between-cluster column pairs")
+    q = observed / observed.sum()
+    p = q.sum(axis=1)
+    if expected is None:
+        expected = np.outer(p, p)
+    else:
+        if not np.isfinite(expected).all() or expected.sum() <= 0:
+            raise ValueError("no finite expected column pairs")
+        expected = expected / expected.sum()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        score = np.where(
+            (q > 0) & (expected > 0), np.log2(q / expected) / lambda_bits, np.nan
+        )
+    if not round_scores:
+        return score, p
+    floor = np.nanmin(score[np.isfinite(score)])
+    score = np.where(np.isfinite(score), score, floor)
+    return np.rint(score).astype(int), p
+
+
+def costs_from_similarity(similarity):
+    """The established nonnegative Gram transform used by VDJmatch matrix geometry."""
+    cost = np.maximum(
+        0, np.add.outer(np.diag(similarity), np.diag(similarity)) - 2 * similarity
+    )
+    np.fill_diagonal(cost, 0)
+    return cost
+
+
+def origin_block_matrices(clonotypes, origins):
+    """Same-epitope/V/J/length block counts with exact pure-N posterior weights.
+
+    ``clonotypes`` has unique (epitope, query_id) rows and columns cdr3,v,j;
+    ``origins`` has every zero-based codon of each query, including unsupported
+    nulls. Unique clonotypes are unit clusters: this does not claim 62% clustering.
+    Returns pooled/equal-epitope matrix rows and per-block support accounting.
+    No pseudocount, reference matrix, unsupported-cell floor or model refit.
+    """
+    if clonotypes.select("epitope", "query_id").is_duplicated().any():
+        raise ValueError("clonotype membership must be unique within each epitope")
+    if clonotypes.select("epitope", "cdr3", "v", "j").is_duplicated().any():
+        raise ValueError(
+            "duplicate junction/V/J clonotypes must be pooled before counting"
+        )
+    if origins.select("query_id", "position").is_duplicated().any():
+        raise ValueError("origin coordinates must be unique per query")
+    queries = clonotypes.select("query_id", "cdr3").unique()
+    if queries["query_id"].n_unique() != queries.height:
+        raise ValueError("one query ID must identify exactly one junction")
+    sizes = queries.select("query_id", pl.col("cdr3").str.len_chars().alias("L"))
+    checked = origins.join(sizes, on="query_id", how="inner", validate="m:1")
+    if (
+        checked.height != origins.height
+        or checked.filter(
+            (pl.col("position") < 0) | (pl.col("position") >= pl.col("L"))
+        ).height
+    ):
+        raise ValueError("origin coordinates do not match junctions")
+    coverage = (
+        checked.group_by("query_id").len().join(sizes, on="query_id", validate="1:1")
+    )
+    if (
+        coverage.height != sizes.height
+        or coverage.filter(pl.col("len") != pl.col("L")).height
+    ):
+        raise ValueError(
+            "every query requires every codon, including unsupported sites"
+        )
+    values = origins["n_probability"].drop_nulls().to_numpy()
+    if not np.isfinite(values).all() or np.any(values < 0) or np.any(values > 1):
+        raise ValueError("pure-N posterior must be null or a finite probability")
+    supported = origins.group_by("query_id").agg(
+        pl.col("n_probability").is_not_null().all().alias("origin_supported")
+    )
+    selected = clonotypes.join(supported, on="query_id", validate="m:1").filter(
+        pl.col("origin_supported")
+    ).sort("epitope", "v", "j", "cdr3", "query_id")
+    rows = []
+    counts = {}
+    if selected.height:
+        ids = queries["query_id"].to_list()
+        lookup = {q: i for i, q in enumerate(ids)}
+        width = int(sizes["L"].max())
+        weights = np.zeros((len(ids), width))
+        valid = origins.filter(pl.col("n_probability").is_not_null())
+        weights[
+            np.array([lookup[q] for q in valid["query_id"]]),
+            valid["position"].to_numpy(),
+        ] = valid["n_probability"].to_numpy()
+        selected = selected.with_columns(pl.col("cdr3").str.len_chars().alias("L"))
+        aa_lookup = np.full(128, 20, dtype=np.uint8)
+        aa_lookup[np.frombuffer(AA.encode(), dtype=np.uint8)] = np.arange(20)
+        for (epitope, v, j, length), block in selected.group_by(
+            "epitope", "v", "j", "L", maintain_order=True
+        ):
+            if not block["cdr3"].str.contains(VALID).all():
+                raise ValueError("block junctions require standard amino acids")
+            encoded = aa_lookup[
+                np.frombuffer("".join(block["cdr3"]).encode(), dtype=np.uint8)
+            ].reshape(-1, length)
+            mask = weights[[lookup[q] for q in block["query_id"]], :length]
+            observed, _, stats = column_pair_counts(
+                encoded, np.arange(block.height), mask
+            )
+            counts.setdefault(epitope, np.zeros((20, 20)))[:] += observed
+            rows.append(
+                dict(
+                    epitope=epitope,
+                    v=v,
+                    j=j,
+                    length=length,
+                    clonotypes=block.height,
+                    n_weighted_unordered_site_pairs=stats["column_pairs"],
+                    columns_with_pairs=stats["kept_columns"],
+                )
+            )
+    matrix_rows = []
+    contributing = [c for c in counts.values() if c.sum() > 0]
+    pooled = sum(contributing, np.zeros((20, 20)))
+    balanced = sum((c / c.sum() for c in contributing), np.zeros((20, 20)))
+    for weighting, observed in [("pooled", pooled), ("equal_epitope", balanced)]:
+        if observed.sum() > 0:
+            score, p = similarity_from_counts(
+                observed, lambda_bits=1.0, round_scores=False
+            )
+            q = observed / observed.sum()
+            expected = np.outer(p, p)
+            cost = costs_from_similarity(score)
+            identified = (
+                np.isfinite(score)
+                & np.isfinite(np.diag(score))[:, None]
+                & np.isfinite(np.diag(score))[None, :]
+            )
+            cost = np.where(identified, cost, np.nan)
+        else:
+            q = expected = np.zeros((20, 20))
+            score = cost = np.full((20, 20), np.nan)
+        for i, a in enumerate(AA):
+            for k, b in enumerate(AA):
+                matrix_rows.append(
+                    dict(
+                        weighting=weighting,
+                        a=a,
+                        b=b,
+                        pair_weight=float(observed[i, k]),
+                        q=float(q[i, k]),
+                        background_q=float(expected[i, k]),
+                        score_bits=float(score[i, k]),
+                        distance_bits=float(cost[i, k]),
+                        supported=bool(
+                            np.isfinite(score[i, k])
+                            and np.isfinite(score[i, i])
+                            and np.isfinite(score[k, k])
+                        ),
+                        contributing_epitopes=len(contributing),
+                    )
+                )
+    matrix = pl.DataFrame(matrix_rows).with_columns(
+        pl.col("score_bits", "distance_bits").fill_nan(None)
+    )
+    blocks = pl.DataFrame(
+        rows,
+        schema={
+            "epitope": pl.String,
+            "v": pl.String,
+            "j": pl.String,
+            "length": pl.Int64,
+            "clonotypes": pl.Int64,
+            "n_weighted_unordered_site_pairs": pl.Float64,
+            "columns_with_pairs": pl.Int64,
+        },
+    )
+    epitope_pairs = pl.DataFrame(
+        [
+            dict(epitope=e, a=a, b=b, n_weighted_ordered_site_pairs=float(c[i, k]))
+            for e, c in sorted(counts.items())
+            for i, a in enumerate(AA)
+            for k, b in enumerate(AA)
+        ],
+        schema={
+            "epitope": pl.String,
+            "a": pl.String,
+            "b": pl.String,
+            "n_weighted_ordered_site_pairs": pl.Float64,
+        },
+    )
+    return matrix, blocks.sort("epitope", "v", "j", "length"), supported.sort("query_id"), epitope_pairs

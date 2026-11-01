@@ -463,14 +463,20 @@ weights is not independent recovery of a general substitution law.
     from added accuracy under the declared comparison, then regenerate
     authoritative tables, figures and manuscript summaries.
 
-**Implementation status and limits.** The formalism and algorithm are
-specified here. The native pure-N constrained sum and public batch
-interface are implemented in an isolated vdjtools development branch,
-with focused checks for P-containing boundaries, ambiguous histories and
-tandem-D paths. Full release validation, publication and downstream
-origin-weighted matrix estimation remain in progress. The interface does
-not yet assign a full separate G/P/mixed posterior. Previously reported
-interior/all-residue fits remain descriptive composition diagnostics and
-the accepted core/bundle accuracy comparison retains its original
-producing scope. No completed independent high-:math:`R^2` recovery is
-claimed for the origin-aware estimator.
+**Implementation status and limits.** The exact pure-N constrained sum
+and public ``n_region_posterior_batch`` interface are provided by
+vdjtools 5.7.0, reusing the native sum-product recurrences with single-
+and tandem-D histories. Its release checks cover P-containing
+boundaries, ambiguous histories, fixed-template exclusion,
+zero-likelihood observations and serial/parallel equality. The VDJmatch
+``scoring-audit --task origin-matrix`` command implements
+posterior-weighted same-epitope/V/J/length block counts, pooled and
+equal-epitope matrices, and source/support/exposure tables. This first
+estimator uses unique junction/V/J clonotypes as unit clusters; it does
+not claim BLOSUM62 redundancy clustering. The interface does not assign
+a full separate G/P/mixed posterior; the full origin-conditioned indel
+extension and independent empirical validation remain open. Previously
+reported interior/all-residue fits remain descriptive composition
+diagnostics, and the accepted core/bundle accuracy comparison retains
+its original producing scope. No completed independent high-:math:`R^2`
+recovery is claimed for the origin-aware estimator.

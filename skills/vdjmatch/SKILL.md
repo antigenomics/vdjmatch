@@ -15,6 +15,14 @@ BLOSUM62. VDJAMr means genetic-code substitution accessibility, a different
 comparator; neither is a reason to introduce a chemistry-driven replacement.
 Reuse `match.regions.significance_weights/significance_pssm` and the existing
 historical matcher. Mode availability is not evidence of improved accuracy.
+
+`scoring-audit --task origin-matrix --pmhc RAW --locus TRA --threads 16
+--output-prefix NEW` derives pure-N posterior-weighted same-epitope/V/J/length
+block matrices using vdjtools>=5.7.0. `--min-records 30` uses source-record
+eligibility. Outputs retain unsupported records/cells, per-epitope counts and
+site exposures; no reference prior or score default changes. Unique clonotypes
+are unit clusters, not BLOSUM62 clusters. Read the
+[origin-aware formalism](../../docs/rearrangement-origin.rst) before interpreting.
 Keep penalties, full kernel scores and sample-level P-values separate.
 Positive kernel support alone is not a calibrated precision threshold, and
 nominal-radius pruning drops its outer-ladder contributions.
@@ -63,7 +71,7 @@ Permutation/matched-control envelopes are not Efron bootstrap CIs.
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)
 for advanced scorers. Run `vdjmatch annotate --help` to verify installed options.
-Use released `seqtree>=1.3.2` and `vdjtools>=5.6.0` for native search, ingestion and abundance statistics.
+Use released `seqtree>=1.3.2` and `vdjtools>=5.7.0` for native search, ingestion and abundance statistics.
 Version 0.6.0 defaults to `--reference-population curated-benchmark`, the manuscript
 primary population. Preserve `--reference-population all-valid` for the accepted
 all-valid baseline. Curation excludes KLGGALQAK and PMID 40498839 source records;

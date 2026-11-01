@@ -1615,6 +1615,31 @@ PR area. This metric is distinct from average precision and the current
 full-VDJdb source-record eligibility rule. Supply ``--structural-inc`` to
 include the structural matrix; without that model its row is omitted.
 
+Origin-aware block matrices
+---------------------------
+
+``scoring-audit --task origin-matrix --pmhc RAW --locus TRB --threads 16
+--output-prefix OUT`` derives an N-region convergence matrix using vdjtools 5.7
+or newer. ``--species`` selects the species-matched isalgo model. Eligibility is
+at least ``--min-records 30`` curated valid source records per epitope/chain,
+before deduplication; junctions then require standard amino acids and length >=8.
+
+The command computes exact pure-N probabilities in one native batch and weights
+each distinct junction/V/J clonotype pair by the product of its two site
+probabilities. Blocks share epitope, resolved V/J and junction length. Unique
+clonotypes are unit clusters; this estimator does not claim 62% identity
+clustering. Identities and exchanges use identical origin eligibility. It exports
+pooled and equal-contributing-epitope matrices, per-epitope ordered pair counts,
+site exposures, block counts, source-record support accounting and call resolution.
+Missing or ambiguous calls and zero sequence likelihood remain explicit. Known
+model calls are preserved; only absent calls may undergo ARDA name resolution.
+
+Scores are unrounded log2 odds in bits against the count-derived residue
+background. Distances use ``max(0, S_aa + S_bb - 2*S_ab)``; unsupported cells
+remain null, without pseudocounts or a BLOSUM prior. This is a derivation command,
+not a change to annotation defaults. See :doc:`rearrangement-origin` for the
+formalism, indel extension and independent-validation requirements.
+
 vdjmatch fixed-scope
 ----------------------------
 
