@@ -8,6 +8,7 @@ def register(sub):
     p.add_argument('metadata',help='TSV sample_id,path and optional FDR-group columns')
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--control',required=True,help='Distinct junction_aa,v,j probe keys; optional joint_pgen column')
+    p.add_argument('--pgen-features',help='Verified marginal Pgen features; use raw probabilities and bins without corrections')
     p.add_argument('--model-vj-counts',help='Generated-model v,j,records counts from the selected source')
     p.add_argument('--model-vj-probabilities',help='Exact model v,j,p probabilities; alternative to generated V/J counts')
     p.add_argument('--include-nonfunctional',action='store_true',help='Retain nonfunctional/unsupported genes and zero-mass probes in the lowest Pgen bin; modern default filters them')
@@ -171,6 +172,8 @@ def main(a):
     if any(meta[c].null_count() or meta[c].str.strip_chars().eq('').any() for c in needed):raise ValueError('sample identities, paths and FDR groups cannot be missing')
     paths=[(meta_path.parent/Path(p).expanduser()).resolve() for p in meta['path']]
     if len(set(paths))!=len(paths):raise ValueError('sample paths must be unique')
+    marginal=getattr(a,'pgen_features',None)
+    if marginal and any([a.legacy,a.model_vj_counts,a.model_vj_probabilities,a.selection_profile,a.model_informed_prior,a.selection_q is not None,a.allow_missing_model_genes]):raise ValueError('--pgen-features uses raw marginal Pgen without model/selection corrections')
     model_probabilities=getattr(a,'model_vj_probabilities',None)
     if model_probabilities and a.model_vj_counts:
         raise ValueError('supply model V/J counts or probabilities, not both')
@@ -178,7 +181,7 @@ def main(a):
         raise ValueError('selection profiles require modern mode and replace model V/J counts')
     if a.allow_missing_model_genes and a.selection_profile:
         raise ValueError('--allow-missing-model-genes requires model counts, not a selection profile')
-    if not a.selection_profile and not a.model_vj_counts and not model_probabilities:
+    if not marginal and not a.selection_profile and not a.model_vj_counts and not model_probabilities:
         raise ValueError('--model-vj-counts is required without a selection profile')
     inputs=[meta_path,Path(a.vdjdb).expanduser().resolve(),Path(a.control).expanduser().resolve(),*paths]
     if a.model_vj_counts:
@@ -187,6 +190,8 @@ def main(a):
         inputs.append(Path(model_probabilities).expanduser().resolve())
     if a.selection_profile and a.selection_profile not in {'length','vj-length'}:
         inputs.append(Path(a.selection_profile).expanduser().resolve())
+    if marginal:
+        feature_path=Path(marginal).expanduser().resolve();inputs.extend([feature_path,feature_path.with_name(feature_path.name.removesuffix('.features.parquet')+'.manifest.json')])
     prefix=_validate_output_paths(a.output_prefix,[str(p) for p in inputs])
     suffixes=['v-repairs.tsv','source-audit.tsv','summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
     if a.allow_missing_model_genes or a.include_nonfunctional:suffixes.append('missing-model-genes.tsv')
@@ -210,11 +215,16 @@ def main(a):
     inventory=reference.select(labels).unique().sort(labels).with_columns(pl.struct(labels).struct.json_encode().alias('group_id'))
     keys=['junction_aa','v','j']
     reference=reference.join(inventory,on=labels,nulls_equal=True).select('group_id',pl.col('cdr3').alias('junction_aa'),pl.col('v','j').str.split('*').list.first()).unique()
-    probes=_read_table(inputs[2])
+    if marginal:
+        from .repertoire_reference import _read_control
+        probes=_read_control(inputs[2],species=a.species,locus=a.locus)
+    else:probes=_read_table(inputs[2])
     now=time.monotonic();stages['reference_and_probe_loading']=now-mark;mark=now
     model_identity=None
     shape=None
-    if a.selection_profile:
+    if marginal:
+        a.source=a.source or 'isalgo';a.selection_q=1.;q_origin='unused'
+    elif a.selection_profile:
         if 'joint_pgen' in probes.columns:
             raise ValueError('selection profiles require fresh native probabilities, not external joint_pgen')
         from vdjtools.model import load_bundled
@@ -253,7 +263,13 @@ def main(a):
         raise ValueError('--allow-missing-model-genes requires fresh native probabilities')
     if 'joint_pgen' in probes.columns and a.pgen_mismatches:
         raise ValueError('neighbourhood Pgen requires fresh native probabilities')
-    if 'joint_pgen' in probes.columns:
+    if marginal:
+        from ..evalue.mock_reference import load_pgen_features
+        model_identity=_pgen_model_identity(a.species,a.locus,source=a.source)
+        probabilities,feature_identity=load_pgen_features(marginal,reference,probes,species=a.species,locus=a.locus,mismatches=a.pgen_mismatches,source=a.source)
+        probes=pl.concat([probes.select(keys),reference.select(keys)]).unique(maintain_order=True).join(probabilities,on='junction_aa',how='left',validate='m:1')
+        pgen_origin='verified raw marginal Pgen features'
+    elif 'joint_pgen' in probes.columns:
         probes=probes.select(*keys,pl.col('joint_pgen').cast(pl.Float64).alias('pgen'))
         if reference.select(keys).join(probes.select(keys),on=keys,how='anti').height:raise ValueError('external joint_pgen probes must include every reference key')
         pgen_origin='external gene-masked probability asset'
@@ -281,7 +297,11 @@ def main(a):
             excluded_reads=reads_before-int(frame['count'].sum()),repaired_v_records=repaired))
         vj.append(frame.group_by('v','j').len(name='records'))
     now=time.monotonic();stages['source_vj_loading']=now-mark;mark=now
-    if model_probabilities:
+    if marginal:
+        from ..evalue.mock_reference import pgen_strata
+        probes=probes.join(pgen_strata(probes.select('junction_aa','pgen').unique()),on='junction_aa',validate='m:1').with_columns((pl.col('pgen')<=0).alias('zero_model_mass'))
+        audit=pl.concat(vj).group_by('v','j').agg(pl.col('records').sum())
+    elif model_probabilities:
         probes,audit=compiled_reference_strata(probes,pl.concat(vj),selection_q=a.selection_q,
             model_vj_probabilities=_read_table(Path(model_probabilities).expanduser().resolve()),model_informed_prior=a.model_informed_prior)
     elif shape is None:
@@ -357,6 +377,7 @@ def main(a):
         manifest['r_version']=subprocess.run([shutil.which('Rscript'),'--version'],capture_output=True,text=True,check=True).stdout.strip()
     if a.model_informed_prior:
         manifest['probability']='selection_q times AA-max joint Pgen times within-V model-informed J usage ratio; one total prior observation per supported V; missing/zero mass goes to lowest control bin'
+    if marginal:manifest.update(probability='raw marginal junction Pgen; no corrections',prepared_pgen=feature_identity)
     manifest['functional_filter']=filter_audit
     manifest['model_identity']=model_identity
     manifest['selection_q_origin']=q_origin

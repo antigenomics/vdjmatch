@@ -2836,6 +2836,10 @@ existing junction markup; known zero-mass genes are never re-called.
 ``.source-audit.tsv`` reports source/retained/excluded rows and reads.
 ``--model-vj-probabilities`` accepts exact ``v,j,p`` model probabilities instead
 of generated-model count tables.
+For raw marginal Pgen, ``--pgen-features PREFIX.features.parquet`` reuses a
+verified current-model feature input and its original control events. This
+path bins the probabilities directly; it applies no prior, V/J ratio, Q,
+AA-only maximum or selection correction. Correction options are rejected.
 The NumPy sampler uses pre-binned event slots with replacement and clips
 reference values below the control minimum to that minimum bin. The R sampler
 retains the historical distinct-key law and seeded reproduction.
