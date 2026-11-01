@@ -231,7 +231,7 @@ def test_bulk_reverse_search_matches_forward_memberships(family):
     from vdjmatch.aggregate.repertoire_enrichment import exact_reference_counts
     from vdjmatch.match.scope import graded_family_params
     obs=pl.DataFrame(dict(junction_aa=['CASSF','CASRF','CASSAF','CASSF'],
-        v=['TRBV19','TRBV5-1','TRBV19','unknown'],j=['TRBJ2-7','TRBJ2-7','unknown','TRBJ2-7'],count=[2,3,5,7]))
+        v=['TRBV5-1','TRBV5-1','TRBV19','unknown'],j=['TRBJ2-7','TRBJ2-7','unknown','TRBJ2-7'],count=[2,3,5,7]))
     panels=pl.DataFrame(dict(group_id=['X','X'],replicate=[-1,0],junction_aa=['CASSF','CARRF'],v=['TRBV19','unknown'],j=['TRBJ2-7']*2))
     model=panels.rename({'junction_aa':'cdr3'}).with_columns(pl.lit('TRB').alias('gene'),pl.col('replicate').cast(pl.String).alias('epitope'))
     ann=Annotator.from_frame(model)

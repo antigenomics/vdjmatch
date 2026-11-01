@@ -9,8 +9,8 @@ V-weighted. They cross unit/weighted edit-bounded search with absence/presence
 of hard V equality. Their NED score also retains the existing soft V weight
 when hard equality is disabled. The implementation is owned by
 ``Annotator.graded_candidates`` and the shared candidate reducer. The M3
-count adapter uses ``Annotator.target_memberships`` to preserve the same native
-search and gene handling while omitting unused NED rankings.
+count adapter reuses the existing repertoire-indexed native batch and shared
+gene normalization, omitting NED rankings and per-mock Annotator construction.
 
 M3 now exposes those four geometries through the same matcher names. Supply
 ``--tra-radius-factor`` or ``--trb-radius-factor`` as an explicit upper bound

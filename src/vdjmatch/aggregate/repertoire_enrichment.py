@@ -73,7 +73,7 @@ def exact_reference_counts(observations: pl.DataFrame, panels: pl.DataFrame, *,
             from ..evalue.control import impute_gene_calls
             kinds=('v','j') if matcher.startswith('v-') else ('j',)
             sampled=counted.with_row_index('_observation')
-            resolved=impute_gene_calls(sampled,species=species,locus=locus,kinds=kinds).join(observed,on='junction_aa',validate='m:1')
+            resolved=impute_gene_calls(sampled,species=species,locus=locus,kinds=kinds,reference=panels).join(observed,on='junction_aa',validate='m:1')
             roles=impute_gene_calls(panels,species=species,locus=locus,kinds=kinds).join(queries,on='junction_aa',validate='m:1')
             predicate=['_ri',*kinds]
             linked=pairs.join(roles,on='_qi',validate='m:m').join(
@@ -285,16 +285,22 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         totals=totals.join(identities.select(pl.col('_cohort_id').alias('receptor_id'),'sample_id'),on='receptor_id',validate='1:1')
     inventory=inventory.with_row_index('_target')
     indexes={};samplers={};unavailable=[]
+    gene_references={key[0]:part for key,part in ref.partition_by('locus',as_dict=True).items()}
     for (locus,),part in obs.partition_by('locus',as_dict=True).items():
         keys=part.select('junction_aa').unique().sort('junction_aa').with_row_index('_ri')
-        indexed=part.join(keys,on='junction_aa',validate='m:1').rename({'v':'_sample_v','j':'_sample_j'}).with_columns(
-            pl.col('_sample_v').str.replace(r'\*.*$','').alias('_match_v'),pl.col('_sample_j').str.replace(r'\*.*$','').alias('_match_j'))
-        indexes[locus]=(None if locus in family_loci else Index.build(keys['junction_aa'].to_list(),alphabet='aa'),indexed)
+        resolved=part
+        if locus in family_loci:
+            from ..evalue.control import impute_gene_calls
+            kinds=tuple(k for k,flag in [('v',matchers[locus].startswith('v-')),('j',match_j)] if flag)
+            resolved=impute_gene_calls(part,species=species,locus=locus,kinds=kinds,reference=gene_references.get(locus,part))
+        indexed=part.with_columns(resolved['v'].alias('_match_v'),resolved['j'].alias('_match_j')).join(keys,on='junction_aa',validate='m:1').rename({'v':'_sample_v','j':'_sample_j'}).with_columns(
+            pl.col('_match_v','_match_j').str.replace(r'\*.*$',''))
+        indexes[locus]=(None if locus in fuzzy_loci else Index.build(keys['junction_aa'].to_list(),alphabet='aa'),indexed)
     for (locus,),part in ref.partition_by('locus',as_dict=True).items():
         if locus not in controls:raise ValueError(f'missing {locus} control pool')
         samplers[locus]=iter_epitope_mocks(part,controls[locus],replicates=replicates,seed=seed+(0 if locus=='TRA' else 1),policy=policy,unavailable=unavailable)
     empty=pl.DataFrame(schema={'receptor_id':obs.schema['receptor_id'],'group_id':ref.schema['group_id'],'locus':pl.String,'junction_aa':pl.String,'v':pl.String,'j':pl.String})
-    fuzzy_by_locus={locus:obs.filter(pl.col('locus')==locus).with_row_index('query_id').rename({'junction_aa':'cdr3'}) for locus in fuzzy_loci+family_loci}
+    fuzzy_by_locus={locus:obs.filter(pl.col('locus')==locus).with_row_index('query_id').rename({'junction_aa':'cdr3'}) for locus in fuzzy_loci}
     weighted_params={(locus,length):blosum_radius_params(matcher,factors[locus],length)
         for locus,matcher in matchers.items() if matcher in weighted
         for length in obs.filter(pl.col('locus')==locus)['junction_aa'].str.len_chars().unique()}
@@ -311,30 +317,6 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
         for (locus,),targets in population.partition_by('locus',as_dict=True).items():
             if locus not in indexes:continue
             index,samples=indexes[locus]
-            if locus in family_loci:
-                from ..api import Annotator
-                queries=fuzzy_by_locus[locus]
-                params,scale=family_params[locus]
-                model=targets.rename({'junction_aa':'cdr3','locus':'gene'}).join(labels,on='group_id',validate='m:1')
-                scores=Annotator.from_frame(model).target_memberships(queries,
-                    scope=params,threads=threads,max_score=factors[locus],
-                    match_v=matchers[locus].startswith('v-'),match_j=match_j,
-                    species=species,score_scale=scale)
-                # One qualifying alignment suffices; weak alignments never add
-                # together to cross the distance threshold.
-                supported=scores.join(
-                    labels,on=PMHC,nulls_equal=True,validate='m:1').join(queries,on='query_id',validate='m:1')
-                if target_groups is not None:
-                    supported=supported.filter(pl.col('group_id').is_in(target_groups))
-                columns=['receptor_id','group_id','locus']
-                if detailed:
-                    supported=supported.rename({'cdr3':'junction_aa'})
-                    columns+=['junction_aa','v','j']
-                    if fuzzy_loci:
-                        supported=supported.with_columns(pl.lit(1.).alias('chain_score'))
-                        columns+=['chain_score']
-                parts.append(supported.select(columns).unique())
-                continue
             if locus in fuzzy_by_locus:
                 fuzzy_queries=fuzzy_by_locus[locus]
                 kernel=matchers[locus]
@@ -369,12 +351,16 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
             if target_groups is not None:
                 targets=targets.filter(pl.col('group_id').is_in(target_groups))
                 if not targets.height:continue
+            if locus in family_loci:
+                kinds=tuple(k for k,flag in [('v',matchers[locus].startswith('v-')),('j',match_j)] if flag)
+                targets=impute_gene_calls(targets,species=species,locus=locus,kinds=kinds,reference=gene_references[locus])
             keys=targets.select('junction_aa').unique().sort('junction_aa').with_row_index('_qi')
             roles=targets.join(keys,on='junction_aa',validate='m:1').select('_qi','group_id',
-                pl.col('v').str.replace(r'\*.*$','').alias('_match_v'),pl.col('j').str.replace(r'\*.*$','').alias('_match_j'))
+                pl.col('v').str.replace(r'\*.*$','').alias('_match_v'),pl.col('j').str.replace(r'\*.*$','').alias('_match_j')).unique()
             buffers=[]
             def consume(start,stop,buffer):
                 pairs=np.asarray(buffer)
+                if locus in family_loci:pairs=pairs[pairs[:,2]/family_params[locus][1]<=factors[locus]]
                 if len(pairs):
                     pairs=pairs[:,:2].copy()
                     pairs[:,0]=query_ids[pairs[:,0]]
@@ -382,14 +368,14 @@ def reference_enrichment(observations: pl.DataFrame, reference: pl.DataFrame,
             batches=(keys.with_columns(pl.col('junction_aa').str.len_chars().alias('_length')).partition_by('_length',as_dict=True).values() if matchers[locus] in weighted else [keys])
             for batch in batches:
                 query_ids=batch['_qi'].to_numpy()
-                params=(weighted_params.get((locus,len(batch['junction_aa'][0]))) if matchers[locus] in weighted else search_params(f'{mismatches},0,0,{mismatches}'))
+                params=(family_params[locus][0] if locus in family_loci else weighted_params.get((locus,len(batch['junction_aa'][0]))) if matchers[locus] in weighted else search_params(f'{mismatches},0,0,{mismatches}'))
                 if params is None:continue  # No observed junction has this length.
                 index.search_batch_consume(batch['junction_aa'].to_list(),params,consume,
                     threads=threads,chunk_size=2048,max_hit_bytes=64*1024**2)
             # Join sparse hits once: native memory bounds can make callbacks tiny.
             if buffers:
                 pairs=pl.DataFrame(np.concatenate(buffers),schema=[('_qi',pl.UInt32),('_ri',pl.UInt32)],orient='row')
-                predicate=['_ri','_match_v']+(['_match_j'] if match_j else [])
+                predicate=['_ri']+(['_match_v'] if locus not in family_loci or matchers[locus].startswith('v-') else [])+(['_match_j'] if match_j else [])
                 hits=pairs.join(roles,on='_qi',validate='m:m').join(samples,on=predicate,validate='m:m')
                 if detailed:
                     detail=hits.select('receptor_id','group_id',pl.lit(locus).alias('locus'),'junction_aa',pl.col('_sample_v').alias('v'),pl.col('_sample_j').alias('j')).unique()

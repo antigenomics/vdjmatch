@@ -523,7 +523,7 @@ def test_dimensionless_blosum_length_batches_preserve_identity(matcher):
 
 
 @pytest.mark.parametrize('family', ['unit','v-unit','weighted','v-weighted'])
-def test_family_count_threshold_matches_existing_alignment_api(family):
+def test_family_count_threshold_matches_existing_alignment_api(family,monkeypatch):
     from vdjmatch.api import Annotator
     from vdjmatch.aggregate.repertoire_enrichment import reference_enrichment
     from vdjmatch.evalue.mock_reference import iter_epitope_mocks
@@ -539,7 +539,11 @@ def test_family_count_threshold_matches_existing_alignment_api(family):
     scale=400. if matrix is not None else 1.
     for cutoff in [0., .29, .5, 1.]:
         options=dict(replicates=2,seed=7,mismatches=3,trb_matcher=family,trb_radius_factor=cutoff,chain_mode='trb')
-        summary,mocks,hits=reference_enrichment(sample,ref,{'TRB':control},**options)
+        def rebuild_forbidden(*args,**kwargs):
+            raise AssertionError('counting must reuse the repertoire index, not rebuild an Annotator')
+        with monkeypatch.context() as patch:
+            patch.setattr(Annotator,'from_frame',rebuild_forbidden)
+            summary,mocks,hits=reference_enrichment(sample,ref,{'TRB':control},**options)
         panels=[ref,*iter_epitope_mocks(ref,control,replicates=2,seed=8,policy='pgen')]
         expected=[]
         for panel in panels:

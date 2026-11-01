@@ -607,9 +607,10 @@ final donor/day FDR families to the exported CLI P-values.
 ### Graded-family M3 count endpoint
 
 `unit`, `v-unit`, `weighted`, `v-weighted` are supported chain matchers. Reuse
-`graded_family_params` for the shared geometry. Flexible counts use
-`Annotator.target_memberships`; bulk `exact_reference_counts` reuses the existing
-repertoire-indexed native batch and shared gene-imputation helper. Do not
+`graded_family_params` for the shared geometry. Flexible counts and bulk `exact_reference_counts` reuse the existing
+repertoire-indexed native batch and shared gene-imputation helper. Normalize
+query genes against the fixed reference once; do not rebuild an Annotator for
+each mock. `Annotator.target_memberships` remains a parity-check API. Do not
 reimplement distances, gene matching or candidate rankings for this endpoint.
 An explicit chain radius factor bounds nearest individual cost / scale (1 unit,
 400 weighted), with `--mismatches` the1–3edit ceiling. No NED sum or soft-V weight
