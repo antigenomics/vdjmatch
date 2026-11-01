@@ -24,7 +24,7 @@
 reporting peptide–MHC candidates, competing evidence and optional background calibration.
 Native sequence search uses [`seqtree`](https://github.com/antigenomics/seqtree);
 repertoire ingestion reuses published `vdjtools` readers.
-Requires released `seqtree>=1.3.2` and `vdjtools>=5.4.0`, including allocation-aware
+Requires released `seqtree>=1.3.2` and `vdjtools>=5.6.0`, including allocation-aware
 native thread validation.
 
 <p align="center">
@@ -56,6 +56,8 @@ See the [tutorial](https://docs.isalgo.dev/vdjmatch/tutorial.html),
 | Calibrate the combined score from one control | `vdjmatch annotate --control CONTROL` | [Calibration guide](https://docs.isalgo.dev/vdjmatch/control-calibration.html) |
 | Check literal database presence and unusual resemblance | `vdjmatch database-evidence` | [Score explanation](https://docs.isalgo.dev/vdjmatch/explanation.html) |
 | Choose a pinned or offline reference | `--vdjdb LOCAL_REFERENCE` or `vdjmatch update` | [Workflow guide](https://docs.isalgo.dev/vdjmatch/how-to.html) |
+| Test full-depth matched-clonotype enrichment | `vdjmatch repertoire-exact --pgen-features FEATURES --abundance-metrics ...` | [Repertoire method](https://docs.isalgo.dev/vdjmatch/repertoire-method.html) |
+| Plot completed enrichment against every mock | `vdjmatch repertoire-report COUNTS SUMMARY ...` | [Offline notebook](examples/repertoire_evidence.ipynb) |
 
 ## Runnable offline examples
 
@@ -471,6 +473,29 @@ export was an artefact — the dense release makes controls findable too).
 Start with the [algorithm and parameter guide](docs/repertoire-method.rst).
 It explains the two null models, matching/V/J choices, chain and epitope
 aggregation, Fisher evidence and the completed manuscript comparisons.
+
+### Full-depth discovery from raw marginal Pgen
+
+```sh
+vdjmatch repertoire-exact samples.tsv --vdjdb reference.zip \
+  --control observed-control.tsv --pgen-features marginal-pgen.tsv \
+  --abundance-metrics --output-prefix full
+vdjmatch repertoire-report full.counts.tsv full.summary.tsv \
+  --metric curve_mean --output-prefix figures/richness
+```
+
+Use verified junction-only marginal Pgen from the current vdjtools model and
+the observed control repertoire. Probabilities enter the existing bins directly,
+without Q, V/J-frequency corrections, AA-max reduction or a model prior.
+The full source-clonotype abundance vectors supply expected matched richness
+over a common whole-library read-depth range. This curve-average endpoint is
+distinct from raw counts, reads, Chao1 and matched-subset Hill diversity; all
+remain available for comparison. Declare test families with `--fdr-group`
+metadata columns. The report displays recorded empirical P and BH q values
+alongside every mock endpoint; it does not refit inference.
+
+### Historical matcher comparisons and reproduction
+
 There is no universal best radius: positional BLOSUM62 radius 0.30 improved
 bulk day15 clonotype detection (5/7 libraries; 7/7 by reads, 0/12 day0), while
 Hamming<=1 retained the broader paired single-cell exposure coverage
@@ -520,9 +545,11 @@ Weak alignments cannot add up to cross this bound. The fourteen-setting bulk
 comparison is complete: hard-V exact and hard-V weighted bounds 0.1/0.2 retain 4/7 day15
 clonotype and 7/7 read calls, with 0/12 day0 calls. Weighted bound 0.1 is exact
 membership by construction. The separate positional BLOSUM62 preset at 0.30
-remains the strongest recorded bulk choice (5/7 and 7/7), using pooled J-usage
-correction within V. Paired four-family evaluation is running; those conclusions
-remain open. Summed continuous evidence is deferred.
+remains the strongest recorded bulk matcher in that historical comparison
+(5/7 and 7/7), using pooled J-usage correction within V. These results retain
+their producing null and are separate from the current raw-marginal discovery
+endpoint. Paired four-family outputs retain their own completed-arm audit and
+scope. Summed continuous evidence is deferred.
 
 Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, `gapblock`,
 `blosum62` or `positional-blosum62`. The direct BLOSUM presets require
