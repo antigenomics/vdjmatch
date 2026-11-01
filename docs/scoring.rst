@@ -40,6 +40,33 @@ document retained historical and experimental statistics; they do not redefine
 the annotation default.
 
 
+Choosing a fuzzy-matching comparison
+------------------------------------
+
+The README's ``Scoring: what works (and what doesn't)`` section records the
+accepted matrix and positional-weighting comparisons. Preserve the
+one-mismatch baseline and start from BLOSUM62 and its established end-anchored
+positional weighting. The data-derived VDJAM matrix underperformed BLOSUM62;
+VDJAMr is a different, genetic-code substitution-accessibility comparator.
+Neither availability of a matrix nor a chemical interpretation establishes
+better specificity recognition.
+
+Reuse ``match.regions.significance_weights`` and ``significance_pssm`` for the
+existing positional recipe; ``match.historical`` owns its fixed-scope search.
+``bench/loo_vdjam.py:codon_dissim`` defines the genetic-code comparator.
+Do not replace these recipes with an invented chemistry score or refit their
+weights to the evaluation cohort.
+
+Keep weighted substitution penalties, the complete kernel score above, and
+sample-level reference-mock enrichment distinct. Positive kernel support is
+not a calibrated precision operating point. Its distance ladder includes an
+outer range beyond the nominal search-ball radius, so pruning at that radius
+does not preserve the kernel score. Calibrate each final matching predicate
+against its own reference/null contract, applying exactly the same predicate
+to real and mock tables. Existing experimental alternatives remain available;
+this guidance changes no default or accepted result.
+
+
 Experimental count enrichment
 -----------------------------
 

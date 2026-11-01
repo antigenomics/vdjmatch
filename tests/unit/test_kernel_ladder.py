@@ -178,3 +178,10 @@ def test_ordinary_annotation_validity_and_species_boundaries(tmp_path):
         multi=evidence.filter(pl.col('epitope')=='E')
         assert multi['control_population'].to_list()==single['control_population'].to_list()
         np.testing.assert_allclose(multi['kernel_score'],single['kernel_score'],rtol=0,atol=0)
+
+
+def test_kernel_threshold_is_invariant_to_distance_unit_conversion():
+    counts=([[1,2,3]],[[1,1,2]],[[0,3,7]],[5],[100])
+    original=kernel_ladder(*counts,[0,10,20],kernel_scale=15,extras=False)
+    rescaled=kernel_ladder(*counts,[0,1000,2000],kernel_scale=1500,extras=False)
+    np.testing.assert_allclose(original['kernel_score'],rescaled['kernel_score'],rtol=0,atol=1e-15)

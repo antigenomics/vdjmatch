@@ -1,6 +1,21 @@
 Release notes
 =============
 
+1.1.0
+-----
+
+Reference-mock repertoire inference retains the selected matching predicate,
+chain rule, counting unit and declared test family. Raw marginal-Pgen inputs
+support full-depth mean discoverable matched clonotype richness, with separate
+source-count, read, Chao1 and Hill endpoints. The calculations reuse vdjtools
+5.6.0 APIs; Hill batches stop at their supported depth. Receptor annotation
+defaults remain unchanged, and historical probability/null workflows stay explicit.
+See :doc:`repertoire-method` for the complete algorithm and units.
+
+The report CLI and offline repertoire-evidence notebook show all 200 recorded
+mock endpoints without recomputing inference. README and manuscript overviews
+distinguish receptor specificity evidence from repertoire enrichment.
+
 1.0.0
 -----
 

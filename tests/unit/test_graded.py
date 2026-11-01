@@ -180,3 +180,25 @@ def test_incompatible_histogram_engine_keeps_existing_control_adapter():
     params=SearchParams(engine='seqtrie',max_subs=1,max_total_edits=1,max_penalty=1)
     got=ann.candidates(['CASSF'],scope=params,control=control,score_scale=1.)
     assert got['n_control'].to_list()==[2]
+
+
+def test_four_families_preserve_weighted_evidence_beyond_membership():
+    """M3 must not collapse weighted families to their Boolean hit counts."""
+    from vdjmatch.match.scoring import load_vdjam
+    reference = pl.DataFrame({
+        'gene': ['TRB'] * 3, 'cdr3': ['CASSF', 'CASRF', 'CASTF'],
+        'v': ['TRBV19', 'TRBV5-1', 'TRBV19'],
+        'j': ['TRBJ2-7'] * 3, 'epitope': ['E'] * 3,
+    })
+    query = pl.DataFrame({'cdr3': ['CASSF'], 'v': ['TRBV19'],
+                          'j': ['TRBJ2-7'], 'locus': ['TRB']})
+    ann = Annotator.from_frame(reference)
+    scores = {}
+    for match_v, expected_hits in [(False, 3), (True, 2)]:
+        for weighted in [False, True]:
+            result = ann.graded_candidates(query, max_radius=1, match_v=match_v,
+                                            matrix=load_vdjam() if weighted else None)
+            assert result['n_clonotypes'].to_list() == [expected_hits]
+            scores[match_v, weighted] = result['ned_score'].item()
+        assert scores[match_v, False] != scores[match_v, True]
+    assert len(set(scores.values())) == 4

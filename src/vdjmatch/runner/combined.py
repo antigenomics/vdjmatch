@@ -128,12 +128,27 @@ def _original(queries, reference, cases, index, prior_background, *, locus, thre
         pl.col('original_supported').fill_null(False))
 
 
-def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts, _consume=None):
-    import numpy as np
-    from ..evalue.kernel import grouped_kernel_enrichment, ladder_cutoffs
-    from ..match.geometry import (resolve_v_alleles, distance_units, _substitution_costs)
+def _prepare_kernel_chain(frame, model, locus):
+    from ..match.geometry import impute_reference_v_alleles
+    alleles,imputed=impute_reference_v_alleles(frame['v'],model,locus=locus)
+    return frame.with_columns(alleles.alias('_allele'),imputed).with_columns(
+        pl.when(pl.col('v_geometry_imputed')).then(pl.struct('v').struct.json_encode())
+            .otherwise(pl.col('_allele')).alias('_v_key')).filter(
+        pl.col('_allele').is_not_null() & pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$').fill_null(False))
 
-    model = contexts['clipped']['model']
+
+def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exact, contexts, _consume=None, kernels=("gapblock", "stem4"), scorer="v-bounded", _targets=None, _impute_v=False):
+    import numpy as np
+    from ..evalue.kernel import grouped_kernel_enrichment, ladder_cutoffs, KERNEL_SCORERS
+    if scorer not in KERNEL_SCORERS:raise ValueError("unknown kernel scorer")
+    from ..match.geometry import (resolve_v_alleles, distance_units, _substitution_costs)
+    if _impute_v and paired:raise ValueError('production V imputation here requires single-chain axes')
+
+    definitions = [('gapblock','clipped',0),('stem4','blosum62',4)]
+    if not kernels or not set(kernels)<= {'gapblock','stem4'}:
+        raise ValueError('unknown kernel selection')
+    definitions = [item for item in definitions if item[0] in kernels]
+    model = contexts['clipped' if 'clipped' in contexts else 'blosum62']['model']
     if paired:
         q = queries
         r = reference
@@ -146,6 +161,10 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
                 r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$').fill_null(False))
         query_keys = ['cdr3a', 'cdr3b', '_allelea', '_alleleb']
         search_keys = ['alpha', 'beta', '_allele_alpha', '_allele_beta']
+    elif _impute_v:
+        chain=queries['locus'][0] if queries.height else 'TRB'
+        q,r=_prepare_kernel_chain(queries,model,chain),_prepare_kernel_chain(reference,model,chain)
+        query_keys,search_keys=['cdr3','_allele','_v_key'],['cdr3','_allele','_v_key']
     else:
         chain = queries['locus'][0] if queries.height else 'TRB'
         q = queries.with_columns(resolve_v_alleles(queries['v'], model, locus=chain).alias('_allele')).filter(
@@ -155,7 +174,7 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
         query_keys, search_keys = ['cdr3', '_allele'], ['cdr3', '_allele']
     groups = []
     requested_groups = None if cases is None else cases.partition_by(PMHC, as_dict=True)
-    targets = (reference.select(PMHC).unique(maintain_order=True).iter_rows() if cases is None else requested_groups.keys())
+    targets = ((reference.select(PMHC).unique(maintain_order=True) if _targets is None else _targets.select(PMHC).unique()).iter_rows() if cases is None else requested_groups.keys())
     for key in targets:
         task = dict(zip(PMHC, key))
         part = r.filter(pl.all_horizontal(*[pl.col(name).eq_missing(value) for name, value in task.items()]))
@@ -166,11 +185,11 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
     if cases is None:
         if not callable(_consume):
             raise ValueError('all-label kernel scoring requires a batch consumer')
-        for name,matrix,depth in [('gapblock','clipped',0),('stem4','blosum62',4)]:
+        for name,matrix,depth in definitions:
             scale,_ = distance_units(_substitution_costs('full',matrix))
             grouped_kernel_enrichment(q,r,groups,query_keys=query_keys,search_keys=search_keys,
                 paired=paired,cutoffs=ladder_cutoffs(scale),radius=22.5*scale,kernel_scale=22.5*scale,
-                scorer='v-bounded',assayed=False,species=species,threads=threads,ctrim=3,v_loop_weight=1,
+                scorer=scorer,assayed=False,species=species,threads=threads,ctrim=3,v_loop_weight=1,
                 alphabet='full',stem_depth=depth,stem_weight=1.,matrix=matrix,
                 v_loop_distances=contexts[matrix],exclude_exact=exclude_exact,_allow_empty_background=True,
                 _scores_only=True,_consume=lambda frame:_consume(name,frame))
@@ -186,7 +205,7 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
     codes = codes[order]
     case_indices = case_rows['_kernel_case'].to_numpy()[order]
     del case_rows, order, target_rows
-    for name, matrix, depth in [('gapblock', 'clipped', 0), ('stem4', 'blosum62', 4)]:
+    for name, matrix, depth in definitions:
         values = np.full(cases.height, np.nan)
         seen = np.zeros(cases.height, dtype=bool)
         def consume(scores):
@@ -203,7 +222,7 @@ def _kernel(queries, reference, cases, *, species, threads, paired, exclude_exac
         scale, _ = distance_units(_substitution_costs('full', matrix))
         grouped_kernel_enrichment(q, r, groups, query_keys=query_keys, search_keys=search_keys,
             paired=paired, cutoffs=ladder_cutoffs(scale), radius=22.5 * scale, kernel_scale=22.5 * scale,
-            scorer='v-bounded', assayed=True, species=species, threads=threads, ctrim=3, v_loop_weight=1,
+            scorer=scorer, assayed=True, species=species, threads=threads, ctrim=3, v_loop_weight=1,
             alphabet='full', stem_depth=depth, stem_weight=1.0, matrix=matrix,
             v_loop_distances=contexts[matrix], exclude_exact=exclude_exact, _allow_empty_background=True,
             _scores_only=True, _consume=consume)

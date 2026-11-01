@@ -75,7 +75,7 @@ def notebook(path):
         nbformat.write(nb, output / (Path(path).stem + ".ipynb"))
 
 
-for path in ("examples/annotation.ipynb", "examples/comparison.ipynb"):
+for path in ("examples/annotation.ipynb", "examples/comparison.ipynb", "examples/repertoire_evidence.ipynb"):
     run(path, lambda path=path: notebook(path))
 if args.scientific:
     for name in ('accuracy', 'vaccination', 'precursor_estimates'):

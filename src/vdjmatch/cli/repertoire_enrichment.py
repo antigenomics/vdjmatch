@@ -1,5 +1,6 @@
 """Fresh strict Pgen/count-matched repertoire enrichment one repertoire and one mock at a time."""
 from pathlib import Path
+from ..config import GRADED_FAMILIES
 
 
 def _single_v(frame,column,*,species='human',locus='TRB',impute=True):
@@ -30,17 +31,60 @@ def register(subparsers):
     p=subparsers.add_parser('repertoire-enrichment',help=__doc__)
     p.add_argument('metadata',help='TSV with unique sample_id,path; paths relative to this file')
     p.add_argument('--vdjdb',required=True);p.add_argument('--control',required=True)
-    p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=1,help='0 exact sequence or1 inclusive Hamming ball; prepared and fresh probabilities must agree')
+    p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=None,help='0 exact sequence or1 inclusive Hamming ball; prepared and fresh probabilities must agree')
     p.add_argument('--pgen-features',help='validated durable control Pgen bank; missing query masses are freshly calculated')
+    p.add_argument('--model-source',choices=['isalgo','olga-legacy'],help='Reference-null Pgen model family; recorded and checked against prepared assets')
     p.add_argument('--species',choices=['human','mouse'],default='human')
-    p.add_argument('--locus',choices=['TRA','TRB'],default='TRB')
-    p.add_argument('--reference-population',choices=['all-valid','curated-benchmark'],default='all-valid')
+    p.add_argument('--locus',choices=['TRA','TRB','paired'],default='TRB')
+    p.add_argument('--reference-population',choices=['all-valid','curated-benchmark'],default=None)
     p.add_argument('--mock-replicates',type=int,default=200);p.add_argument('--seed',type=int,default=0)
     p.add_argument('--threads',type=int,default=4);p.add_argument('--output-prefix',required=True)
+    p.add_argument('--null', choices=['repertoire','reference'], default='repertoire')
+    p.add_argument('--mock-policy', choices=['pgen','pgen-vj','pgen-different-v'], default='pgen')
+    p.add_argument('--control-tra', help='TRA control for paired reference-null mode; --control supplies TRB')
+    p.add_argument('--pgen-features-tra', help='validated TRA Pgen bank for paired mode')
+    p.add_argument('--epitope', action='append', help='reported target peptide(s); full reference model and mock panels retained, reference-null only')
+    p.add_argument('--kernel-scorer',choices=['v-bounded','vonly-bounded'],default='v-bounded',help='Existing fuzzy kernel reducer; vonly-bounded requires same-V target support')
+    p.add_argument('--tra-matcher',choices=['hamming','stem4','gapblock','blosum62','positional-blosum62',*GRADED_FAMILIES],default='hamming',help='TRA matching rule')
+    p.add_argument('--trb-matcher',choices=['hamming','stem4','gapblock','blosum62','positional-blosum62',*GRADED_FAMILIES],default='hamming',help='TRB matching rule')
+    p.add_argument('--tra-min-score',type=float,default=0.,help='Dimensionless strict lower score bound for kernel TRA support')
+    p.add_argument('--trb-min-score',type=float,default=0.,help='Dimensionless strict lower score bound for kernel TRB support')
+    p.add_argument('--tra-radius-factor',type=float,help='TRA normalized distance bound (BLOSUM or graded family)')
+    p.add_argument('--trb-radius-factor',type=float,help='TRB normalized distance bound (BLOSUM or graded family)')
+    p.add_argument('--chain-mode',choices=['tra','trb','union','intersection','all'],default='union')
+    p.add_argument('--single-chain-unit',choices=['junction-vj','source-row'],default='junction-vj',help='reference null: merge identical junction/V/J rows (default), or retain each input row as a clonotype')
+    p.add_argument('--mismatches', type=int, choices=range(4), default=1)
+    p.add_argument('--batch-samples', action='store_true', help='reference null: share seeded mock panels and native searches across the in-memory cohort')
+    p.add_argument('--match-j', action='store_true')
+    p.add_argument('--significance', choices=['none','nominal','bh','both'], default='none')
+    p.add_argument('--nominal-alpha', type=float, default=.05)
+    p.add_argument('--fdr-alpha', type=float, default=.1)
+    p.add_argument('--fdr-family', choices=['cohort','target'], default='cohort')
     p.set_defaults(func=main)
 
 
 def main(a):
+    import math
+    for locus in ('tra','trb'):
+        cutoff=getattr(a,locus+'_min_score')
+        if not math.isfinite(cutoff) or cutoff<0:raise ValueError('finite nonnegative fuzzy score cutoffs required')
+        matcher=getattr(a,locus+'_matcher')
+        if cutoff and matcher not in {'stem4','gapblock'}:raise ValueError('score cutoff requires a fuzzy matcher')
+        factor=getattr(a,locus+'_radius_factor',None)
+        if matcher in {'blosum62','positional-blosum62'}:
+            from ..match.scope import blosum_radius_params
+            blosum_radius_params(matcher,factor,1)
+        elif matcher in GRADED_FAMILIES:
+            from ..match.scope import graded_family_params
+            graded_family_params(matcher,a.mismatches,factor)
+        elif factor is not None:raise ValueError('radius factor requires a BLOSUM matcher')
+    if a.pgen_mismatches is None:a.pgen_mismatches = 0 if a.null == 'reference' else 1
+    if a.reference_population is None:a.reference_population = 'curated-benchmark' if a.null == 'reference' else 'all-valid'
+    if a.null == 'reference':
+        from .repertoire_reference import main as reference_main
+        return reference_main(a)
+    if a.tra_radius_factor is not None or a.trb_radius_factor is not None or a.single_chain_unit != 'junction-vj' or a.batch_samples or a.model_source or a.tra_matcher != 'hamming' or a.trb_matcher != 'hamming' or a.tra_min_score != 0 or a.trb_min_score != 0 or a.chain_mode != 'union' or a.locus == 'paired' or a.control_tra or a.pgen_features_tra or a.epitope or a.significance != 'none' or a.mock_policy != 'pgen' or a.match_j or a.mismatches != 1:
+        raise ValueError('reference-null options require --null reference')
     import json,time
     from importlib.metadata import version
     import numpy as np

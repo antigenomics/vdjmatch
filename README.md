@@ -24,8 +24,20 @@
 reporting peptide–MHC candidates, competing evidence and optional background calibration.
 Native sequence search uses [`seqtree`](https://github.com/antigenomics/seqtree);
 repertoire ingestion reuses published `vdjtools` readers.
-Requires released `seqtree>=1.3.2` and `vdjtools>=5.4.0`, including allocation-aware
+Requires released `seqtree>=1.3.2` and `vdjtools>=5.6.0`, including allocation-aware
 native thread validation.
+
+<p align="center">
+  <img alt="VDJmatch workflow: shared receptor-table validation and curated VDJdb search, followed by receptor annotation or matched-reference repertoire enrichment" src="https://raw.githubusercontent.com/antigenomics/vdjmatch/master/assets/algorithm-overview.png" width="100%">
+</p>
+
+Receptor annotation asks which peptide–MHC targets have sequence support.
+Repertoire inference asks whether target support exceeds matched mock-reference
+expectations. The [repertoire method guide](https://docs.isalgo.dev/vdjmatch/repertoire-method.html)
+connects the matching rule, null population and counting unit to that second question.
+Full-data discovery curves retain clone abundance while measuring matched
+clonotype richness over whole-library sampling effort; raw counts, reads and
+Hill diversity remain separate outputs.
 
 The Python implementation follows the legacy Java/Groovy package, preserved on the
 `legacy-java` branch and [Java tag `1.3.1`](https://github.com/antigenomics/vdjmatch/tree/1.3.1).
@@ -44,6 +56,8 @@ See the [tutorial](https://docs.isalgo.dev/vdjmatch/tutorial.html),
 | Calibrate the combined score from one control | `vdjmatch annotate --control CONTROL` | [Calibration guide](https://docs.isalgo.dev/vdjmatch/control-calibration.html) |
 | Check literal database presence and unusual resemblance | `vdjmatch database-evidence` | [Score explanation](https://docs.isalgo.dev/vdjmatch/explanation.html) |
 | Choose a pinned or offline reference | `--vdjdb LOCAL_REFERENCE` or `vdjmatch update` | [Workflow guide](https://docs.isalgo.dev/vdjmatch/how-to.html) |
+| Test full-depth matched-clonotype enrichment | `vdjmatch repertoire-exact --pgen-features FEATURES --abundance-metrics ...` | [Repertoire method](https://docs.isalgo.dev/vdjmatch/repertoire-method.html) |
+| Plot completed enrichment against every mock | `vdjmatch repertoire-report COUNTS SUMMARY ...` | [Offline notebook](examples/repertoire_evidence.ipynb) |
 
 ## Runnable offline examples
 
@@ -70,6 +84,10 @@ errors. The comparison explicitly runs exact-excluded detailed stem4 and advance
 vcdr12; notebooks analyze only fresh CLI tables. `DEMO_A`/`DEMO_B` labels are
 synthetic software examples, not binding truth. See the
 [example guide](https://docs.isalgo.dev/vdjmatch/examples.html).
+
+The offline [repertoire evidence notebook](examples/repertoire_evidence.ipynb)
+uses synthetic final-table fixtures to demonstrate the report CLI, all 200 mock
+endpoints and preservation of recorded P/q values. It performs no biological inference.
 
 ## Scientific worked examples
 
@@ -391,6 +409,19 @@ These new modes require seqtree1.0.2; see the CLI reference for scoring and null
 
 ## Scoring: what works (and what doesn't)
 
+For new fuzzy-matching comparisons, start from the established BLOSUM62 and
+end-anchored positional-BLOSUM62 implementations. Keep the one-mismatch baseline.
+The M4 conclusion is that BLOSUM62 is optimal among the tested substitution
+matrices: the substitution patterns reflect V(D)J rearrangement, N-insertion
+and positional conservation rather than amino-acid chemistry. The observed
+similar accuracy near the BLOSUM62/conservation upper cap supports the expectation
+that fully optimized VDJAM would converge to this same generative structure;
+this does not claim that optimization is complete. Keep the measured constructions distinct: the
+genetic-code substitution-accessibility comparator **VDJAMr** matches BLOSUM62,
+while the data-derived **VDJAM** matrix underperformed in the recorded retrieval
+comparison. Positional weighting provides the additional improvement below.
+Reuse these recorded comparisons before proposing another matrix.
+
 An empirical study on VDJdb (see `appendix/vdjmatch_scoring.tex`; regenerated on the **2026-06-11-ZENODO**
 release with composition controls and balanced metrics) settles the scoring question honestly:
 
@@ -436,6 +467,144 @@ subset — the **shortlist** of clonotype–epitope pairs in **≥2 independent 
 Leave-one-out NN annotation (`bench/shortlist_accuracy.py`, subs 1, exact self excluded) reaches
 **~44–47% top-1**, modestly above single-reference controls (the dramatic 3× gap on a sparse older
 export was an artefact — the dense release makes controls findable too).
+
+## Repertoire-level enrichment (M3)
+
+Start with the [algorithm and parameter guide](docs/repertoire-method.rst).
+It explains the two null models, matching/V/J choices, chain and epitope
+aggregation, Fisher evidence and the completed manuscript comparisons.
+
+### Full-depth discovery from raw marginal Pgen
+
+```sh
+vdjmatch repertoire-exact samples.tsv --vdjdb reference.zip \
+  --control observed-control.tsv --pgen-features marginal-pgen.tsv \
+  --abundance-metrics --output-prefix full
+vdjmatch repertoire-report full.counts.tsv full.summary.tsv \
+  --metric curve_mean --output-prefix figures/richness
+```
+
+Use verified junction-only marginal Pgen from the current vdjtools model and
+the observed control repertoire. Probabilities enter the existing bins directly,
+without Q, V/J-frequency corrections, AA-max reduction or a model prior.
+The full source-clonotype abundance vectors supply expected matched richness
+over a common whole-library read-depth range. This curve-average endpoint is
+distinct from raw counts, reads, Chao1 and matched-subset Hill diversity; all
+remain available for comparison. Declare test families with `--fdr-group`
+metadata columns. The report displays recorded empirical P and BH q values
+alongside every mock endpoint; it does not refit inference.
+
+### Historical matcher comparisons and reproduction
+
+There is no universal best radius: positional BLOSUM62 radius 0.30 improved
+bulk day15 clonotype detection (5/7 libraries; 7/7 by reads, 0/12 day0), while
+Hamming<=1 retained the broader paired single-cell exposure coverage
+(5/6 day14 donors, 6/6 ever post, 0/6 prechallenge). These are different endpoints.
+Keep exact Pgen, original correction families and the full reference scope
+attached to each result. Chain P-values support inference; paired exposure and
+cross-epitope unions are descriptive. See the guide before transferring settings.
+
+
+`vdjmatch repertoire-exact samples.tsv --vdjdb reference.zip --control probes.tsv --model-vj-counts model-vj.tsv --output-prefix enrichment`
+preserves the compiled reference-panel bulk calculation: exact junction/V/J matching,
+source clonotype rows and read abundance, joint Pgen with the original AA-max
+reducer and within-V J-usage correction. Use `--sampler r --pool-mhc` for the
+original single-epitope sampling convention; declare replicate-level correction
+families explicitly with repeated `--fdr-group` options. NumPy is the default
+sampler. Complete-zero tests and original-notebook statistics are separate columns.
+
+See [CLI definitions](docs/cli.rst) for optional panel matchers and input filtering.
+
+The following flexible-matching mode uses a different null and counting unit;
+it is not a reproduction of the compiled reference-panel calculation.
+
+
+`vdjmatch repertoire-enrichment samples.tsv --null reference --vdjdb reference.zip --control control.tsv.gz --threads 4 --output-prefix enrichment`
+holds each repertoire fixed and compares its unique receptor support against fresh
+Pgen-matched mock epitope corpora. `--mock-policy pgen-vj` preserves V/J usage;
+`pgen-different-v` changes V and junction identities. Paired inputs retain orphan
+chains and count a receptor once per target. `--significance nominal|bh|both`
+selects explicit inference options; no binary significance call is the default.
+All no-hit targets remain in the outputs. See the
+[CLI contract](https://docs.isalgo.dev/vdjmatch/cli.html) for matching, Pgen,
+replicate resolution, test families and input schemas. The historical
+`--null repertoire` mode remains separate.
+
+For paired reference-null comparisons, `--chain-mode tra|trb|union|intersection|all`
+preserves receptor identity throughout real and mock matching. The asymmetric
+`--tra-matcher stem4 --mismatches 1 --chain-mode intersection` combines strict
+TRB support with fuzzy TRA evidence for the same target; chain scores remain
+separate from repertoire significance.
+
+The established `unit`, `v-unit`, `weighted` and `v-weighted` families are also
+available through these matcher options. They reuse the graded edit-bounded
+alignment engine. An explicit chain `--*-radius-factor` bounds the best individual
+alignment cost divided by 1 (unit) or 400 (weighted); `--mismatches` sets the
+1–3 total-edit ceiling. Count each accepted receptor and its abundance once.
+Weak alignments cannot add up to cross this bound. The fourteen-setting bulk
+comparison is complete: hard-V exact and hard-V weighted bounds 0.1/0.2 retain 4/7 day15
+clonotype and 7/7 read calls, with 0/12 day0 calls. Weighted bound 0.1 is exact
+membership by construction. The separate positional BLOSUM62 preset at 0.30
+remains the strongest recorded bulk matcher in that historical comparison
+(5/7 and 7/7), using pooled J-usage correction within V. These results retain
+their producing null and are separate from the current raw-marginal discovery
+endpoint. Paired four-family outputs retain their own completed-arm audit and
+scope. Summed continuous evidence is deferred.
+
+Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, `gapblock`,
+`blosum62` or `positional-blosum62`. The direct BLOSUM presets require
+`--tra-radius-factor`/`--trb-radius-factor`: a dimensionless budget relative to
+the matrix substitution scale, with fixed positional weights and at most three
+substitutions, no indels, exact V and optional exact J. The bulk panel command
+uses the same names with `--radius-factor` and retains exact V/J. These
+pairwise budgets are distinct from kernel scores. `--tra-min-score` and `--trb-min-score` set dimensionless strict
+lower bounds for fuzzy support; the same bounds apply to real and every mock
+panel. Keep calibrated scorer parameters fixed. The default zero accepts weak
+positive support and is a historical diagnostic, not a precision operating point. Use `--trb-matcher stem4 --chain-mode intersection` for the reverse
+asymmetric comparison. Cutoffs require calibration for their own kernel and
+locus; positive support alone is not calibrated binding confidence. Defaults
+remain Hamming on both chains. Full reference models are preserved.
+
+An independent counts-only comparison filters both the sample and each pMHC
+reference with the existing TCRnet neighbourhood test, then runs flexible
+VDJmatch matching:
+
+```sh
+vdjmatch repertoire-tcrnet samples.tsv --vdjdb reference.zip \
+  --control control.tsv.gz --tcrnet-fdr 0.1 --scope 3,1,1,3 \
+  --threads 4 --output-prefix filtered
+```
+
+This mode exports filter evidence, matching hits and raw-denominator counts;
+it does not produce repertoire P-values or assume random backgrounds filter to
+an empty set. Paired inputs retain orphan chains and count each receptor once.
+
+
+For inputs too large to retain as one sample, `vdjmatch.io.iter_rearrangement`
+yields normalized batches with file-wide positional IDs. The underlying
+`vdjtools.io.iter_table_batches` supports projected raw CSV/TSV/gzip/Parquet
+batches. Prefer the simpler one-sample-at-a-time path when profiling shows it
+fits; within-sample batching does not by itself bound reference/control memory.
+
+`--chain-mode all` computes the four chain rules from the same native searches and mock draws.
+Summary, mock and hit tables include a chain_mode column. BH correction is
+performed separately for each rule within the selected target or cohort family.
+
+Reference-null repertoire enrichment accepts ``--model-source isalgo`` or
+``--model-source olga-legacy``. Fresh probabilities, model identity checks and
+prepared feature validation use that same family. Omission retains historical
+model selection until the calibrated-default release is finalized.
+
+Reference-null significance reports both unique-receptor and abundance endpoints.
+``q_count``, ``significant_nominal_count`` and ``significant_bh_count`` describe
+summed abundance (reads in bulk data, supplied cell counts in single-cell data).
+Existing unsuffixed call flags describe receptor counts. Each endpoint uses the
+selected correction family separately; positive excess is required for a call.
+
+For cohorts that fit in memory, reference-null ``repertoire-enrichment --batch-samples``
+shares each seeded mock draw and native search across samples. It preserves
+per-sample receptor identities, counts, null statistics and the selected BH family.
+The default still loads and processes one sample at a time.
 
 ## License
 

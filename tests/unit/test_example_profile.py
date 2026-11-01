@@ -49,3 +49,15 @@ def test_memory_cap_charges_compressed_footprint(tmp_path,monkeypatch):
         module.profile([sys.executable,'-c','import time; time.sleep(10)'],tmp_path/'compressed.log',timeout=5,max_rss_bytes=32000000000)
     report=json.loads((tmp_path/'compressed.resources.json').read_text())
     assert report['peak_tree_accounted_GB']>=1000 and report['failure_kind']=='MemoryError'
+
+
+def test_profile_can_record_resource_trace_without_application_caps(tmp_path):
+    import csv
+    spec=importlib.util.spec_from_file_location('example_profile',Path(__file__).parents[2]/'examples/profile_cli.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    report=module.profile([sys.executable,'-c','import time; time.sleep(.2)'],tmp_path/'uncapped.log',
+                          timeout=float('inf'),trace_path=tmp_path/'trace.tsv')
+    rows=list(csv.DictReader((tmp_path/'trace.tsv').open(),delimiter='\t'))
+    assert report['completed'] and rows and max(int(row['live_threads']) for row in rows)>=1
+    assert max(int(row['tree_rss_bytes']) for row in rows)>0
+    assert all(float(row['cpu_seconds'])>=0 for row in rows)

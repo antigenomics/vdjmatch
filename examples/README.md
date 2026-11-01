@@ -138,3 +138,36 @@ the biological workflows alongside the original gallery in a fresh environment:
 
 Use a new directory for each verification. The checker records cell timing and
 keeps complete execution outputs private; docs builds never execute notebooks.
+
+
+## Read the biological examples in the right order
+
+1. Run `annotation.ipynb` to learn query identities, complete pMHC keys and no-hit
+   outputs on offline fixtures; it does not validate biological specificity.
+2. Run `comparison.ipynb` to inspect matcher/geometry differences on identical
+   queries. An annotation score is not a repertoire enrichment P-value.
+3. Read `vaccination.ipynb` as an annotation/coverage example. Its neighbourhood
+   evidence is distinct from the manuscript's mock-reference enrichment test.
+4. Use the [repertoire method guide](../docs/repertoire-method.rst) to select
+   the null, matching/V/J rule, counting unit and aggregation before interpreting
+   repertoire outputs. Do not transfer a selected bulk radius to paired exposure
+   solely because both workflows use the same sequences or matrix.
+
+For manuscript reporting notebooks, consume the authoritative final CLI tables
+with their manifests. Replotting does not authorize rescoring. Inspect chain
+P-values beside nominal/BH families; show paired/union support without statistical
+borders. Keep all timepoints and separate technical libraries from donors.
+
+For completed repertoire enrichment, `repertoire_report.sh COUNTS SUMMARY PREFIX`
+uses the shipping `repertoire-report` CLI to show all 200 mocks and the recorded
+empirical P and BH q values. Its default `curve_mean` endpoint is full-data mean
+discoverable matched clonotype richness over whole-library sampling effort.
+Generate this endpoint with `repertoire-exact --pgen-features FEATURES --abundance-metrics`;
+the supplied verified marginal probabilities are binned directly, without Q or
+V/J probability correction. Supply `records` as a fourth argument for raw source-clonotype counts.
+Use final tables produced under the same model, reference and null law. Private
+YF/COVID tables and identifiers are intentionally not bundled with this example.
+
+Run [repertoire_evidence.ipynb](repertoire_evidence.ipynb) for an offline
+synthetic final-table reporting lesson. It invokes the same CLI, verifies that
+recorded P/q values survive rendering and displays every mock endpoint.
