@@ -151,3 +151,27 @@ def normalize_query(
     }
     df = df.select("cdr3", "v", "j", "locus", "count", "pair_id", *identity)
     return (df, report) if return_report else df
+
+
+def repair_unknown_v(frame: pl.DataFrame, *, locus: str, species: str) -> pl.DataFrame:
+    """Use ARDA's junction proposal only for V genes absent from its reference.
+
+    Known calls, including nonfunctional/zero-model-mass genes, and junctions
+    remain unchanged. Submitted calls and the repair flag accompany each row.
+    """
+    from arda.cdr3fix import load_anchors, markup_records, resolve_allele
+    anchors=load_anchors(species)
+    unresolved=[v for v in frame['v'].drop_nulls().unique()
+                if not resolve_allele(v,'V',anchors,species)]
+    keys=['junction_aa','v','j']
+    frame=frame.with_columns(pl.col('v').alias('original_v'))
+    unknown=frame.filter(pl.col('v').is_in(unresolved)).select(keys).unique(maintain_order=True)
+    if unknown.height:
+        records=markup_records(unknown.with_columns(pl.lit('').alias('v')),
+                               cdr3='junction_aa',organism=species,max_replace=0)
+        lookup=unknown.with_columns(pl.Series('_proposed_v',[
+            r.v_call.split(',')[0].split('*')[0] if r.locus==locus and r.v_call else None
+            for r in records],dtype=pl.String))
+        frame=frame.join(lookup,on=keys,how='left',validate='m:1',maintain_order='left').with_columns(
+            pl.coalesce('_proposed_v','v').alias('v')).drop('_proposed_v')
+    return frame.with_columns((pl.col('v')!=pl.col('original_v')).fill_null(False).alias('v_repaired'))

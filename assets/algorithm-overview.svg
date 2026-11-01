@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1010" viewBox="0 0 1200 1010" role="img" aria-labelledby="title desc">
+<title id="title">VDJmatch: from receptor tables to antigen evidence</title>
+<desc id="desc">Bulk and paired receptor inputs share curated VDJdb searches. Receptor annotation ranks epitope evidence and preserves ambiguity. Repertoire inference compares observed target support with matched mock reference panels. All small charts are schematic, not measured results.</desc>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#1c2939}.muted{fill:#52657b}.accent{fill:#149f89}.title{font-size:25px;font-weight:700}.body{font-size:18px}.small{font-size:15px}.line{fill:none;stroke:#52657b;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.faint{stroke:#dfe5ec}.teal{stroke:#149f89}.blue{stroke:#477fa8}</style>
+<rect width="1200" height="1010" fill="white"/>
+<g transform="translate(60 0)">
+<text x="0" y="51" class="accent small" font-weight="700">ISALGO / VDJMATCH</text>
+<text x="0" y="96" font-size="34" font-weight="700">From receptor tables to antigen evidence</text>
+<text x="0" y="130" class="body muted">Shared matching machinery, distinct receptor and repertoire questions</text>
+<path d="M0 157 H1080" class="line faint"/>
+<!-- Bulk rows and observed cell pairs are inputs, not illustrative observations. -->
+<g transform="translate(15 190)">
+<path d="M0 0 H65 M0 16 H65 M0 32 H65 M0 48 H65" class="line" stroke-width="5"/>
+<path d="M72 0 H112 M72 16 H112 M72 32 H112 M72 48 H112" class="line teal" stroke-width="5"/>
+<text x="145" y="15" class="title">Bulk repertoires</text>
+<text x="145" y="45" class="body muted">Junction · V/J · read counts</text>
+</g>
+<g transform="translate(635 190)">
+<circle cx="25" cy="23" r="24" class="line"/><circle cx="83" cy="23" r="24" class="line"/>
+<path d="M13 11 L25 25 L37 11 M25 25 V39 M71 11 L83 25 L95 11 M83 25 V39" class="line teal"/>
+<text x="125" y="15" class="title">Paired receptors</text>
+<text x="125" y="45" class="body muted">Cell identity · TRA/TRB · orphans</text>
+</g>
+<path d="M280 259 V283 H800 V259 M540 283 V307" class="line"/>
+<text x="540" y="340" class="title" text-anchor="middle">Validate → normalize → search curated VDJdb</text>
+<text x="540" y="372" class="body muted" text-anchor="middle">Columnar exact / native batched search · full peptide–MHC · retained reference observations</text>
+<path d="M540 393 V417 M270 417 H810 M270 417 V445 M810 417 V445" class="line faint"/>
+<!-- Two scientific questions, with different evidence and nulls. -->
+<g transform="translate(0 478)">
+<text x="0" y="0" class="accent small" font-weight="700">RECEPTOR ANNOTATION</text>
+<text x="0" y="35" class="title">Which epitopes have support?</text>
+<!-- Schematic sequence neighbourhood, explicitly without a metric scale. -->
+<path d="M48 105 L106 78 L164 109 L109 143 Z M106 78 L109 143 M164 109 L215 74" class="line faint"/>
+<g fill="#149f89"><circle cx="48" cy="105" r="8"/><circle cx="106" cy="78" r="8"/><circle cx="164" cy="109" r="8"/><circle cx="109" cy="143" r="8"/></g>
+<circle cx="215" cy="74" r="8" fill="white" stroke="#477fa8" stroke-width="3"/>
+<text x="260" y="86" class="body">Sequence neighbourhood</text>
+<text x="260" y="116" class="body">V-gene context + motifs</text>
+<text x="260" y="146" class="small muted">Schematic reference family</text>
+<text x="0" y="203" class="body">Linked-first paired labels; marginal fallback</text>
+<text x="0" y="234" class="body">Ranked candidates · ties · explicit unknowns</text>
+<path d="M0 260 H500" class="line faint"/>
+<text x="0" y="299" class="title">Epitope evidence per receptor</text>
+<text x="0" y="331" class="body muted">Detection and label assignment remain distinct.</text>
+<text x="0" y="362" class="body muted">Calls require complete-procedure calibration.</text>
+</g>
+<path d="M545 465 V860" class="line faint"/>
+<g transform="translate(590 478)">
+<text x="0" y="0" class="accent small" font-weight="700">REPERTOIRE INFERENCE</text>
+<text x="0" y="35" class="title">Is target support enriched?</text>
+<!-- Schematic null histogram and an observed endpoint. -->
+<path d="M15 155 H225" class="line"/>
+<g fill="#aab7c5"><rect x="25" y="131" width="19" height="24"/><rect x="49" y="107" width="19" height="48"/><rect x="73" y="79" width="19" height="76"/><rect x="97" y="92" width="19" height="63"/><rect x="121" y="123" width="19" height="32"/></g>
+<path d="M190 65 V155" class="line blue" stroke-width="4"/>
+<text x="250" y="86" class="body">Observed target support</text>
+<text x="250" y="116" class="body">Matched mock references</text>
+<text x="250" y="146" class="small muted">Schematic endpoint distribution</text>
+<text x="0" y="203" class="body">Declared control, Pgen bins and matching rule</text>
+<text x="0" y="234" class="body">Counts · abundance · full-data discovery curves</text>
+<path d="M0 260 H490" class="line faint"/>
+<text x="0" y="299" class="title">Target evidence per repertoire</text>
+<text x="0" y="331" class="body muted">Empirical P values and explicit test families.</text>
+<text x="0" y="362" class="body muted">Retain no-hits and unavailable inference.</text>
+</g>
+<path d="M0 898 H1080" class="line faint"/>
+<text x="540" y="936" class="body muted" text-anchor="middle">Python API + CLI · flat evidence tables · reproducibility manifests · report figures</text>
+<text x="540" y="968" class="small muted" text-anchor="middle">Sequence evidence supports annotation; it does not establish experimental binding.</text>
+</g></svg>

@@ -251,3 +251,56 @@ Reference graph morphology
 .. autofunction:: vdjmatch.aggregate.germline_information.iter_germline_information
 
 .. autofunction:: vdjmatch.aggregate.paired_labels.paired_labels
+
+Reference-null repertoire inference
+-----------------------------------
+
+See :func:`vdjmatch.api.repertoire_enrichment` above.
+
+.. autofunction:: vdjmatch.aggregate.repertoire_enrichment.reference_enrichment
+
+See :func:`vdjmatch.evalue.mock_reference.iter_epitope_mocks` above.
+
+TCRnet-filtered repertoire counts
+---------------------------------
+
+.. autoclass:: vdjmatch.aggregate.repertoire_tcrnet.TcrnetMatcher
+   :members: match
+
+The owned reference and control indexes may be shared across samples within a
+fresh cohort invocation. Filtering evidence is available as
+``reference_filtering``. ``match`` returns summary counts, real hit links and
+sample-filter evidence; it does not return repertoire P-values.
+
+
+Bounded query ingestion
+-----------------------
+
+``vdjmatch.io.iter_rearrangement``
+
+Use one complete sample at a time when its measured footprint is modest.
+``iter_rearrangement`` provides within-sample batches for unusually large files;
+it does not perform chunk-local gene imputation or deduplication. Consumers must
+combine repeated clonotypes and paired identities across batch boundaries.
+TCRnet requires sample-wide neighbourhood information.
+
+
+Exact bulk reference-panel primitives
+-------------------------------------
+
+The ``repertoire-exact`` CLI uses checked model-specific selection
+factors from vdjtools by default; ``--legacy`` preserves the compiled
+uncalibrated convention. It composes these normalized-table primitives:
+
+:func:`vdjmatch.evalue.mock_reference.compiled_reference_strata` constructs the probability strata and V/J audit.
+Its default count-table path preserves the compiled Q=1 convention. The optional
+``model_vj_probabilities`` argument instead accepts exact selected ``v,j,p``
+marginals summing to one, with positive support, and replaces model counts.
+The CLI ``repertoire-exact --selection-profile`` applies the coarse shape to joint mass
+before the AA maximum and passes these selected marginals to the residual
+within-V composition correction. Modern CLI defaults use calibrated global Q;
+legacy reproduction is explicit.
+
+:func:`vdjmatch.evalue.mock_reference.sample_stratified_panels` draws fresh panels.
+
+.. autofunction:: vdjmatch.aggregate.repertoire_enrichment.exact_reference_counts

@@ -5,6 +5,20 @@ description: Annotate single or paired TCR repertoires against VDJdb with the vd
 
 # VDJmatch repertoire annotation
 
+## Read before selecting a scorer
+
+Read [the accepted scoring evidence](../../README.md#scoring-what-works-and-what-doesnt)
+and [score definitions](../../docs/scoring.rst) before choosing a fuzzy mode.
+Preserve one-mismatch matching; prioritize BLOSUM62 and the established
+end-anchored positional-BLOSUM62 recipe. Data-derived VDJAM underperformed
+BLOSUM62. VDJAMr means genetic-code substitution accessibility, a different
+comparator; neither is a reason to introduce a chemistry-driven replacement.
+Reuse `match.regions.significance_weights/significance_pssm` and the existing
+historical matcher. Mode availability is not evidence of improved accuracy.
+Keep penalties, full kernel scores and sample-level P-values separate.
+Positive kernel support alone is not a calibrated precision threshold, and
+nominal-radius pruning drops its outer-ladder contributions.
+
 `reference-structure --control` exports length KL(reference||control) and
 equal-mixture Jensen–Shannon divergence in bits per junction/V/J key in
 `.spectratype.tsv`. Unsupported control lengths give infinite KL; JS remains
@@ -49,7 +63,7 @@ Permutation/matched-control envelopes are not Efron bootstrap CIs.
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)
 for advanced scorers. Run `vdjmatch annotate --help` to verify installed options.
-Use released `seqtree>=1.3.2` and `vdjtools>=5.4.0` for native search and ingestion.
+Use released `seqtree>=1.3.2` and `vdjtools>=5.6.0` for native search, ingestion and abundance statistics.
 Version 0.6.0 defaults to `--reference-population curated-benchmark`, the manuscript
 primary population. Preserve `--reference-population all-valid` for the accepted
 all-valid baseline. Curation excludes KLGGALQAK and PMID 40498839 source records;
@@ -410,3 +424,237 @@ counts expected neighbours; it does not calibrate winning-label selection.
 Dual-use V-loop aliases: `TRAV14_DV4*02` resolves to the model-backed
 `TRAV14/DV4*02` allele. Preserve submitted calls and explicit allele suffixes;
 do not remove the dual-use suffix or substitute a different allele.
+
+## M3 reference-null repertoire inference
+
+For compiled-reference-panel bulk reproduction use `repertoire-exact`, with probe
+junction/V/J keys and generated-model V/J counts. Preserve source-row/read
+counts, exact V/J/junction matching, AA-max joint Pgen, within-V add-one J
+correction and the 2^-80 floor. `--sampler r --pool-mhc` reproduces original
+single-epitope draws; declare original FDR groups with `--fdr-group`.
+The NumPy backend uses pre-binned control-event slots with replacement; R retains the historical distinct-key law.
+
+See [CLI definitions](../../docs/cli.rst) for optional panel matchers and input filtering.
+Keep complete-zero tests separate from `original_*` statistics that omit
+zero-hit mock groups. See the compiled-reference-panel section in docs/cli.rst.
+The mode below is a separate marginal-Pgen/flexible-matching comparison.
+
+
+Use `repertoire-enrichment METADATA --null reference --vdjdb RAW --control RAW_CONTROL
+--threads N --output-prefix NEW` to hold samples fixed and randomize epitope
+references. Defaults: curated reference, exact marginal junction Pgen, V+Hamming1,
+200 draws, seed0, no automatic significance calls. Preserve the historical
+`--null repertoire` mode separately; it randomizes observations instead.
+
+Mock policies: `pgen` excludes full target V/J/junction keys; `pgen-vj` also
+preserves V/J composition; `pgen-different-v` excludes target junctions and changes
+source V using randomized-stratum sequential sampling without replacement.
+Do not claim these laws equivalent or motif-free. Controls are distinct keys,
+not read/event-weighted. Exact Pgen bins cannot be widened or source rows dropped.
+`--pgen-features` accepts validated durable model inputs, never predictions.
+
+Bulk counts default to unique junction/V/J identities and summed abundance.
+`--single-chain-unit source-row` retains each input clonotype row, including
+distinct nucleotide clonotypes sharing one amino-acid junction/V/J key.
+Choose the experimental counting unit before comparing cohorts; abundance
+is unchanged. The manifest records `receptor_identity`. For
+`--locus paired`, every long-form chain row needs pair_id and consistent count;
+`--control` supplies TRB and `--control-tra` TRA. Any-chain target support counts
+once per receptor, including orphans and unlinked marginal references. This
+calibrates union support, not the linked-first annotation score.
+
+`--significance nominal|bh|both` exposes positive-excess calls (nominal .05,
+BH .1); `--fdr-family cohort|target` declares the correction family. Retain all
+P-values and zero-hit rows. No automatic inference over policy comparisons.
+Outputs include summary, complete aggregate mocks, actual chain hit keys,
+reference-bin/ingestion audits and raw/model/software manifests. API:
+`vdjmatch.api.repertoire_enrichment` / aggregate `reference_enrichment` consume
+normalized keyed tables; `iter_epitope_mocks` owns sampling. See docs/cli.rst.
+For large runs use examples/profile_cli.profile with timeout=float('inf'),
+max_rss_bytes=None and trace_path for measurement without application abort caps;
+choose production limits from measurements. Dextramer assignments without a
+validated binding rule are linked annotations, not invented binary truth.
+
+For reference-null repertoire enrichment, retain `untestable_null` rows and their
+reasons. Never treat unavailable control strata as negative calls or widen bins
+to manufacture significance. The low-level sampler remains strict unless passed
+an unavailable-target audit list; the repertoire reducer masks the entire null
+inference for audited targets.
+
+### Optional TCRnet-filtered matching comparison
+
+Use `repertoire-tcrnet` / `vdjmatch.TcrnetMatcher` for the separately requested
+counts-and-assay-support route: TCRnet on both sample/locus and full-pMHC/locus
+reference populations, then existing flexible VDJmatch matching. Default filter
+FDR is0.1 and matching scope3,1,1,3; declare settings before evaluating outcomes.
+Reference filtering is computed once within a fresh cohort. Preserve raw
+denominators, gene variants, pairing, orphans, filter evidence and zero-hit rows.
+Do not emit or transfer repertoire P-values, multiply filtering probabilities,
+assume random backgrounds become empty, or claim a new TCRnet statistical test.
+
+
+### Large-input memory strategy
+
+Measure one sample separately from reference/control preparation before replacing
+one-sample-at-a-time matching. Use `vdjmatch.io.iter_rearrangement(path,
+batch_size=65536)` for normalized long rows, or
+`vdjtools.io.iter_table_batches(path, batch_size=65536, columns=...)` for projected
+raw batches. Both are iterators: consume and discard batches. Never calculate
+global frequencies, modal gene replacements, unique clonotype counts or paired
+union counts independently per chunk. TCRnet needs sample-wide neighbourhoods.
+A bounded input batch is not proof of a bounded whole workflow; measure controls,
+reference indexes, retained sparse hits and all process-tree memory separately.
+
+
+Paired M3 comparison: `--chain-mode tra|trb|union|intersection|all` uses the shared
+vdjtools chain reducer on real and every mock panel. For asymmetric matching,
+`--tra-matcher stem4 --mismatches 1 --chain-mode intersection` combines strict
+TRB with positive stem4 TRA support at the same receptor/full-target identity.
+Keep continuous TRA scores and strict-chain indicators distinct; do not multiply
+them as independent probabilities. This comparison is separate from compiled
+bulk exact reproduction.
+
+Both `--tra-matcher` and `--trb-matcher` accept `hamming`, `stem4`, `gapblock`,
+`blosum62` or `positional-blosum62`. Direct BLOSUM uses dimensionless
+`--tra-radius-factor`/`--trb-radius-factor`; bulk uses `--radius-factor`.
+Its fixed scope is3substitutions/noindels; V is exact, J exact in bulk and
+optional for reference-null. Reuse `match.scope.blosum_radius_params` and the
+existing positional profile. Never expose raw matrix penalty cutoffs.
+Keep calibrated parameters fixed; select dimensionless kernel-score cutoffs or normalized BLOSUM radii.
+Pass full peptide/MHC metadata into fuzzy reference models; never rename a
+serialized pMHC group ID as the peptide, which changes background membership.
+Use production V geometry imputation; do not drop unresolved reference rows.
+ `--tra-min-score` and `--trb-min-score` set strict lower bounds
+for fuzzy support (default zero); the same bounds apply to real and every
+mock panel. Use `--trb-matcher stem4 --chain-mode intersection` for the reverse
+asymmetric comparison. Cutoffs require calibration for their own kernel and
+locus; positive support alone is not calibrated binding confidence. Defaults
+remain Hamming on both chains. Full reference models are preserved.
+`--epitope` restricts reported cases only; the complete eligible reference and
+all seeded mock panels remain unchanged. The API uses `target_groups` for
+this selection. BH still applies to the explicitly selected testing family.
+
+`--chain-mode all` computes the four chain rules from the same native searches and mock draws.
+Summary, mock and hit tables include a chain_mode column. BH correction is
+performed separately for each rule within the selected target or cohort family.
+
+Reference-null repertoire enrichment accepts ``--model-source isalgo`` or
+``--model-source olga-legacy``. Fresh probabilities, model identity checks and
+prepared feature validation use that same family. Omission retains historical
+model selection until the calibrated-default release is finalized.
+
+Requested prepared Pgen inputs require matching vdjtools versions, model assets, probability
+options and Python preprocessing/bridge hashes, plus a recorded producer native
+SHA256. Exports retain producer/consumer native hashes and native_binary_identical.
+Different binaries are accepted under this version-and-source compatibility policy
+for portability; numerical equivalence is not established by that acceptance.
+Locally modified native code with an unchanged version is not detected by version
+matching. Missing producer metadata is rejected.
+
+Reference-null significance reports both unique-receptor and abundance endpoints.
+``q_count``, ``significant_nominal_count`` and ``significant_bh_count`` describe
+summed abundance (reads in bulk data, supplied cell counts in single-cell data).
+Existing unsuffixed call flags describe receptor counts. Each endpoint uses the
+selected correction family separately; positive excess is required for a call.
+
+``repertoire-exact`` defaults to isalgo with shared
+vdjtools model/species/locus-specific Q. ``--legacy`` selects the compiled
+Q=1 convention and historical human OLGA source. External joint_pgen assets
+require explicit Q or legacy; model-V/J counts must use the selected source.
+Do not transfer calibrated factors between model identities. Modern
+``--threads 0`` selects the allocation; manifests record resolved source/Q.
+
+``--selection-profile length|vj-length|report.json`` opts into shared vdjtools
+coarse factors with parameter-identity checks. Omit --model-vj-counts: exact
+selected V/J marginals replace them in the residual composition correction.
+Apply the shape before AA-max, global Q once afterward. Reject external Pgen
+or legacy mixing. Raw Pgen remains unselected; profiles are explicit.
+
+For cohorts that fit in memory, reference-null ``repertoire-enrichment --batch-samples``
+shares each seeded mock draw and native search across samples. It preserves
+per-sample receptor identities, counts, null statistics and the selected BH family.
+The default still loads and processes one sample at a time.
+
+
+## Repertoire interpretation and manuscript operating points
+
+Read `docs/repertoire-method.rst` before selecting repertoire matchers or
+combining evidence. Keep the raw-marginal full-depth `repertoire-exact` workflow and explicit
+historical reproduction separate from flexible `repertoire-enrichment --null reference` inference.
+There is no demonstrated universally optimal matcher: bulk positional radius0.30
+and paired Hamming<=1 have different demonstrated strengths. Exact Pgen remains
+separate from search radius. Never infer Hamming optimality from nested counts;
+real and mock supports both change. State exact/fuzzy/no V and J predicates
+separately; kernel geometry is not a V-only contrast. Apply matching identically
+to observed and mock panels. Interpret statistics at sample-chain/epitope-chain
+level; retain paired/union outputs as descriptive. Fisher's -2 sum log P is an
+evidence score here, with target count and component tests, not a calibrated
+exposure P-value. The existing exporter sets nonpositive-excess terms to 1 and
+takes the minimum over compatible HLA entries per peptide; k includes peptides
+with P=1. That within-peptide selection is not calibrated by peptide independence.
+Do not select only significant components or duplicate evidence
+across chains and reducers. Retain full pMHC, HLA compatibility, orphan chains,
+zero hits, unavailable nulls and receptor/cell denominators. New comparisons or
+null calibration require explicit authorization; no Pgen result caches.
+
+Keep the matching V predicate separate from null composition correction. The
+historical bulk correction adjusts J usage conditional on V; marginal V usage
+is a different factor. Its sample list changes the pooled V/J correction and
+mock strata, so one-library versus whole-cohort mocks are not a thread-parity
+test. Compare conditioning choices with the matcher fixed and apply common
+final donor/day FDR families to the exported CLI P-values.
+
+### Graded-family M3 count endpoint
+
+`unit`, `v-unit`, `weighted`, `v-weighted` are supported chain matchers. Reuse
+`graded_family_params` for the shared geometry. Flexible counts and bulk `exact_reference_counts` reuse the existing
+repertoire-indexed native batch and shared gene-imputation helper. Normalize
+query genes against the fixed reference once; do not rebuild an Annotator for
+each mock. `Annotator.target_memberships` remains a parity-check API. Do not
+reimplement distances, gene matching or candidate rankings for this endpoint.
+An explicit chain radius factor bounds nearest individual cost / scale (1 unit,
+400 weighted), with `--mismatches` the1–3edit ceiling. No NED sum or soft-V weight
+enters this threshold. Count each qualifying receptor/abundance once through the
+existing chain reducer, identically for real and mock references. Weak matches
+cannot accumulate into a hit. Continuous-evidence summation is deferred. These
+software parity checks do not select a biological cutoff or establish10^7scaling.
+For large repertoires and small panels, reuse the existing columnar exact join
+or repertoire-indexed native batch. Reverse only a geometry whose symmetry has
+been established; query-conditioned scores need their own directional contract.
+
+For an explicitly requested model-informed V/J prior, use repertoire-exact
+--model-informed-prior: one total prior observation per V group distributed by
+model J probabilities. Raw audit counts remain unshifted. Modern runs filter functional positive-support
+genes and positive-mass reference/control keys by default. --include-nonfunctional
+retains missing/zero mass in the lowest control bin; known zero-mass genes are
+not re-called. Only V genes absent from the ARDA reference use its existing
+proposal API. --legacy preserves historical input handling and add-one smoothing.
+--model-vj-probabilities accepts exact v,j,p model masses instead of counts.
+
+
+### Current full-depth bulk abundance workflow
+
+Use `repertoire-exact --pgen-features FEATURES --abundance-metrics` for the
+raw-marginal workflow. Reuse verified completed junction-only native Pgen
+inputs and the observed control repertoire. Bin raw probabilities directly;
+no Q, V/J correction, AA-max, model prior or mass reconstruction. Do not create
+Pgen banks or replace observed controls with generated recombination controls.
+Retain original source-row clonotypes and producer read counts, even when
+multiple rows share an AA/V/J key. Draw fresh reference mocks and match fresh
+samples; never reuse predictions or failed-stage rows.
+
+The CLI owns summaries and BH families. Reuse
+`vdjtools.stats.subset_rarefaction_batch` for whole-library matched richness,
+then its fixed-grid trapezoidal curve average. The common maximum read depth
+is the smallest eligible library depth, chosen without outcomes. Reuse
+`asymptotic_diversity(q=0,se=False)` for Chao1, `shannon_wiener` and
+`inverse_simpson` for full diversity, and `inext_batch(q=(0,1,2),se=False)` for
+matched-subset curves. Batch Hill calls by supported maximum depth; export all
+supported depths and no extrapolation. Upper tails test richness excess;
+lower tails test concentration. Preserve no-hit and unavailable outputs.
+A practical-depth subsample is a separate endpoint, not the full-depth goal.
+
+This explicit raw-feature route differs from repertoire-exact's Q/composition
+default and `--legacy` reproduction. Flexible reference-null inference requires
+explicit `--model-source isalgo` for current-model comparisons; omission retains
+its documented historical source. Preserve all earlier producing settings.

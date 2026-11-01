@@ -239,3 +239,31 @@ The `versioned public asset mirror
 <https://huggingface.co/datasets/isalgo/airr_benchmark/tree/314b72d2955e9578157c6767845741444d89f540/vdjmatch/releases/0.6.3>`_
 contains synthetic examples, static model resources and a checksum manifest.
 Recombination models remain owned by ``vdjtools.model.load_bundled``.
+
+
+Choose a repertoire enrichment workflow
+----------------------------------------
+
+Read :doc:`repertoire-method` before choosing matching and aggregation.
+Use ``repertoire-exact`` for the historical bulk reproduction, and
+``repertoire-enrichment --null reference`` for the fixed-sample/mock-reference
+question. A paired Hamming1 chain-test export can be requested as follows:
+
+.. code-block:: sh
+
+   vdjmatch repertoire-enrichment samples.tsv --null reference \
+     --vdjdb reference.tsv.gz --locus paired \
+     --control trb-control.tsv.gz --control-tra tra-control.tsv.gz \
+     --model-source isalgo --pgen-mismatches 0 --mock-policy pgen \
+     --chain-mode all --mismatches 1 --mock-replicates 200 --seed 42 \
+     --significance both --nominal-alpha 0.05 --fdr-alpha 0.1 \
+     --fdr-family cohort --threads 4 --output-prefix fresh-run
+
+This example requests exact V and leaves optional J equality disabled.
+The metadata table names one raw sample file per row; paired chains retain a
+shared receptor identity and identical cell abundance. Use a fresh output prefix.
+Choose the thread budget for the allocated machine; four threads here are an
+example budget, not a performance recommendation for a forty-core allocation.
+Inspect TRA/TRB P-values, excess and nominal/BH decisions separately; retain
+all four reducers to explain counts, pairing and orphan support. Do not interpret
+union/intersection P-values as calibrated exposure probabilities.
