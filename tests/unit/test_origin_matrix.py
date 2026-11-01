@@ -466,3 +466,24 @@ def test_neighbour_completion_uses_all_twenty_exposed_residues():
         assert np.allclose(q.sum(1), 0) and np.allclose(f @ q, 0)
         assert np.isclose(-f @ np.diag(q), 1)
         assert np.allclose(cost, cost.T) and np.array_equal(np.diag(cost), np.zeros(20))
+
+
+def test_residue_fit_keeps_small_groups_when_pair_mass_is_unequal():
+    from scipy.special import softmax
+    from vdjmatch.match.scoring_audit import fit_exchangeability
+
+    rng = np.random.default_rng(93)
+    i, j = np.triu_indices(20, 1)
+    groups = np.repeat(np.arange(3), 6)
+    rho = rng.dirichlet(np.ones(20) * 3, len(groups))
+    baseline = rho[:, i] * rho[:, j]
+    baseline /= baseline.sum(1, keepdims=True)
+    eta = rng.normal(0, .3, (3, 20))
+    target = softmax(np.log(baseline) + eta[groups][:, i] + eta[groups][:, j], axis=1)
+    observed = target * np.array([1e9, 1., 1e-5])[groups, None]
+    _, joint = fit_exchangeability(observed, baseline, balanced=False,
+                                  residue_groups=groups, fit_pairs=False)
+    _, single = fit_exchangeability(observed[groups == 1], baseline[groups == 1], balanced=False,
+        residue_groups=np.zeros(6, dtype=int), fit_pairs=False, prior_mass=1/3)
+    assert np.allclose(np.asarray(joint['residue_log_preferences'])[1],
+                       np.asarray(single['residue_log_preferences'])[0], atol=2e-3)

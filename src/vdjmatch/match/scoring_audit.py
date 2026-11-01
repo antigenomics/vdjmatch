@@ -1076,21 +1076,53 @@ def fit_exchangeability(
             gradient = np.r_[pair_basis.T @ gb, (ge @ residue_basis).ravel()]
         return float(value / scale), gradient / scale
 
+    # Reuse the fixed Fisher-diagonal scaling from the established recognition
+    # fitter. This changes coordinates, never counts, priors or the objective.
+    parameter_scale = np.ones(free_pairs + free_residues)
+    if groups is not None:
+        pair_mean = b @ pair_basis
+        pair_diagonal = (wn @ b) @ (pair_basis * pair_basis) - np.sum(
+            wn[:, None] * pair_mean * pair_mean, axis=0
+        )
+        pair_diagonal += prior_mass / k
+        features = incidence @ residue_basis
+        residue_variance = b @ (features * features) - (b @ features) ** 2
+        residue_diagonal = np.zeros((ng, 19))
+        np.add.at(residue_diagonal, groups, wn[:, None] * residue_variance)
+        residue_diagonal += prior_mass / (ng * 20)
+        diagonal = np.r_[pair_diagonal, residue_diagonal.ravel()] / scale
+        parameter_scale = 1 / np.sqrt(np.maximum(diagonal, 1e-12))
+
+    def scaled_objective(z):
+        value, gradient = objective(z * parameter_scale)
+        return value, gradient * parameter_scale
+
     fit = minimize(
-        objective,
+        scaled_objective,
         np.zeros(free_pairs + free_residues),
         jac=True,
         method="L-BFGS-B",
-        options={"maxiter": 2000, "ftol": 1e-14, "gtol": 1e-10, "maxls": 50},
+        options={
+            "maxiter": 10000 if groups is not None else 2000,
+            "ftol": 1e-14,
+            "gtol": 1e-10,
+            "maxls": 50,
+        },
     )
+    max_scaled_gradient = float(abs(fit.jac).max())
     if not fit.success:
-        raise RuntimeError(fit.message)
+        raise RuntimeError(
+            f"{fit.message}; iterations={fit.nit}; scaled_gradient={max_scaled_gradient}"
+        )
+    fit.x *= parameter_scale
+    fit.fun, fit.jac = objective(fit.x)
     beta, eta = unpack(fit.x)
     beta -= beta.mean()
     report = dict(
         iterations=fit.nit,
         objective=float(fit.fun),
         max_free_gradient=float(abs(fit.jac).max()),
+        max_scaled_gradient=max_scaled_gradient,
         prior_mass=prior_mass,
         epitopes=len(n),
         strata=len(n),

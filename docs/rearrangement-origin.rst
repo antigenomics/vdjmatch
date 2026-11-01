@@ -520,7 +520,9 @@ mass. To separate pair interaction from residue main effects, impose
 The 20 independent row constraints leave 170 off-diagonal interaction
 parameters; residue preferences have 19 free parameters per represented
 epitope. An orthonormal null-space basis enforces these linear
-constraints exactly. The earlier pair-only fit remains a separate
+constraints exactly. A fixed Fisher-diagonal change of optimization coordinates
+handles unequal epitope support without changing counts, priors or likelihood.
+The earlier pair-only fit remains a separate
 comparator, and a residue-only fit fixes :math:`\beta=0`. A
 reference-free neutral prior contributes one total uniform pseudo-event
 to the pair-effect block and one total uniform pseudo-event across the
