@@ -266,3 +266,26 @@ def test_log_role_symmetry_removes_independent_composition_effect():
     assert np.allclose(
         costs_from_similarity((oriented + oriented.T) / 2), 0.0, atol=1e-14
     )
+
+
+def test_exact_flank_opportunity_uses_native_batch_and_preserves_zero_mass():
+    from vdjtools.model.io import from_germline
+    from vdjmatch.match.scoring_audit import n_region_residue_opportunities
+
+    germline = pl.DataFrame([
+        dict(allele=a, gene=a.split('*')[0], segment=k, sequence=s,
+             cdr3_anchor=-1, functional=True, full_germline='')
+        for a, k, s in [('TOYV1*01', 'V', 'TGT'), ('TOYJ1*01', 'J', 'TTT')]
+    ])
+    model = from_germline(germline, locus='TOY', ins_max=3, palindrome_max=0)
+    rho = n_region_residue_opportunities(
+        model, ['CKF', 'CKF', 'AAA'], [1, 0, 1],
+        ['TOYV1*01'] * 3, ['TOYJ1*01'] * 3, threads=1)
+    degeneracy = np.array([4, 2, 2, 2, 2, 4, 2, 3, 2, 6, 1, 2, 4, 2, 6, 6, 4, 4, 1, 2])
+    assert np.allclose(rho[0], degeneracy / 61)
+    assert np.isnan(rho[1:]).all()  # Fixed germline and unsupported flanks stay unidentifiable.
+    opportunity = 2 * np.outer(rho[0], rho[0]) / (1 - rho[0] @ rho[0])
+    assert np.isclose(opportunity[np.triu_indices(20, 1)].sum(), 1)
+    assert n_region_residue_opportunities(model, [], [], [], [], threads=1).shape == (0, 20)
+    with pytest.raises(ValueError):
+        n_region_residue_opportunities(model, ['CKF'], [3], ['TOYV1*01'], ['TOYJ1*01'])

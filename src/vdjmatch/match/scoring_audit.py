@@ -931,3 +931,36 @@ def _matched_origin_background(selected, weights, lookup, aa_lookup, known_label
             },
         ).sort("epitope", "v", "j", "length", "position"),
     }
+
+
+def n_region_residue_opportunities(model, junctions, positions, v, j, *, threads=1):
+    """Exact residue probabilities conditional on unchanged flanks, V/J and pure N.
+
+    Enumerate the 20 AA alternatives once per supplied context and reuse the two
+    published native batches. Return context x AA probabilities in ``AA`` order;
+    an all-NaN row means zero pure-N opportunity. Pgen values remain transient.
+    Callers deduplicate flank/V/J/position contexts before this operation.
+    """
+    import re
+    from vdjtools.model import pgen_aa_batch, n_region_posterior_batch
+
+    n = len(junctions)
+    if any(len(x) != n for x in (positions, v, j)) or threads < 1:
+        raise ValueError('matching context/position/V/J lengths and positive threads required')
+    if any(not isinstance(p, (int, np.integer)) or not 0 <= p < len(s)
+           or re.fullmatch(VALID, s) is None for s, p in zip(junctions, positions)):
+        raise ValueError('standard-AA junctions and in-range integer codon coordinates required')
+    if not n:
+        return np.empty((0, 20))
+    variants = [s[:p] + a + s[p + 1:] for s, p in zip(junctions, positions) for a in AA]
+    vs, js = np.repeat(v, 20).tolist(), np.repeat(j, 20).tolist()
+    coordinates = [[int(p)] for p in positions for _ in AA]
+    mass = np.asarray(pgen_aa_batch(model, variants, v=vs, j=js, threads=threads))
+    posterior = n_region_posterior_batch(
+        model, variants, positions=coordinates, v=vs, j=js, threads=threads)
+    mass *= posterior['n_probability'].fill_null(0).to_numpy()
+    mass = mass.reshape(n, 20)
+    if not np.isfinite(mass).all() or (mass < 0).any():
+        raise RuntimeError('native pure-N opportunity must be finite and nonnegative')
+    total = mass.sum(axis=1, keepdims=True)
+    return np.divide(mass, total, out=np.full_like(mass, np.nan), where=total > 0)

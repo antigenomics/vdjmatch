@@ -318,6 +318,72 @@ identical neighbour selection. One-position amino-acid frequencies alone
 do not correct for matching at every other position. Position
 independence is an approximation, not a property of V(D)J rearrangement.
 
+**Exact unchanged-flank opportunity using the published owners.** For a
+fixed chain, V/J call and position :math:`p`, let :math:`h` be a
+junction with that amino-acid site replaced by a wildcard, and let
+:math:`x(h,a)` replace the wildcard by residue :math:`a`. Define the
+pure-N joint mass
+
+.. math::
+
+
+    m_{h,a}=\sum_r P_0(r\mid C)\,\mathbf1\{T(r)=x(h,a),\ V(r)=V,\ J(r)=J,\ Z_{r,p}=NNN\}.
+
+The published ``pgen_aa_batch`` and ``n_region_posterior_batch`` owners
+provide this quantity through the product of the exact junction/gene
+mass and its pure-N posterior. The gene-conditioned APIs need not
+normalize by the V/J event probability: this common factor cancels in
+
+.. math::
+
+
+    \rho_{h,a}=m_{h,a}/\sum_c m_{h,c}.
+
+Enumerating the 20 standard amino acids and passing their variants in a
+single native batch gives the exact model distribution conditional on
+the unchanged flanks and a pure-N codon. It sums all compatible
+rearrangement scenarios; choosing one best scenario is unnecessary. If
+the denominator is zero, this context has no pure-N opportunity and
+remains outside the N-channel fit with its observed records accounted
+separately. The Pgen products are consumed in memory and are neither
+memoized nor exported as a probability bank.
+
+For independent rearrangements in this conditional context, the
+unordered mismatch opportunity is
+
+.. math::
+
+
+    b_{h,ab}=\frac{2\rho_{h,a}\rho_{h,b}}{1-\sum_c\rho_{h,c}^2},\qquad a<b,
+
+provided the denominator is positive. This distribution already
+conditions on exactly one amino-acid mismatch because all other
+amino-acid positions are fixed by :math:`h`. A one-residue-supported
+context has zero mismatch opportunity; no floor converts this structural
+zero into support. Posterior-weighted observations and this opportunity
+must use the same V/J, position and flank scope. For deduplicated
+observed clonotypes these are a working pair-occupancy model, not
+independent counts of rearrangement draws. Epitope-specific residue
+preferences remain a separate nuisance term: a model may use
+
+.. math::
+
+
+    \Pr_e(\{a,b\}\mid h,\mathrm{mismatch})\propto
+    b_{h,ab}\exp\{\eta_{e,p,L,a}+\eta_{e,p,L,b}+\beta_{ab}\}.
+
+Here :math:`\eta` denotes residue preference and symmetric :math:`\beta`
+the shared pair effect. An unrestricted preference for every observed
+context would absorb the signal; preferences therefore require an
+explicit shared specification and independent source fitting. Moreover,
+the reparameterization :math:`\beta_{ab}\mapsto\beta_{ab}+u_a+u_b`,
+:math:`\eta_{e,p,L,a}\mapsto\eta_{e,p,L,a}-u_a` leaves the probabilities
+unchanged. A stated gauge or a declared diagonal completion is essential
+before translating fitted off-diagonal effects into a zero-diagonal
+PAM-style distance. Holding probabilities and walk time still do not
+follow from mismatch counts. This exposes the identifiability assumption
+instead of allowing a fitted reference matrix to supply it silently.
+
 For same/different-epitope counts in a fixed stratum :math:`s`, a
 conditional comparison is
 
