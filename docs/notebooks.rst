@@ -33,6 +33,7 @@ Start here
   200 mock endpoints and verify preservation of recorded P and q values.
   This offline lesson performs no biological inference. For real final tables,
   follow :doc:`repertoire-method` and retain the producing manifest.
+  Read the :doc:`rendered lesson <notebooks/repertoire_evidence>` alongside its code.
 
 These small synthetic examples need only the supplied ``examples/inputs``
 files. See :doc:`examples` for the shell commands and input downloads.
@@ -141,8 +142,8 @@ The :download:`dependency recipe <../examples/requirements-notebooks.txt>` and
    uv pip install --python .venv-gallery/bin/python -r examples/requirements-notebooks.txt
    .venv-gallery/bin/python examples/check_gallery.py NEW_OUTPUT_DIRECTORY
 
-The default check runs only the offline shell workflows and annotation/comparison
-notebooks. Add ``--scientific`` to include the biological lessons, precursor method
+The default check runs only the offline shell workflows and annotation,
+comparison and repertoire-evidence notebooks. Add ``--scientific`` to include the biological lessons, precursor method
 and interactive compendium once their raw mirrors and network access are available.
 This also executes the deferred vaccination draft; omit it during release polishing. The checker saves executed notebooks and cell timings
 in the new directory, and exits nonzero if a workflow fails.
@@ -154,6 +155,7 @@ notebooks use 300 seconds per cell. Documentation builds execute no cells.
 
    Cohort annotation <notebooks/annotation>
    Geometry comparison <notebooks/comparison>
+   Repertoire evidence report <notebooks/repertoire_evidence>
    ROC and precision–recall <notebooks/accuracy>
    Vaccination repertoire <notebooks/vaccination>
    Precursor estimates <notebooks/precursor_estimates>
