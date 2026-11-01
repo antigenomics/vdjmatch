@@ -2825,11 +2825,8 @@ select metadata-defined BH families within each target. Default target labels
 retain full pMHC; ``--pool-mhc`` explicitly reproduces the original epitope
 union. ``--sampler r`` requires Rscript and reproduces base-R sampling for one
 target, preserving probe order. ``--model-informed-prior`` replaces historical
-add-one V/J smoothing with one total model-distributed prior observation over
-all V/J cells, using ``(n_vj + p_model(v,j)) / (N + 1)`` and retaining raw audit
-counts. Here ``N`` is the total source-row count. This path uses the actual
-joint junction/V/J probability and a global observed/model V/J frequency ratio;
-it does not apply the historical AA-only maximum or conditional-within-V ratio.
+add-one V/J smoothing with one total model-distributed prior observation per V
+group, using ``(n_j + p_model(j|V)) / (N_V + 1)`` and retaining raw audit counts.
 Zero/missing model mass is sent to the lowest occupied control Pgen bin when
 retained. Modern runs default to functional, positive-model-support genes and
 positive-mass reference/control keys; ``--include-nonfunctional`` retains them

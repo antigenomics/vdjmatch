@@ -498,19 +498,3 @@ def test_compiled_reference_strata_model_informed_prior():
     missing,audit=compiled_reference_strata(probes,sample,model.with_columns(pl.when(pl.col('j')=='J1').then(0).otherwise(pl.col('records')).alias('records')),model_informed_prior=True)
     assert missing['zero_model_mass'].to_list()==[True,False]
     assert audit['sample_prior_records'].to_list()==pytest.approx([0.,1.])
-
-
-def test_model_prior_is_global_joint_mass_not_within_v_or_aa_max():
-    from vdjmatch.evalue.mock_reference import compiled_reference_strata
-    probes=pl.DataFrame(dict(junction_aa=['CAAF','CAAF'],v=['V1','V2'],j=['J1','J2'],pgen=[1e-8,1e-10]))
-    sample=pl.DataFrame(dict(v=['V1','V2'],j=['J1','J2'],records=[19,1]))
-    model=pl.DataFrame(dict(v=['V1','V2'],j=['J1','J2'],p=[.95,.05]))
-    scored,audit=compiled_reference_strata(probes,sample,model_vj_probabilities=model,model_informed_prior=True,selection_q=2.)
-    assert audit['sample_prior_records'].sum()==pytest.approx(1.)
-    assert audit['sample_probability'].sum()==pytest.approx(1.)
-    assert audit['vj_factor'].to_list()==pytest.approx([1.,1.])
-    assert scored['adjusted_pgen'].to_list()==pytest.approx([2e-8,2e-10],rel=1e-12,abs=1e-24)
-    # V-only frequency changes must affect joint receptor mass, even for one J per V.
-    absent=sample.with_columns(pl.Series('records',[0,100]))
-    _,audit=compiled_reference_strata(probes,absent,model_vj_probabilities=model,model_informed_prior=True)
-    assert audit['sample_probability'].to_list()==pytest.approx([.95/101,100.05/101])

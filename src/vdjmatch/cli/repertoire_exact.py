@@ -11,7 +11,7 @@ def register(sub):
     p.add_argument('--model-vj-counts',help='Generated-model v,j,records counts from the selected source')
     p.add_argument('--model-vj-probabilities',help='Exact model v,j,p probabilities; alternative to generated V/J counts')
     p.add_argument('--include-nonfunctional',action='store_true',help='Retain nonfunctional/unsupported genes and zero-mass probes in the lowest Pgen bin; modern default filters them')
-    p.add_argument('--model-informed-prior',action='store_true',help='Use joint probability and one total model-distributed prior observation over V/J cells; default preserves historical add-one')
+    p.add_argument('--model-informed-prior',action='store_true',help='Use one total model-distributed prior observation per V group; default preserves historical add-one')
     p.add_argument('--epitope',action='append')
     p.add_argument('--pool-mhc',action='store_true',help='Explicit original epitope-union reproduction')
     p.add_argument('--locus',choices=['TRA','TRB'],default='TRB')
@@ -356,7 +356,7 @@ def main(a):
         import subprocess,shutil
         manifest['r_version']=subprocess.run([shutil.which('Rscript'),'--version'],capture_output=True,text=True,check=True).stdout.strip()
     if a.model_informed_prior:
-        manifest['probability']='selection_q times joint junction/V/J Pgen times global model-informed V/J usage ratio; one total prior observation; missing/zero mass goes to lowest control bin'
+        manifest['probability']='selection_q times AA-max joint Pgen times within-V model-informed J usage ratio; one total prior observation per supported V; missing/zero mass goes to lowest control bin'
     manifest['functional_filter']=filter_audit
     manifest['model_identity']=model_identity
     manifest['selection_q_origin']=q_origin

@@ -623,10 +623,8 @@ or repertoire-indexed native batch. Reverse only a geometry whose symmetry has
 been established; query-conditioned scores need their own directional contract.
 
 For an explicitly requested model-informed V/J prior, use repertoire-exact
---model-informed-prior: one total prior observation over all V/J cells,
-distributed by global model V/J probabilities. Use actual joint junction/V/J
-mass with the global observed/model V/J ratio; do not use historical AA-max or
-within-V normalization for this path. Raw audit counts remain unshifted. Modern runs filter functional positive-support
+--model-informed-prior: one total prior observation per V group distributed by
+model J probabilities. Raw audit counts remain unshifted. Modern runs filter functional positive-support
 genes and positive-mass reference/control keys by default. --include-nonfunctional
 retains missing/zero mass in the lowest control bin; known zero-mass genes are
 not re-called. Only V genes absent from the ARDA reference use its existing
