@@ -973,3 +973,724 @@ def n_region_residue_opportunities(model, junctions, positions, v, j, *, threads
         raise RuntimeError('native pure-N opportunity must be finite and nonnegative')
     total = mass.sum(axis=1, keepdims=True)
     return np.divide(mass, total, out=np.full_like(mass, np.nan), where=total > 0)
+
+
+def fit_exchangeability(
+    observed, expected, *, balanced, prior_mass=1.0, residue_groups=None, fit_pairs=True
+):
+    """Conditional multinomial fit, migrated from the established M4 owner.
+
+    Without residue_groups this retains the previous per-row normalization and
+    first-coefficient gauge. With integer epitope groups, fit additive residue
+    preferences and constrain each AA row sum of the symmetric pair effect to
+    zero. Balanced weighting then gives equal total observed mass per epitope.
+    The neutral prior is reference-free; fractional counts are working weights.
+    """
+    from scipy.linalg import helmert, null_space
+    from scipy.optimize import minimize
+    from scipy.special import logsumexp
+
+    o, e = np.asarray(observed, float), np.asarray(expected, float)
+    if o.shape != e.shape or o.ndim != 2 or (o < 0).any() or (e < 0).any():
+        raise ValueError("nonnegative matching stratum-by-pair counts required")
+    if (
+        not np.isfinite(o).all()
+        or not np.isfinite(e).all()
+        or not np.isfinite(prior_mass)
+        or prior_mass < 0
+    ):
+        raise ValueError("finite counts and nonnegative prior required")
+    keep = o.sum(1) > 0
+    groups = None
+    if not fit_pairs and residue_groups is None:
+        raise ValueError("a residue-only fit requires residue_groups")
+    if residue_groups is not None:
+        supplied = np.asarray(residue_groups)
+        if (
+            supplied.shape != (len(o),)
+            or supplied.dtype.kind not in "iu"
+            or (supplied < 0).any()
+            or o.shape[1] != 190
+        ):
+            raise ValueError(
+                "190 AA-pair columns and one nonnegative integer residue group per row required"
+            )
+        labels, groups = np.unique(supplied[keep], return_inverse=True)
+    o, e = o[keep], e[keep]
+    n, k = o.sum(1), o.shape[1]
+    if not len(n) or (e.sum(1) <= 0).any() or ((o > 0) & (e == 0)).any():
+        raise ValueError("observed events require positive composition opportunity")
+    b = e / e.sum(1, keepdims=True)
+    with np.errstate(divide="ignore"):
+        logb = np.log(b)
+    if groups is None:
+        weights = 1 / n if balanced else np.ones(len(n))
+        free_pairs, free_residues = k - 1, 0
+    else:
+        i, j = np.triu_indices(20, 1)
+        incidence = np.zeros((k, 20))
+        incidence[np.arange(k), i] = incidence[np.arange(k), j] = 1
+        pair_basis = null_space(incidence.T) if fit_pairs else np.empty((k, 0))
+        residue_basis = helmert(20, full=False).T
+        ng = len(labels)
+        weights = (
+            1 / np.bincount(groups, weights=n)[groups] if balanced else np.ones(len(n))
+        )
+        free_pairs, free_residues = pair_basis.shape[1], ng * 19
+    wn = weights * n
+    totals = (weights[:, None] * o).sum(0)
+    scale = wn.sum() + prior_mass * (1 if groups is None else 2)
+
+    def unpack(x):
+        if groups is None:
+            return np.r_[0.0, x], None
+        return pair_basis @ x[:free_pairs], x[free_pairs:].reshape(
+            ng, 19
+        ) @ residue_basis.T
+
+    def objective(x):
+        beta, eta = unpack(x)
+        logits = logb + beta
+        if eta is not None:
+            residue_logits = eta[groups] @ incidence.T
+            logits += residue_logits
+        logz = logsumexp(logits, axis=1)
+        pi = np.exp(logits - logz[:, None])
+        residual = wn[:, None] * pi - weights[:, None] * o
+        value = np.sum(wn * logz) - totals @ beta
+        if eta is not None:
+            value -= np.sum(weights[:, None] * o * residue_logits)
+        value += prior_mass * (logsumexp(beta) - beta.mean())
+        gb = residual.sum(0) + prior_mass * (np.exp(beta - logsumexp(beta)) - 1 / k)
+        if eta is None:
+            gradient = gb[1:]
+        else:
+            value += prior_mass * np.mean(logsumexp(eta, axis=1) - eta.mean(axis=1))
+            ge = np.zeros_like(eta)
+            np.add.at(ge, groups, residual @ incidence)
+            ge += (
+                prior_mass
+                / ng
+                * (np.exp(eta - logsumexp(eta, axis=1, keepdims=True)) - 1 / 20)
+            )
+            gradient = np.r_[pair_basis.T @ gb, (ge @ residue_basis).ravel()]
+        return float(value / scale), gradient / scale
+
+    fit = minimize(
+        objective,
+        np.zeros(free_pairs + free_residues),
+        jac=True,
+        method="L-BFGS-B",
+        options={"maxiter": 2000, "ftol": 1e-14, "gtol": 1e-10, "maxls": 50},
+    )
+    if not fit.success:
+        raise RuntimeError(fit.message)
+    beta, eta = unpack(fit.x)
+    beta -= beta.mean()
+    report = dict(
+        iterations=fit.nit,
+        objective=float(fit.fun),
+        max_free_gradient=float(abs(fit.jac).max()),
+        prior_mass=prior_mass,
+        epitopes=len(n),
+        strata=len(n),
+    )
+    if eta is not None:
+        report.update(
+            epitopes=ng,
+            residue_group_labels=labels.tolist(),
+            residue_log_preferences=eta.tolist(),
+            pair_gauge="zero AA row sums over 190 off-diagonal effects",
+            independent_pair_likelihood=False,
+        )
+    return beta, report
+
+
+def entropy_matched_scores(generator, frequency, entropy_bits=0.70):
+    """Continuous reversible process at stated information; no target-cell fit.
+
+    Time is in the input generator's units. Return score bits and time.
+    """
+    from scipy.linalg import expm
+    from scipy.optimize import brentq
+    from scipy.special import xlogy
+
+    q = np.asarray(generator, float)
+    f = np.asarray(frequency, float)
+    if (
+        q.shape != (len(f), len(f))
+        or np.any(f <= 0)
+        or not np.isclose(f.sum(), 1)
+        or not np.allclose(q.sum(1), 0)
+        or not np.allclose(f @ q, 0)
+    ):
+        raise ValueError(
+            "stationary generator and positive normalized frequencies required"
+        )
+    off = q.copy()
+    np.fill_diagonal(off, 0)
+    if np.any(off < 0) or not np.allclose(f[:, None] * q, (f[:, None] * q).T):
+        raise ValueError("reversible nonnegative offdiagonal generator required")
+
+    def information(t):
+        transition = expm(t * q)
+        joint = f[:, None] * transition
+        return float(np.sum(xlogy(joint, transition / f[None, :])) / np.log(2))
+
+    if not information(1e4) < entropy_bits < information(0):
+        raise ValueError("requested information outside reachable bracket")
+    time = brentq(lambda t: information(t) - entropy_bits, 0, 1e4)
+    transition = expm(time * q)
+    with np.errstate(divide="ignore"):
+        score = np.log2(transition / f[None, :])
+    return score, time
+
+
+def transition_from_counts(counts, frequency, changed_fraction=0.01):
+    """Row-oriented Dayhoff step with matched exposure and detailed balance.
+
+    Zero-change rows remain identity rows. No invented transitions or iterative
+    lambda search. Callers own the biological meaning of counts and exposure.
+    """
+    counts = np.asarray(counts, dtype=float)
+    frequency = np.asarray(frequency, dtype=float)
+    if (
+        counts.shape != (len(frequency), len(frequency))
+        or not np.isfinite(counts).all()
+    ):
+        raise ValueError("finite square count matrix required")
+    if (counts < 0).any() or not np.allclose(counts, counts.T) or np.diag(counts).any():
+        raise ValueError("symmetric nonnegative off-diagonal counts required")
+    if not np.isfinite(frequency).all() or (frequency <= 0).any() or counts.sum() <= 0:
+        raise ValueError("positive exposure and at least one change required")
+    if not 0 < changed_fraction < 1:
+        raise ValueError("changed fraction must be in (0,1)")
+    frequency = frequency / frequency.sum()
+    scale = changed_fraction / counts.sum()
+    transition = scale * counts / frequency[:, None]
+    diagonal = 1 - transition.sum(axis=1)
+    if (diagonal < 0).any():
+        raise ValueError("requested step exceeds available residue exposure")
+    np.fill_diagonal(transition, diagonal)
+    return transition
+
+
+def origin_neighbour_tables(
+    model,
+    queries,
+    membership,
+    origins,
+    known_labels,
+    *,
+    source_membership=None,
+    threads=1,
+):
+    """NNN-weighted Hamming-one counts, exact flank opportunity and shared fit.
+
+    Reuse one native neighbour search and the published generative batch owners.
+    Final outputs contain sufficient counts/model parameters, never a Pgen bank.
+    Source-holdout pairs share no junction with training within their epitope.
+    """
+    import json
+    import sys
+    import time
+    from scipy.special import logsumexp
+    from threadpoolctl import threadpool_limits
+
+    primary = membership.select("query_id", "epitope").unique()
+    pairs = substitution_events(
+        queries.with_columns(pl.lit("").alias("epitope")),
+        threads=threads,
+        include_sequences=True,
+        shared_only=False,
+    )
+    pair_count = pairs.height
+    pairs = pairs.join(
+        queries.rename({"cdr3": "q", "query_id": "qid"}), on="q", validate="m:m"
+    ).join(
+        queries.rename({"cdr3": "r", "query_id": "rid"}),
+        on=["r", "v", "j"],
+        validate="m:m",
+    )
+    for side in ["q", "r"]:
+        pairs = pairs.join(
+            origins.select(
+                pl.col("query_id").alias(side + "id"),
+                pl.col("position").alias("pos"),
+                pl.col("n_probability").alias("w" + side),
+            ),
+            on=[side + "id", "pos"],
+            validate="m:1",
+        )
+    pairs = pairs.with_columns(
+        (pl.col("wq") * pl.col("wr")).alias("weight")
+    ).with_columns(
+        pl.when(pl.col("weight").is_null())
+        .then(pl.lit("unknown_origin"))
+        .when(pl.col("weight") > 0)
+        .then(pl.lit("pure_N"))
+        .otherwise(pl.lit("zero_N_opportunity"))
+        .alias("status")
+    )
+    support = pairs.group_by("status").agg(
+        pl.len().alias("clonotype_pairs"), pl.col("weight").sum().alias("N_pair_weight")
+    )
+    support = support.with_columns(pl.lit(pair_count).alias("native_sequence_pairs"))
+    pairs = pairs.filter(pl.col("status") == "pure_N")
+    count_schema = dict(
+        observed_pair_incidences=pl.Int64,
+        arm=pl.String,
+        comparison=pl.String,
+        epitope=pl.String,
+        a=pl.String,
+        b=pl.String,
+        observed_pair_weight=pl.Float64,
+        expected_pair_weight=pl.Float64,
+    )
+    result = {
+        "neighbour-support": support,
+        "neighbour-counts": pl.DataFrame(schema=count_schema),
+    }
+    if pairs.is_empty():
+        return result
+    pairs = pairs.with_columns(
+        (
+            pl.col("q").str.slice(0, pl.col("pos"))
+            + pl.lit("?")
+            + pl.col("q").str.slice(pl.col("pos") + 1)
+        ).alias("flank")
+    )
+    context_key = ["flank", "v", "j", "pos"]
+    contexts = (
+        pairs.group_by(context_key)
+        .agg(pl.col("q").first().alias("cdr3"))
+        .sort(context_key)
+        .with_row_index("context_id")
+    )
+    pairs = pairs.join(
+        contexts.select(*context_key, "context_id"), on=context_key, validate="m:1"
+    )
+    print(
+        json.dumps(
+            dict(
+                stage="exact_flank_opportunity",
+                contexts=contexts.height,
+                variants=20 * contexts.height,
+                native_threads=threads,
+            )
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+    rho = n_region_residue_opportunities(
+        model,
+        contexts["cdr3"].to_list(),
+        contexts["pos"].to_list(),
+        contexts["v"].to_list(),
+        contexts["j"].to_list(),
+        threads=threads,
+    )
+    i, j = np.triu_indices(20, 1)
+    baseline = rho[:, i] * rho[:, j]
+    mass = baseline.sum(1, keepdims=True)
+    if not np.isfinite(baseline).all() or (mass <= 0).any():
+        raise RuntimeError("observed positive-N mismatch lacks exact flank opportunity")
+    baseline /= mass
+    pair_index = {AA[a] + AA[b]: z for z, (a, b) in enumerate(zip(i, j))}
+    pairs = pairs.with_columns(
+        (pl.col("a") + pl.col("b"))
+        .replace_strict(pair_index)
+        .cast(pl.Int64)
+        .alias("pair_id")
+    )
+    labels = known_labels.group_by("query_id").agg(
+        pl.col("epitope").unique().alias("labels")
+    )
+    pairs = pairs.join(
+        labels.rename({"query_id": "qid", "labels": "qlabels"}),
+        on="qid",
+        validate="m:1",
+    ).join(
+        labels.rename({"query_id": "rid", "labels": "rlabels"}),
+        on="rid",
+        validate="m:1",
+    )
+    same = pairs.join(
+        primary.rename({"query_id": "qid"}), on="qid", validate="m:m"
+    ).join(primary.rename({"query_id": "rid"}), on=["rid", "epitope"], validate="m:m")
+    disjoint = pairs.filter(
+        pl.col("qlabels").list.set_intersection(pl.col("rlabels")).list.len() == 0
+    )
+    columns = ["epitope", "context_id", "pair_id", "weight", "qid", "rid"]
+    different = pl.concat(
+        [
+            disjoint.join(
+                primary.rename({"query_id": side + "id"}),
+                on=side + "id",
+                validate="m:m",
+            ).select(columns)
+            for side in ["q", "r"]
+        ]
+    )
+    same = same.select(columns)
+    # Split by largest recorded source per epitope, as in the established source
+    # audit. A junction seen in the held-out source is removed from training.
+    split_rows = []
+    assignments = []
+    if source_membership is not None:
+        source = (
+            source_membership.select("query_id", "epitope", "reference_id")
+            .unique()
+            .join(queries.select("query_id", "cdr3"), on="query_id", validate="m:1")
+        )
+        for (epitope,), part in source.group_by("epitope", maintain_order=True):
+            known = part.filter(
+                pl.col("reference_id").is_not_null() & (pl.col("reference_id") != "")
+            )
+            studies = (
+                known.group_by("reference_id")
+                .agg(pl.col("cdr3").n_unique().alias("n"))
+                .sort(["n", "reference_id"], descending=[True, False])
+            )
+            if studies.is_empty():
+                continue
+            heldout = studies["reference_id"][0]
+            test = (
+                known.filter(pl.col("reference_id") == heldout)
+                .select("query_id", "cdr3")
+                .unique()
+            )
+            train = known.filter(pl.col("reference_id") != heldout).join(
+                test.select("cdr3").unique(), on="cdr3", how="anti"
+            )
+            for arm, selected in [("train", train), ("test", test)]:
+                assignments.extend(
+                    dict(epitope=epitope, query_id=q, arm=arm)
+                    for q in selected["query_id"].unique()
+                )
+            split_rows.append(
+                dict(
+                    epitope=epitope,
+                    heldout_source=heldout,
+                    recorded_sources=studies.height,
+                    training_junctions=train["cdr3"].n_unique(),
+                    test_junctions=test["cdr3"].n_unique(),
+                )
+            )
+    assignment = pl.DataFrame(
+        assignments, schema=dict(epitope=pl.String, query_id=pl.Int64, arm=pl.String)
+    )
+    arms = {"all": same}
+    split_pairs = same
+    for side in ["q", "r"]:
+        split_pairs = split_pairs.join(
+            assignment.rename({"query_id": side + "id", "arm": side + "arm"}),
+            on=["epitope", side + "id"],
+            how="left",
+            validate="m:1",
+        )
+    for arm in ["train", "test"]:
+        arms[arm] = split_pairs.filter(
+            (pl.col("qarm") == arm) & (pl.col("rarm") == arm)
+        ).select(columns)
+    result["neighbour-source-split"] = pl.DataFrame(
+        split_rows,
+        schema=dict(
+            epitope=pl.String,
+            heldout_source=pl.String,
+            recorded_sources=pl.Int64,
+            training_junctions=pl.Int64,
+            test_junctions=pl.Int64,
+        ),
+    )
+    # N-site exposure supplies the declared stationary distribution; templates
+    # with zero N probability contribute neither conservation nor exposure.
+    sites = origins.filter(pl.col("n_probability") > 0).join(
+        queries.select("query_id", "cdr3"), on="query_id", validate="m:1"
+    )
+    sites = sites.with_columns(
+        pl.col("cdr3").str.slice(pl.col("position"), 1).alias("aa")
+    )
+    count_rows = []
+    model_rows = []
+    fit_rows = []
+    prediction_rows = []
+    preference_rows = []
+
+    def pack(part):
+        strata = (
+            part.select("epitope", "context_id")
+            .unique()
+            .sort("epitope", "context_id")
+            .with_row_index("stratum")
+        )
+        names = sorted(strata["epitope"].unique().to_list())
+        group_of = {e: g for g, e in enumerate(names)}
+        groups = strata["epitope"].replace_strict(group_of).to_numpy().astype(int)
+        indexed = part.join(strata, on=["epitope", "context_id"], validate="m:1")
+        observed = np.zeros((strata.height, 190))
+        np.add.at(
+            observed,
+            (indexed["stratum"].to_numpy(), indexed["pair_id"].to_numpy()),
+            indexed["weight"].to_numpy(),
+        )
+        expected = baseline[strata["context_id"].to_numpy()]
+        return names, groups, observed, expected
+
+    for arm, part in [*arms.items(), ("different", different)]:
+        if part.is_empty():
+            continue
+        names, groups, observed, expected = pack(part)
+        totals = observed.sum(1)
+        pooled = np.zeros((len(names), 190))
+        proposed = pooled.copy()
+        incidences = np.zeros((len(names), 190), dtype=np.int64)
+        name_ids = (
+            part["epitope"]
+            .replace_strict({e: g for g, e in enumerate(names)})
+            .to_numpy()
+            .astype(int)
+        )
+        np.add.at(incidences, (name_ids, part["pair_id"].to_numpy()), 1)
+        np.add.at(pooled, groups, observed)
+        np.add.at(proposed, groups, expected * totals[:, None])
+        for g, epitope in enumerate(names):
+            count_rows.extend(
+                dict(
+                    arm="all" if arm == "different" else arm,
+                    comparison="different" if arm == "different" else "same",
+                    epitope=epitope,
+                    a=AA[a],
+                    b=AA[b],
+                    observed_pair_weight=float(pooled[g, z]),
+                    observed_pair_incidences=int(incidences[g, z]),
+                    expected_pair_weight=float(proposed[g, z]),
+                )
+                for z, (a, b) in enumerate(zip(i, j))
+            )
+        if arm not in ["all", "train"]:
+            continue
+        cohort = (
+            primary
+            if arm == "all"
+            else assignment.filter(pl.col("arm") == "train").select(
+                "query_id", "epitope"
+            )
+        )
+        exposure = (
+            sites.join(cohort, on="query_id", validate="m:m")
+            .group_by("epitope", "aa")
+            .agg(pl.col("n_probability").sum())
+        )
+        frequencies = np.zeros((len(names), 20))
+        for row in exposure.iter_rows(named=True):
+            if row["epitope"] in names:
+                frequencies[names.index(row["epitope"]), AA.index(row["aa"])] = row[
+                    "n_probability"
+                ]
+        test = arms["test"]
+        if arm == "train" and not test.is_empty():
+            test_names, test_groups, test_observed, test_expected = pack(test)
+        for weighting in ["pooled", "equal_epitope"]:
+            weighted = observed.copy()
+            if weighting == "equal_epitope":
+                weighted /= np.bincount(groups, weights=totals)[groups, None]
+            f = (
+                frequencies
+                if weighting == "pooled"
+                else frequencies / frequencies.sum(1, keepdims=True)
+            ).sum(0)
+            f /= f.sum()
+            for estimator in ["residue_only", "raw_pair", "residue_adjusted"]:
+                started = time.perf_counter()
+                print(
+                    json.dumps(
+                        dict(
+                            stage="conditional_exchange_fit",
+                            arm=arm,
+                            weighting=weighting,
+                            estimator=estimator,
+                            strata=len(observed),
+                            dense_count_bytes=int(observed.nbytes),
+                            pair_incidences=part.height,
+                        )
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+                with threadpool_limits(limits=threads, user_api="blas"):
+                    beta, report = fit_exchangeability(
+                        weighted,
+                        expected,
+                        balanced=False,
+                        residue_groups=groups if estimator != "raw_pair" else None,
+                        fit_pairs=estimator != "residue_only",
+                    )
+                report["seconds"] = time.perf_counter() - started
+                print(
+                    json.dumps(
+                        dict(
+                            stage="conditional_exchange_fit_complete",
+                            arm=arm,
+                            weighting=weighting,
+                            estimator=estimator,
+                            seconds=report["seconds"],
+                            iterations=report["iterations"],
+                            max_gradient=report["max_free_gradient"],
+                        )
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+                eta = np.asarray(
+                    report.pop("residue_log_preferences", np.zeros((len(names), 20)))
+                )
+                if estimator == "residue_only":
+                    composition_eta = eta
+                fit_rows.append(
+                    dict(
+                        arm=arm,
+                        weighting=weighting,
+                        estimator=estimator,
+                        observed_pair_weight=float(observed.sum()),
+                        observed_pair_incidences=part.height,
+                        contexts=len(contexts),
+                        strata=len(observed),
+                        epitopes=len(names),
+                        report=json.dumps(report, sort_keys=True),
+                    )
+                )
+                for g, epitope in enumerate(names):
+                    preference_rows.extend(
+                        dict(
+                            arm=arm,
+                            weighting=weighting,
+                            estimator=estimator,
+                            epitope=epitope,
+                            aa=a,
+                            log_preference=float(eta[g, aidx]),
+                        )
+                        for aidx, a in enumerate(AA)
+                    )
+                # Existing Dayhoff owner supplies a reversible compatibility walk;
+                # holding/time are an explicit .70-bit completion, not mutations.
+                exchange = np.zeros((20, 20))
+                exchange[i, j] = exchange[j, i] = np.exp(beta)
+                generator = score = cost = np.full((20, 20), np.nan)
+                walk_time = np.nan
+                if (f > 0).all():
+                    counts = exchange * np.outer(f, f)
+                    step = transition_from_counts(counts, f)
+                    generator = (step - np.eye(20)) / 0.01
+                    score, walk_time = entropy_matched_scores(generator, f)
+                    cost = costs_from_similarity(score)
+                for a in range(20):
+                    for b in range(20):
+                        z = pair_index.get(AA[min(a, b)] + AA[max(a, b)])
+                        model_rows.append(
+                            dict(
+                                arm=arm,
+                                weighting=weighting,
+                                estimator=estimator,
+                                a=AA[a],
+                                b=AA[b],
+                                log_exchange_multiplier=float(beta[z])
+                                if a != b
+                                else None,
+                                observed_pair_weight=float(pooled[:, z].sum())
+                                if a != b
+                                else None,
+                                stationary_frequency=float(f[a]),
+                                generator_rate=float(generator[a, b]),
+                                walk_time=float(walk_time),
+                                score_bits=float(score[a, b]),
+                                distance_bits=float(cost[a, b]),
+                                information_bits=0.70,
+                                supported=bool(np.isfinite(cost[a, b])),
+                                observed_pair_supported=bool(pooled[:, z].sum() > 0)
+                                if a != b
+                                else None,
+                            )
+                        )
+                if arm == "train" and not test.is_empty():
+                    test_eta = np.array(
+                        [
+                            eta[names.index(e)] if e in names else np.zeros(20)
+                            for e in test_names
+                        ]
+                    )
+                    nuisance = test_eta[test_groups][:, i] + test_eta[test_groups][:, j]
+                    with np.errstate(divide="ignore"):
+                        base = np.log(test_expected)
+                    fitted = base + nuisance + beta
+                    baseline_eta = (
+                        np.zeros_like(test_eta)
+                        if estimator == "raw_pair"
+                        else np.array(
+                            [
+                                composition_eta[names.index(e)]
+                                if e in names
+                                else np.zeros(20)
+                                for e in test_names
+                            ]
+                        )
+                    )
+                    nuisance_only = (
+                        base
+                        + baseline_eta[test_groups][:, i]
+                        + baseline_eta[test_groups][:, j]
+                    )
+                    fitted -= logsumexp(fitted, axis=1, keepdims=True)
+                    nuisance_only -= logsumexp(nuisance_only, axis=1, keepdims=True)
+                    for g, epitope in enumerate(test_names):
+                        kept = test_groups == g
+                        ntest = test_observed[kept].sum()
+                        gain = np.where(
+                            test_observed[kept] > 0,
+                            test_observed[kept] * (fitted[kept] - nuisance_only[kept]),
+                            0,
+                        ).sum()
+                        prediction_rows.append(
+                            dict(
+                                weighting=weighting,
+                                estimator=estimator,
+                                epitope=epitope,
+                                test_pair_weight=float(ntest),
+                                test_pair_incidences=test.filter(
+                                    pl.col("epitope") == epitope
+                                ).height,
+                                training_epitope_supported=epitope in names,
+                                pair_gain_bits_per_weighted_event=float(
+                                    gain / (ntest * np.log(2))
+                                ),
+                                total_gain_bits_per_weighted_event=float(
+                                    np.where(
+                                        test_observed[kept] > 0,
+                                        test_observed[kept]
+                                        * (fitted[kept] - base[kept]),
+                                        0,
+                                    ).sum()
+                                    / (ntest * np.log(2))
+                                ),
+                            )
+                        )
+    result["neighbour-counts"] = pl.DataFrame(count_rows, schema=count_schema)
+    result["neighbour-matrix"] = pl.DataFrame(model_rows).with_columns(
+        pl.col(pl.Float64).fill_nan(None)
+    )
+    result["neighbour-fits"] = pl.DataFrame(fit_rows)
+    result["neighbour-preferences"] = pl.DataFrame(preference_rows)
+    result["neighbour-prediction"] = pl.DataFrame(
+        prediction_rows,
+        schema=dict(
+            weighting=pl.String,
+            estimator=pl.String,
+            epitope=pl.String,
+            test_pair_weight=pl.Float64,
+            test_pair_incidences=pl.Int64,
+            training_epitope_supported=pl.Boolean,
+            pair_gain_bits_per_weighted_event=pl.Float64,
+            total_gain_bits_per_weighted_event=pl.Float64,
+        ),
+    )
+    return result

@@ -490,6 +490,72 @@ finite-time distance. Reference comparisons therefore state a fixed
 time/information convention and distinguish logarithmic distances from
 linear genetic-code propensities.
 
+**Implemented neighbour likelihood and its gauge.** The package reuses
+the existing conditional-multinomial fitter and exact native search
+owners. For epitope :math:`e`, unchanged-flank context :math:`h`, and
+unordered residue pair :math:`a<b`, let :math:`O_{eh,ab}` be the sum of
+the two endpoint pure-N posterior products and let
+:math:`n_{eh}=\sum_{a<b}O_{eh,ab}`. The fitted distribution is
+
+.. math::
+
+
+    p_{eh,ab}=\frac{b_{h,ab}\exp(\eta_{e,a}+\eta_{e,b}+\beta_{ab})}
+    {\sum_{c<d}b_{h,cd}\exp(\eta_{e,c}+\eta_{e,d}+\beta_{cd})}.
+
+Here :math:`b` is the exact unchanged-flank opportunity above; the
+implemented nuisance restriction is one shared residue preference per
+epitope, rather than an unrestricted preference for every
+position/length/context. The weighted working log likelihood is
+:math:`\sum_{eh,ab}w_eO_{eh,ab}\log p_{eh,ab}`, with :math:`w_e=1` for
+pair-mass pooling or :math:`w_e=(\sum_hn_{eh})^{-1}` for equal epitope
+mass. To separate pair interaction from residue main effects, impose
+
+.. math::
+
+
+    \sum_{b\ne a}\beta_{ab}=0\quad\text{for every }a,
+    \qquad \sum_a\eta_{e,a}=0\quad\text{for every }e.
+
+The 20 independent row constraints leave 170 off-diagonal interaction
+parameters; residue preferences have 19 free parameters per represented
+epitope. An orthonormal null-space basis enforces these linear
+constraints exactly. The earlier pair-only fit remains a separate
+comparator, and a residue-only fit fixes :math:`\beta=0`. A
+reference-free neutral prior contributes one total uniform pseudo-event
+to the pair-effect block and one total uniform pseudo-event across the
+residue-preference blocks. Thus finite model-completed entries need not
+be directly observed; both support quantities are exported. The native
+toy and deterministic known-effect checks distinguish purely additive
+residue selection from a recoverable nonzero pair interaction.
+
+For the declared reversible completion, let :math:`f_a` be the N-origin
+site exposure from the same epitope/arm population, normalized after the
+stated pooled or equal-epitope weighting. Set
+:math:`R_{ab}=\exp\beta_{ab}` for :math:`a\ne b`,
+:math:`Q_{ab}=cR_{ab}f_b`, and :math:`Q_{aa}=-\sum_{b\ne a}Q_{ab}`, with
+:math:`c` chosen so that :math:`-\sum_af_aQ_{aa}=1`. The existing
+Dayhoff transition owner constructs this generator; the existing
+entropy-matching owner sets the walk to the previously declared 0.70-bit
+mutual information. Distances use the same nonnegative Gram conversion
+in bits. A zero stationary residue exposure leaves the full declared
+20-residue completion unsupported, rather than supplying a frequency
+floor. Holding probabilities, gauge and walk time are explicit model
+choices, not quantities observed from Hamming-one changes.
+
+Independent source evaluation holds out the largest recorded source per
+epitope, resolving size ties by source identifier. Every junction seen
+in that source is removed from training within the epitope, including
+records repeated in other sources. Only training observations determine
+interaction, residue preference and stationary exposure; the
+recombination model itself remains fixed. Held-out pairs are retained
+with exact incidence counts and N weights. The incremental pair gain
+compares the combined fit with a separately refitted residue-only model;
+total gain compares it with the fixed recombination opportunity.
+Epitopes lacking a training fit remain explicitly marked in the
+prediction table. These are predictive comparisons of dependent pair
+occupancies, not independent-pair significance tests.
+
 **Indels are changes of rearrangement histories.** Let :math:`G_k(x,y)`
 indicate that the existing alignment convention accepts exactly one
 contiguous amino-acid gap of size :math:`k`, with shorter length

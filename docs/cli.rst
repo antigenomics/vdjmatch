@@ -1651,6 +1651,32 @@ before log odds can preserve a composition effect. These are selected-background
 comparisons, without relabelling receptors as assay negatives. See :doc:`rearrangement-origin` for the
 formalism, indel extension and independent-validation requirements.
 
+Add ``--origin-neighbours`` to derive the exact unchanged-flank N-region
+neighbour estimator in the same fresh run. One native Hamming-one batch supplies
+sequence pairs; only matched V/J pairs enter the N channel. Complete known
+labels define same-epitope versus disjoint-label incidences. The 20 residue
+alternatives per unique flank/position/V/J context are evaluated in two native
+operations, with no Pgen bank exported or cached.
+
+``.neighbour-counts.tsv`` retains exact pair-incidence counts, N-weighted counts
+and matched conditional opportunities. ``.neighbour-matrix.tsv`` exports raw-pair,
+residue-only and residue-adjusted compatibility walks at the previously declared
+0.70-bit information, with pooled and equal-epitope weighting. This completion
+supplies holding probabilities and time; neighbour observations alone do not
+identify them. Residue-adjusted fits use epitope-specific additive residue terms
+and zero AA-row sums for the shared off-diagonal interaction. A total neutral
+prior mass of one per parameter block is explicit and contains no reference
+matrix. Model-supported and directly observed cells are separate fields.
+
+``.neighbour-source-split.tsv`` identifies the largest recorded source held out
+per epitope; every junction observed there is excluded from training.
+``.neighbour-prediction.tsv`` reports held-out likelihood gains per weighted event,
+including pair gains against a separately refitted residue-only baseline.
+No-reference source-supported cases remain visible. ``.neighbour-fits.tsv`` and
+``.neighbour-preferences.tsv`` retain convergence and nuisance coefficients.
+These are working dependent-pair fits, without independent-pair confidence
+intervals. Their performance is a separately evaluated scientific result.
+
 vdjmatch fixed-scope
 ----------------------------
 

@@ -189,6 +189,18 @@ def test_origin_cli_preserves_source_units_and_zero_support(tmp_path, monkeypatc
     band = pl.read_csv(str(prefix) + ".length-band-support.tsv", separator="\t")
     assert band.filter(pl.col("legacy_length_lt8"))["source_records"].sum() == 1
 
+    def neighbour_route(model, queries, membership, origins, known_labels, *, source_membership, threads):
+        assert queries.height == 4 and source_membership.height == 4
+        assert source_membership['reference_id'].null_count() == 4
+        assert known_labels.filter(pl.col('epitope') == 'TAIL').height == 2
+        return {'neighbour-route': pl.DataFrame({'queries': [queries.height]})}
+
+    monkeypatch.setattr(owner, 'origin_neighbour_tables', neighbour_route)
+    args.origin_neighbours = True
+    args.output_prefix = str(tmp_path / 'neighbours')
+    assert args.func(args) == 0
+    assert pl.read_csv(str(args.output_prefix) + '.neighbour-route.tsv', separator='\t')['queries'][0] == 4
+
 
 def test_matched_background_uses_disjoint_complete_labels_and_same_N_opportunity():
     clones = pl.DataFrame(
@@ -279,13 +291,178 @@ def test_exact_flank_opportunity_uses_native_batch_and_preserves_zero_mass():
     ])
     model = from_germline(germline, locus='TOY', ins_max=3, palindrome_max=0)
     rho = n_region_residue_opportunities(
-        model, ['CKF', 'CKF', 'AAA'], [1, 0, 1],
-        ['TOYV1*01'] * 3, ['TOYJ1*01'] * 3, threads=1)
+        model,
+        ["CKF", "CKF", "AAA"],
+        [1, 0, 1],
+        ["TOYV1*01"] * 3,
+        ["TOYJ1*01"] * 3,
+        threads=1,
+    )
     degeneracy = np.array([4, 2, 2, 2, 2, 4, 2, 3, 2, 6, 1, 2, 4, 2, 6, 6, 4, 4, 1, 2])
     assert np.allclose(rho[0], degeneracy / 61)
-    assert np.isnan(rho[1:]).all()  # Fixed germline and unsupported flanks stay unidentifiable.
+    assert np.isnan(
+        rho[1:]
+    ).all()  # Fixed germline and unsupported flanks stay unidentifiable.
     opportunity = 2 * np.outer(rho[0], rho[0]) / (1 - rho[0] @ rho[0])
     assert np.isclose(opportunity[np.triu_indices(20, 1)].sum(), 1)
-    assert n_region_residue_opportunities(model, [], [], [], [], threads=1).shape == (0, 20)
+    assert n_region_residue_opportunities(model, [], [], [], [], threads=1).shape == (
+        0,
+        20,
+    )
     with pytest.raises(ValueError):
-        n_region_residue_opportunities(model, ['CKF'], [3], ['TOYV1*01'], ['TOYJ1*01'])
+        n_region_residue_opportunities(model, ["CKF"], [3], ["TOYV1*01"], ["TOYJ1*01"])
+
+
+def test_conditional_exchange_fit_separates_residue_preferences():
+    from scipy.special import softmax
+    from vdjmatch.match.scoring_audit import fit_exchangeability
+
+    rng = np.random.default_rng(71)
+    i, j = np.triu_indices(20, 1)
+    groups = np.repeat(np.arange(3), 12)
+    rho = rng.dirichlet(np.ones(20) * 3, len(groups))
+    baseline = rho[:, i] * rho[:, j]
+    baseline /= baseline.sum(axis=1, keepdims=True)
+    # Purely additive residue selection must not become pair compatibility.
+    eta = rng.normal(0, 0.3, (3, 20))
+    eta -= eta.mean(axis=1, keepdims=True)
+    target = softmax(np.log(baseline) + eta[groups][:, i] + eta[groups][:, j], axis=1)
+    beta, report = fit_exchangeability(
+        1000 * target, baseline, balanced=False, prior_mass=0, residue_groups=groups
+    )
+    fitted_eta = np.asarray(report["residue_log_preferences"])
+    predicted = softmax(
+        np.log(baseline) + beta + fitted_eta[groups][:, i] + fitted_eta[groups][:, j],
+        axis=1,
+    )
+    assert np.allclose(predicted, target, atol=2e-6)
+    assert np.max(np.abs(beta)) < 2e-4
+    assert np.allclose(fitted_eta, eta, atol=2e-4)
+
+    incidence = np.zeros((190, 20))
+    incidence[np.arange(190), i] = incidence[np.arange(190), j] = 1
+    truth = rng.normal(0, 0.2, 190)
+    truth -= incidence @ np.linalg.lstsq(incidence, truth, rcond=None)[0]
+    target = softmax(
+        np.log(baseline) + eta[groups][:, i] + eta[groups][:, j] + truth, axis=1
+    )
+    recovered, _ = fit_exchangeability(
+        1000 * target, baseline, balanced=False, prior_mass=0, residue_groups=groups
+    )
+    assert np.allclose(recovered, truth, atol=2e-4)
+
+
+def test_origin_neighbours_match_genes_and_complete_labels_without_exporting_pgen():
+    from vdjtools.model.io import from_germline
+    from vdjtools.model import n_region_posterior_batch
+    from vdjmatch.match.scoring_audit import origin_neighbour_tables
+
+    germline = pl.DataFrame(
+        [
+            dict(
+                allele=a,
+                gene=a.split("*")[0],
+                segment=k,
+                sequence=s,
+                cdr3_anchor=-1,
+                functional=True,
+                full_germline="",
+            )
+            for a, k, s in [("TOYV1*01", "V", "TGT"), ("TOYJ1*01", "J", "TTT")]
+        ]
+    )
+    model = from_germline(germline, locus="TOY", ins_max=3, palindrome_max=0)
+    queries = pl.DataFrame(
+        dict(
+            query_id=[0, 1, 2, 3],
+            cdr3=["CAF", "CCF", "CDF", "CEF"],
+            v=["TOYV1*01"] * 4,
+            j=["TOYJ1*01"] * 4,
+        )
+    )
+    membership = pl.DataFrame(dict(query_id=[0, 1, 2, 3], epitope=["E", "E", "F", "G"]))
+    labels = pl.concat(
+        [membership, pl.DataFrame(dict(query_id=[0, 2], epitope=["TAIL", "TAIL"]))]
+    )
+    origins = n_region_posterior_batch(
+        model, queries["cdr3"].to_list(), threads=1
+    ).rename({"row": "query_id"})
+    tables = origin_neighbour_tables(
+        model, queries, membership, origins, labels, threads=1
+    )
+    observed = tables["neighbour-counts"].filter(pl.col("arm") == "all")
+    same = observed.filter(pl.col("comparison") == "same")
+    different = observed.filter(pl.col("comparison") == "different")
+    w = (
+        origins.filter(pl.col("position") == 1)
+        .sort("query_id")["n_probability"]
+        .to_numpy()
+    )
+    assert same["observed_pair_weight"].sum() == pytest.approx(w[0] * w[1])
+    assert same["expected_pair_weight"].sum() == pytest.approx(w[0] * w[1])
+    e_negative = w[0] * w[3] + w[1] * w[2] + w[1] * w[3]
+    assert different.filter(pl.col("epitope") == "E")[
+        "observed_pair_weight"
+    ].sum() == pytest.approx(e_negative)
+    assert different["observed_pair_weight"].sum() == pytest.approx(
+        2 * (e_negative + w[2] * w[3])
+    )
+    assert not tables["neighbour-matrix"]["supported"].any()
+    assert (
+        different.filter(
+            (pl.col("epitope") == "E") & (pl.col("a") == "A") & (pl.col("b") == "D")
+        )["observed_pair_weight"].sum()
+        == 0
+    )
+    assert all("pgen" not in t.columns for t in tables.values())
+
+    one_epitope = membership.with_columns(pl.lit("E").alias("epitope"))
+    sources = one_epitope.with_columns(
+        pl.Series("reference_id", ["S1", "S1", "S2", "S2"])
+    )
+    heldout = origin_neighbour_tables(
+        model,
+        queries,
+        one_epitope,
+        origins,
+        one_epitope,
+        source_membership=sources,
+        threads=1,
+    )
+    split = heldout["neighbour-source-split"].row(0, named=True)
+    assert split["heldout_source"] == "S1"
+    assert split["training_junctions"] == split["test_junctions"] == 2
+    train_counts = heldout["neighbour-counts"].filter(pl.col("arm") == "train")
+    assert train_counts["observed_pair_weight"].sum() == pytest.approx(w[2] * w[3])
+    prediction = heldout["neighbour-prediction"]
+    assert prediction.height == 6
+    assert np.allclose(prediction["test_pair_weight"], w[0] * w[1])
+    assert np.isfinite(prediction["pair_gain_bits_per_weighted_event"].to_numpy()).all()
+
+
+def test_neighbour_completion_uses_all_twenty_exposed_residues():
+    from vdjtools.model.io import from_germline
+    from vdjtools.model import n_region_posterior_batch
+    from vdjmatch.match.scoring_audit import AA, origin_neighbour_tables
+
+    germline = pl.DataFrame([
+        dict(allele=a, gene=a.split('*')[0], segment=k, sequence=s,
+             cdr3_anchor=-1, functional=True, full_germline='')
+        for a, k, s in [('TOYV1*01', 'V', 'TGT'), ('TOYJ1*01', 'J', 'TTT')]
+    ])
+    model = from_germline(germline, locus='TOY', ins_max=3, palindrome_max=0)
+    queries = pl.DataFrame(dict(query_id=list(range(20)), cdr3=['C'+a+'F' for a in AA],
+                                v=['TOYV1*01'] * 20, j=['TOYJ1*01'] * 20))
+    membership = queries.select('query_id').with_columns(pl.lit('E').alias('epitope'))
+    origins = n_region_posterior_batch(model, queries['cdr3'].to_list(), threads=1).rename({'row': 'query_id'})
+    tables = origin_neighbour_tables(model, queries, membership, origins, membership, threads=1)
+    assert tables['neighbour-counts'].filter(pl.col('comparison') == 'same')['observed_pair_incidences'].sum() == 190
+    for _, part in tables['neighbour-matrix'].group_by('weighting', 'estimator'):
+        part = part.sort('a', 'b')
+        q = part['generator_rate'].to_numpy().reshape(20, 20)
+        f = part['stationary_frequency'].to_numpy().reshape(20, 20)[:, 0]
+        cost = part['distance_bits'].to_numpy().reshape(20, 20)
+        assert part['supported'].all()
+        assert np.allclose(q.sum(1), 0) and np.allclose(f @ q, 0)
+        assert np.isclose(-f @ np.diag(q), 1)
+        assert np.allclose(cost, cost.T) and np.array_equal(np.diag(cost), np.zeros(20))
