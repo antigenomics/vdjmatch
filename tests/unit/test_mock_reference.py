@@ -478,3 +478,21 @@ def test_binned_draws_clip_low_mass_preserve_size_and_allow_repeats():
         control.with_columns(pl.lit('CAGF').alias('junction_aa'),pl.lit(1).alias('event_weight'))])
     many=sample_stratified_panels(pl.concat([ref]*1000),weighted,replicates=1,seed=42)
     assert many.height==3000 and many.filter(pl.col('junction_aa')=='CAAF').height>2950
+
+
+def test_compiled_reference_strata_model_informed_prior():
+    from vdjmatch.evalue.mock_reference import compiled_reference_strata
+    probes=pl.DataFrame(dict(junction_aa=['CAAF','CACF'],v=['V1','V1'],j=['J1','J2'],pgen=[.01,.02]))
+    sample=pl.DataFrame(dict(v=['V1','V1'],j=['J1','J2'],records=[0,100]))
+    model=pl.DataFrame(dict(v=['V1','V1'],j=['J1','J2'],records=[1,9]))
+    _,audit=compiled_reference_strata(probes,sample,model,model_informed_prior=True)
+    assert audit['sample_records'].to_list()==[0,100]
+    assert audit['sample_probability'].to_list()==pytest.approx([.1/101,100.9/101])
+    assert audit['model_probability'].to_list()==pytest.approx([.1,.9])
+    assert audit['sample_probability'].sum()==pytest.approx(1.)
+    selected=model.select('v','j',(pl.col('records')/10).alias('p'))
+    _,exact=compiled_reference_strata(probes,sample,model_vj_probabilities=selected,model_informed_prior=True)
+    assert exact['sample_probability'].to_list()==pytest.approx(audit['sample_probability'].to_list())
+    missing,audit=compiled_reference_strata(probes,sample,model.with_columns(pl.when(pl.col('j')=='J1').then(0).otherwise(pl.col('records')).alias('records')),model_informed_prior=True)
+    assert missing['zero_model_mass'].to_list()==[True,False]
+    assert audit['sample_prior_records'].to_list()==pytest.approx([0.,1.])

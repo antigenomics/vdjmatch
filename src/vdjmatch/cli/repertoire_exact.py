@@ -9,6 +9,9 @@ def register(sub):
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--control',required=True,help='Distinct junction_aa,v,j probe keys; optional joint_pgen column')
     p.add_argument('--model-vj-counts',help='Generated-model v,j,records counts from the selected source')
+    p.add_argument('--model-vj-probabilities',help='Exact model v,j,p probabilities; alternative to generated V/J counts')
+    p.add_argument('--include-nonfunctional',action='store_true',help='Retain nonfunctional/unsupported genes and zero-mass probes in the lowest Pgen bin; modern default filters them')
+    p.add_argument('--model-informed-prior',action='store_true',help='Use one total model-distributed prior observation per V group; default preserves historical add-one')
     p.add_argument('--epitope',action='append')
     p.add_argument('--pool-mhc',action='store_true',help='Explicit original epitope-union reproduction')
     p.add_argument('--locus',choices=['TRA','TRB'],default='TRB')
@@ -46,12 +49,30 @@ def _selection_options(args, *, external_pgen=False):
     return source, selection_factor(args.locus, organism=args.species, source=source), 'calibrated'
 
 
-def _source(path, *, locus):
+def _source(path, *, locus, functional_genes=None, repair_v=False, species="human"):
     import polars as pl
     from .. import io
     frame=io.read_rearrangement(path,valid_aa=True).filter(pl.col("locus")==locus)
-    return frame.select(pl.col('cdr3').alias('junction_aa'),
+    frame=frame.select(pl.col('cdr3').alias('junction_aa'),
         pl.col('v','j').str.split('*').list.first(),'count')
+    if repair_v:
+        from ..io.columns import repair_unknown_v
+        frame=repair_unknown_v(frame,locus=locus,species=species)
+    if functional_genes is not None:
+        frame=frame.filter(pl.all_horizontal(pl.col(k).is_in(v) for k,v in functional_genes.items()))
+    return frame
+
+
+def _functional_genes(model):
+    """Gene-level functional, positive-choice support for the fixed model."""
+    import polars as pl
+    allowed={}
+    for kind in ['v','j']:
+        allele=kind+'_allele'
+        positive=model.tables[kind+'_choice'].filter(pl.col('p')>0).select(allele).unique()
+        allowed[kind]=model.genomic['genes_'+kind].filter(pl.col('functional')).join(
+            positive,on=allele,how='semi')['gene'].unique().to_list()
+    return allowed
 
 
 def _joint_pgen(probes,*,species,locus,threads,source="isalgo",profile=None,mismatches=0,allow_missing_model_genes=False):
@@ -150,19 +171,24 @@ def main(a):
     if any(meta[c].null_count() or meta[c].str.strip_chars().eq('').any() for c in needed):raise ValueError('sample identities, paths and FDR groups cannot be missing')
     paths=[(meta_path.parent/Path(p).expanduser()).resolve() for p in meta['path']]
     if len(set(paths))!=len(paths):raise ValueError('sample paths must be unique')
-    if a.selection_profile and (a.legacy or a.model_vj_counts):
+    model_probabilities=getattr(a,'model_vj_probabilities',None)
+    if model_probabilities and a.model_vj_counts:
+        raise ValueError('supply model V/J counts or probabilities, not both')
+    if a.selection_profile and (a.legacy or a.model_vj_counts or model_probabilities):
         raise ValueError('selection profiles require modern mode and replace model V/J counts')
     if a.allow_missing_model_genes and a.selection_profile:
         raise ValueError('--allow-missing-model-genes requires model counts, not a selection profile')
-    if not a.selection_profile and not a.model_vj_counts:
+    if not a.selection_profile and not a.model_vj_counts and not model_probabilities:
         raise ValueError('--model-vj-counts is required without a selection profile')
     inputs=[meta_path,Path(a.vdjdb).expanduser().resolve(),Path(a.control).expanduser().resolve(),*paths]
     if a.model_vj_counts:
         inputs.append(Path(a.model_vj_counts).expanduser().resolve())
+    if model_probabilities:
+        inputs.append(Path(model_probabilities).expanduser().resolve())
     if a.selection_profile and a.selection_profile not in {'length','vj-length'}:
         inputs.append(Path(a.selection_profile).expanduser().resolve())
     prefix=_validate_output_paths(a.output_prefix,[str(p) for p in inputs])
-    suffixes=['summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
+    suffixes=['v-repairs.tsv','source-audit.tsv','summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
     if a.allow_missing_model_genes:suffixes.append('missing-model-genes.tsv')
     if any(Path(str(prefix)+'.'+s).exists() for s in suffixes):raise FileExistsError('fresh output prefix required')
     before={str(p):sha256(p) for p in inputs}
@@ -201,6 +227,24 @@ def main(a):
     else:
         a.source,a.selection_q,q_origin=_selection_options(a,external_pgen='joint_pgen' in probes.columns)
     if not set(keys)<=set(probes.columns):raise ValueError('control requires junction_aa,v,j')
+    from vdjtools.model import load_bundled
+    from ..io.columns import repair_unknown_v
+    functional_genes=None
+    filtering=not (a.legacy or a.include_nonfunctional)
+    if filtering:
+        working_model=load_bundled(a.locus,a.source,organism=a.species,collapse=False)
+        functional_genes=_functional_genes(working_model)
+    if not a.legacy:
+        reference=repair_unknown_v(reference,locus=a.locus,species=a.species).select('group_id',*keys).unique()
+        probes=repair_unknown_v(probes,locus=a.locus,species=a.species)
+    filter_audit={'enabled':filtering,'reference_keys_before':reference.height,'control_keys_before':probes.height}
+    if filtering:
+        predicate=pl.all_horizontal(pl.col(k).is_in(v) for k,v in functional_genes.items())
+        reference=reference.filter(predicate)
+        probes=probes.filter(predicate)
+    filter_audit.update(reference_keys_after_gene_filter=reference.height,control_keys_after_gene_filter=probes.height)
+    if not reference.height or not probes.height:raise ValueError('no functional reference/control keys remain')
+
     if 'event_weight' in probes.columns:
         from ..io.columns import _integer_count
         control_weights=probes.select(*keys,_integer_count('event_weight')).group_by(keys).agg(pl.col('event_weight').sum())
@@ -219,17 +263,38 @@ def main(a):
         probes=_joint_pgen(probes,species=a.species,locus=a.locus,threads=a.threads,source=a.source,profile=shape,mismatches=a.pgen_mismatches,allow_missing_model_genes=a.allow_missing_model_genes)
         pgen_origin='native gene-allele-summed joint probability'
     now=time.monotonic();stages['pgen_and_selection']=now-mark;mark=now
-    vj=[]
-    for path in paths:
-        frame=_source(path,locus=a.locus);vj.append(frame.group_by('v','j').len(name='records'))
+    if filtering:
+        probes=probes.filter(pl.col('pgen')>0)
+        reference=reference.join(probes.select(keys),on=keys,how='semi')
+    filter_audit.update(reference_keys_after_mass_filter=reference.height,control_keys_after_mass_filter=probes.height)
+    if not reference.height or not probes.height:raise ValueError('no positive-mass reference/control keys remain')
+    vj=[];source_audit=[];v_repairs=[]
+    for sample,path in zip(meta['sample_id'],paths):
+        frame=_source(path,locus=a.locus,repair_v=not a.legacy,species=a.species)
+        records_before=frame.height;reads_before=int(frame['count'].sum())
+        repaired=int(frame['v_repaired'].sum()) if 'v_repaired' in frame.columns else 0
+        if repaired:
+            v_repairs.append(frame.filter(pl.col('v_repaired')).select(*keys,'original_v','count').with_columns(pl.lit(sample).alias('sample_id')))
+        if filtering:frame=frame.filter(predicate)
+        source_audit.append(dict(sample_id=sample,source_records=records_before,retained_records=frame.height,
+            excluded_records=records_before-frame.height,source_reads=reads_before,retained_reads=int(frame['count'].sum()),
+            excluded_reads=reads_before-int(frame['count'].sum()),repaired_v_records=repaired))
+        vj.append(frame.group_by('v','j').len(name='records'))
     now=time.monotonic();stages['source_vj_loading']=now-mark;mark=now
-    if shape is None:
+    if model_probabilities:
+        probes,audit=compiled_reference_strata(probes,pl.concat(vj),selection_q=a.selection_q,
+            model_vj_probabilities=_read_table(Path(model_probabilities).expanduser().resolve()),model_informed_prior=a.model_informed_prior)
+    elif shape is None:
         model=_read_table(Path(a.model_vj_counts).expanduser().resolve())
-        probes,audit=compiled_reference_strata(probes,pl.concat(vj),model,selection_q=a.selection_q)
+        probes,audit=compiled_reference_strata(probes,pl.concat(vj),model,selection_q=a.selection_q,model_informed_prior=a.model_informed_prior)
     else:
         selected=pl.DataFrame(shape['selected_vj']).rename({'v_call':'v','j_call':'j'})
         probes,audit=compiled_reference_strata(probes,pl.concat(vj),selection_q=a.selection_q,
-            model_vj_probabilities=selected)
+            model_vj_probabilities=selected,model_informed_prior=a.model_informed_prior)
+    if not a.legacy:
+        supported=probes.join(control_weights,on=keys,how='inner').filter((pl.col('event_weight')>0)&~pl.col('zero_model_mass'))
+        lowest=int(supported['pgen_bin'].min()) if supported.height else int(probes['pgen_bin'].min())
+        probes=probes.with_columns(pl.when(pl.col('zero_model_mass')).then(lowest).otherwise(pl.col('pgen_bin')).alias('pgen_bin'))
     reference=reference.join(probes.select(*keys,'pgen_bin'),on=keys,validate='m:1')
     now=time.monotonic();stages['strata_and_reference_bins']=now-mark;mark=now
     control=probes.select(*keys,'pgen_bin').join(control_weights,on=keys,validate='1:1').filter(pl.col('event_weight')>0)
@@ -240,7 +305,7 @@ def main(a):
     counts=[];cohort=[];totals=[]
     for i,(sample,path) in enumerate(zip(meta['sample_id'],paths),1):
         sample_start=time.monotonic()
-        observations=_source(path,locus=a.locus)
+        observations=_source(path,locus=a.locus,functional_genes=functional_genes,repair_v=not a.legacy,species=a.species)
         loaded=time.monotonic()
         totals.append(dict(sample_id=sample,sample_clonotypes=observations.height,sample_reads=int(observations['count'].sum())))
         if a.matcher=='stem4':cohort.append(observations.with_columns(pl.lit(sample).alias('sample_id')))
@@ -276,7 +341,8 @@ def main(a):
         parts.append(part)
     summary=pl.concat(parts).join(inventory,on='group_id',validate='m:1')
     now=time.monotonic();stages['statistics_and_fdr']=now-mark;mark=now
-    outputs={'summary.tsv':summary,'counts.tsv':counts,'vj-audit.tsv':audit,'reference-bins.tsv':reference.group_by('group_id','pgen_bin').len(name='reference_keys')}
+    outputs={'source-audit.tsv':pl.DataFrame(source_audit),'summary.tsv':summary,'counts.tsv':counts,'vj-audit.tsv':audit,'reference-bins.tsv':reference.group_by('group_id','pgen_bin').len(name='reference_keys')}
+    if v_repairs:outputs['v-repairs.tsv']=pl.concat(v_repairs)
     if 'pgen_model_supported' in probes.columns:
         outputs['missing-model-genes.tsv']=probes.filter(~pl.col('pgen_model_supported'))
     prefix.parent.mkdir(parents=True,exist_ok=True)
@@ -289,6 +355,9 @@ def main(a):
     if a.sampler=='r':
         import subprocess,shutil
         manifest['r_version']=subprocess.run([shutil.which('Rscript'),'--version'],capture_output=True,text=True,check=True).stdout.strip()
+    if a.model_informed_prior:
+        manifest['probability']='selection_q times AA-max joint Pgen times within-V model-informed J usage ratio; one total prior observation per supported V; missing/zero mass goes to lowest control bin'
+    manifest['functional_filter']=filter_audit
     manifest['model_identity']=model_identity
     manifest['selection_q_origin']=q_origin
     manifest['selection_q']=a.selection_q

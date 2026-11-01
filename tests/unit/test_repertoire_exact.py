@@ -274,3 +274,41 @@ def test_missing_model_gene_uses_explicit_zero_mass_and_count_pseudocount():
     ordinary=_joint_pgen(known,species='human',locus='TRB',threads=1,source='olga-legacy')
     retained=_joint_pgen(known,species='human',locus='TRB',threads=1,source='olga-legacy',allow_missing_model_genes=True)
     assert retained['pgen_model_supported'].item() and retained['pgen'].item()==ordinary['pgen'].item()
+
+
+def test_source_filters_functional_model_genes_without_changing_counts(tmp_path):
+    from vdjmatch.cli.repertoire_exact import _source
+    path=tmp_path/'sample.tsv'
+    path.write_text('junction_aa\tv\tj\tcount\nCASSF\tTRBV2\tTRBJ1-1\t7\nCASSF\tTRBV21-1\tTRBJ1-1\t3\n')
+    assert _source(path,locus='TRB').height==2
+    kept=_source(path,locus='TRB',functional_genes={'v':['TRBV2'],'j':['TRBJ1-1']})
+    assert kept.height==1 and kept['count'].sum()==7
+
+
+def test_unknown_v_repair_preserves_known_zero_mass_gene():
+    from vdjmatch.io.columns import repair_unknown_v
+    frame=pl.DataFrame(dict(junction_aa=['CASSLGQETQYF']*2,v=['TRBV21-1','TRBV999'],j=['TRBJ2-5']*2,count=[3,7]))
+    got=repair_unknown_v(frame,locus='TRB',species='human')
+    assert got['v'][0]=='TRBV21-1' and not got['v_repaired'][0]
+    assert got['original_v'].to_list()==frame['v'].to_list()
+    assert got['junction_aa'].to_list()==frame['junction_aa'].to_list()
+    assert got['count'].to_list()==[3,7]
+    assert got['v'][1]!='TRBV999' and got['v_repaired'][1]
+
+
+def test_cli_functional_default_and_zero_mass_opt_in(tmp_path):
+    (tmp_path/'sample.tsv').write_text('junction_aa\tv\tj\tcount\nCASSF\tTRBV2\tTRBJ1-1\t7\nCATRF\tTRBV21-1\tTRBJ1-1\t3\n')
+    (tmp_path/'meta.tsv').write_text('sample_id\tpath\nS\tsample.tsv\n')
+    (tmp_path/'reference.tsv').write_text('cdr3\tgene\tv\tj\tspecies\tepitope\tmhc_a\tmhc_b\tmhc_class\nCASSF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tLLWNGPMAV\tHLA-A*02:01\tB2M\tMHCI\nCATRF\tTRB\tTRBV21-1\tTRBJ1-1\tHomoSapiens\tLLWNGPMAV\tHLA-A*02:01\tB2M\tMHCI\n')
+    (tmp_path/'probes.tsv').write_text('junction_aa\tv\tj\tjoint_pgen\nCASSF\tTRBV2\tTRBJ1-1\t0.0001\nCATRF\tTRBV21-1\tTRBJ1-1\t0\n')
+    (tmp_path/'model.tsv').write_text('v\tj\trecords\nTRBV2\tTRBJ1-1\t100\nTRBV21-1\tTRBJ1-1\t0\n')
+    for include,records,reads in [(False,1,7),(True,2,10)]:
+        prefix=tmp_path/str(include)
+        cmd=[sys.executable,'-m','vdjmatch.cli','repertoire-exact',str(tmp_path/'meta.tsv'),'--vdjdb',str(tmp_path/'reference.tsv'),'--control',str(tmp_path/'probes.tsv'),'--model-vj-counts',str(tmp_path/'model.tsv'),'--selection-q','1','--model-informed-prior','--threads','1','--mock-replicates','2','--output-prefix',str(prefix)]
+        if include:cmd.append('--include-nonfunctional')
+        run=subprocess.run(cmd,capture_output=True,text=True,timeout=30)
+        assert run.returncode==0,run.stdout+run.stderr
+        audit=pl.read_csv(str(prefix)+'.source-audit.tsv',separator='\t').row(0,named=True)
+        assert (audit['retained_records'],audit['retained_reads'])==(records,reads)
+        bins=pl.read_csv(str(prefix)+'.reference-bins.tsv',separator='\t')
+        assert bins['pgen_bin'].n_unique()==1

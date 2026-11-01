@@ -432,7 +432,7 @@ junction/V/J keys and generated-model V/J counts. Preserve source-row/read
 counts, exact V/J/junction matching, AA-max joint Pgen, within-V add-one J
 correction and the 2^-80 floor. `--sampler r --pool-mhc` reproduces original
 single-epitope draws; declare original FDR groups with `--fdr-group`.
-The NumPy backend follows the same sampling law, not R's seeded draws.
+The NumPy backend uses pre-binned control-event slots with replacement; R retains the historical distinct-key law.
 
 See [CLI definitions](../../docs/cli.rst) for optional panel matchers and input filtering.
 Keep complete-zero tests separate from `original_*` statistics that omit
@@ -621,3 +621,12 @@ software parity checks do not select a biological cutoff or establish10^7scaling
 For large repertoires and small panels, reuse the existing columnar exact join
 or repertoire-indexed native batch. Reverse only a geometry whose symmetry has
 been established; query-conditioned scores need their own directional contract.
+
+For an explicitly requested model-informed V/J prior, use repertoire-exact
+--model-informed-prior: one total prior observation per V group distributed by
+model J probabilities. Raw audit counts remain unshifted. Modern runs filter functional positive-support
+genes and positive-mass reference/control keys by default. --include-nonfunctional
+retains missing/zero mass in the lowest control bin; known zero-mass genes are
+not re-called. Only V genes absent from the ARDA reference use its existing
+proposal API. --legacy preserves historical input handling and add-one smoothing.
+--model-vj-probabilities accepts exact v,j,p model masses instead of counts.

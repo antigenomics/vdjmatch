@@ -2824,7 +2824,19 @@ Metadata requires ``sample_id,path``. Repeated ``--fdr-group COLUMN`` options
 select metadata-defined BH families within each target. Default target labels
 retain full pMHC; ``--pool-mhc`` explicitly reproduces the original epitope
 union. ``--sampler r`` requires Rscript and reproduces base-R sampling for one
-target, preserving probe order. The NumPy sampler uses pre-binned event slots with replacement and clips
+target, preserving probe order. ``--model-informed-prior`` replaces historical
+add-one V/J smoothing with one total model-distributed prior observation per V
+group, using ``(n_j + p_model(j|V)) / (N_V + 1)`` and retaining raw audit counts.
+Zero/missing model mass is sent to the lowest occupied control Pgen bin when
+retained. Modern runs default to functional, positive-model-support genes and
+positive-mass reference/control keys; ``--include-nonfunctional`` retains them
+instead. ``--legacy`` preserves historical inputs and add-one reproduction.
+Only V genes absent from the ARDA reference are proposed again through its
+existing junction markup; known zero-mass genes are never re-called.
+``.source-audit.tsv`` reports source/retained/excluded rows and reads.
+``--model-vj-probabilities`` accepts exact ``v,j,p`` model probabilities instead
+of generated-model count tables.
+The NumPy sampler uses pre-binned event slots with replacement and clips
 reference values below the control minimum to that minimum bin. The R sampler
 retains the historical distinct-key law and seeded reproduction.
 
