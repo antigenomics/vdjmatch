@@ -340,8 +340,10 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
     An opt-in selection profile supplies exact normalized selected V/J ``p``
     instead of generated model counts; the sample retains its add-one correction.
     This removes the fitted V/J bias from the residual composition correction.
-    Opt-in model_informed_prior instead adds one total model-distributed prior
-    observation per V group, retaining raw counts and unsmoothed model masses.
+    Opt-in model_informed_prior instead uses joint junction/V/J mass and adds
+    one total model-distributed prior observation across all V/J cells. Its
+    global frequency ratio corrects both V and J usage; historical within-V
+    normalization and AA-only maximum remain confined to the default path.
     """
     from vdjtools.model.selection import selection_mass
     keys=['junction_aa','v','j']
@@ -368,7 +370,7 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
         audit=audit.with_columns(pl.col('sample_records','model_records').fill_null(0))
         if not model_informed_prior:
             audit=audit.with_columns(pl.col('sample_records','model_records')+1)
-        audit=audit.with_columns((pl.col(name+'_records')/pl.col(name+'_records').sum().over('v')).alias(name+'_probability') for name in ['sample','model'])
+        audit=audit.with_columns((pl.col(name+'_records')/(pl.col(name+'_records').sum() if model_informed_prior else pl.col(name+'_records').sum().over('v'))).alias(name+'_probability') for name in ['sample','model'])
     else:
         if model_vj is not None:
             raise ValueError('supply model counts or exact selected V/J probabilities, not both')
@@ -386,14 +388,14 @@ def compiled_reference_strata(probes: pl.DataFrame, sample_vj: pl.DataFrame,
             audit=audit.with_columns(pl.col('model_probability').fill_null(0))
         audit=audit.with_columns((pl.col('sample_records').fill_null(0)+(0 if model_informed_prior else 1)).alias('sample_records'))
         audit=audit.with_columns((pl.col('sample_records')/pl.col('sample_records').sum().over('v')).alias('sample_probability'),
-            (pl.col('model_probability')/pl.col('model_probability').sum().over('v')).alias('model_probability'))
+            (pl.col('model_probability')/(pl.col('model_probability').sum() if model_informed_prior else pl.col('model_probability').sum().over('v'))).alias('model_probability'))
     if model_informed_prior:
         audit=audit.with_columns(pl.col('model_probability').fill_nan(0).fill_null(0))
         audit=audit.with_columns(pl.col('model_probability').alias('sample_prior_records'))
         audit=audit.with_columns(((pl.col('sample_records')+pl.col('sample_prior_records'))/
-            (pl.col('sample_records').sum().over('v')+pl.col('sample_prior_records').sum().over('v'))).fill_nan(0).alias('sample_probability'))
+            (pl.col('sample_records').sum()+pl.col('sample_prior_records').sum())).fill_nan(0).alias('sample_probability'))
     audit=audit.with_columns(pl.when(pl.col('model_probability')>0).then(pl.col('sample_probability')/pl.col('model_probability')).otherwise(1.).alias('vj_factor')).sort('v','j',nulls_last=True)
-    result=probes.with_columns(pl.col('pgen').max().over('junction_aa').alias('pcdr')).join(
+    result=probes.with_columns((pl.col('pgen') if model_informed_prior else pl.col('pgen').max().over('junction_aa')).alias('pcdr')).join(
         audit.select('v','j','vj_factor',(pl.col('model_probability')<=0).alias('_missing_model_mass')),on=['v','j'],how='left',validate='m:1',maintain_order='left')
     if result['vj_factor'].null_count():
         raise ValueError('probe V/J keys absent from both count populations')
