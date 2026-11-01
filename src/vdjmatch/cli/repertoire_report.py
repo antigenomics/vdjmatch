@@ -49,7 +49,8 @@ def render(counts, summary, metric, prefix):
                     plt.close(fig); raise ValueError('finite endpoint values required')
                 ax.hist(x, bins='auto', color='#999999', alpha=.75)
                 ax.axvline(real, color='#0072B2', linewidth=2, label='Observed')
-                label = f'{key[0]} | P={nominal:.4g}' if nominal is not None else f'{key[0]} | P unavailable'
+                sample_label = selected['sample_label'][0] if 'sample_label' in selected.columns else key[0]
+                label = f'{sample_label} | P={nominal:.4g}' if nominal is not None else f'{sample_label} | P unavailable'
                 if adjusted is not None: label += f' | q={adjusted:.4g}'
                 target = str(key[1])
                 if target.startswith('{"'): target = ' | '.join(map(str, json.loads(target).values()))
