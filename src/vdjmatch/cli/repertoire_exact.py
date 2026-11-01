@@ -137,7 +137,7 @@ def _summaries(counts):
                 row[measure]=observed[measure]
                 row['mock_mean_'+measure]=float(mock[measure].mean())
         rows.append(row)
-    return pl.DataFrame(rows,infer_schema_length=None)
+    return pl.DataFrame(rows,infer_schema_length=None).with_columns(pl.col('^original_(p|mean|sd|effect)_.+$').cast(pl.Float64))
 
 
 def _adjust_summary(summary,endpoints,fdr_groups):

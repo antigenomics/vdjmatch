@@ -365,3 +365,13 @@ def test_shannon_concentration_uses_lower_tail():
     s=_summaries(counts).row(0,named=True)
     assert s['p_shannon']==pytest.approx(1/3) and s['p_simpson']==pytest.approx(1/3)
     assert s['original_effect_shannon']>0 and s['original_effect_simpson']>0
+
+
+def test_hill_summary_schema_stable_from_degenerate_to_informative_depth():
+    from vdjmatch.cli.repertoire_exact import _summaries
+    base=pl.DataFrame(dict(sample_id=['S']*3,group_id=['X']*3,replicate=[-1,0,1],matched_records=[2]*3,matched_reads=[9]*3,matched_hill0=[1.,1.,1.]))
+    shallow=_summaries(base)
+    deeper=_summaries(base.with_columns(pl.Series('matched_hill0',[1.5,1.6,1.8])))
+    assert shallow['original_effect_hill0'].dtype==pl.Float64
+    assert pl.concat([shallow,deeper]).height==2
+    assert deeper['original_effect_hill0'].item()>0
