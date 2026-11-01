@@ -161,3 +161,16 @@ def test_cli_rebuilds_flat_tables_and_provenance(tmp_path, task):
         corr = pl.read_csv(str(prefix)+'.correlations.tsv', separator='\t')
         assert set(corr['region']) == {'all', 'V', 'NDN', 'J'}
         assert corr.filter(pl.col('region') == 'V')['events'].item() == 0
+
+
+def test_native_events_can_retain_endpoints_for_different_epitope_comparison():
+    frame = _frame()
+    all_pairs = audit.substitution_events(frame, threads=1, include_sequences=True, shared_only=False)
+    assert all_pairs.height == 6 and 'epitope' not in all_pairs.columns
+    assert all_pairs.select('q', 'r').unique().height == 6
+    assert all_pairs.filter((pl.col('a') == 'D') & (pl.col('b') == 'E')).height == 1
+    shared = audit.substitution_events(frame, threads=1, include_sequences=True)
+    assert shared.drop('q', 'r').equals(audit.substitution_events(frame, threads=1))
+    assert shared.filter((pl.col('a') == 'D') & (pl.col('b') == 'E')).is_empty()
+    empty = audit.substitution_events(frame.head(0), include_sequences=True, shared_only=False)
+    assert empty.schema == all_pairs.schema

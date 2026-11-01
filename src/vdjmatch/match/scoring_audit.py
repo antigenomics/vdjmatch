@@ -248,15 +248,21 @@ def named_dissim(name):
     return {k: hi-v for k, v in values.items()}
 
 
-def substitution_events(frame, *, threads=1):
+def substitution_events(frame, *, threads=1, include_sequences=False, shared_only=True):
     """One locus-wide Hamming-1 native batch, then same-epitope incidence joins.
 
     An unordered sequence pair contributes once per shared eligible epitope,
-    exactly as the old separate epitope searches did.
+    exactly as the old separate epitope searches did. Set shared_only=False for
+    all unordered Hamming-1 pairs; include_sequences retains endpoints for
+    subsequent V/J, origin and complete-label joins.
     """
     membership = frame.select('cdr3', 'epitope').unique().sort('cdr3', 'epitope')
     seqs = membership['cdr3'].unique().sort().to_list()
     schema = {'epitope': pl.String, 'a': pl.String, 'b': pl.String, 'pos': pl.Int64, 'L': pl.Int64}
+    if not shared_only:
+        del schema['epitope']
+    if include_sequences:
+        schema.update(q=pl.String, r=pl.String)
     if not seqs:
         return pl.DataFrame(schema=schema)
     result = Index.build(seqs, 'aa').search_batch(seqs,
@@ -285,8 +291,11 @@ def substitution_events(frame, *, threads=1):
             'b': right[offsets, positions].view('S1').astype(str),
             'pos': positions, 'L': np.full(len(pair), length)})
         parts.append(part)
-    events = pl.concat(parts).join(membership.rename({'cdr3': 'q'}), on='q', how='inner', validate='m:m')
-    return events.join(membership.rename({'cdr3': 'r'}), on=['r', 'epitope'], how='inner', validate='m:m').select(*schema)
+    events = pl.concat(parts)
+    if shared_only:
+        events = events.join(membership.rename({'cdr3': 'q'}), on='q', how='inner', validate='m:m')
+        events = events.join(membership.rename({'cdr3': 'r'}), on=['r', 'epitope'], how='inner', validate='m:m')
+    return events.select(*schema)
 
 
 def matrix_audit(frame, *, min_epi=30, vlen=4, jlen=6, legacy, threads=1):
