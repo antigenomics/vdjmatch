@@ -6,7 +6,7 @@
 <g transform="translate(60 0)">
 <text x="0" y="51" class="accent small" font-weight="700">ISALGO / VDJMATCH</text>
 <text x="0" y="96" font-size="34" font-weight="700">From receptor tables to antigen evidence</text>
-<text x="0" y="130" class="body muted">One reference search, distinct receptor and repertoire questions</text>
+<text x="0" y="130" class="body muted">Shared matching machinery, distinct receptor and repertoire questions</text>
 <path d="M0 157 H1080" class="line faint"/>
 <!-- Bulk rows and observed cell pairs are inputs, not illustrative observations. -->
 <g transform="translate(15 190)">
@@ -23,7 +23,7 @@
 </g>
 <path d="M280 259 V283 H800 V259 M540 283 V307" class="line"/>
 <text x="540" y="340" class="title" text-anchor="middle">Validate → normalize → search curated VDJdb</text>
-<text x="540" y="372" class="body muted" text-anchor="middle">Native batches · full peptide–MHC identity · retained reference observations</text>
+<text x="540" y="372" class="body muted" text-anchor="middle">Columnar exact / native batched search · full peptide–MHC · retained reference observations</text>
 <path d="M540 393 V417 M270 417 H810 M270 417 V445 M810 417 V445" class="line faint"/>
 <!-- Two scientific questions, with different evidence and nulls. -->
 <g transform="translate(0 478)">

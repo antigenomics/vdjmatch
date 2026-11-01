@@ -13,7 +13,7 @@
 
 The current abundance workflow requires the additive vdjtools 5.6.0 APIs.
 
-## [0.6.3] - Unreleased
+## Earlier 0.6.3 preparation
 
 - Require seqtree 1.3.2, vdjtools 5.3.2 and optional arda-mapper 2.37.1.
 - Resolve ordinary CLI and repertoire-library CPU budgets from the job allocation.
