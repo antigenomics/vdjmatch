@@ -145,7 +145,17 @@ def origin_matrix(a):
         & pl.col("reference_valid").fill_null(False)
         & pl.col("cdr3").str.contains("^[ACDEFGHIKLMNPQRSTVWY]+$")
         & (pl.col("cdr3").str.len_chars() >= 8)
-    ).select("epitope", "cdr3", pl.col("v").alias("source_v"), pl.col("j").alias("source_j"))
+    ).select(
+        "epitope", "cdr3", pl.col("v").alias("source_v"), pl.col("j").alias("source_j")
+    )
+    all_labels = raw.filter(
+        (pl.col("gene") == a.locus)
+        & pl.col("reference_valid").fill_null(False)
+        & pl.col("cdr3").str.contains("^[ACDEFGHIKLMNPQRSTVWY]+$")
+        & (pl.col("cdr3").str.len_chars() >= 8)
+    ).select(
+        "epitope", "cdr3", pl.col("v").alias("source_v"), pl.col("j").alias("source_j")
+    )
     model = load_bundled(a.locus, source="isalgo", organism=organism)
     _, vi, ji = pack(model)
     anchors = None
@@ -153,7 +163,7 @@ def origin_matrix(a):
     for column, kind, index in [("source_v", "V", vi), ("source_j", "J", ji)]:
         inverse = {i: name for name, i in index.items()}
         mapping = {}
-        for call in source[column].unique().to_list():
+        for call in all_labels[column].unique().sort(nulls_last=True).to_list():
             resolved = None
             status = "unresolved"
             ambiguous = bool(call and (any(c in call for c in ",;| ") or "/TR" in call))
@@ -182,6 +192,11 @@ def origin_matrix(a):
             .replace_strict(mapping, return_dtype=pl.String)
             .alias(kind.lower())
         )
+        all_labels = all_labels.with_columns(
+            pl.col(column)
+            .replace_strict(mapping, return_dtype=pl.String)
+            .alias(kind.lower())
+        )
     ready = source.filter(pl.col("v").is_not_null() & pl.col("j").is_not_null())
     queries = (
         ready.select("cdr3", "v", "j")
@@ -203,7 +218,15 @@ def origin_matrix(a):
         .join(queries, on=["cdr3", "v", "j"], validate="m:1")
         .sort("epitope", "query_id")
     )
-    matrix, blocks, support, epitope_pairs = origin_block_matrices(membership, origins)
+    known_labels = (
+        all_labels.select("cdr3", "v", "j", "epitope")
+        .unique()
+        .join(queries, on=["cdr3", "v", "j"], how="inner", validate="m:1")
+        .select("query_id", "epitope")
+    )
+    matrix, blocks, support, epitope_pairs, contrast = origin_block_matrices(
+        membership, origins, known_labels
+    )
     resolved = membership.join(support, on="query_id", validate="m:1").with_columns(
         pl.when(pl.col("origin_supported"))
         .then(pl.lit("origin_supported"))
@@ -269,6 +292,7 @@ def origin_matrix(a):
             },
         ).sort("segment", "call", nulls_last=True),
     }
+    tables.update(contrast)
     prefix.parent.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():
         table.with_columns(
@@ -306,6 +330,13 @@ def origin_matrix(a):
         },
         sequence_convention="anchor-inclusive junction; zero-based AA codons",
         estimator="pure-N posterior products; same-epitope/V/J/length blocks; unique junction/V/J unit clusters",
+        recognition_background="same V/J/length/position/N opportunity; complete known curated label sets disjoint; unmatched positive mass retained separately",
+        recognition_scores=[
+            "unordered count density ratio",
+            "mean directional log odds; single-stratum independent composition cancels",
+        ],
+        known_label_source_records=all_labels.height,
+        known_label_query_memberships=known_labels.height,
         weighting=["pair-mass pooled", "equal contributing epitope"],
         score="unrounded log2(q_ab/(p_a*p_b)); distance=max(0,S_aa+S_bb-2*S_ab), bits",
         missing="zero-likelihood and unresolved calls retained in support; unsupported cells null; no pseudocount",

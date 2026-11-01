@@ -50,7 +50,7 @@ def _inputs():
 
 def test_origin_blocks_remove_fixed_identities_and_retain_missing_cells():
     clones, origins = _inputs()
-    matrix, blocks, support, pairs = origin_block_matrices(clones, origins)
+    matrix, blocks, support, pairs, _ = origin_block_matrices(clones, origins)
     assert support.filter(~pl.col("origin_supported"))["query_id"].to_list() == [4]
     assert blocks.height == 1 and blocks["clonotypes"][0] == 4
     assert pairs["n_weighted_ordered_site_pairs"].sum() == 24
@@ -75,10 +75,12 @@ def test_origin_blocks_remove_fixed_identities_and_retain_missing_cells():
     second = clones.filter(pl.col("query_id") < 2).with_columns(
         pl.lit("F").alias("epitope")
     )
-    repeated, _, _, _ = origin_block_matrices(pl.concat([clones, second]), origins)
+    repeated, _, _, _, _ = origin_block_matrices(pl.concat([clones, second]), origins)
     aa = repeated.filter((pl.col("a") == "A") & (pl.col("b") == "A"))
-    assert aa.filter(pl.col("weighting") == "equal_epitope")["q"][0] == pytest.approx(1/3)
-    assert aa.filter(pl.col("weighting") == "pooled")["q"][0] == pytest.approx(3/14)
+    assert aa.filter(pl.col("weighting") == "equal_epitope")["q"][0] == pytest.approx(
+        1 / 3
+    )
+    assert aa.filter(pl.col("weighting") == "pooled")["q"][0] == pytest.approx(3 / 14)
     with pytest.raises(ValueError, match="every codon"):
         origin_block_matrices(clones, origins.slice(1))
     with pytest.raises(ValueError, match="unique"):
@@ -113,7 +115,18 @@ def test_origin_cli_preserves_source_units_and_zero_support(tmp_path, monkeypatc
             reference_valid=[True] * 5,
         )
     )
-    monkeypatch.setattr(db, "load", lambda *args, **kwargs: frame)
+    tail = frame[[0, 2]].with_columns(pl.lit("TAIL").alias("epitope"))
+    complete = pl.concat([frame, tail])
+    monkeypatch.setattr(db, "load", lambda *args, **kwargs: complete)
+    import vdjmatch.match.scoring_audit as owner
+
+    original = owner.origin_block_matrices
+
+    def count_with_complete_labels(clones, origins, known_labels):
+        assert known_labels.filter(pl.col("epitope") == "TAIL").height == 2
+        return original(clones, origins, known_labels)
+
+    monkeypatch.setattr(owner, "origin_block_matrices", count_with_complete_labels)
     monkeypatch.setattr(db, "provenance", lambda p: dict(test_raw=str(p)))
 
     def posterior(model, cdr3_aas, **kwargs):
@@ -154,7 +167,7 @@ def test_origin_cli_preserves_source_units_and_zero_support(tmp_path, monkeypatc
             "--locus",
             "TRA",
             "--min-records",
-            "1",
+            "3",
             "--output-prefix",
             str(prefix),
         ]
@@ -171,3 +184,81 @@ def test_origin_cli_preserves_source_units_and_zero_support(tmp_path, monkeypatc
     manifest = json.loads((tmp_path / "origin.provenance.json").read_text())
     assert manifest["origin_queries"] == 3 and manifest["source_records"] == 5
     assert pl.read_csv(str(prefix) + ".matrix.tsv", separator="\t").height == 800
+
+
+def test_matched_background_uses_disjoint_complete_labels_and_same_N_opportunity():
+    clones = pl.DataFrame(
+        dict(
+            query_id=[0, 1, 2, 3],
+            cdr3=["AAA", "CAA", "DAA", "EAA"],
+            v=["V"] * 4,
+            j=["J"] * 4,
+            epitope=["E", "E", "F", "G"],
+        )
+    )
+    weights = [0.2, 0.5, 0.7, 0.9]
+    origins = pl.DataFrame(
+        [
+            dict(query_id=q, position=p, n_probability=weights[q] if p == 0 else 0.0)
+            for q in range(4)
+            for p in range(3)
+        ]
+    )
+    labels = pl.concat(
+        [
+            clones.select("query_id", "epitope"),
+            pl.DataFrame(dict(query_id=[0, 2], epitope=["TAIL", "TAIL"])),
+        ]
+    )
+    *_, contrast = origin_block_matrices(clones, origins, labels)
+    pairs = contrast["recognition-pairs"].filter(pl.col("epitope") == "E")
+    assert pairs["positive_pair_weight"].sum() == pytest.approx(0.2)
+    assert pairs["background_pair_weight"].sum() == pytest.approx(0.2)
+    assert (
+        pairs.filter((pl.col("a") == "A") & (pl.col("b") == "D"))[
+            "background_pair_weight"
+        ][0]
+        == 0
+    )
+    assert pairs.filter((pl.col("a") == "C") & (pl.col("b") == "D"))[
+        "background_pair_weight"
+    ][0] == pytest.approx(0.35 * 0.2 / 1.96)
+    support = contrast["recognition-support"]
+    assert support.height == 1 and support["position"][0] == 0
+    assert support["background_ordered_pair_weight"][0] == pytest.approx(1.96)
+    # A common known label forbids all background pairs, retaining unmatched mass.
+    common = pl.concat(
+        [
+            labels,
+            clones.select("query_id").with_columns(pl.lit("COMMON").alias("epitope")),
+        ]
+    )
+    *_, unmatched = origin_block_matrices(clones, origins, common)
+    assert not unmatched["recognition-support"]["matched"].any()
+    assert unmatched["recognition-support"][
+        "positive_ordered_pair_weight"
+    ].sum() == pytest.approx(0.2)
+    assert unmatched["recognition-pairs"]["positive_pair_weight"].sum() == 0
+    assert unmatched["recognition-pairs"]["background_pair_weight"].sum() == 0
+
+
+def test_log_role_symmetry_removes_independent_composition_effect():
+    from vdjmatch.match.scoring_audit import (
+        similarity_from_counts,
+        costs_from_similarity,
+    )
+
+    p = np.array([0.8, 0.2])
+    g = np.array([0.2, 0.8])
+    positive = np.outer(p, p)
+    directed = np.outer(p, g)
+    unordered, _ = similarity_from_counts(
+        positive, (directed + directed.T) / 2, lambda_bits=1.0, round_scores=False
+    )
+    oriented, _ = similarity_from_counts(
+        positive, directed, lambda_bits=1.0, round_scores=False
+    )
+    assert costs_from_similarity(unordered)[0, 1] > 2.0
+    assert np.allclose(
+        costs_from_similarity((oriented + oriented.T) / 2), 0.0, atol=1e-14
+    )

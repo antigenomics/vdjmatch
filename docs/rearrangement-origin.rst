@@ -225,6 +225,60 @@ expand that support must be specified before fitting. Model-inferred
 nucleotides remain unsuitable as independent evidence for selecting this
 coupling.
 
+**Directional roles and composition in the other-epitope comparison.**
+Within an epitope/V/J/length/position stratum, different-labelled
+partners are selected from receptors whose complete known epitope-label
+sets are disjoint. Known tail labels remain exclusion evidence even when
+their repertoires are below primary eligibility. For each label-set
+group :math:`g`, let :math:`C_{ga}` be its sum of pure-N site weights
+for residue :math:`a`, and let :math:`A_{gh}=1` when groups :math:`g,h`
+have disjoint labels. For a primary epitope :math:`e`, selecting groups
+containing :math:`e` gives directional background counts
+
+.. math::
+
+
+    B^{\to,e}=C_e^{\mathsf T}(AC)_e.
+
+This groups the calculation by label sets, without enumerating receptor
+pairs. Match background mass to positive N-pair opportunity separately
+in every declared stratum. When background opportunity is absent, retain
+that positive mass in the support audit and exclude it from both
+comparison matrices. Apply the same epitope weights to the matched
+positive and background matrices.
+
+Symmetrization before taking logarithms can retain an amino-acid
+composition effect. For positive and other-epitope residue profiles
+:math:`p,g`, suppose the positive probability is :math:`q^+_{ab}=p_ap_b`
+and the directional background is :math:`q^{\to,0}_{ab}=p_ag_b`. Writing
+:math:`t_a=p_a/g_a>0`, symmetrizing the background counts before the log
+gives
+
+.. math::
+
+
+    D^{\mathrm{unordered}}_{ab}
+    =\log_2\frac{(t_a+t_b)^2}{4t_at_b}\ge0.
+
+Thus unequal residue frequencies can create a cost even in this
+independent-profile construction. An alternative averages the two
+directional log odds:
+
+.. math::
+
+
+    S^{\mathrm{role}}_{ab}=\frac12\left[
+    \log_2\frac{q^+_{ab}}{q^{\to,0}_{ab}}
+    +\log_2\frac{q^+_{ba}}{q^{\to,0}_{ba}}\right].
+
+In the stated independent-profile case this becomes
+:math:`(\log_2t_a+\log_2t_b)/2`, so its diagonal-zero contrast is zero.
+The implementation reports these two estimands separately. This
+cancellation is a mathematical single-stratum property; context mixing,
+finite-pair corrections and incomplete empirical support still require
+accounting. A block density contrast remains distinct from a
+composition-adjusted neighbour exchange model.
+
 **One-substitution neighbours require an ascertainment correction.**
 When the input contains only Hamming-one neighbours, observing a change
 at :math:`p` requires every other compared site to match. Under an
@@ -471,12 +525,14 @@ boundaries, ambiguous histories, fixed-template exclusion,
 zero-likelihood observations and serial/parallel equality. The VDJmatch
 ``scoring-audit --task origin-matrix`` command implements
 posterior-weighted same-epitope/V/J/length block counts, pooled and
-equal-epitope matrices, and source/support/exposure tables. This first
-estimator uses unique junction/V/J clonotypes as unit clusters; it does
-not claim BLOSUM62 redundancy clustering. The interface does not assign
-a full separate G/P/mixed posterior; the full origin-conditioned indel
-extension and independent empirical validation remain open. Previously
-reported interior/all-residue fits remain descriptive composition
-diagnostics, and the accepted core/bundle accuracy comparison retains
-its original producing scope. No completed independent high-:math:`R^2`
-recovery is claimed for the origin-aware estimator.
+equal-epitope matrices, source/support/exposure tables, and matched
+other-epitope contrasts with both count and directional-log
+symmetrization. This first estimator uses unique junction/V/J clonotypes
+as unit clusters; it does not claim BLOSUM62 redundancy clustering. The
+interface does not assign a full separate G/P/mixed posterior; the full
+origin-conditioned indel extension and independent empirical validation
+remain open. Previously reported interior/all-residue fits remain
+descriptive composition diagnostics, and the accepted core/bundle
+accuracy comparison retains its original producing scope. No completed
+independent high-:math:`R^2` recovery is claimed for the origin-aware
+estimator.

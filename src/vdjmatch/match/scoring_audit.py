@@ -525,7 +525,7 @@ def costs_from_similarity(similarity):
     return cost
 
 
-def origin_block_matrices(clonotypes, origins):
+def origin_block_matrices(clonotypes, origins, known_labels=None):
     """Same-epitope/V/J/length block counts with exact pure-N posterior weights.
 
     ``clonotypes`` has unique (epitope, query_id) rows and columns cdr3,v,j;
@@ -570,11 +570,14 @@ def origin_block_matrices(clonotypes, origins):
     supported = origins.group_by("query_id").agg(
         pl.col("n_probability").is_not_null().all().alias("origin_supported")
     )
-    selected = clonotypes.join(supported, on="query_id", validate="m:1").filter(
-        pl.col("origin_supported")
-    ).sort("epitope", "v", "j", "cdr3", "query_id")
+    selected = (
+        clonotypes.join(supported, on="query_id", validate="m:1")
+        .filter(pl.col("origin_supported"))
+        .sort("epitope", "v", "j", "cdr3", "query_id")
+    )
     rows = []
     counts = {}
+    contrast = None
     if selected.height:
         ids = queries["query_id"].to_list()
         lookup = {q: i for i, q in enumerate(ids)}
@@ -612,6 +615,9 @@ def origin_block_matrices(clonotypes, origins):
                     columns_with_pairs=stats["kept_columns"],
                 )
             )
+        contrast = _matched_origin_background(
+            selected, weights, lookup, aa_lookup, known_labels
+        )
     matrix_rows = []
     contributing = [c for c in counts.values() if c.sum() > 0]
     pooled = sum(contributing, np.zeros((20, 20)))
@@ -682,4 +688,203 @@ def origin_block_matrices(clonotypes, origins):
             "n_weighted_ordered_site_pairs": pl.Float64,
         },
     )
-    return matrix, blocks.sort("epitope", "v", "j", "length"), supported.sort("query_id"), epitope_pairs
+    if contrast is None:
+        contrast = _matched_origin_background(None, None, None, None, None)
+    return (
+        matrix,
+        blocks.sort("epitope", "v", "j", "length"),
+        supported.sort("query_id"),
+        epitope_pairs,
+        contrast,
+    )
+
+
+def _matched_origin_background(selected, weights, lookup, aa_lookup, known_labels):
+    """Matched disjoint-label block background; no query-pair enumeration.
+
+    Positive and background counts share epitope/V/J/length/position/N opportunity.
+    Missing background excludes that site's positive mass from BOTH matrices.
+    Complete known labels, including ineligible tails, define disjointness only.
+    Different-labelled receptors are selected background, not assay negatives.
+    """
+    positive = {}
+    background = {}
+    directional_background = {}
+    support_rows = []
+    if selected is not None and selected.height:
+        primary = selected.select("query_id", "epitope").unique()
+        known_labels = (
+            primary
+            if known_labels is None
+            else known_labels.select("query_id", "epitope").unique()
+        )
+        if primary.join(known_labels, on=["query_id", "epitope"], how="anti").height:
+            raise ValueError("known label sets must retain every primary label")
+        label_sets = {
+            q: frozenset(part["epitope"].to_list())
+            for (q,), part in known_labels.group_by("query_id")
+        }
+        for (v, j, length), membership in selected.group_by(
+            "v", "j", "L", maintain_order=True
+        ):
+            block = membership.unique("query_id").sort("query_id")
+            signatures = [label_sets[q] for q in block["query_id"]]
+            groups = sorted(set(signatures), key=lambda x: tuple(sorted(x)))
+            if len(groups) < 2:
+                allowed = np.zeros((len(groups), len(groups)))
+            else:
+                allowed = np.array(
+                    [[g.isdisjoint(h) for h in groups] for g in groups], dtype=float
+                )
+            group_id = {g: i for i, g in enumerate(groups)}
+            ids = np.array([group_id[g] for g in signatures])
+            encoded = aa_lookup[
+                np.frombuffer("".join(block["cdr3"]).encode(), dtype=np.uint8)
+            ].reshape(-1, length)
+            mask = weights[[lookup[q] for q in block["query_id"]], :length]
+            active = []
+            for epitope in sorted(membership["epitope"].unique().to_list()):
+                positive.setdefault(epitope, np.zeros((20, 20)))
+                background.setdefault(epitope, np.zeros((20, 20)))
+                directional_background.setdefault(epitope, np.zeros((20, 20)))
+                in_group = np.array([epitope in g for g in groups])
+                in_query = in_group[ids]
+                n = int(in_query.sum())
+                if n >= 2:
+                    active.append((epitope, in_group, in_query, n))
+            for position in range(length):
+                c = np.zeros((len(groups), 20))
+                np.add.at(c, (ids, encoded[:, position]), mask[:, position])
+                if c.sum() == 0:
+                    continue
+                others = allowed @ c
+                for epitope, in_group, in_query, n in active:
+                    pos, _, _ = column_pair_counts(
+                        encoded[in_query, position : position + 1],
+                        np.arange(n),
+                        mask[in_query, position : position + 1],
+                    )
+                    pos_mass = float(pos.sum())
+                    if pos_mass <= 0:
+                        continue
+                    directed = c[in_group].T @ others[in_group]
+                    neg = directed + directed.T
+                    neg_mass = float(neg.sum())
+                    matched = neg_mass > 0
+                    if matched:
+                        positive[epitope] += pos
+                        background[epitope] += neg * (pos_mass / neg_mass)
+                        directional_background[epitope] += directed * (
+                            2 * pos_mass / neg_mass
+                        )
+                    support_rows.append(
+                        dict(
+                            epitope=epitope,
+                            v=v,
+                            j=j,
+                            length=length,
+                            position=position,
+                            positive_ordered_pair_weight=pos_mass,
+                            background_ordered_pair_weight=neg_mass,
+                            matched=matched,
+                        )
+                    )
+    cells = []
+    for epitope in sorted(positive):
+        assert np.isclose(positive[epitope].sum(), background[epitope].sum())
+        for i, a in enumerate(AA):
+            for k, b in enumerate(AA):
+                cells.append(
+                    dict(
+                        epitope=epitope,
+                        a=a,
+                        b=b,
+                        positive_pair_weight=float(positive[epitope][i, k]),
+                        background_pair_weight=float(background[epitope][i, k]),
+                        directional_background_pair_weight=float(
+                            directional_background[epitope][i, k]
+                        ),
+                    )
+                )
+    rows = []
+    labels = [e for e in sorted(positive) if positive[e].sum() > 0]
+    for weighting in ["pooled", "equal_epitope"]:
+        scales = {
+            e: 1.0 if weighting == "pooled" else 1.0 / positive[e].sum() for e in labels
+        }
+        pos = sum((scales[e] * positive[e] for e in labels), np.zeros((20, 20)))
+        neg = sum((scales[e] * background[e] for e in labels), np.zeros((20, 20)))
+        directed = sum(
+            (scales[e] * directional_background[e] for e in labels), np.zeros((20, 20))
+        )
+        for estimator, bg in [
+            ("unordered_density", neg),
+            ("directional_log_mean", directed),
+        ]:
+            if pos.sum() > 0 and bg.sum() > 0:
+                score, _ = similarity_from_counts(
+                    pos, bg, lambda_bits=1.0, round_scores=False
+                )
+                if estimator == "directional_log_mean":
+                    score = (score + score.T) / 2
+                q = pos / pos.sum()
+                q0 = bg / bg.sum()
+                raw = np.add.outer(np.diag(score), np.diag(score)) - 2 * score
+                identified = (
+                    np.isfinite(score)
+                    & np.isfinite(np.diag(score))[:, None]
+                    & np.isfinite(np.diag(score))[None, :]
+                )
+                raw = np.where(identified, raw, np.nan)
+                distance = np.where(identified, costs_from_similarity(score), np.nan)
+            else:
+                q = q0 = np.zeros((20, 20))
+                score = raw = distance = np.full((20, 20), np.nan)
+            for i, a in enumerate(AA):
+                for k, b in enumerate(AA):
+                    rows.append(
+                        dict(
+                            estimator=estimator,
+                            weighting=weighting,
+                            a=a,
+                            b=b,
+                            positive_pair_weight=float(pos[i, k]),
+                            background_pair_weight=float(bg[i, k]),
+                            q=float(q[i, k]),
+                            background_q=float(q0[i, k]),
+                            score_bits=float(score[i, k]),
+                            raw_distance_bits=float(raw[i, k]),
+                            distance_bits=float(distance[i, k]),
+                            supported=bool(np.isfinite(distance[i, k])),
+                            contributing_epitopes=len(labels),
+                        )
+                    )
+    return {
+        "recognition-matrix": pl.DataFrame(rows).with_columns(
+            pl.col("score_bits", "raw_distance_bits", "distance_bits").fill_nan(None)
+        ),
+        "recognition-pairs": pl.DataFrame(
+            cells,
+            schema={
+                "epitope": pl.String,
+                "a": pl.String,
+                "b": pl.String,
+                "positive_pair_weight": pl.Float64,
+                "background_pair_weight": pl.Float64,
+                "directional_background_pair_weight": pl.Float64,
+            },
+        ),
+        "recognition-support": pl.DataFrame(
+            support_rows,
+            schema={
+                "epitope": pl.String,
+                "v": pl.String,
+                "j": pl.String,
+                "length": pl.Int64,
+                "position": pl.Int64,
+                "positive_ordered_pair_weight": pl.Float64,
+                "background_ordered_pair_weight": pl.Float64,
+                "matched": pl.Boolean,
+            },
+        ).sort("epitope", "v", "j", "length", "position"),
+    }

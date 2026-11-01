@@ -1637,7 +1637,13 @@ model calls are preserved; only absent calls may undergo ARDA name resolution.
 Scores are unrounded log2 odds in bits against the count-derived residue
 background. Distances use ``max(0, S_aa + S_bb - 2*S_ab)``; unsupported cells
 remain null, without pseudocounts or a BLOSUM prior. This is a derivation command,
-not a change to annotation defaults. See :doc:`rearrangement-origin` for the
+not a change to annotation defaults. ``.recognition-pairs.tsv`` and
+``.recognition-support.tsv`` retain the matched other-epitope background and
+unmatched positive opportunity. Complete known curated labels, including tails,
+exclude shared-label partners. ``.recognition-matrix.tsv`` reports unordered
+count-density and directional-log-mean contrasts separately; symmetrizing counts
+before log odds can preserve a composition effect. These are selected-background
+comparisons, without relabelling receptors as assay negatives. See :doc:`rearrangement-origin` for the
 formalism, indel extension and independent-validation requirements.
 
 vdjmatch fixed-scope
