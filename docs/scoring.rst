@@ -43,8 +43,8 @@ the annotation default.
 Choosing a fuzzy-matching comparison
 ------------------------------------
 
-The README's ``Scoring: what works (and what doesn't)`` section records the
-accepted matrix and positional-weighting comparisons. Preserve the
+:doc:`legacy-explanation` records the accepted historical matrix and
+positional-weighting comparisons. Preserve the
 one-mismatch baseline and start from BLOSUM62 and its established end-anchored
 positional weighting. The data-derived VDJAM matrix underperformed BLOSUM62;
 VDJAMr is a different, genetic-code substitution-accessibility comparator.

@@ -59,7 +59,7 @@ Explore a worked example
    <div class="proj-card-grid">
      <a class="proj-card" href="examples.html">
        <h3>Examples gallery</h3>
-       <p>Two runnable shell workflows with raw inputs: cohort annotation and a geometry comparison.</p>
+       <p>Three runnable shell workflows: cohort annotation, geometry comparison and database presence.</p>
      </a>
      <a class="proj-card" href="notebooks.html">
        <h3>Notebooks gallery</h3>
@@ -78,6 +78,7 @@ ingestion uses `vdjtools <https://github.com/antigenomics/vdjtools>`_.
    :caption: Tutorials
 
    Getting started <tutorial>
+   Worked notebooks <notebooks>
 
 .. toctree::
    :hidden:
@@ -86,7 +87,6 @@ ingestion uses `vdjtools <https://github.com/antigenomics/vdjtools>`_.
 
    Workflows <how-to>
    Examples <examples>
-   Notebooks <notebooks>
    Laptop resources <performance>
 
 .. toctree::
@@ -108,6 +108,7 @@ ingestion uses `vdjtools <https://github.com/antigenomics/vdjtools>`_.
    Two control directions <control-calibration>
    Algorithm diagrams <algorithms>
    Score derivation <scoring>
+   Historical scoring comparisons <historical-comparisons>
    Selection and information <selection-information>
    pgen
    compendium

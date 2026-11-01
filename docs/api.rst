@@ -21,8 +21,8 @@ See :doc:`cli` for the descriptive decision rules and the ``vdjmatch index`` com
 Batch repertoire annotation
 ---------------------------
 
-``annotate_repertoires`` accepts a table, directory, list of paths or a metadata
-TSV with ``path`` and optional ``sample_id``. It preserves sample/source identities
+``annotate_repertoires`` accepts a table path, directory or list of paths. The separate
+``metadata`` argument accepts a TSV path or DataFrame with ``path`` and optional ``sample_id``. It preserves sample/source identities
 and batches single or linked populations. Compact kernel selection is the default;
 ``selection_only=False`` also exports full candidate/per-target evidence.
 ``threads`` also bounds the Polars pool. Set ``POLARS_MAX_THREADS`` before importing
