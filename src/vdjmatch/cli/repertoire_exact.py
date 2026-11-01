@@ -189,7 +189,7 @@ def main(a):
         inputs.append(Path(a.selection_profile).expanduser().resolve())
     prefix=_validate_output_paths(a.output_prefix,[str(p) for p in inputs])
     suffixes=['v-repairs.tsv','source-audit.tsv','summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
-    if a.allow_missing_model_genes:suffixes.append('missing-model-genes.tsv')
+    if a.allow_missing_model_genes or a.include_nonfunctional:suffixes.append('missing-model-genes.tsv')
     if any(Path(str(prefix)+'.'+s).exists() for s in suffixes):raise FileExistsError('fresh output prefix required')
     before={str(p):sha256(p) for p in inputs}
     import seqtree._core as search_native
@@ -260,7 +260,7 @@ def main(a):
     else:
         model_identity=_pgen_model_identity(a.species,a.locus,source=a.source)
         probes=pl.concat([probes.select(keys),reference.select(keys)]).unique(maintain_order=True)
-        probes=_joint_pgen(probes,species=a.species,locus=a.locus,threads=a.threads,source=a.source,profile=shape,mismatches=a.pgen_mismatches,allow_missing_model_genes=a.allow_missing_model_genes)
+        probes=_joint_pgen(probes,species=a.species,locus=a.locus,threads=a.threads,source=a.source,profile=shape,mismatches=a.pgen_mismatches,allow_missing_model_genes=a.allow_missing_model_genes or (a.include_nonfunctional and shape is None))
         pgen_origin='native gene-allele-summed joint probability'
     now=time.monotonic();stages['pgen_and_selection']=now-mark;mark=now
     if filtering:
