@@ -1,8 +1,8 @@
 Repertoire enrichment: algorithm and parameter choices
 ======================================================
 
-Implementation status
----------------------
+Matching and count units
+------------------------
 
 The four established comparison families are unit, V-unit, weighted and
 V-weighted. They cross unit/weighted edit-bounded search with absence/presence
@@ -41,10 +41,52 @@ receptor-level NED rankings keep their own query-conditioned interpretation.
 
 Software parity is checked against the existing graded API. The fourteen-setting
 bulk comparison and the separate pooled/sample-specific conditioning assessment
-are complete; their observed operating choices are reported below. The paired
-four-family comparison is still running. Software parity alone does not select
+are complete; their observed operating choices are reported below. Paired
+four-family outputs retain their own completed-arm audit and comparison scope.
+Software parity alone does not select
 a biological cutoff. Continuous-score summation remains deferred. Normalized
 BLOSUM results retain their separate presets and producing settings.
+
+Full-depth abundance-aware repertoire inference
+------------------------------------------------
+
+The current bulk workflow uses ``repertoire-exact --pgen-features FEATURES
+--abundance-metrics`` with verified raw marginal junction Pgen from the current
+vdjtools model and the observed control repertoire. Bin those probabilities
+directly: no selection Q, V/J-frequency ratio, AA-max reducer, model prior or
+model-mass reconstruction enters this route. Prepared probabilities are
+validated inputs; mock panels and sample matches are drawn and computed afresh.
+Retain the original source-row clonotypes, their read abundances, all samples,
+and the same 200 reference mocks. Repeated amino-acid/V/J keys do not merge
+separate source rows.
+
+The primary endpoint averages expected matched-clonotype richness over a common
+whole-library read-depth range. Its upper endpoint is the smallest eligible
+library size, fixed without using outcomes. Full abundance vectors enter
+``vdjtools.stats.subset_rarefaction_batch``; no actual subsample replaces the
+full library. The CLI integrates the fixed 513-point grid with
+``scipy.integrate.trapezoid`` and divides by the common maximum depth. Units
+are expected source clonotypes averaged over read depth. Compare real and mock
+curve means with the same empirical tails and declared BH families.
+
+``--abundance-metrics`` also reports Chao1 through
+``vdjtools.stats.inext.asymptotic_diversity(q=0,se=False)``, full-sample Shannon
+and inverse-Simpson diversity, and integer matched-read-depth Hill curves through
+``vdjtools.stats.inext_batch``. Hill calls are batched by their supported maximum
+depth; every real/mock panel in a group supports every requested depth. This
+avoids calculating deeper curves only to discard them. Richness endpoints use
+upper tails; Shannon, Simpson and matched-subset Hill comparisons use lower
+tails for concentration. Export every supported depth rather than selecting a
+favourable depth. A single downsample, raw read counts and asymptotic richness
+measure different quantities.
+
+The probability route is explicit. Without ``--pgen-features``,
+``repertoire-exact`` retains its model-calibrated Q/composition convention;
+``--legacy`` selects historical reproduction. The flexible
+``repertoire-enrichment --null reference`` adapter retains historical model
+selection when ``--model-source`` is omitted; pass ``--model-source isalgo``
+for its current-model comparison. These alternatives are not interchangeable
+nulls, and completed results retain their producing settings.
 
 Start with the biological question
 ----------------------------------
@@ -61,10 +103,10 @@ in the sample are not a paired match. Count each receptor once per target and
 once in an across-target union. Read, cell and receptor counts are different
 endpoints. Technical replicas are not independent donors.
 
-Recommended choices from completed M3 comparisons
--------------------------------------------------
+Historical matching comparisons
+-------------------------------
 
-.. list-table:: Current recorded operating choices
+.. list-table:: Recorded matching choices under their producing nulls
    :header-rows: 1
    :widths: 20 40 40
 
@@ -85,7 +127,7 @@ Recommended choices from completed M3 comparisons
      - Unique sample-receptors and cell abundance, once per target
    * - Pgen / composition
      - Exact joint olga-legacy, Q=1; pooled J|V correction
-     - Exact marginal isalgo; fixed pgen-matched reference null
+     - Explicit --model-source isalgo; exact marginal Pgen; fixed reference null
    * - Mock settings
      - 200 replicates, seed 42
      - 200 replicates, seed 42

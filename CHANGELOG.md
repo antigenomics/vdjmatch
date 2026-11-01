@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0] - 2026-11-01
+
+- Add reference-mock repertoire enrichment with explicit matching, chain support,
+  counting units, no-hit and unavailable-inference outputs.
+- Support raw marginal-Pgen inputs and full-depth matched-clonotype discovery,
+  Chao1 and Hill diversity through vdjtools APIs; bound Hill batches by supported depth.
+- Add evidence reports showing all 200 recorded mock endpoints and their original
+  empirical P and BH q values, plus an executable offline reporting notebook.
+- Document current and explicit historical workflows; refine the algorithm overview
+  and preserve receptor annotation defaults and the separate repertoire null contracts.
+
+The current abundance workflow requires the additive vdjtools 5.6.0 APIs.
+
 ## [0.6.3] - Unreleased
 
 - Require seqtree 1.3.2, vdjtools 5.3.2 and optional arda-mapper 2.37.1.

@@ -159,7 +159,15 @@ P-values beside nominal/BH families; show paired/union support without statistic
 borders. Keep all timepoints and separate technical libraries from donors.
 
 For completed repertoire enrichment, `repertoire_report.sh COUNTS SUMMARY PREFIX`
-uses the shipping `repertoire-report` CLI to show all 200 mocks and recorded q
-values. Supply `records` as a fourth argument for raw source-clonotype counts.
+uses the shipping `repertoire-report` CLI to show all 200 mocks and the recorded
+empirical P and BH q values. Its default `curve_mean` endpoint is full-data mean
+discoverable matched clonotype richness over whole-library sampling effort.
+Generate this endpoint with `repertoire-exact --pgen-features FEATURES --abundance-metrics`;
+the supplied verified marginal probabilities are binned directly, without Q or
+V/J probability correction. Supply `records` as a fourth argument for raw source-clonotype counts.
 Use final tables produced under the same model, reference and null law. Private
 YF/COVID tables and identifiers are intentionally not bundled with this example.
+
+Run [repertoire_evidence.ipynb](repertoire_evidence.ipynb) for an offline
+synthetic final-table reporting lesson. It invokes the same CLI, verifies that
+recorded P/q values survive rendering and displays every mock endpoint.

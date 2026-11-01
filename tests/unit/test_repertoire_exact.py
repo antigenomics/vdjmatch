@@ -350,6 +350,26 @@ def test_raw_marginal_features_bypass_all_probability_corrections(tmp_path,monke
     spectrum=pl.read_csv(tmp_path/'out.abundance-spectra.tsv',separator='\t')
     assert spectrum.filter(pl.col('replicate')==-1).select('reads_per_source_row','source_rows').row(0)==(7,1)
 
+    if not include_empty:
+        import vdjtools.stats as stats
+        original=stats.inext_batch
+        calls=[]
+        def bounded(samples,*pos,**kw):
+            if kw.get('q')==(0,1,2):
+                assert max(kw['sizes'])==min(sum(v) for v in samples)
+                calls.append(max(kw['sizes']))
+            return original(samples,*pos,**kw)
+        monkeypatch.setattr(stats,'inext_batch',bounded)
+        (tmp_path/'small.tsv').write_text('junction_aa\tv\tj\tcount\nCASSF\tTRBV2\tTRBJ1-1\t3\n')
+        (tmp_path/'meta.tsv').write_text('sample_id\tpath\nS\tsample.tsv\nT\tsmall.tsv\n')
+        args.selection_q=None
+        args.output_prefix=str(tmp_path/'unequal')
+        assert args.func(args)==0
+        assert sorted(calls)==[3,7]
+        unequal=pl.read_csv(tmp_path/'unequal.hill-rarefaction.tsv',separator='\t')
+        assert unequal.filter(pl.col('sample_id')=='T')['matched_read_depth'].to_list()==[1,2,3]
+        assert unequal.filter(pl.col('sample_id')=='S').equals(hill)
+
 
 def test_chao1_summary_keeps_fractional_richness_and_same_mock_tail():
     from vdjmatch.cli.repertoire_exact import _summaries

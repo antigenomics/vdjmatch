@@ -35,8 +35,9 @@ def render(counts, summary, metric, prefix):
     with PdfPages(str(prefix) + '.pdf') as pdf:
         for start in range(0, len(groups), 12):
             page_size = min(12, len(groups)-start)
-            nrows = (page_size+3)//4
-            fig, axes = plt.subplots(nrows, 4, squeeze=False, figsize=(12, 2.5*nrows+.6), layout='constrained')
+            ncols = min(4, page_size)
+            nrows = (page_size+ncols-1)//ncols
+            fig, axes = plt.subplots(nrows, ncols, squeeze=False, figsize=(3*ncols, 2.5*nrows+.6), layout='constrained')
             for ax, (key, part) in zip(axes.flat, list(groups.items())[start:start+12]):
                 observed = part.filter(pl.col('replicate') == -1)
                 mock = part.filter(pl.col('replicate') >= 0).sort('replicate')
@@ -61,7 +62,7 @@ def render(counts, summary, metric, prefix):
                                  mock_mean=float(x.mean()), real_mock_ratio=float(real/x.mean()) if x.mean() else None, recorded_p=nominal, recorded_q=adjusted))
             for ax in list(axes.flat)[len(list(groups.items())[start:start+12]):]:
                 ax.axis('off')
-            fig.suptitle('Observed repertoire endpoint versus 200 matched mock panels', fontsize=13)
+            fig.suptitle(fill('Observed repertoire endpoint versus 200 matched mock panels', 28*ncols), fontsize=12)
             axes.flat[0].legend(frameon=False, fontsize=8)
             pdf.savefig(fig)
             fig.savefig(str(prefix) + f'.page-{start//12+1}.png', dpi=180)

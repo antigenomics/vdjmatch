@@ -28,6 +28,11 @@ Start here
 
 * :download:`Cohort annotation source <../examples/annotation.ipynb>`
 * :download:`Geometry comparison source <../examples/comparison.ipynb>`
+* :download:`Repertoire evidence report source <../examples/repertoire_evidence.ipynb>`:
+  run the shipping report CLI on synthetic final-table fixtures, inspect all
+  200 mock endpoints and verify preservation of recorded P and q values.
+  This offline lesson performs no biological inference. For real final tables,
+  follow :doc:`repertoire-method` and retain the producing manifest.
 
 These small synthetic examples need only the supplied ``examples/inputs``
 files. See :doc:`examples` for the shell commands and input downloads.

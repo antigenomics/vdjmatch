@@ -16,5 +16,8 @@ def test_report_preserves_recorded_p_q_and_all_mocks(tmp_path):
     assert result['recorded_p']==1/201 and result['recorded_q']==.03
     assert result['mock_panels']==200 and result['real_mock_ratio']==10
     assert (tmp_path/'report.pdf').exists()
+    from matplotlib.image import imread
+    height,width=imread(tmp_path/'report.page-1.png').shape[:2]
+    assert width<1.5*height  # One target must not reserve three empty columns.
     with pytest.raises(ValueError,match='200 distinct mocks'):
         render(counts.head(200),summary,'curve_mean',tmp_path/'invalid')

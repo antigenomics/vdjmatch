@@ -3003,6 +3003,9 @@ Outputs include a paginated PDF, page PNGs and an evidence TSV. Install the
 row (replicate -1), 200 distinct mock replicates and one summary. Report mock
 variation as a reference-null distribution, rather than a confidence interval
 for the observed repertoire. A mean curve alone does not show significance.
+An optional ``sample_label`` in the summary changes figure titles; the evidence
+TSV retains the original sample identity for joins and private provenance.
+Review that table separately before sharing it.
 
 Mean rarefied matched richness measures excess discoverable source clonotypes
 at a common whole-library effort. Each type contributes at most one, while

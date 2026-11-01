@@ -26,7 +26,8 @@ def test_gallery_scientific_opt_in():
                 runpy.run_path(str(script), run_name='__main__')
             except SystemExit as error:
                 assert error.code == 0
-            assert len(seen) == (6 if scientific else 2)
+            assert len(seen) == (7 if scientific else 3)
             assert command.call_count == (4 if scientific else 3)
             assert any('precursor.ipynb' in path for path in seen) == scientific
             assert any('vaccination.ipynb' in path for path in seen) == scientific
+            assert any('repertoire_evidence.ipynb' in path for path in seen)

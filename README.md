@@ -27,6 +27,18 @@ repertoire ingestion reuses published `vdjtools` readers.
 Requires released `seqtree>=1.3.2` and `vdjtools>=5.4.0`, including allocation-aware
 native thread validation.
 
+<p align="center">
+  <img alt="VDJmatch workflow: shared receptor-table validation and curated VDJdb search, followed by receptor annotation or matched-reference repertoire enrichment" src="https://raw.githubusercontent.com/antigenomics/vdjmatch/master/assets/algorithm-overview.png" width="100%">
+</p>
+
+Receptor annotation asks which peptide–MHC targets have sequence support.
+Repertoire inference asks whether target support exceeds matched mock-reference
+expectations. The [repertoire method guide](https://docs.isalgo.dev/vdjmatch/repertoire-method.html)
+connects the matching rule, null population and counting unit to that second question.
+Full-data discovery curves retain clone abundance while measuring matched
+clonotype richness over whole-library sampling effort; raw counts, reads and
+Hill diversity remain separate outputs.
+
 The Python implementation follows the legacy Java/Groovy package, preserved on the
 `legacy-java` branch and [Java tag `1.3.1`](https://github.com/antigenomics/vdjmatch/tree/1.3.1).
 Existing Java consumers use the separate, pinned JitPack artifact
@@ -70,6 +82,10 @@ errors. The comparison explicitly runs exact-excluded detailed stem4 and advance
 vcdr12; notebooks analyze only fresh CLI tables. `DEMO_A`/`DEMO_B` labels are
 synthetic software examples, not binding truth. See the
 [example guide](https://docs.isalgo.dev/vdjmatch/examples.html).
+
+The offline [repertoire evidence notebook](examples/repertoire_evidence.ipynb)
+uses synthetic final-table fixtures to demonstrate the report CLI, all 200 mock
+endpoints and preservation of recorded P/q values. It performs no biological inference.
 
 ## Scientific worked examples
 

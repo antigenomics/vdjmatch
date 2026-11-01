@@ -403,11 +403,13 @@ def main(a):
             pl.col('qD').filter(pl.col('replicate')>=0).std().alias('mock_sd_richness')).sort('sample_id','group_id','m')
         del curves,matrix
         limits=counts.group_by('sample_id','group_id').agg(pl.col('matched_reads').min().alias('hill_max_depth'))
-        max_hill_depth=int(limits['hill_max_depth'].max())
         hill_keys=counts.with_row_index('sample').select('sample','sample_id','group_id','replicate','matched_records','matched_reads').join(limits,on=['sample_id','group_id'],validate='m:1',maintain_order='left').filter(pl.col('hill_max_depth')>0)
         if hill_keys.height:
-            hill=inext_batch([vectors[i] for i in hill_keys['sample']],q=(0,1,2),sizes=range(1,max_hill_depth+1),se=False,threads=a.threads)
-            hill=hill.join(hill_keys.drop('sample').with_row_index('sample'),on='sample',validate='m:1').filter(pl.col('m')<=pl.col('hill_max_depth'))
+            batches=[]
+            for (maximum,),keys in hill_keys.partition_by('hill_max_depth',as_dict=True).items():
+                curve=inext_batch([vectors[i] for i in keys['sample']],q=(0,1,2),sizes=range(1,int(maximum)+1),se=False,threads=a.threads)
+                batches.append(curve.join(keys.drop('sample').with_row_index('sample'),on='sample',validate='m:1'))
+            hill=pl.concat(batches)
         else:hill=pl.DataFrame(schema={'m':pl.Int64})
         hill_parts=[]
         for (m,),part in hill.partition_by('m',as_dict=True).items():

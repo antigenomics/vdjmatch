@@ -543,7 +543,7 @@ Reference-null repertoire enrichment accepts ``--model-source isalgo`` or
 prepared feature validation use that same family. Omission retains historical
 model selection until the calibrated-default release is finalized.
 
-Prepared Pgen banks require matching vdjtools versions, model assets, probability
+Requested prepared Pgen inputs require matching vdjtools versions, model assets, probability
 options and Python preprocessing/bridge hashes, plus a recorded producer native
 SHA256. Exports retain producer/consumer native hashes and native_binary_identical.
 Different binaries are accepted under this version-and-source compatibility policy
@@ -579,8 +579,8 @@ The default still loads and processes one sample at a time.
 ## Repertoire interpretation and manuscript operating points
 
 Read `docs/repertoire-method.rst` before selecting repertoire matchers or
-combining evidence. Keep `repertoire-exact` historical bulk reproduction separate
-from flexible `repertoire-enrichment --null reference` inference.
+combining evidence. Keep the raw-marginal full-depth `repertoire-exact` workflow and explicit
+historical reproduction separate from flexible `repertoire-enrichment --null reference` inference.
 There is no demonstrated universally optimal matcher: bulk positional radius0.30
 and paired Hamming<=1 have different demonstrated strengths. Exact Pgen remains
 separate from search radius. Never infer Hamming optimality from nested counts;
@@ -630,3 +630,31 @@ retains missing/zero mass in the lowest control bin; known zero-mass genes are
 not re-called. Only V genes absent from the ARDA reference use its existing
 proposal API. --legacy preserves historical input handling and add-one smoothing.
 --model-vj-probabilities accepts exact v,j,p model masses instead of counts.
+
+
+### Current full-depth bulk abundance workflow
+
+Use `repertoire-exact --pgen-features FEATURES --abundance-metrics` for the
+raw-marginal workflow. Reuse verified completed junction-only native Pgen
+inputs and the observed control repertoire. Bin raw probabilities directly;
+no Q, V/J correction, AA-max, model prior or mass reconstruction. Do not create
+Pgen banks or replace observed controls with generated recombination controls.
+Retain original source-row clonotypes and producer read counts, even when
+multiple rows share an AA/V/J key. Draw fresh reference mocks and match fresh
+samples; never reuse predictions or failed-stage rows.
+
+The CLI owns summaries and BH families. Reuse
+`vdjtools.stats.subset_rarefaction_batch` for whole-library matched richness,
+then its fixed-grid trapezoidal curve average. The common maximum read depth
+is the smallest eligible library depth, chosen without outcomes. Reuse
+`asymptotic_diversity(q=0,se=False)` for Chao1, `shannon_wiener` and
+`inverse_simpson` for full diversity, and `inext_batch(q=(0,1,2),se=False)` for
+matched-subset curves. Batch Hill calls by supported maximum depth; export all
+supported depths and no extrapolation. Upper tails test richness excess;
+lower tails test concentration. Preserve no-hit and unavailable outputs.
+A practical-depth subsample is a separate endpoint, not the full-depth goal.
+
+This explicit raw-feature route differs from repertoire-exact's Q/composition
+default and `--legacy` reproduction. Flexible reference-null inference requires
+explicit `--model-source isalgo` for current-model comparisons; omission retains
+its documented historical source. Preserve all earlier producing settings.
