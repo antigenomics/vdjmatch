@@ -209,6 +209,29 @@ def test_origin_cli_preserves_source_units_and_zero_support(tmp_path, monkeypatc
     assert pl.read_csv(str(args.output_prefix) + '.neighbour-route.tsv', separator='\t')['queries'][0] == 4
     assert rate_calls == [4]
 
+    # Full mixed posterior is the sole origin batch in mixed mode; NNN is its marginal.
+    def local_posterior(model,cdr3_aas,**kwargs):
+        return pl.DataFrame([dict(row=i,position=p,pattern=(-1 if s.endswith('F') else 0),
+            probability=(None if s.endswith('F') else 1.),origin=(None if s.endswith('F') else 'NNN'),
+            template_nt=(None if s.endswith('F') else '---'),
+            codon_amino_acids=(None if s.endswith('F') else 'ACDEFGHIKLMNPQRSTVWY'),
+            supported=not s.endswith('F')) for i,s in enumerate(cdr3_aas) for p in range(len(s))])
+    monkeypatch.setattr(vdjtools.model,'codon_origin_posterior_batch',local_posterior,raising=False)
+    def unwanted_N_batch(*args,**kwargs):
+        raise AssertionError('mixed mode must reuse its NNN marginal')
+    monkeypatch.setattr(vdjtools.model,'n_region_posterior_batch',unwanted_N_batch)
+    # The historical label spy applies to the main NNN output, not internal validation.
+    monkeypatch.setattr(owner,'origin_block_matrices',original)
+    args.origin_rates=False
+    args.origin_neighbours=False
+    args.origin_mixed=True
+    args.output_prefix=str(tmp_path/'mixed')
+    assert args.func(args)==0
+    table=pl.read_csv(str(args.output_prefix)+'.mixed-matrix.tsv',separator='\t')
+    assert table['channel'].n_unique()==3
+    manifest=json.loads((tmp_path/'mixed.provenance.json').read_text())
+    assert manifest['mixed_estimator']['posterior']=='complete local G/P/N/template partition'
+
 
 def test_matched_background_uses_disjoint_complete_labels_and_same_N_opportunity():
     clones = pl.DataFrame(
@@ -398,6 +421,15 @@ def test_origin_neighbours_match_genes_and_complete_labels_without_exporting_pge
     tables = origin_neighbour_tables(
         model, queries, membership, origins, labels, threads=1
     )
+    from vdjtools.model import codon_origin_posterior_batch
+    from vdjmatch.match.scoring_audit import mixed_origin_block_matrices
+    classes=codon_origin_posterior_batch(model,queries['cdr3'].to_list(),threads=1).rename({'row':'query_id'}).with_columns(
+        (pl.col('codon_amino_acids').str.len_chars()>1).fill_null(False).alias('exchangeable'))
+    block=queries.with_columns(pl.lit('E').alias('epitope'))
+    mixed=mixed_origin_block_matrices(block,classes)['mixed-epitope-pairs']
+    assert mixed['pair_weight'].sum()==pytest.approx(36.)
+    assert mixed.filter(pl.col('channel')=='same_exchangeable')['pair_weight'].sum()>0
+    assert mixed.filter(pl.col('channel')=='same_zero_alternative')['pair_weight'].sum()>0
     observed = tables["neighbour-counts"].filter(pl.col("arm") == "all")
     same = observed.filter(pl.col("comparison") == "same")
     different = observed.filter(pl.col("comparison") == "different")

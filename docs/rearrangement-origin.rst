@@ -1031,5 +1031,10 @@ odds and distance exporter. Unknown receptors remain in support accounting.
 The caller supplies positive alternative support explicitly; the presence of an
 N base alone is insufficient. These count owners do not infer rearrangements,
 translate codons, refit model parameters or persist per-query probability banks.
-The full native-backed mixed-origin CLI derivation and its scientific results
-remain separate from these arithmetic checks.
+The native-backed ``--origin-mixed`` option uses one complete posterior batch and
+reuses its NNN marginal for the existing outputs. It exports channel-specific
+matrices/counts, G/P/N exposures, unknown support and N-emission parameter checks.
+Eligibility by genetic-code alternatives requires strictly positive N emissions;
+zero-emission custom models raise and require the exact alternative-mass route.
+Scientific derivation and independent validation remain separate from these
+arithmetic and interface checks.

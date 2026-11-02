@@ -14,6 +14,7 @@ def register(subparsers):
     p.add_argument('--min-records', type=int, default=30, help='origin-matrix: valid source-record eligibility before deduplication')
     p.add_argument('--origin-neighbours', action='store_true', help='origin-matrix: derive exact flank-conditioned N-region neighbour models and source-held-out predictions')
     p.add_argument('--origin-rates', action='store_true', help='origin-matrix: all-site N-region escape exposures, retaining zero-neighbour sites; requires vdjtools>=5.8.0')
+    p.add_argument('--origin-mixed', action='store_true', help='origin-matrix: full local G/P/N/template posterior and exchangeable block matrices; requires vdjtools>=5.9.0')
     p.add_argument('--vlen', type=int, default=4, help='matrix task V prefix length')
     p.add_argument('--jlen', type=int, default=6, help='matrix task J suffix length')
     p.add_argument('--legacy', help='explicit legacy similarity TSV; default packaged vdjam.txt')
@@ -31,8 +32,8 @@ def register(subparsers):
 def main(a):
     if a.task == 'origin-matrix':
         return origin_matrix(a)
-    if a.origin_neighbours or a.origin_rates:
-        raise ValueError('--origin-neighbours/--origin-rates require --task origin-matrix')
+    if a.origin_neighbours or a.origin_rates or a.origin_mixed:
+        raise ValueError('--origin-neighbours/--origin-rates/--origin-mixed require --task origin-matrix')
     import json
     import math
     import time
@@ -113,6 +114,7 @@ def origin_matrix(a):
     """Fresh exact-origin block derivation; no legacy estimator/model inputs."""
     import json
     import time
+    import sys
     from importlib import metadata, resources
     import polars as pl
     from arda.cdr3fix import load_anchors, resolve_allele
@@ -121,7 +123,7 @@ def origin_matrix(a):
     import vdjtools._core as native
     from .. import db
     from ..db.cache import sha256
-    from ..match.scoring_audit import origin_block_matrices, origin_neighbour_tables, origin_rate_tables, origin_substitution_pairs
+    from ..match.scoring_audit import origin_block_matrices, origin_neighbour_tables, origin_rate_tables, origin_substitution_pairs, mixed_origin_block_matrices
     from ..runner.annotation import _validate_output_paths
     from .epitope import pool_epitopes, write_tables
 
@@ -208,13 +210,39 @@ def origin_matrix(a):
         .with_row_index("query_id")
         .with_columns(pl.col("query_id").cast(pl.Int64))
     )
-    origins = n_region_posterior_batch(
-        model,
-        queries["cdr3"].to_list(),
-        v=queries["v"].to_list(),
-        j=queries["j"].to_list(),
-        threads=a.threads,
-    ).rename({"row": "query_id"})
+    origin_function=n_region_posterior_batch
+    classes=None
+    emission_rows=[]
+    if a.origin_mixed:
+        from vdjtools.model import codon_origin_posterior_batch
+        origin_function=codon_origin_posterior_batch
+        for name,table in model.tables.items():
+            if name.endswith(('_dinucl','_first_nt')):
+                minimum=float(table['p'].min())
+                if not minimum>0:
+                    raise ValueError('mixed block eligibility needs strictly positive N emissions; use exact alternative masses for a zero-emission model')
+                emission_rows.append(dict(table=name,probabilities=table.height,minimum_probability=minimum))
+        if not emission_rows:
+            raise ValueError('mixed block eligibility requires declared N emission tables')
+        stage_start=time.perf_counter()
+        print(json.dumps(dict(stage='local_origin_posterior',queries=queries.height,native_threads=a.threads)),file=sys.stderr,flush=True)
+        classes=origin_function(model,queries['cdr3'].to_list(),v=queries['v'].to_list(),
+            j=queries['j'].to_list(),threads=a.threads).rename({'row':'query_id'}).with_columns(
+            (pl.col('codon_amino_acids').str.len_chars()>1).fill_null(False).alias('exchangeable'))
+        print(json.dumps(dict(stage='local_origin_posterior_complete',classes=classes.height,
+            seconds=time.perf_counter()-stage_start)),file=sys.stderr,flush=True)
+        origins=classes.group_by('query_id','position').agg(
+            pl.when(pl.col('probability').is_not_null().any())
+            .then(pl.col('probability').filter(pl.col('origin')=='NNN').sum())
+            .otherwise(None).alias('n_probability')).sort('query_id','position')
+    else:
+        origins = n_region_posterior_batch(
+            model,
+            queries["cdr3"].to_list(),
+            v=queries["v"].to_list(),
+            j=queries["j"].to_list(),
+            threads=a.threads,
+        ).rename({"row": "query_id"})
     membership = (
         ready.group_by("epitope", "cdr3", "v", "j")
         .len(name="source_records")
@@ -304,6 +332,23 @@ def origin_matrix(a):
         ).sort("segment", "call", nulls_last=True),
     }
     tables.update(contrast)
+    if classes is not None:
+        stage_start=time.perf_counter()
+        print(json.dumps(dict(stage='mixed_origin_block_counts',classes=classes.height)),file=sys.stderr,flush=True)
+        tables.update(mixed_origin_block_matrices(membership,classes))
+        print(json.dumps(dict(stage='mixed_origin_block_counts_complete',seconds=time.perf_counter()-stage_start)),file=sys.stderr,flush=True)
+        tables['mixed-emissions']=pl.DataFrame(emission_rows)
+        local=classes.join(queries.select('query_id','cdr3'),on='query_id',validate='m:1').join(
+            membership.select('query_id','epitope'),on='query_id',validate='m:m').with_columns(
+            pl.col('cdr3').str.len_chars().alias('length'),
+            pl.col('cdr3').str.slice(pl.col('position'),1).alias('aa'))
+        tables['mixed-exposures']=local.group_by('epitope','length','position','aa','origin','exchangeable').agg(
+            pl.when(pl.col('probability').is_not_null().any()).then(pl.col('probability').sum())
+            .otherwise(None).alias('posterior_site_weight'),
+            pl.col('query_id').n_unique().alias('clonotype_sites'),
+            pl.col('probability').is_null().sum().alias('unknown_origin_sites')).sort(
+                'epitope','length','position','aa','origin','exchangeable')
+
     pair_data = origin_substitution_pairs(queries, origins, threads=a.threads) if a.origin_neighbours or a.origin_rates else None
     if a.origin_rates:
         tables.update(origin_rate_tables(model, queries, membership, origins, threads=a.threads, pair_data=pair_data))
@@ -342,7 +387,7 @@ def origin_matrix(a):
                 "cli": __file__,
                 "counter": origin_block_matrices.__code__.co_filename,
                 "cohort": pool_epitopes.__code__.co_filename,
-                "origin_wrapper": n_region_posterior_batch.__code__.co_filename,
+                "origin_wrapper": origin_function.__code__.co_filename,
                 "native": native.__file__,
                 "call_resolution": resolve_allele.__code__.co_filename,
             }.items()
@@ -368,6 +413,14 @@ def origin_matrix(a):
             population="epitope/V/J/junction length; constant model mass normalizer belongs to nuisance intercept",
             interpretation="working convergent-neighbour intensity, not an ancestral mutation probability",
         ) if a.origin_rates else None),
+        mixed_estimator=(dict(
+            posterior="complete local G/P/N/template partition",
+            eligibility="genetic-code alternatives with immutable letters fixed; all declared N emissions strictly positive",
+            channels="same exchangeable; same zero alternative; different local class",
+            counts="ordered aligned pairs between unique junction/V/J unit clusters; mandatory identities excluded from the exchangeable core",
+            NNN="marginal of the same complete posterior; no second origin batch",
+            limitation="local class coarsens full histories; model posterior is not observed nucleotide truth",
+        ) if a.origin_mixed else None),
         known_label_source_records=all_labels.height,
         known_label_query_memberships=known_labels.height,
         length_policy="all producer-declared junction lengths retained; no anchor motif screen or fabrication; legacy_length_lt8 is an audit band only",

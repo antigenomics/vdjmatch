@@ -812,11 +812,14 @@ def mixed_origin_block_matrices(clonotypes, classes):
     collapsed=classes.group_by('query_id','position').agg(
         pl.when(pl.col('probability').is_not_null().any()).then(1.)
         .otherwise(None).alias('n_probability'))
-    _,_,support,_,_=origin_block_matrices(clonotypes,collapsed)
+    _,all_blocks,support,_,_=origin_block_matrices(clonotypes,collapsed)
     meta=clonotypes.join(support,on='query_id',validate='m:1').filter(pl.col('origin_supported')).select(
         'epitope','v','j','query_id','cdr3',pl.col('cdr3').str.len_chars().alias('length'))
-    joined=meta.join(classes,on='query_id',validate='m:m').sort('epitope','v','j','length','query_id','position','pattern')
-    counts={name:{} for name in ['same_exchangeable','same_zero_alternative','different_class']}
+    block_key=['epitope','v','j','length']
+    paired=meta.filter(pl.len().over(block_key)>1)
+    joined=paired.join(classes,on='query_id',validate='m:m').sort(*block_key,'query_id','position','pattern')
+    counts={name:{e:np.zeros((20,20)) for e in meta['epitope'].unique()}
+        for name in ['same_exchangeable','same_zero_alternative','different_class']}
     blocks=[]
     for (epitope,v,j,length),part in joined.group_by('epitope','v','j','length',maintain_order=True):
         queries=part.select('query_id','cdr3').unique().sort('query_id')
@@ -836,6 +839,10 @@ def mixed_origin_block_matrices(clonotypes, classes):
         channel=pl.String,epitope=pl.String,a=pl.String,b=pl.String,pair_weight=pl.Float64))
     block_table=pl.DataFrame(blocks,schema=dict(epitope=pl.String,v=pl.String,j=pl.String,
         length=pl.Int64,clonotypes=pl.Int64,channel=pl.String,weighted_ordered_site_pairs=pl.Float64))
+    complete=pl.concat([all_blocks.select(*block_key,'clonotypes').with_columns(pl.lit(channel).alias('channel'))
+        for channel in counts])
+    block_table=complete.join(block_table,on=[*block_key,'clonotypes','channel'],how='left',validate='1:1').with_columns(
+        pl.col('weighted_ordered_site_pairs').fill_null(0.))
     return {'mixed-matrix':matrices,'mixed-epitope-pairs':pairs,'mixed-blocks':block_table,'mixed-support':support}
 
 

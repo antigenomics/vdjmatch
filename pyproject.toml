@@ -19,7 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "seqtree>=1.3.2",
-    "vdjtools>=5.8.0",    # exact N-origin posteriors and joint masked-N Pgen; ingestion/abundance
+    "vdjtools>=5.9.0",    # exact G/P/N codon origins and masked origin-constrained Pgen
     "polars>=1.41.2,<2",
     "scipy>=1.9",       # exact finite-control bounds and binomial tails for paired punctures
     "threadpoolctl",    # enforce BLAS limits for evidence combination
