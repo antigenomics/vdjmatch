@@ -695,3 +695,91 @@ def test_mixed_block_owner_reuses_NNN_counts_and_keeps_unknowns():
     assert tables['mixed-support'].filter(~pl.col('origin_supported'))['query_id'].to_list()==[4]
     empty_channels=tables['mixed-matrix'].filter(pl.col('channel')!='same_exchangeable')
     assert empty_channels['pair_weight'].sum()==0
+
+
+def test_full_identity_fit_recovers_pair_effects_beyond_composition_and_divergence():
+    from scipy.special import softmax
+    from vdjmatch.match.scoring_audit import fit_exchangeability
+    rng=np.random.default_rng(802)
+    i,j=np.triu_indices(20)
+    off=i!=j
+    truth=np.zeros(210)
+    truth[off]=rng.normal(0,.2,190)
+    truth[off]-=truth[off].mean()
+    eta=rng.normal(0,.35,(6,20));eta-=eta.mean(1,keepdims=True)
+    divergence=np.linspace(-3,1,6)
+    expected=np.tile(np.where(off,2.,1.),(6,1))
+    logits=np.log(expected)+truth+eta[:,i]+eta[:,j]+divergence[:,None]*off
+    observed=2e5*softmax(logits,axis=1)
+    fitted,report=fit_exchangeability(observed,expected,balanced=False,prior_mass=0,
+        residue_groups=np.arange(6),identity_pairs=True)
+    assert np.allclose(fitted,truth,atol=3e-4)
+    assert np.array_equal(fitted[~off],np.zeros(20))
+    assert abs(fitted[off].mean())<1e-12
+    assert np.allclose(report['residue_log_preferences'],eta,atol=3e-4)
+    assert np.allclose(report['group_log_divergence'],divergence,atol=3e-4)
+    assert report['pair_gauge']=='zero diagonal and zero mean off-diagonal interaction'
+    with pytest.raises(ValueError):
+        fit_exchangeability(observed,expected,balanced=False,identity_pairs=True)
+
+
+def test_block_count_fit_exports_the_actual_zero_diagonal_distance():
+    from scipy.special import softmax
+    from vdjmatch.match.scoring_audit import AA, fit_origin_block_counts
+    rng=np.random.default_rng(803)
+    i,j=np.triu_indices(20);off=i!=j
+    theta=np.zeros(210);theta[off]=rng.normal(0,.15,190);theta[off]-=theta[off].mean()
+    eta=rng.normal(0,.3,(6,20));eta-=eta.mean(1,keepdims=True)
+    delta=np.linspace(-3,1,6)
+    observed=2e5*softmax(np.log(np.where(off,2.,1.))+theta+eta[:,i]+eta[:,j]+delta[:,None]*off,axis=1)
+    rows=[]
+    for e in range(6):
+        ordered=np.zeros((20,20));ordered[i,j]=observed[e]
+        ordered[j,i]=observed[e];ordered[np.diag_indices(20)]*=2
+        rows.extend(dict(epitope=f'E{e}',channel='same_exchangeable',a=a,b=b,pair_weight=float(ordered[x,y]))
+            for x,a in enumerate(AA) for y,b in enumerate(AA))
+    exposure=pl.DataFrame([dict(epitope=f'E{e}',aa=a,exchangeable=True,posterior_site_weight=1.) for e in range(6) for a in AA])
+    tables=fit_origin_block_counts(pl.DataFrame(rows),exposure,threads=1,prior_mass=0)
+    matrix=tables['block-fit-matrix'].filter((pl.col('partition')=='all')&(pl.col('weighting')=='pooled')&(pl.col('model')=='observed_divergence')).sort('a','b')
+    expected=np.zeros((20,20));expected[i[off],j[off]]=np.maximum(0.,-2*(theta[off]+delta.mean())/np.log(2));expected+=expected.T
+    assert np.allclose(matrix['distance_bits'].to_numpy().reshape(20,20),expected,atol=5e-4)
+    assert matrix.height==400 and matrix['supported'].all()
+    assert tables['block-fit-validation'].height==4
+    assert 'query_id' not in tables['block-fit-epitope-residuals'].columns
+    # A zero-pair epitope still informs the all-site stationary exposure.
+    zero=pl.DataFrame(rows).filter(pl.col('epitope')=='E0').with_columns(
+        pl.lit('ZERO').alias('epitope'),pl.lit(0.).alias('pair_weight'))
+    extra=pl.DataFrame([dict(epitope='ZERO',aa=a,exchangeable=True,posterior_site_weight=(21. if a=='A' else 1.)) for a in AA])
+    retained=fit_origin_block_counts(pl.concat([pl.DataFrame(rows),zero]),pl.concat([exposure,extra]),threads=1,prior_mass=0)
+    assert retained['block-fit-support'].filter(pl.col('epitope')=='ZERO')['fitted'].to_list()==[False]
+    f=retained['block-fit-matrix'].filter((pl.col('partition')=='all')&(pl.col('weighting')=='pooled')&(pl.col('model')=='pam_information070')&(pl.col('a')=='A'))
+    assert f['stationary_frequency'][0]==pytest.approx(27/160)
+    with pytest.raises(ValueError):
+        fit_origin_block_counts(pl.DataFrame(rows),exposure.with_columns(pl.when(pl.col('aa')=='A').then(pl.lit('AC')).otherwise(pl.col('aa')).alias('aa')),threads=1)
+    with pytest.raises(ValueError):
+        fit_origin_block_counts(pl.DataFrame(rows),pl.concat([exposure,exposure.head(1).with_columns(pl.lit(-.5).alias('posterior_site_weight'))]),threads=1)
+
+
+def test_matrix_fit_cli_consumes_final_counts_and_records_their_identity(tmp_path,monkeypatch):
+    import argparse
+    import json
+    from vdjmatch.cli.scoring_audit import register
+    import vdjmatch.match.scoring_audit as owner
+    prefix=tmp_path/'counts'
+    pl.DataFrame(dict(species=['HomoSapiens'],locus=['TRA'],channel=['same_exchangeable'],epitope=['E'],a=['A'],b=['A'],pair_weight=[1.])).write_csv(str(prefix)+'.mixed-epitope-pairs.tsv',separator='\t')
+    pl.DataFrame(dict(species=['HomoSapiens'],locus=['TRA'],epitope=['E'],aa=['A'],exchangeable=[True],posterior_site_weight=[1.])).write_csv(str(prefix)+'.mixed-exposures.tsv',separator='\t')
+    (tmp_path/'counts.provenance.json').write_text(json.dumps(dict(options=dict(origin_mixed=True,species='HomoSapiens',locus='TRA'))))
+    calls=[]
+    def fit(counts,exposures,*,threads):
+        calls.append((counts.height,exposures.collect().height,threads))
+        return {'block-fit-matrix':pl.DataFrame(dict(a=['A'],b=['A'],distance_bits=[0.]))}
+    monkeypatch.setattr(owner,'fit_origin_block_counts',fit)
+    parser=argparse.ArgumentParser();register(parser.add_subparsers())
+    output=tmp_path/'fit'
+    args=parser.parse_args(['matrix-fit','--input-prefix',str(prefix),'--output-prefix',str(output),'--threads','2'])
+    assert args.func(args)==0 and calls==[(1,1,2)]
+    table=pl.read_csv(str(output)+'.block-fit-matrix.tsv',separator='\t')
+    assert table['species'].to_list()==['HomoSapiens'] and table['locus'].to_list()==['TRA']
+    manifest=json.loads((tmp_path/'fit.block-fit-provenance.json').read_text())
+    assert len(manifest['inputs_sha256'])==3
+    assert manifest['counts_units']=='posterior-weighted ordered pairs; diagonal is halved for unordered AA categories'

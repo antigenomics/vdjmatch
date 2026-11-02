@@ -26,6 +26,11 @@ def register(subparsers):
     p.add_argument('--subs', type=int, default=2, help='LOO substitution-only candidate radius')
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
+    q=subparsers.add_parser('matrix-fit',help='fit a composition/divergence-adjusted core from final mixed-origin count tables')
+    q.add_argument('--input-prefix',required=True,help='completed origin-matrix --origin-mixed output prefix')
+    q.add_argument('--output-prefix',required=True)
+    q.add_argument('--threads',type=int,default=1)
+    q.set_defaults(func=matrix_fit)
     return p
 
 
@@ -432,4 +437,56 @@ def origin_matrix(a):
     Path(str(prefix) + ".provenance.json").write_text(
         json.dumps(manifest, indent=2) + "\n"
     )
+    return 0
+
+def matrix_fit(a):
+    """Fit a core from authoritative final count tables, without rerunning origin sums."""
+    import json
+    import time
+    from importlib import metadata
+    import polars as pl
+    from ..db.cache import sha256
+    from ..match.scoring_audit import fit_origin_block_counts
+    from ..runner.annotation import _validate_output_paths
+
+    if a.threads<1:
+        raise ValueError('threads must be positive')
+    source=Path(a.input_prefix)
+    paths={name:Path(str(source)+'.'+suffix) for name,suffix in [
+        ('counts','mixed-epitope-pairs.tsv'),('exposures','mixed-exposures.tsv'),('provenance','provenance.json')]}
+    prefix=_validate_output_paths(a.output_prefix,paths.values())
+    if Path(str(prefix)+'.block-fit-provenance.json').exists():
+        raise ValueError('completed matrix fit exists; choose a fresh output prefix')
+    before={str(p):sha256(p) for p in paths.values()}
+    producer=json.loads(paths['provenance'].read_text())
+    if not producer['options'].get('origin_mixed'):
+        raise ValueError('matrix-fit requires the complete mixed-origin CLI count producer')
+    counts=pl.read_csv(paths['counts'],separator='\t',infer_schema_length=None)
+    population={}
+    for column in ['species','locus']:
+        if counts[column].n_unique()!=1 or counts[column][0]!=producer['options'][column]:
+            raise ValueError('one source species/locus matching the count provenance is required')
+        population[column]=counts[column][0]
+    # Filter/project/aggregate the large final exposure table in its owning fit;
+    # no per-query feature bank or new raw-sequence calculation is introduced.
+    exposures=pl.scan_csv(paths['exposures'],separator='\t',infer_schema_length=None)
+    started=time.perf_counter()
+    tables=fit_origin_block_counts(counts,exposures,threads=a.threads)
+    after={str(p):sha256(p) for p in paths.values()}
+    if before!=after:
+        raise RuntimeError('final count/exposure inputs changed during matrix fitting')
+    prefix.parent.mkdir(parents=True,exist_ok=True)
+    for name,table in tables.items():
+        table.with_columns([pl.lit(value).alias(key) for key,value in population.items()]).write_csv(str(prefix)+'.'+name+'.tsv',separator='\t')
+    manifest=dict(options=vars(a)|{'func':'matrix-fit'},inputs_sha256={p.name:before[str(p)] for p in paths.values()},
+        input_freeze_equal=True,count_producer=producer,seconds=time.perf_counter()-started,
+        versions={name:metadata.version(name) for name in ['vdjmatch','vdjtools','seqtree','numpy','scipy','polars']},
+        source_sha256=dict(cli=sha256(Path(__file__)),fitter=sha256(Path(fit_origin_block_counts.__code__.co_filename))),
+        counts_units='posterior-weighted ordered pairs; diagonal is halved for unordered AA categories',
+        estimator='common symmetric interaction; all-site AA background; epitope AA preferences and offdiagonal divergence; zero diagonal and mean offdiagonal gauge',
+        validation='fixed epitope halves; training core fixed; test AA margins and offdiagonal total profiled; shared receptors not purged; not an independent source/receptor test or annotation accuracy',
+        score='mean log-divergence or declared0.70bit PAM compatibility walk; existing nonnegative Gram distances in bits',
+        prior='one total neutral mass per interaction/preference/divergence block; no reference-matrix prior',
+        output_rows={name:table.height for name,table in tables.items()})
+    Path(str(prefix)+'.block-fit-provenance.json').write_text(json.dumps(manifest,indent=2)+'\n')
     return 0

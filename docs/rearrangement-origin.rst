@@ -1038,3 +1038,110 @@ Eligibility by genetic-code alternatives requires strictly positive N emissions;
 zero-emission custom models raise and require the exact alternative-mass route.
 Scientific derivation and independent validation remain separate from these
 arithmetic and interface checks.
+
+
+Identity-informed common matrix after epitope composition adjustment
+--------------------------------------------------------------------
+
+Eligible identities carry information that a mismatch-only estimator
+lacks. Let :math:`C_{e,ab}` be the symmetric ordered pair weights for
+epitope :math:`e`, after matching V/J/length and local immutable classes
+and excluding amino-acid-compulsory identities. For the 210 unordered
+residue categories, set :math:`O_{e,ab}=C_{e,ab}` when :math:`a<b`,
+:math:`O_{e,aa}=C_{e,aa}/2`, and :math:`n_e=\sum_{a\le b}O_{e,ab}`. Thus
+:math:`n_e` is posterior-weighted unordered receptor/site-pair mass, not
+a count of independent experimental observations. Estimate
+:math:`f_{e,a}`, the all-site exchangeable amino-acid frequency, from
+source-site posterior weights, including sites and epitopes with no
+observed pairs. It is not a frequency computed from mismatch endpoints.
+
+A common interaction can be estimated with the working model
+
+.. math::
+
+
+    P_{e,ab}=\frac{m_{ab}f_{e,a}f_{e,b}
+    \exp\{\eta_{e,a}+\eta_{e,b}+\mathbf1_{a\ne b}(\delta_e+\theta_{ab})\}}
+    {Z_e},\qquad m_{ab}=2-\mathbf1_{a=b},
+
+where :math:`Z_e` normalizes the 210 categories, :math:`\eta_{e,a}`
+profiles the epitope’s endpoint preferences relative to its all-site
+frequencies, :math:`\delta_e` profiles its overall mismatch/identity
+odds, and :math:`\theta` is the shared symmetric interaction. Fix
+:math:`\theta_{aa}=0`, :math:`\sum_{a<b}\theta_{ab}=0`, and
+:math:`\sum_a\eta_{e,a}=0`. The off-diagonal divergence term separates
+the shared interaction’s shape from different repertoire
+conservation/diversity levels. The model retains AA row-interaction
+contrasts; it does not impose the mismatch-only model’s zero row sums. A
+residue-only baseline fixes :math:`\theta=0` while retaining both
+nuisance terms. The fitted objective is the posterior-weighted
+multinomial working likelihood, with :math:`w_e=1` for pooled weighting
+or :math:`w_e=1/n_e` for equal-epitope weighting. Zero-pair groups do
+not identify an interaction but remain in source-exposure and support
+accounting.
+
+The implemented neutral penalties are
+
+.. math::
+
+
+    \tau[\operatorname{LSE}(\theta)-\bar\theta]
+    +\frac{\tau}{E}\sum_e[\operatorname{LSE}(\eta_e)-\bar\eta_e]
+    +\frac{\tau}{E}\sum_e[\log(1+e^{\delta_e})-\delta_e/2],\qquad \tau=1.
+
+Here :math:`E` is the number of groups with positive pair mass, LSE
+denotes log-sum-exp, and the first term includes the full 210-category
+interaction vector with its constrained diagonal. These are parameter
+penalties; they do not add reference-matrix cell counts. Missing
+observed cells and prior completion remain distinguishable in the
+exports.
+
+**The scoring gauge must preserve distance.** For any symmetric
+similarity :math:`S`, define
+
+.. math::
+
+
+    S'_{ab}=S_{ab}-\frac{S_{aa}+S_{bb}}2,\qquad
+    D_{ab}=\max(0,-2S'_{ab}).
+
+Then :math:`S'_{aa}=D_{aa}=0`, and adding any AA row term
+:math:`u_a+u_b` to :math:`S` leaves :math:`D` unchanged. Setting a
+similarity’s diagonal to zero without the accompanying off-diagonal
+subtraction does not preserve distance. In the fitted gauge, an
+observed-divergence core has
+:math:`S'_{ab}=\mathbf1_{a\ne b}(\bar\delta+\theta_{ab})/\log 2`, where
+:math:`\bar\delta` is the analysis-weighted mean epitope log-divergence.
+The exported cost is exactly the existing scorer’s nonnegative Gram
+distance in bits, with no second transform when loaded as an explicit
+cost matrix. Positive frequency rescaling can be absorbed by
+:math:`\eta_e` at the unpenalized optimum; AA frequency normalization
+alone cannot force a chosen reference distance matrix.
+
+For the PAM-compatible construction, let :math:`\pi_a` be the pooled or
+equal-epitope all-site exchangeable source frequency, retaining
+zero-pair epitopes. Use symmetric off-diagonal flux
+:math:`F_{ab}=e^{\theta_{ab}}\pi_a\pi_b`, the existing
+exposure-normalized Dayhoff step and its reversible generator :math:`Q`.
+Evaluate :math:`T(t)=e^{tQ}` at the declared 0.70-bit information scale
+and form :math:`S_{ab}=\log_2[T_{ab}(t)/\pi_b]` before the same distance
+conversion. This is a compatibility walk; its time parameter is not a
+number of biological mutations. The reference matrices never enter
+likelihood fitting, penalties or cell selection.
+
+The existing ``matrix-fit`` CLI consumes the final mixed-origin counts
+and all-site exposure tables and exports models, nuisance preferences,
+residuals, support and fit/provenance records. Its fixed epitope halves
+keep the learned core fixed while profiling only test AA margins and
+mismatch/identity odds. This is descriptive association transfer:
+receptors shared by epitope labels are not purged between halves, so it
+does not replace independent source/receptor validation or annotation
+accuracy. All 190 actual off-diagonal distances and the full paired and
+single-chain annotation comparisons remain required.
+
+
+The shared block interaction includes origin-induced codon coupling. A
+recognition-only enrichment additionally needs the nonfactorizing, origin-matched
+opportunity background derived above; a product of AA frequencies alone does
+not remove that background. Source/receptor validation and matched annotation
+remain distinct from matrix agreement and the descriptive epitope split.

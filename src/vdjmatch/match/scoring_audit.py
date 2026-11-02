@@ -1093,7 +1093,7 @@ def n_region_residue_opportunities(model, junctions, positions, v, j, *, threads
 
 
 def fit_exchangeability(
-    observed, expected, *, balanced, prior_mass=1.0, residue_groups=None, fit_pairs=True, design=None, precondition=False
+    observed, expected, *, balanced, prior_mass=1.0, residue_groups=None, fit_pairs=True, design=None, precondition=False, identity_pairs=False
 ):
     """Conditional multinomial fit, migrated from the established M4 owner.
 
@@ -1101,11 +1101,15 @@ def fit_exchangeability(
     first-coefficient gauge. With integer epitope groups, fit additive residue
     preferences and constrain each AA row sum of the symmetric pair effect to
     zero. Balanced weighting then gives equal total observed mass per epitope.
+    With identity_pairs,210 unordered AA categories include identities. Fit an
+    epitope divergence intercept for off-diagonals, preserving AA row-interaction
+    contrasts; the common interaction has zero diagonal and mean off-diagonal.
+    Its three neutral prior blocks cover pair, AA preference and divergence.
     The neutral prior is reference-free; fractional counts are working weights.
     """
     from scipy.linalg import helmert, null_space
     from scipy.optimize import minimize
-    from scipy.special import logsumexp
+    from scipy.special import logsumexp, expit
 
     o, e = np.asarray(observed, float), np.asarray(expected, float)
     if o.shape != e.shape or o.ndim != 2 or (o < 0).any() or (e < 0).any():
@@ -1117,6 +1121,8 @@ def fit_exchangeability(
         or prior_mass < 0
     ):
         raise ValueError("finite counts and nonnegative prior required")
+    if identity_pairs and (residue_groups is None or design is not None):
+        raise ValueError('full identity fits require residue groups and their own diagonal gauge')
     if design is not None:
         design = np.asarray(design, float)
         if (residue_groups is not None or design.ndim != 2 or design.shape[0] != o.shape[1]
@@ -1132,10 +1138,10 @@ def fit_exchangeability(
             supplied.shape != (len(o),)
             or supplied.dtype.kind not in "iu"
             or (supplied < 0).any()
-            or o.shape[1] != 190
+            or o.shape[1] != (210 if identity_pairs else 190)
         ):
             raise ValueError(
-                "190 AA-pair columns and one nonnegative integer residue group per row required"
+                "matching AA-pair columns (210 with identities, otherwise190) and one nonnegative integer residue group per row required"
             )
         labels, groups = np.unique(supplied[keep], return_inverse=True)
     o, e = o[keep], e[keep]
@@ -1153,43 +1159,56 @@ def fit_exchangeability(
     b = e / e.sum(1, keepdims=True)
     with np.errstate(divide="ignore"):
         logb = np.log(b)
+    free_divergence=0
     if groups is None:
         weights = 1 / n if balanced else np.ones(len(n))
         free_pairs, free_residues = k - 1 if design is None else design.shape[1], 0
     else:
-        i, j = np.triu_indices(20, 1)
+        i, j = np.triu_indices(20, 0 if identity_pairs else 1)
+        off=i!=j
         incidence = np.zeros((k, 20))
-        incidence[np.arange(k), i] = incidence[np.arange(k), j] = 1
-        pair_basis = null_space(incidence.T) if fit_pairs else np.empty((k, 0))
+        incidence[np.arange(k), i] += 1
+        incidence[np.arange(k), j] += 1
+        if identity_pairs:
+            pair_basis=np.zeros((k,189 if fit_pairs else 0))
+            if fit_pairs:
+                pair_basis[off]=helmert(190,full=False).T
+        else:
+            pair_basis = null_space(incidence.T) if fit_pairs else np.empty((k, 0))
         residue_basis = helmert(20, full=False).T
         ng = len(labels)
+        free_divergence=ng if identity_pairs else 0
         weights = (
             1 / np.bincount(groups, weights=n)[groups] if balanced else np.ones(len(n))
         )
         free_pairs, free_residues = pair_basis.shape[1], ng * 19
     wn = weights * n
     totals = (weights[:, None] * o).sum(0)
-    scale = wn.sum() + prior_mass * (1 if groups is None else 2)
+    scale = wn.sum() + prior_mass * (1 if groups is None else 3 if identity_pairs else 2)
 
     def unpack(x):
         if groups is None:
-            return (np.r_[0.0, x] if design is None else design @ x), None
-        return pair_basis @ x[:free_pairs], x[free_pairs:].reshape(
-            ng, 19
-        ) @ residue_basis.T
+            return (np.r_[0.0, x] if design is None else design @ x), None, None
+        eta=x[free_pairs:free_pairs+free_residues].reshape(ng,19) @ residue_basis.T
+        delta=x[-free_divergence:] if free_divergence else None
+        return pair_basis @ x[:free_pairs], eta, delta
 
     def objective(x):
-        beta, eta = unpack(x)
+        beta, eta, delta = unpack(x)
         logits = logb + beta
         if eta is not None:
             residue_logits = eta[groups] @ incidence.T
             logits += residue_logits
+        if delta is not None:
+            logits += delta[groups,None]*off
         logz = logsumexp(logits, axis=1)
         pi = np.exp(logits - logz[:, None])
         residual = wn[:, None] * pi - weights[:, None] * o
         value = np.sum(wn * logz) - totals @ beta
         if eta is not None:
             value -= np.sum(weights[:, None] * o * residue_logits)
+        if delta is not None:
+            value -= np.sum(weights[:,None]*o*delta[groups,None]*off)
         value += prior_mass * (logsumexp(beta) - beta.mean())
         gb = residual.sum(0) + prior_mass * (np.exp(beta - logsumexp(beta)) - 1 / k)
         if eta is None:
@@ -1204,11 +1223,16 @@ def fit_exchangeability(
                 * (np.exp(eta - logsumexp(eta, axis=1, keepdims=True)) - 1 / 20)
             )
             gradient = np.r_[pair_basis.T @ gb, (ge @ residue_basis).ravel()]
+            if delta is not None:
+                value+=prior_mass*np.mean(np.logaddexp(0,delta)-delta/2)
+                gd=np.bincount(groups,weights=residual[:,off].sum(1),minlength=ng)
+                gd+=prior_mass/ng*(expit(delta)-.5)
+                gradient=np.r_[gradient,gd]
         return float(value / scale), gradient / scale
 
     # Reuse the fixed Fisher-diagonal scaling from the established recognition
     # fitter. This changes coordinates, never counts, priors or the objective.
-    parameter_scale = np.ones(free_pairs + free_residues)
+    parameter_scale = np.ones(free_pairs + free_residues + free_divergence)
     if precondition and groups is None and design is None:
         diagonal = np.sum(wn[:, None] * b[:, 1:] * (1-b[:, 1:]), axis=0)
         diagonal += prior_mass * (1/k) * (1-1/k)
@@ -1229,6 +1253,11 @@ def fit_exchangeability(
         np.add.at(residue_diagonal, groups, wn[:, None] * residue_variance)
         residue_diagonal += prior_mass / (ng * 20)
         diagonal = np.r_[pair_diagonal, residue_diagonal.ravel()] / scale
+        if identity_pairs:
+            off_probability=b[:,off].sum(1)
+            dd=np.bincount(groups,weights=wn*off_probability*(1-off_probability),minlength=ng)
+            dd+=prior_mass/(4*ng)
+            diagonal=np.r_[diagonal,dd/scale]
         parameter_scale = 1 / np.sqrt(np.maximum(diagonal, 1e-12))
 
     def scaled_objective(z):
@@ -1237,7 +1266,7 @@ def fit_exchangeability(
 
     fit = minimize(
         scaled_objective,
-        np.zeros(free_pairs + free_residues),
+        np.zeros(free_pairs + free_residues + free_divergence),
         jac=True,
         method="L-BFGS-B",
         options={
@@ -1254,8 +1283,9 @@ def fit_exchangeability(
         )
     fit.x *= parameter_scale
     fit.fun, fit.jac = objective(fit.x)
-    beta, eta = unpack(fit.x)
-    beta -= beta.mean()
+    beta, eta, delta = unpack(fit.x)
+    if not identity_pairs:
+        beta -= beta.mean()
     if order is not None:
         beta = beta[np.argsort(order)]
     report = dict(
@@ -1274,9 +1304,11 @@ def fit_exchangeability(
             epitopes=ng,
             residue_group_labels=labels.tolist(),
             residue_log_preferences=eta.tolist(),
-            pair_gauge="zero AA row sums over 190 off-diagonal effects",
+            pair_gauge=("zero diagonal and zero mean off-diagonal interaction" if identity_pairs else "zero AA row sums over 190 off-diagonal effects"),
             independent_pair_likelihood=False,
         )
+    if delta is not None:
+        report["group_log_divergence"]=delta.tolist()
     return beta, report
 
 
@@ -2001,3 +2033,151 @@ def origin_rate_models(counts):
     return {'origin-rate-models': pl.concat(parameters) if parameters else pl.DataFrame(schema={'L':pl.Int64}),
             'origin-rate-intercepts': pl.concat(intercepts) if intercepts else pl.DataFrame(schema={'L':pl.Int64}),
             'origin-rate-fits': pl.DataFrame(summaries, infer_schema_length=None)}
+
+def fit_origin_block_counts(counts, exposures, *, threads=1, prior_mass=1.0):
+    """Shared210-category interaction, AA preferences and epitope divergence.
+
+    Consume final origin-count/site-exposure tables, never per-query probability
+    rows. Identity counts are between distinct unit clusters. Nuisance AA
+    preferences are relative to all-site exchangeable AA frequencies. The fixed
+    epitope halves assess held-out association after profiling only its margins
+    and overall divergence; this is not receptor-level annotation accuracy.
+    """
+    import hashlib
+    import json
+    import sys
+    import time
+    from scipy.special import logsumexp
+    from threadpoolctl import threadpool_limits
+
+    if threads<1:
+        raise ValueError('positive thread budget required')
+    table=counts.filter(pl.col('channel')=='same_exchangeable')
+    if table.is_empty():
+        raise ValueError('same_exchangeable origin counts are required')
+    names=[];ordered=[]
+    for (epitope,),part in table.group_by('epitope',maintain_order=True):
+        part=part.sort('a','b')
+        if part.height!=400 or part.select('a','b').is_duplicated().any() or part['a'].unique().sort().to_list()!=list(AA) or part['b'].unique().sort().to_list()!=list(AA):
+            raise ValueError('each epitope requires the complete20x20standard-AA count table')
+        matrix=part['pair_weight'].to_numpy().reshape(20,20)
+        if not np.isfinite(matrix).all() or np.any(matrix<0) or not np.allclose(matrix,matrix.T,rtol=1e-12,atol=1e-12):
+            raise ValueError('finite nonnegative symmetric ordered pair weights required')
+        names.append(epitope);ordered.append(matrix)
+    order=np.argsort(names);names=np.asarray(names)[order];ordered=np.asarray(ordered)[order]
+    i,j=np.triu_indices(20);off=i!=j
+    observed=ordered[:,i,j]/np.where(off,1.,2.)
+    fields=exposures.collect_schema().names() if isinstance(exposures,pl.LazyFrame) else exposures.columns
+    scope=[c for c in ['species','locus'] if c in fields]
+    site=exposures.filter(pl.col('exchangeable')).group_by('epitope','aa',*scope).agg(
+        pl.col('posterior_site_weight').sum(),pl.col('posterior_site_weight').min().alias('minimum_site_weight'),
+        pl.col('posterior_site_weight').null_count().alias('unknown_exchangeable_sites'))
+    if isinstance(site,pl.LazyFrame):
+        site=site.collect()
+    for column in scope:
+        if column not in counts.columns or counts[column].n_unique()!=1 or site[column].n_unique()!=1 or counts[column][0]!=site[column][0]:
+            raise ValueError('count/exposure populations must have the same single species and locus')
+    lookup={e:z for z,e in enumerate(names)}
+    source=np.zeros((len(names),20))
+    for row in site.iter_rows(named=True):
+        if row['epitope'] in lookup:
+            if not isinstance(row['aa'],str) or len(row['aa'])!=1 or row['aa'] not in AA or row['posterior_site_weight'] is None or not np.isfinite(row['posterior_site_weight']) or row['unknown_exchangeable_sites']>0 or row['minimum_site_weight'] is None or row['minimum_site_weight']<0:
+                raise ValueError('finite nonnegative all-site AA exposures required')
+            source[lookup[row['epitope']],AA.index(row['aa'])]=row['posterior_site_weight']
+    exposure_names=names.copy();exposure_source=source.copy()
+    active=observed.sum(1)>0
+    support=pl.DataFrame(dict(epitope=names.tolist(),unordered_pair_weight=observed.sum(1),
+        all_site_exchangeable_weight=source.sum(1),fitted=active))
+    names,observed,source,ordered=names[active],observed[active],source[active],ordered[active]
+    if not len(names) or np.any(source.sum(1)<=0):
+        raise ValueError('positive pair weights require matching all-site exchangeable exposure')
+    frequency=source/source.sum(1,keepdims=True)
+    expected=np.where(off,2.,1.)*frequency[:,i]*frequency[:,j]
+    halves=np.array([int(hashlib.sha256(e.encode()).hexdigest(),16)%2 for e in names])
+    exposure_halves=np.array([int(hashlib.sha256(e.encode()).hexdigest(),16)%2 for e in exposure_names])
+    matrices=[];preferences=[];fits=[];residuals=[];validation=[]
+    fitted_models={}
+
+    def infer(o,e,balanced,pairs):
+        with threadpool_limits(limits=threads,user_api='blas'):
+            beta,report=fit_exchangeability(o,e,balanced=balanced,prior_mass=prior_mass,
+                residue_groups=np.arange(len(o)),fit_pairs=pairs,identity_pairs=True)
+        eta=np.asarray(report['residue_log_preferences']);delta=np.asarray(report['group_log_divergence'])
+        with np.errstate(divide='ignore'):
+            logits=np.log(e)+beta+eta[:,i]+eta[:,j]+delta[:,None]*off
+        logpi=logits-logsumexp(logits,axis=1,keepdims=True)
+        ll=np.multiply(o,logpi,out=np.zeros_like(o),where=o>0).sum(1)
+        return beta,eta,delta,logpi,ll,report
+
+    for partition,selected in [('all',np.ones(len(names),bool)),('half0',halves==0),('half1',halves==1)]:
+        if not selected.any():
+            continue
+        o,e=observed[selected],expected[selected]
+        n=o.sum(1);selected_names=names[selected]
+        for weighting,balanced in [('pooled',False),('equal_epitope',True)]:
+            weights=1/n if balanced else np.ones(len(n))
+            for model,pairs in [('composition_divergence',False),('shared_interaction',True)]:
+                start=time.perf_counter()
+                print(json.dumps(dict(stage='identity_pair_fit',partition=partition,weighting=weighting,model=model,epitopes=len(n))),file=sys.stderr,flush=True)
+                beta,eta,delta,logpi,ll,report=infer(o,e,balanced,pairs)
+                public={k:v for k,v in report.items() if k not in ['residue_log_preferences','residue_group_labels','group_log_divergence']}
+                fits.append(dict(partition=partition,weighting=weighting,model=model,epitopes=len(n),
+                    unordered_pair_weight=float(n.sum()),weighted_loglik_nats=float(weights@ll),
+                    seconds=time.perf_counter()-start,report=json.dumps(public,sort_keys=True)))
+                if not pairs:
+                    continue
+                fitted_models[partition,weighting]=beta
+                for z,epitope in enumerate(selected_names):
+                    preferences.extend(dict(partition=partition,weighting=weighting,epitope=epitope,aa=a,
+                        all_site_frequency=float(frequency[selected][z,k]),log_preference=float(eta[z,k]),
+                        log_divergence=float(delta[z]),unordered_pair_weight=float(n[z])) for k,a in enumerate(AA))
+                if partition=='all':
+                    mu=n[:,None]*np.exp(logpi)
+                    residuals.extend(dict(weighting=weighting,epitope=epitope,a=AA[a],b=AA[b],
+                        observed_unordered_pair_weight=float(o[z,c]),fitted_unordered_pair_weight=float(mu[z,c]),
+                        observed_over_fitted=float(o[z,c]/mu[z,c]) if mu[z,c]>0 else None)
+                        for z,epitope in enumerate(selected_names) for c,(a,b) in enumerate(zip(i,j)))
+                exposure_selected=(exposure_source.sum(1)>0)&(np.ones(len(exposure_names),bool) if partition=='all' else exposure_halves==int(partition[-1]))
+                background=exposure_source[exposure_selected]
+                f=((background/background.sum(1,keepdims=True)).mean(0) if balanced else background.sum(0)/background.sum())
+                mean_delta=float(np.average(delta,weights=np.ones(len(n)) if balanced else n))
+                theta=np.zeros((20,20));theta[i,j]=theta[j,i]=beta
+                score=(theta+mean_delta*(~np.eye(20,dtype=bool)))/np.log(2)
+                candidates=[('observed_divergence',score,np.full((20,20),np.nan),np.nan)]
+                if (f>0).all():
+                    change=np.exp(theta)*np.outer(f,f);np.fill_diagonal(change,0.)
+                    generator=(transition_from_counts(change,f)-np.eye(20))/.01
+                    pam,timepoint=entropy_matched_scores(generator,f)
+                    candidates.append(('pam_information070',pam,generator,timepoint))
+                empirical=ordered[selected].sum(0)
+                for label,scores,generator,timepoint in candidates:
+                    distances=costs_from_similarity(scores)
+                    matrices.extend(dict(partition=partition,weighting=weighting,model=label,a=a,b=b,
+                        log_interaction=float(theta[x,y]),common_log_divergence=mean_delta,stationary_frequency=float(f[x]),
+                        score_bits=float(scores[x,y]),distance_bits=float(distances[x,y]),generator_rate=float(generator[x,y]),walk_time=float(timepoint),
+                        pair_observed=bool(empirical[x,y]>0),identities_observed=bool(empirical[x,x]>0 and empirical[y,y]>0),
+                        supported=bool(np.isfinite(scores[x,y]) and np.isfinite(distances[x,y])))
+                        for x,a in enumerate(AA) for y,b in enumerate(AA))
+    for test_half in [0,1]:
+        selected=halves==test_half
+        train='half'+str(1-test_half)
+        if not selected.any():
+            continue
+        o,e=observed[selected],expected[selected];n=o.sum(1)
+        for weighting,balanced in [('pooled',False),('equal_epitope',True)]:
+            if (train,weighting) not in fitted_models:
+                continue
+            beta=fitted_models[train,weighting]
+            null=infer(o,e,balanced,False)
+            alternative=infer(o,e*np.exp(beta-beta.max()),balanced,False)
+            weights=1/n if balanced else np.ones(len(n))
+            validation.append(dict(weighting=weighting,training_partition=train,test_partition='half'+str(test_half),
+                test_epitopes=len(n),test_unordered_pair_weight=float(n.sum()),
+                null_profile_loglik_nats=float(weights@null[4]),shared_profile_loglik_nats=float(weights@alternative[4]),
+                gain_bits_per_weighted_pair=float(weights@(alternative[4]-null[4])/(weights@n)/np.log(2)),
+                independent_receptor_or_source_holdout=False,
+                interpretation='epitope-split association; test AA margins and offdiagonal total profiled; core fixed; shared receptors not purged'))
+    return {'block-fit-matrix':pl.DataFrame(matrices).with_columns(pl.col('generator_rate','walk_time').fill_nan(None)),
+        'block-fit-preferences':pl.DataFrame(preferences),'block-fit-summary':pl.DataFrame(fits),
+        'block-fit-epitope-residuals':pl.DataFrame(residuals),'block-fit-validation':pl.DataFrame(validation),
+        'block-fit-support':support}
