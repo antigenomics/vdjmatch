@@ -598,7 +598,9 @@ Here :math:`\alpha_{es}` absorbs population density and :math:`\gamma`
 describes excess neighbour incidence after matching generation
 opportunity. The factorization
 :math:`\gamma_{a,p,L,C}=u_{a,C}+v_{p,L,C}` is a restriction to test
-against the joint effect, not a property assumed from endpoint counts.
+against the joint effect, not a property assumed from endpoint counts. An additive gauge is fixed
+within each connected supported design component; unsupported cells do not
+become identifiable through normalization.
 Missing origins remain separate; a fixed-template site has zero N
 exposure and supplies no conservation evidence. Positive counts at zero
 declared opportunity diagnose a model or coordinate mismatch. These
