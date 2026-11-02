@@ -892,8 +892,6 @@ def main(argv: list[str] | None = None) -> int:
             annotation._optionals._group_actions.remove(action)
             advanced._group_actions.append(action)
     annotation.set_defaults(func=_cmd_annotate, selection_only=True)
-    from .scoring_audit import register as register_scoring_audit
-    register_scoring_audit(sub)
     from .pgen import register as register_pgen
     register_pgen(sub)
     from .calibration import register as register_calibration
