@@ -59,8 +59,8 @@ def register(subparsers, name='neighbours'):
     p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep the full background model fixed')
     p.add_argument('--threads',type=int,default=0,help='native threads (0 = allocated cores)')
     p.add_argument('--verbose',action='store_true',help='report grouped query/reference workload and count progress')
-    p.add_argument('--distance-matrix',choices=['clipped','blosum62','pam250','mj','vdjam'],default='clipped',
-                   help='clipped BLOSUM62 costs or retained unclipped BLOSUM62/PAM250/MJ/VDJAM Gram penalties')
+    p.add_argument('--distance-matrix',default='clipped',
+                   help='clipped, blosum62, pam250, mj, vdjam, or an explicit aa.1/aa.2/cost TSV')
     p.add_argument('--alphabet',choices=['full','imgt'],default='full',
                    help='experimental ordered IMGT-class geometry; same projected matrix for CDR3/V loops, raw identities retained')
     p.add_argument('--junction-ends',choices=['trim32','trim3'],default='trim32',
@@ -208,6 +208,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
     evidence_only=getattr(a,'evidence_only',False)
     gzip_evidence=getattr(a,'gzip_evidence',False)
     stream_evidence=getattr(a,'stream_evidence',False)
+    matrix_path=Path(a.distance_matrix).expanduser()
+    matrix_hash=sha256(matrix_path) if matrix_path.is_file() else None
     streamed_rows=False
     streamed_selections=[]
     if stream_evidence and (not evidence_only or marginal_tables is not None):
@@ -1059,7 +1061,10 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
                 str(prefix)+'.selection.tsv',separator='\t')
     if paired and kernel:
         from .calibration import paired_call_event,paired_pipeline_sources
+    if matrix_hash is not None and sha256(matrix_path)!=matrix_hash:
+        raise ValueError('core matrix changed during scoring')
     manifest={'sample_sha256':sha256(Path(a.sample)),
+        **({'core_matrix_sha256':matrix_hash} if matrix_hash is not None else {}),
         'selection_only':selection_only,
         **({'evidence_only':True} if evidence_only else {}),
         **({'stream_evidence':True,'evidence_order':'native execution order; compare by query/full-pMHC keys',

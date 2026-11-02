@@ -138,9 +138,11 @@ Historical matching comparisons
      - 5/7 day15 libraries by rows, 7/7 by reads; 0/12 day0
      - 5/6 day14 donors, 6/6 ever post; 0/6 baseline, paired descriptive heuristic
 
-These settings reproduce the currently strongest recorded cohort endpoints.
-They are not promoted software defaults; the paired four-family comparison
-must finish before its final recommendation is selected.
+These settings reproduce historical matcher comparisons under their original
+nulls. The bulk workflow above supersedes the joint-Pgen comparison for current
+inference; its raw-marginal-Pgen results must not be attributed to this table.
+These settings are not promoted software defaults. The paired four-family
+outputs retain their own completed-arm audit and comparison scope.
 
 There is no single matching setting demonstrated optimal across both cohorts.
 For the bulk longitudinal cohort, positional BLOSUM62 radius factor 0.30 improved

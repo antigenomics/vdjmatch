@@ -1,6 +1,14 @@
 Release notes
 =============
 
+1.2.0
+-----
+
+Matrix derivation is provided as research scripts in the companion analysis
+repository; its unused installed CLI commands have been removed. Experimental
+bundles are API-only. Annotation defaults and the vdjtools 5.6.0 runtime floor
+are unchanged. The origin-aware statistical derivation is documented separately.
+
 1.1.0
 -----
 
@@ -191,3 +199,12 @@ names (for example TRAV23/DV6 and TRBV24/OR9-2) while stripping allele suffixes.
 These names must not be treated as decorations or collapsed to a different gene.
 Historical benchmark exports that stripped slash suffixes retain their original
 provenance and require explicit reconciliation before a fresh scientific comparison.
+
+Legacy Java consumers
+---------------------
+
+The Python package follows the Java/Groovy implementation retained on the
+`legacy-java branch <https://github.com/antigenomics/vdjmatch/tree/legacy-java>`_
+and `Java 1.3.1 tag <https://github.com/antigenomics/vdjmatch/tree/1.3.1>`_.
+Existing consumers use the pinned JitPack artifact
+``com.github.antigenomics:vdjmatch:1.3.1``; Python releases do not replace it.

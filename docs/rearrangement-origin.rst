@@ -1,0 +1,1156 @@
+Rearrangement-aware substitution and indel models
+=================================================
+
+**Rearrangement origin changes the meaning of a substitution matrix.**
+Two TCR junctions recognizing the same epitope need not descend from one
+another. Their differences usually compare independently generated,
+convergent V(D)J rearrangements. An aligned identity within a retained
+germline segment is therefore not evidence that antigen recognition
+selected against a mutation at that position. Under the model considered
+here, retained germline is immutable and allelic mutation is excluded.
+We distinguish this structural constraint from trimming and palindromic
+P additions at segment boundaries, and from stochastic N additions. The
+resulting matrix describes compatibility of alternative rearrangements
+with recognition, rather than an evolutionary mutation process.
+
+The original BLOSUM construction pools aligned residue pairs, including
+identities, across blocks and controls sequence redundancy; PAM
+additionally estimates residue-specific mutability and propagates a
+transition process. Neither method literally requires equal mutability
+of every residue. The problem in applying their pooled counts directly
+to junctions is the absence of rearrangement-origin conditioning. The
+original sources are `Henikoff and Henikoff
+(1992) <https://doi.org/10.1073/pnas.89.22.10915>`__ and `Dayhoff,
+Schwartz and Orcutt (1978), chapter
+22 <https://compbio.berkeley.edu/class/c246/Reading/dayhoff-1978-apss.pdf>`__.
+The construction below is an adaptation of these principles to
+rearrangement convergence, not an assertion of receptor ancestry.
+
+**Generative model and origin coordinates.** Let :math:`C` denote chain,
+:math:`L` the amino-acid junction length, and :math:`x` an
+anchor-inclusive amino-acid junction. Let :math:`r` be a complete
+rearrangement history: gene choices, retained segment coordinates,
+trimming/P events, N lengths and N nucleotide realizations. Write
+:math:`T(r)=x` for translation and :math:`P_0(r\mid C)` for the
+specified recombination model. The observed gene calls enter as
+conditioning evidence with their ambiguity retained. Known retained
+templates are not repaired by allowing mutations inside germline. Every
+producer-declared junction length is retained. Anchor letters alone are not
+a compatibility filter: trimming and mixed codons can change boundary amino
+acids without mutation of retained templates. Compatibility follows from the
+conditioned model mass; unsupported records remain in the accounting.
+
+For each nucleotide coordinate :math:`t`, retain an origin label
+:math:`Z_r(t)\in\{G,P,N\}`. The germline label :math:`G` also records
+the gene and reference coordinate. An amino-acid site :math:`p` has a
+three-base origin
+
+.. math::
+
+
+    Z_{r,p}=\bigl(Z_r(3p),Z_r(3p+1),Z_r(3p+2)\bigr).
+
+Only :math:`NNN` denotes a pure-N codon. A codon spanning a segment
+boundary is a mixed-origin codon, even when its amino acid differs
+between two receptors. P sequence is templated by the palindromic
+germline extension, whereas its presence and length vary through
+boundary events. N sequence is stochastic under the insertion model;
+nucleotide bias, dinucleotide dependence, reading frame and translation
+make its amino-acid frequencies nonuniform. These three mechanisms
+consequently require different residue and length baselines.
+
+**Marginalize histories instead of assigning one history as truth.** For
+positive model likelihood, the conditional origin probability is
+
+.. math::
+
+
+    \omega_{x,p}(z)=
+    \frac{\displaystyle\sum_r P_0(r\mid C,\mathcal V,\mathcal J)
+          \mathbf1\{T(r)=x,\ Z_{r,p}=z\}}
+         {\displaystyle\sum_r P_0(r\mid C,\mathcal V,\mathcal J)
+          \mathbf1\{T(r)=x\}},
+    \qquad z\in\{G,P,N\}^{3}.
+
+Here :math:`\mathcal V,\mathcal J` denote the gene-call evidence used by
+the model. A zero denominator makes origin unresolved; it does not
+establish N origin. Top-ranked histories and a most-likely inferred
+nucleotide sequence are not this posterior. In particular,
+model-inferred nucleotides cannot independently validate the model that
+generated them.
+
+If epitope selection depends only on the observed junction and the
+conditioned receptor features, it cancels from the posterior over
+histories given those features. For example,
+
+.. math::
+
+
+    P_e(r)\ \propto\ P_0(r)\,\sigma_e(T(r),\mathcal V,\mathcal J)
+    \quad\Longrightarrow\quad
+    P_e(r\mid x,\mathcal V,\mathcal J)=P_0(r\mid x,\mathcal V,\mathcal J).
+
+This cancellation requires the stated conditioning. It does not hold
+automatically when selection depends on unobserved paired-chain, gene or
+structural features. The origin probabilities remain model-based
+quantities.
+
+**Structural conservation and recognition conservation.** At a fixed
+retained gene/reference coordinate, :math:`P(\mathrm{change}\mid G)=0`
+by construction in this model. Such identities must be omitted from both
+the substitution numerator and the conservation denominator of a learned
+N-region core. Removing germline mismatches while retaining their
+identities would spuriously inflate conservation. Conversely, simply
+removing conserved terminal anchors is insufficient: templated residues
+can extend into the junction interior. A difference between V genes, or
+between retained reference coordinates after trimming, is a
+gene/scenario difference and belongs in the gene or boundary component.
+It is not a substitution within a fixed germline template. Uncertain
+origin is retained separately rather than silently included in N.
+
+For independent rearrangements :math:`x,y`, a pure-N pair at aligned
+positions :math:`p,q` has weight
+
+.. math::
+
+
+    u_{xy,pq}=\omega_{x,p}(NNN)\,\omega_{y,q}(NNN),
+
+conditional on the independence and model assumptions above. Multiplying
+this by the declared record, clonotype, redundancy and epitope weights
+gives an origin-weighted pair contribution. Pair definitions, exact
+matches, contradictory labels and source identities are retained in the
+audit. Within each declared comparison, ordered counts are used
+consistently for identities and exchanges.
+
+**BLOSUM-style convergence counts.** Let :math:`h` index aligned site
+pairs in the chosen blocks, and let :math:`w_h` denote their sampling
+weights. The pure-N counts for epitope :math:`e` are
+
+.. math::
+
+
+    F^{N,e}_{ab}=
+    \sum_{h=(x,y,p,q)} w_h\,\mathbf1\{e_x=e_y=e\}\,
+    u_{xy,pq}\,\mathbf1\{x_p=a,\ y_q=b\}.
+
+Only distinct observations allowed by the declared redundancy convention
+contribute. Identity counts :math:`a=b` remain essential, but only on
+the same N-origin opportunity as exchanges. The block alignment, cluster
+definition and origin weights are separate operations. An aligner
+proposes correspondence; it does not establish the rearrangement
+history.
+
+Normalize the weighted counts to :math:`q^+_{ab}`. A baseline
+:math:`q^0_{ab}` must use the same chain, length, position,
+gene/scenario, origin and pair-ascertainment conditions. It may come
+from the specified recombination model or from a declared, matched
+different-epitope comparison. Different-epitope repertoires are
+themselves selected populations and must not be called an unselected
+generative background without justification. The recognition score and
+the scorer-compatible cost are
+
+.. math::
+
+
+    S_{ab}=\log_2\frac{q^+_{ab}}{q^0_{ab}},\qquad
+    D_{ab}=S_{aa}+S_{bb}-2S_{ab},\qquad
+    d_{ab}=\max(0,D_{ab}).
+
+Consequently,
+
+.. math::
+
+
+    D_{ab}=
+    \log_2\frac{q^+_{aa}q^+_{bb}}{(q^+_{ab})^2}
+    -
+    \log_2\frac{q^0_{aa}q^0_{bb}}{(q^0_{ab})^2}.
+
+A factorized background :math:`q^0_{ab}=p_ap_b` cancels from this
+distance. A structured origin-conditioned background need not cancel.
+This distinguishes correcting pooled residue frequencies from correcting
+rearrangement opportunity. The diagonal is zero after conversion, but
+the self-pair counts used to derive it cannot be omitted. Missing
+origin-conditioned support is reported; pseudocounts cannot create
+evidence for structurally forbidden events. A BLOSUM prior, if used for
+shrinkage, is declared as reference supervision and is not evidence of
+recovering BLOSUM from VDJdb.
+
+**The bridge from codons to a genetic-code baseline.** Let
+:math:`u_s(c)` be the productive pure-N codon distribution in a fully
+specified stratum :math:`s`, and let :math:`\tau(c)` translate codon
+:math:`c`. For independent codon draws in that stratum,
+
+.. math::
+
+
+    f_{s,a}=\sum_{c:\tau(c)=a}u_s(c),\qquad
+    q^0_{s,ab}=f_{s,a}f_{s,b}.
+
+This factorization is a conditional construction; it does not assert
+independence of junction positions. If the ascertainment rule also fixes
+shared flanking context :math:`h`, the pooled opportunity is instead a
+mixture :math:`\sum_h w_h f_{s,h,a}f_{s,h,b}`, where :math:`w_h` are
+normalized context weights under that rule. Such context mixing must be
+accounted for before assigning its conservation to recognition.
+
+To obtain a one-nucleotide genetic-code proposal, explicitly define a
+codon coupling :math:`J_s(c,d)`, for example one supported on sense
+codons separated by one nucleotide, and project it through translation:
+
+.. math::
+
+
+    K^0_{s,ab}=\sum_{c,d}J_s(c,d)
+    \mathbf1\{\tau(c)=a,\ \tau(d)=b\}.
+
+Here :math:`J_s` is a specified joint proposal mass, and :math:`K^0_s`
+is its amino-acid pushforward; synonymous proposals contribute to the
+diagonal. This is a compatibility hypothesis for independently
+rearranged receptors, with no implied mutational ancestry. It differs
+from independent draws and must be declared when interpreting a
+genetic-core comparison. For a recognition multiplier
+:math:`R_{s,ab}\ge0`, write
+
+.. math::
+
+
+    q^+_{s,ab}=\frac{K^0_{s,ab}R_{s,ab}}{Z_s},\qquad
+    Z_s=\sum_{a,b}K^0_{s,ab}R_{s,ab}.
+
+Then log-odds against the normalized proposal recover
+:math:`\log_2R_{s,ab}` up to a stratum constant, which cancels in the
+diagonal-zero distance. This explicitly separates the codon proposal,
+its amino-acid frequencies and recognition compatibility. A strict
+one-nucleotide proposal cannot represent observed exchanges outside its
+support; any finite-time codon walk or added proposal component used to
+expand that support must be specified before fitting. Model-inferred
+nucleotides remain unsuitable as independent evidence for selecting this
+coupling.
+
+**Mixed codons induce a coupling without mutating germline.** A
+pure-N codon is only one origin channel. Let :math:`\zeta` identify a
+local retained-template/trim/P configuration, its N-base mask within the
+codon, the immutable bases outside that mask, and the matched flank/gene
+context. Let :math:`f_{\zeta,a}` be the translated AA distribution under
+independent N draws conditional on this configuration. Within a shared
+configuration, two independently rearranged receptors have pair mass
+:math:`f_{\zeta,a}f_{\zeta,b}`. Mixing configurations with predeclared
+weights :math:`w_\zeta` gives
+
+.. math::
+
+    q^0_{ab}=\sum_\zeta w_\zeta f_{\zeta,a}f_{\zeta,b},\qquad
+    \bar f_a=\sum_\zeta w_\zeta f_{\zeta,a},\qquad
+    q^0_{ab}-\bar f_a\bar f_b
+      =\operatorname{Cov}_{w}(f_{\zeta,a},f_{\zeta,b}).
+
+For two neutral independent draws conditioned on sharing a configuration,
+:math:`w_\zeta=\pi_\zeta^2/\sum_\xi\pi_\xi^2`, where
+:math:`\pi_\zeta=P_0(\zeta\mid h,V,J,L,C)`. Conditioning on an
+observed source instead uses its configuration posterior times the
+partner's model configuration mass inside each opportunity sum. These
+sampling rules cannot be replaced silently by equal configuration weights.
+
+Consequently whole-AA frequency normalization does not remove shared
+immutable-context structure. In particular,
+:math:`q^0_{aa}=\bar f_a^2+\operatorname{Var}_w(f_{\zeta,a})` can
+show excess identities without recognition selection. Configurations
+with no random bases are excluded from substitution exposure, rather
+than counted as conservation. With one random base, sense codons in the
+same configuration differ at at most one nucleotide; with two random
+bases they differ at at most two. Synonymous alternatives still enter
+the identity term. No retained germline nucleotide changes. P-derived
+and mixed boundary configurations remain distinct from fully retained
+germline and fully N-derived codons.
+
+This supplies a mechanistic genetic-code coupling for the stated
+shared-configuration neighbour channel. It is a derived alternative to
+postulating an ancestral one-base mutation. It does **not** establish
+that every observed Hamming-one AA pair shares such a configuration.
+For observed junctions :math:`x_i,x_j`, the compatible-configuration
+weight is
+:math:`\sum_{\zeta\in\mathcal Z}P_0(\zeta\mid x_i)
+P_0(\zeta\mid x_j)`, where :math:`\mathcal Z` is the explicitly
+matched channel; trimming/P transitions belong to separate channels.
+The local scenario posterior and masked opportunities must come from
+the existing vdjtools scenario engine. The current public pure-N
+posterior and N-interval API do not identify these full mixed-template
+posteriors; their implementation is not implied by the present N-only
+results. A future owning-library extension must expose the required
+configuration sums without materializing a Pgen bank or inferring
+germline mutations. Empirical recovery must distinguish the resulting
+origin-mixture baseline from a residual recognition matrix and must
+retain all distance cells under the same independent validation contract.
+
+**Directional roles and composition in the other-epitope comparison.**
+Within an epitope/V/J/length/position stratum, different-labelled
+partners are selected from receptors whose complete known epitope-label
+sets are disjoint. Known tail labels remain exclusion evidence even when
+their repertoires are below primary eligibility. For each label-set
+group :math:`g`, let :math:`C_{ga}` be its sum of pure-N site weights
+for residue :math:`a`, and let :math:`A_{gh}=1` when groups :math:`g,h`
+have disjoint labels. For a primary epitope :math:`e`, selecting groups
+containing :math:`e` gives directional background counts
+
+.. math::
+
+
+    B^{\to,e}=C_e^{\mathsf T}(AC)_e.
+
+This groups the calculation by label sets, without enumerating receptor
+pairs. Match background mass to positive N-pair opportunity separately
+in every declared stratum. When background opportunity is absent, retain
+that positive mass in the support audit and exclude it from both
+comparison matrices. Apply the same epitope weights to the matched
+positive and background matrices.
+
+Symmetrization before taking logarithms can retain an amino-acid
+composition effect. For positive and other-epitope residue profiles
+:math:`p,g`, suppose the positive probability is :math:`q^+_{ab}=p_ap_b`
+and the directional background is :math:`q^{\to,0}_{ab}=p_ag_b`. Writing
+:math:`t_a=p_a/g_a>0`, symmetrizing the background counts before the log
+gives
+
+.. math::
+
+
+    D^{\mathrm{unordered}}_{ab}
+    =\log_2\frac{(t_a+t_b)^2}{4t_at_b}\ge0.
+
+Thus unequal residue frequencies can create a cost even in this
+independent-profile construction. An alternative averages the two
+directional log odds:
+
+.. math::
+
+
+    S^{\mathrm{role}}_{ab}=\frac12\left[
+    \log_2\frac{q^+_{ab}}{q^{\to,0}_{ab}}
+    +\log_2\frac{q^+_{ba}}{q^{\to,0}_{ba}}\right].
+
+In the stated independent-profile case this becomes
+:math:`(\log_2t_a+\log_2t_b)/2`, so its diagonal-zero contrast is zero.
+The implementation reports these two estimands separately. For any
+symmetric positive count matrix and the same directed background
+:math:`B`, the raw contrasts satisfy the more general identity
+
+.. math::
+
+
+    D^{\mathrm{unordered}}_{ab}-D^{\mathrm{role}}_{ab}
+    =\log_2\frac{(B_{ab}+B_{ba})^2}{4B_{ab}B_{ba}}\ge0,
+
+where the required entries are positive. Nonnegative clipping can reduce
+this excess but preserves its direction. This cancellation is a
+mathematical single-stratum property; context mixing, finite-pair
+corrections and incomplete empirical support still require accounting. A
+block density contrast remains distinct from a composition-adjusted
+neighbour exchange model.
+
+**One-substitution neighbours require an ascertainment correction.**
+When the input contains only Hamming-one neighbours, observing a change
+at :math:`p` requires every other compared site to match. Under an
+explicitly assumed independent-position baseline with residue
+frequencies :math:`f_{e,p,a}`, the opportunity for unordered pair
+:math:`a\ne b` is
+
+.. math::
+
+
+    B_{eg,p,ab}=
+    \bigl(f_{e,p,a}f_{g,p,b}+f_{e,p,b}f_{g,p,a}\bigr)
+    \prod_{r\ne p}\sum_c f_{e,r,c}f_{g,r,c}.
+
+For within-epitope independent draws this is multiplied by
+:math:`\binom{n_e}{2}`; for distinct epitopes by :math:`n_en_g`. These
+factors refer to the declared sampling unit, not automatically to source
+records. In the origin-aware model, replace this approximation by the
+corresponding scenario-conditioned opportunity, including the N-origin
+requirement. A generative baseline and observed counts must undergo the
+identical neighbour selection. One-position amino-acid frequencies alone
+do not correct for matching at every other position. Position
+independence is an approximation, not a property of V(D)J rearrangement.
+
+**Exact unchanged-flank opportunity using the published owners.** For a
+fixed chain, V/J call and position :math:`p`, let :math:`h` be a
+junction with that amino-acid site replaced by a wildcard, and let
+:math:`x(h,a)` replace the wildcard by residue :math:`a`. Define the
+pure-N joint mass
+
+.. math::
+
+
+    m_{h,a}=\sum_r P_0(r\mid C)\,\mathbf1\{T(r)=x(h,a),\ V(r)=V,\ J(r)=J,\ Z_{r,p}=NNN\}.
+
+The published ``pgen_aa_batch`` and ``n_region_posterior_batch`` owners
+provide this quantity through the product of the exact junction/gene
+mass and its pure-N posterior. The gene-conditioned APIs need not
+normalize by the V/J event probability: this common factor cancels in
+
+.. math::
+
+
+    \rho_{h,a}=m_{h,a}/\sum_c m_{h,c}.
+
+Enumerating the 20 standard amino acids and passing their variants in a
+single native batch gives the exact model distribution conditional on
+the unchanged flanks and a pure-N codon. It sums all compatible
+rearrangement scenarios; choosing one best scenario is unnecessary. If
+the denominator is zero, this context has no pure-N opportunity and
+remains outside the N-channel fit with its observed records accounted
+separately. The Pgen products are consumed in memory and are neither
+memoized nor exported as a probability bank.
+
+For independent rearrangements in this conditional context, the
+unordered mismatch opportunity is
+
+.. math::
+
+
+    b_{h,ab}=\frac{2\rho_{h,a}\rho_{h,b}}{1-\sum_c\rho_{h,c}^2},\qquad a<b,
+
+provided the denominator is positive. This distribution already
+conditions on exactly one amino-acid mismatch because all other
+amino-acid positions are fixed by :math:`h`. A one-residue-supported
+context has zero mismatch opportunity; no floor converts this structural
+zero into support. Posterior-weighted observations and this opportunity
+must use the same V/J, position and flank scope. For deduplicated
+observed clonotypes these are a working pair-occupancy model, not
+independent counts of rearrangement draws. Epitope-specific residue
+preferences remain a separate nuisance term: a model may use
+
+.. math::
+
+
+    \Pr_e(\{a,b\}\mid h,\mathrm{mismatch})\propto
+    b_{h,ab}\exp\{\eta_{e,p,L,a}+\eta_{e,p,L,b}+\beta_{ab}\}.
+
+Here :math:`\eta` denotes residue preference and symmetric :math:`\beta`
+the shared pair effect. An unrestricted preference for every observed
+context would absorb the signal; preferences therefore require an
+explicit shared specification and independent source fitting. Moreover,
+the reparameterization :math:`\beta_{ab}\mapsto\beta_{ab}+u_a+u_b`,
+:math:`\eta_{e,p,L,a}\mapsto\eta_{e,p,L,a}-u_a` leaves the probabilities
+unchanged. A stated gauge or a declared diagonal completion is essential
+before translating fitted off-diagonal effects into a zero-diagonal
+PAM-style distance. Holding probabilities and walk time still do not
+follow from mismatch counts. This exposes the identifiability assumption
+instead of allowing a fitted reference matrix to supply it silently.
+
+For same/different-epitope counts in a fixed stratum :math:`s`, a
+conditional comparison is
+
+.. math::
+
+
+    O^+_{s,ab}\mid O^+_{s,ab}+O^-_{s,ab}
+    \sim\operatorname{Binomial}(O^+_{s,ab}+O^-_{s,ab},\pi_{s,ab}),
+
+.. math::
+
+
+    \operatorname{logit}\pi_{s,ab}
+    =\log\frac{E^+_{s,ab}}{E^-_{s,ab}}+\alpha_s+\beta_{ab}.
+
+The exposures :math:`E^+,E^-` include compartment and neighbour
+ascertainment. Here :math:`\beta_{ab}` measures shared recognition
+enrichment and :math:`\alpha_s` absorbs the declared stratum intercept.
+A common proposal factor cancels only within a correctly matched
+stratum. This density ratio alone cannot identify an unrestricted
+baseline exchange process. Pairs sharing receptors are dependent;
+independent-pair confidence intervals do not follow from this working
+likelihood.
+
+**Residue and position terms.** The requested distribution is explicitly
+
+.. math::
+
+
+    P(a,p\mid\text{exchange endpoint},L,C,NNN),
+
+and is distinct from the probability that a site has at least one
+neighbour. A position-independent residue factor is justified only if
+this joint table factorizes. For a source-site exposure
+:math:`v_p f_{pa}` and relative escape intensity :math:`h_{pa}`, the
+endpoint distribution is proportional to
+
+.. math::
+
+
+    v_p f_{pa}h_{pa}.
+
+It factorizes into residue and position terms exactly when this
+nonnegative table has rank one. Even stochastic N can violate this
+condition through sequence context, codon phase and selection. A
+neighbour incidence per exposed site may exceed one and is an intensity,
+not a per-site probability.
+
+**An identifiable exchange-intensity fit.** Let :math:`s` denote the
+declared chain, length, position, gene and origin stratum; let
+:math:`E^0_{s,ab}` be its baseline pair opportunity after applying
+exactly the observed neighbour rule. A working count model is
+
+.. math::
+
+
+    O_{s,ab}\sim\operatorname{Poisson}(\mu_{s,ab}),\qquad
+    \mu_{s,ab}=E^0_{s,ab}\exp(\alpha_s+\beta_{ab}).
+
+Here :math:`O` counts observed pairs, :math:`\alpha_s` sets stratum
+density and :math:`\beta_{ab}=\beta_{ba}` describes relative exchange
+enrichment. Fix the additive gauge, for example by
+:math:`\sum_{a<b}\beta_{ab}=0` over the declared supported cells. With a
+single unrestricted cell multiplier and no shared intercept, the
+likelihood equation is :math:`\widehat{\exp\beta}_{ab}=O_{ab}/E^0_{ab}`;
+shared effects instead solve :math:`\sum_s(O_{s,ab}-\mu_{s,ab})=0`. Thus
+raw mismatch frequency is not the fitted compatibility: it must be
+divided by its opportunity. A structural zero opportunity is excluded
+from this likelihood and retained in the support table; a positive
+observation there diagnoses a model, origin or alignment mismatch.
+Fractional origin-weighted counts use this as a weighted estimating
+equation, not as literal independent Poisson observations. Neither this
+working likelihood nor fractional counts justify independent-pair
+uncertainty, because receptors and studies are reused. Position-only or
+residue-only factors are restrictions on these effects, to be compared
+with the joint effect rather than assumed from raw endpoint frequencies.
+
+**PAM-style compatibility process.** Origin-weighted N-region exchange
+counts can define a reversible compatibility walk. Let
+:math:`A_{ab}=A_{ba}` be off-diagonal exchange counts and :math:`f_a>0`
+the residue exposure from the same eligible N-origin sites, with
+identical weighting and coordinate scope. Set
+
+.. math::
+
+
+    Q_{ab}=c\,A_{ab}/f_a\quad(a\ne b),\qquad
+    Q_{aa}=-\sum_{b\ne a}Q_{ab}.
+
+Choose :math:`c` to state a mean rate unit, and verify
+:math:`f_aQ_{ab}=f_bQ_{ba}`, nonnegative off-diagonals and zero row
+sums. When :math:`\sum_a f_a=1`, setting
+:math:`c=(\sum_{a\ne b}A_{ab})^{-1}` gives :math:`-\sum_a f_aQ_{aa}=1`:
+one expected compatibility jump per unit walk time. The relative escape
+intensity is :math:`-Q_{aa}=c\sum_{b\ne a}A_{ab}/f_a`, which separates
+residue abundance from its exchange count. Reversibility follows from
+symmetrizing unordered convergence pairs; it is imposed by this
+construction, not evidence of an evolutionary equilibrium. Then
+:math:`P(t)=\exp(tQ)` gives :math:`q_{ab}(t)=f_aP_{ab}(t)`, from which
+the same log-odds distance follows. Neither the walk nor :math:`t` is an
+ancestral mutation process or biological elapsed time. Hamming-one
+counts alone do not identify holding probabilities or a unique
+finite-time distance. Reference comparisons therefore state a fixed
+time/information convention and distinguish logarithmic distances from
+linear genetic-code propensities.
+
+**Implemented neighbour likelihood and its gauge.** The package reuses
+the existing conditional-multinomial fitter and exact native search
+owners. For epitope :math:`e`, unchanged-flank context :math:`h`, and
+unordered residue pair :math:`a<b`, let :math:`O_{eh,ab}` be the sum of
+the two endpoint pure-N posterior products and let
+:math:`n_{eh}=\sum_{a<b}O_{eh,ab}`. The fitted distribution is
+
+.. math::
+
+
+    p_{eh,ab}=\frac{b_{h,ab}\exp(\eta_{e,a}+\eta_{e,b}+\beta_{ab})}
+    {\sum_{c<d}b_{h,cd}\exp(\eta_{e,c}+\eta_{e,d}+\beta_{cd})}.
+
+Here :math:`b` is the exact unchanged-flank opportunity above; the
+implemented nuisance restriction is one shared residue preference per
+epitope, rather than an unrestricted preference for every
+position/length/context. The weighted working log likelihood is
+:math:`\sum_{eh,ab}w_eO_{eh,ab}\log p_{eh,ab}`, with :math:`w_e=1` for
+pair-mass pooling or :math:`w_e=(\sum_hn_{eh})^{-1}` for equal epitope
+mass. To separate pair interaction from residue main effects, impose
+
+.. math::
+
+
+    \sum_{b\ne a}\beta_{ab}=0\quad\text{for every }a,
+    \qquad \sum_a\eta_{e,a}=0\quad\text{for every }e.
+
+The 20 independent row constraints leave 170 off-diagonal interaction
+parameters; residue preferences have 19 free parameters per represented
+epitope. An orthonormal null-space basis enforces these linear
+constraints exactly. A fixed Fisher-diagonal change of optimization coordinates
+handles unequal epitope support without changing counts, priors or likelihood.
+The earlier pair-only fit remains a separate
+comparator, and a residue-only fit fixes :math:`\beta=0`. A
+reference-free neutral prior contributes one total uniform pseudo-event
+to the pair-effect block and one total uniform pseudo-event across the
+residue-preference blocks. Thus finite model-completed entries need not
+be directly observed; both support quantities are exported. The native
+toy and deterministic known-effect checks distinguish purely additive
+residue selection from a recoverable nonzero pair interaction.
+
+For the declared reversible completion, let :math:`f_a` be the N-origin
+site exposure from the same epitope/arm population, normalized after the
+stated pooled or equal-epitope weighting. Set
+:math:`R_{ab}=\exp\beta_{ab}` for :math:`a\ne b`,
+:math:`Q_{ab}=cR_{ab}f_b`, and :math:`Q_{aa}=-\sum_{b\ne a}Q_{ab}`, with
+:math:`c` chosen so that :math:`-\sum_af_aQ_{aa}=1`. The existing
+Dayhoff transition owner constructs this generator; the existing
+entropy-matching owner sets the walk to the previously declared 0.70-bit
+mutual information. Distances use the same nonnegative Gram conversion
+in bits. A zero stationary residue exposure leaves the full declared
+20-residue completion unsupported, rather than supplying a frequency
+floor. Holding probabilities, gauge and walk time are explicit model
+choices, not quantities observed from Hamming-one changes.
+
+Source-held-out evaluation holds out the largest recorded source per
+epitope, resolving size ties by source identifier. Every junction seen
+in that source is removed from training within the epitope, including
+records repeated in other sources. Only training observations determine
+interaction, residue preference and stationary exposure; the
+recombination model itself remains fixed. Held-out pairs are retained
+with exact incidence counts and N weights. The incremental pair gain
+compares the combined fit with a separately refitted residue-only model;
+total gain compares it with the fixed recombination opportunity.
+Epitopes lacking a training fit remain explicitly marked in the
+prediction table. Recorded source identifiers need not denote independent
+assays. These are predictive comparisons of dependent pair
+occupancies, not independent-pair significance tests.
+
+**Escape intensities require the zero-neighbour sites.** Conditioning on
+the observed event count in every unchanged-flank context discards the
+information needed to estimate its escape intensity. A rate estimator
+must instead retain all eligible N-exposed source sites, including those
+without a neighbour. Let :math:`s` specify the matched V/J and
+junction-length population, :math:`n_{es}` its number of distinct model-supported
+epitope-:math:`e` clonotypes, and :math:`a_i` the residue at site
+:math:`p` of source clonotype :math:`i`. With :math:`h_i` its unchanged
+flanks and :math:`m_{h_i,b}` the pure-N joint mass defined above, a
+directed opportunity for a partner drawn from the fixed recombination
+model is
+
+.. math::
+
+
+    E^0_{es,p,ab}=(n_{es}-1)
+    \sum_{i\in(e,s):a_i=a}\omega_{i,p}(NNN)\,m_{h_i,b},\qquad b\ne a.
+
+This conditions on the observed source clonotypes and an independently
+generated partner; it is a declared working null, not an assertion that
+an epitope-selected repertoire is neutral. A common V/J/length mass
+normalizer can be absorbed in a stratum intercept, so the model’s gene
+masses need not be changed or re-estimated. The factor :math:`n_{es}-1`
+counts distinct partner observations in this training calculation; it
+does not puncture a query’s annotation reference model. Observed
+directed counts sum the same endpoint posterior products over actual
+Hamming-one partners. For source residues,
+:math:`E^0_{es,p,a}=\sum_{b\ne a}E^0_{es,p,ab}` and a working intensity
+model is
+
+.. math::
+
+
+    O_{es,p,a}\sim\operatorname{Poisson}\!\left[
+    E^0_{es,p,a}\exp\{\alpha_{es}+\gamma_{a,p,L,C}\}\right].
+
+Here :math:`\alpha_{es}` absorbs population density and :math:`\gamma`
+describes excess neighbour incidence after matching generation
+opportunity. The factorization
+:math:`\gamma_{a,p,L,C}=u_{a,C}+v_{p,L,C}` is a restriction to test
+against the joint effect, not a property assumed from endpoint counts. Each connected supported design component has an additive gauge;
+normalization does not identify unsupported cells or contrasts across
+disconnected components.
+Missing origins remain separate; a fixed-template site has zero N
+exposure and supplies no conservation evidence. Positive counts at zero
+declared opportunity diagnose a model or coordinate mismatch. These
+intensities need not be bounded by one; a probability of at least one
+neighbour requires an additional count-distribution assumption.
+
+The ``--origin-rates`` research-script route uses the existing masked transfer-matrix
+batch to sum the 19 alternative residues at each exposed site, retaining
+the complete-codon N constraint. It requires the additive joint-interval
+API in vdjtools5.8.0. One native batch handles all such sites; the
+Hamming-one search is shared when ``--origin-neighbours`` is also requested.
+Only grouped sufficient counts, exposures and fitted parameters are exported.
+Unknown-origin and fixed-template sites remain in the count table; neither
+becomes an N-origin conservation observation.
+
+For each length separately, write :math:`s=(e,V,J,L)`,
+:math:`c=(p,a)`, :math:`n_s=\sum_c O_{sc}`, and
+:math:`Z_s(\gamma)=\sum_c E^0_{sc}\exp(\gamma_c)`.
+Profiling the Poisson stratum intercept gives
+
+.. math::
+
+    \widehat\alpha_s=\log n_s-\log Z_s(\gamma),\qquad
+    \ell_{\mathrm{profile}}(\gamma)
+      =\sum_{sc}O_{sc}\gamma_c-\sum_s n_s\log Z_s(\gamma)
+      +\mathrm{constant}.
+
+This is the existing conditional-multinomial objective, reused with
+opportunities from **all** sites. A zero-neighbour site contributes to
+:math:`Z_s` even when its observed count is zero. A wholly zero-event
+stratum has the boundary estimate :math:`\widehat\alpha_s=-\infty`
+and cannot identify relative effects under a freely fitted density;
+its counts and explicit status are retained. Conditioning on every
+individual flank's observed count would remove the required site-rate
+information and is not done here.
+
+The research script fits residue-only, additive residue-plus-position, and joint
+residue/position effects separately at each length. Its additive restriction
+is :math:`\gamma_{a,p,L,C}=u_{a,L,C}+v_{p,L,C}`. A shared AA effect
+:math:`u_{a,C}` across lengths is a stronger restriction than this
+implemented within-length comparison. The additive design uses orthonormal residue
+and position contrasts; singular-value decomposition removes algebraic
+null directions on represented cells, and the existing fitter performs
+the same profiled likelihood optimization. A reference-free prior acts on the normalized rate effects, with
+:math:`K` represented cells and fixed :math:`\tau=1`:
+
+.. math::
+
+    \ell_{\mathrm{regularized}}(\gamma)=\ell_{\mathrm{profile}}(\gamma)
+      +\tau\left[K^{-1}\sum_c\gamma_c-\log\sum_c e^{\gamma_c}\right].
+
+This is one uniform pseudo-event on the rate-effect simplex, not an
+addition of uniform counts to baseline-weighted fitted probabilities.
+Effects have zero mean log rate. Joint rate fits use a supported reference
+cell and a fixed Fisher-diagonal coordinate scaling; these change neither
+the likelihood nor the prior. An independently derived single-stratum
+stationarity solution checks the solver with rare cells. Event-bearing opportunity components are exported because
+contrasts between disconnected components remain prior-completed rather
+than data-identified. Per-stratum intercepts, zero-event counts and working
+deviance are exported alongside every fitted cell. Deviance is descriptive:
+endpoint observations share receptors, so a Poisson likelihood-ratio
+significance calibration is not asserted. Independent lengths have their
+own gauges and intercepts; these fits do not identify absolute rate
+comparisons between lengths. Relative intensity is not a per-site
+substitution probability.
+
+For gap rates the N constraint must cover the entire inserted interval
+jointly; products of single-site N probabilities are insufficient. That
+interval primitive is provided by the same native API. The full gap-rate
+estimator remains separate work from the implemented all-site substitution
+models and the earlier descriptive endpoint/N-site ratios.
+
+**A finite masked algorithm for exact gap opportunities.** Preserve both
+terminal anchors and use the existing gap-block owner's leftmost optimal
+placement. For a shorter junction :math:`x` of length :math:`L`, gap size
+:math:`k\ge1`, and internal placement :math:`1\le p\le L-1`, form
+:math:`y=x_{<p}b_1\cdots b_kx_{\ge p}`. The insertion is leftmost at
+:math:`p` exactly when :math:`p=1` or :math:`b_k\ne x_{p-1}`. Indeed,
+deleting at both :math:`p` and an earlier location implies a period-:math:`k`
+overlap, hence deletion at :math:`p-1` is also valid; the adjacent deletion
+is valid exactly when those two residues coincide. This supplies a disjoint
+partition of sequence pairs despite repeated residues.
+
+Therefore one masked query per :math:`(x,p,k,V,J)` suffices: the first
+:math:`k-1` inserted residues admit all standard amino acids, the last admits
+all except :math:`x_{p-1}` when :math:`p>1`, and the entire inserted codon
+interval is constrained to N origin. Summing over placements counts each
+admissible sequence pair once. Singleton masks for an observed longer
+junction, divided by its unconstrained sequence mass, give the posterior
+probability of the corresponding joint N interval. This defines an
+operational canonical-placement channel; ambiguous sequence alignment does
+not establish a uniquely identified physical insertion history.
+
+When conditioning partner sampling on its observed length, let
+:math:`Z_{VJ,L+k}` be the model mass of every standard-AA junction of that
+length and the stated genes. The same existing masked batch obtains it by
+allowing all standard residues at all positions, without an N constraint.
+For :math:`n_{e,VJ,L+k}` observed supported longer partners, the forward
+opportunity is
+
+.. math::
+
+    E^0_{e,VJ,L,k}=
+    \frac{n_{e,VJ,L+k}}{Z_{VJ,L+k}}
+    \sum_{x\in(e,VJ,L)}\sum_{p=1}^{L-1}
+    P_0\{Y\in\mathcal M(x,p,k),\ [p,p+k)\text{ is N};V,J\}.
+
+Here :math:`\mathcal M` denotes the disjoint canonical masks above. The
+partner factor has no minus one because shorter and longer populations
+are disjoint. The length normalizer depends on :math:`k`; a single
+shorter-length intercept cannot absorb it. It is a fixed model probability,
+not a refitted gene mass. All masses remain transient, and existing native
+batching owns their computation. Observed and modeled support are separate:
+no sampled longer partners gives zero sampled opportunity even when the
+model permits that length. Zero model mass cannot support a fitted rate.
+The observed length spectrum bounds the empirical comparison; lengths outside
+that spectrum are untested rather than biologically forbidden. The resulting
+rate fit uses the same exposure-offset likelihood and reports
+:math:`P(k\mid L,C,\text{observed gap pair})` separately from an absolute
+indel probability. This algorithm is specified here; its full research gap-rate
+implementation and validation remain pending.
+
+**Indels are changes of rearrangement histories.** Let :math:`G_k(x,y)`
+indicate that the existing alignment convention accepts exactly one
+contiguous amino-acid gap of size :math:`k`, with shorter length
+:math:`L`. For an origin channel :math:`z`, the baseline opportunity is
+
+.. math::
+
+
+    \begin{aligned}
+    E^0_{z,L,C,k} &\propto
+    \sum_{r,r'}P_0(r\mid C)P_0(r'\mid C)
+    \mathbf1\{|T(r)|=L,\ |T(r')|=L+k\}\\
+    &\qquad{}\times
+    \mathbf1\{\operatorname{channel}(r,r')=z\}
+    G_k(T(r),T(r')).
+    \end{aligned}
+
+The proportionality factor is the declared sampling opportunity.
+Separate N-length changes, trimming/P boundary changes and gene-choice
+changes. Internal deletion of a fixed retained germline block is
+forbidden in this model; trimming at a permitted gene end is a different
+event. An amino-acid length change :math:`k` requires a net productive
+nucleotide change :math:`3k`, but individual trimming/P/N events need
+not themselves be multiples of three. The support of :math:`k` depends
+on the scenario and gene context, not just on shorter length and chain.
+Zero observed counts do not establish a structural prohibition. Where
+several gap placements describe one pair, count the pair once using the
+owning aligner convention or an explicit placement posterior. Summing
+placements as independent observations overcounts repetitive sequence.
+Fit recognition multipliers against these opportunities, with the same
+exposure-offset logic as substitutions.
+
+To define the requested gap-size probability, normalize the
+opportunities only after specifying the conditioning:
+
+.. math::
+
+
+    P_0(k\mid L,C,\text{one-gap neighbour})=
+    \frac{\sum_z E^0_{z,L,C,k}}
+         {\sum_{j\ge1}\sum_z E^0_{z,L,C,j}}.
+
+Here :math:`j` indexes allowed positive gap sizes, not a J gene; the
+denominator must be positive. This conditional size distribution does
+not identify how often one-gap neighbours occur among all eligible
+pairs. The latter requires the total pair exposure, including pairs
+without a gap event. For observed counts :math:`I_{z,L,C,k}`, fit
+:math:`\nu_{z,L,C,k}=E^0_{z,L,C,k}\exp(\gamma_{L,C}+\delta_{z,k})`, with
+an explicit gauge for :math:`\delta`, and normalize :math:`\sum_z\nu` to
+obtain the recognition-conditioned size distribution. The structural
+allowed set is :math:`\{k:\sum_zE^0_{z,L,C,k}>0\}` under the specified
+model; distinguish this from finite sampling and floating-point
+underflow. There is no universal shortest-length-only list of allowed
+gaps when V/J choice, trimming bounds and insertion-length support
+differ.
+
+**Generalization across epitopes.** Define the target epitope mixture
+before estimating a general matrix. Pair pooling estimates the sampled
+event mixture; equal-epitope weighting estimates an equal mixture of
+contributing epitopes. Neither automatically removes
+sequence-composition or study-selection bias. A weighted matrix is
+unbiased only relative to a stated target and a justified
+observation/exposure model with adequate support. Epitope-specific
+residual effects are assessed after origin, composition and
+ascertainment adjustment, with independent source or epitope validation.
+Separate target-free estimation, target-guided representational fits and
+annotation accuracy. A high correlation created by reference-fitted
+weights is not independent recovery of a general substitution law.
+
+**Algorithm and implementation contract.**
+
+1.  Fix the cohort, chain/species, junction coordinates,
+    record/clonotype units, gene evidence, ambiguity handling and target
+    epitope mixture. Preserve unsupported records and complete
+    provenance.
+2.  Use ARDA for germline alignment and candidate evidence, and the
+    reconciled vdjtools model for trimming/P/N scenarios. Do not create
+    an analysis-side alignment or scenario engine.
+3.  Compute origin probabilities by the existing sum-product
+    recurrences. For the N core, evaluate the exact joint mass requiring
+    the entire queried codon to avoid all retained/P-extended templates,
+    then divide by the total compatible AA mass. Include single- and
+    tandem-D branches.
+4.  Keep immutable templates, trimming/P boundaries, pure N, mixed
+    codons and unresolved origin in separate accounting. An N-only API
+    leaves its complement unresolved among non-N categories.
+5.  Run one existing native neighbour/alignment batch per population.
+    Attach paired origin weights to substitution and gap events, without
+    changing receptor identity, gene calls or epitope labels.
+6.  Build origin-matched exposure tables under the identical geometry.
+    Include N-origin self-pairs for block matrices and account for
+    Hamming/gap ascertainment for neighbour estimators.
+7.  Fit the declared shared exchange/position and gap-size terms, with
+    explicit identifiability constraints and reference-free priors. Keep
+    baseline opportunity distinct from recognition enrichment.
+8.  Convert similarities to the actual scorer’s distance units, zero
+    diagonal, rounding and clipping. Explicit cost tables are loaded
+    directly, without a second Gram transform.
+9.  Validate origin normalization, fixed-template exclusion,
+    P/mixed-codon handling, ambiguous histories, tandem-D completeness
+    and serial/parallel equality. Validate independent source/epitope
+    transfer and all 190 off-diagonal distances; report every
+    unsupported cell.
+10. Evaluate the core and the aa/position/length plus gap/length
+    additions on the same fixed accuracy tasks. Promote complexity only
+    from added accuracy under the declared comparison, then regenerate
+    authoritative tables, figures and manuscript summaries.
+
+**Implementation status and limits.** The exact pure-N constrained sum
+and public ``n_region_posterior_batch`` interface are provided by
+vdjtools 5.7.0, reusing the native sum-product recurrences with single-
+and tandem-D histories. Its release checks cover P-containing
+boundaries, ambiguous histories, fixed-template exclusion,
+zero-likelihood observations and serial/parallel equality. The VDJmatch
+research ``derive_matrices.py scoring-audit --task origin-matrix`` command implements
+posterior-weighted same-epitope/V/J/length block counts, pooled and
+equal-epitope matrices, source/support/exposure tables, and matched
+other-epitope contrasts with both count and directional-log
+symmetrization. This first estimator uses unique junction/V/J clonotypes
+as unit clusters; it does not claim BLOSUM62 redundancy clustering. The
+vdjtools5.8.0 joint masked-N interval extension additionally supplies
+exact alternative-residue opportunities to ``--origin-rates`` and the
+profiled residue/additive/joint fits described above. Neither interface
+assigns the full separate G/P/mixed configuration posterior. The full
+origin-conditioned indel extension and independent empirical validation
+remain open. Previously reported interior/all-residue fits remain
+descriptive composition diagnostics, and the accepted core/bundle
+accuracy comparison retains its original producing scope. No completed
+independent high-:math:`R^2` recovery is claimed for the origin-aware
+estimator.
+
+
+Local classes, amino-acid variability and boundary changes
+----------------------------------------------------------
+
+Let :math:`x` denote an anchor-inclusive junction, :math:`p` a
+zero-based codon position, and :math:`h=x_{-p}` its unchanged amino-acid
+flanks together with species, chain and V/J conditioning. A local class
+:math:`\kappa` records the three G/P/N roles and the immutable
+nucleotide at each G/P base; N bases have no fixed letter. This class
+coarsens complete rearrangement histories: it neither fixes the entire
+trimming history nor asserts common ancestry. Define the exact joint
+mass and posterior
+
+.. math::
+
+
+    m_{h,a,\kappa}=\sum_z P(z)\,\mathbf1\{T(z)=(h,a),\ K_p(z)=\kappa\},\qquad
+    \omega_{x,p,\kappa}=\frac{m_{h,a,\kappa}}{\sum_\lambda m_{h,a,\lambda}}.
+
+Here :math:`z` is a complete model history, :math:`T` its translated
+junction and :math:`K_p` the local-class map. The denominator is the
+ordinary model mass of the observed junction, not a new selection
+correction. Zero denominator leaves origin unknown. The sum over classes
+equals the original mass, without posterior truncation or
+renormalization.
+
+An N base need not permit an amino-acid change. For source residue
+:math:`a`, the relevant alternative opportunity is
+
+.. math::
+
+
+    A_{h,a,\kappa}=\sum_{b\ne a}m_{h,b,\kappa}.
+
+For example, TCN has one stochastic base but always encodes serine,
+whereas ATN permits isoleucine and methionine. A class with
+:math:`A_{h,a,\kappa}=0` remains in origin accounting and supplies no
+within-class amino-acid substitution or conservation exposure.
+Genetic-code compatibility is a structural support bound; model-specific
+zero N emissions can reduce positive-mass alternatives further. Use
+exact masked masses unless strict positive N emissions have been
+verified for the relevant model/history support.
+
+For two independently rearranged receptors :math:`x,y`, the full latent
+pair weight is
+
+.. math::
+
+
+    W_{xy,p,\kappa\lambda}=\omega_{x,p,\kappa}\omega_{y,p,\lambda}.
+
+These weights sum to one for supported endpoints. The same-class
+component :math:`\kappa=\lambda` holds local immutable letters and roles
+fixed; its off-diagonal support comes from compatible N choices. The
+complementary :math:`\kappa\ne\lambda` component retains changes
+associated with different local template/P/N assignments, including
+trimming-boundary shifts. It must be reported separately rather than
+silently discarded or called a germline mutation. Equal local classes
+can still represent different complete histories; these channels have
+exactly the declared local, rather than ancestral, meaning.
+
+For observed directed Hamming-one pairs (both orientations of each distinct
+receptor pair), the same-class counts and
+source-conditioned opportunities are
+
+.. math::
+
+
+    O_{es,p,ab}^{\rm same}=\sum_{(i,j):a_i=a,a_j=b}\sum_\kappa W_{ij,p,\kappa\kappa},\qquad
+    E_{es,p,ab}^{\rm same}=(n_{es}-1)\sum_{i:a_i=a}\sum_\kappa\omega_{i,p,\kappa}m_{h_i,b,\kappa},\quad b\ne a.
+
+The corresponding different-class expressions sum
+:math:`\kappa\ne\lambda`, replacing the partner mass by
+:math:`m_{h_i,b,\lambda}`. Both expressions use the same source,
+partner-count and V/J/length population convention as the all-site rate
+model. A supported off-diagonal same-class event automatically has
+positive alternative support in that class; unknown endpoint origins
+remain explicit. Neither channel requires changing model gene masses or
+allowing a retained template base to mutate. Same- and disjoint-epitope
+pair tables use these identical channels and ascertainment rules.
+
+BLOSUM-style block counts additionally retain eligible identities
+between distinct receptor clusters, with the same origin and redundancy
+weights on diagonal and off-diagonal cells. For diagonal within-class
+contributions, exclude classes with zero alternative opportunity;
+otherwise compulsory template or synonymous-only identity would inflate
+conservation. Hamming-one data alone contain no diagonal observations.
+Consequently an off-diagonal pair fit with freely fitted epitope
+amino-acid preferences does not identify a unique diagonal-completed
+scoring matrix: row effects can be exchanged with pair effects. Fix
+preferences from the eligible block/site exposure population, or fit the
+block identities and escape exposure jointly under a declared holding
+model. Do not replace the missing diagonal by an arbitrary constant and
+claim that Gram conversion resolves this identifiability problem. The
+existing reversible rate/holding construction is the PAM-like route; its
+step scale and stationary exposure remain explicit, without interpreting
+a graph walk as biological mutation time.
+
+Implementation uses the existing vdjtools masked sum-product owner:
+local posterior classes in one native batch, and alternative motifs
+conditioned on the same local class in the existing degenerate-AA batch.
+The proposed mixed estimator reuses the established batched Hamming-one
+search, epitope/source split, count reducer and exchangeability fitter.
+Compute only requested positions, aggregate final sufficient counts, and
+discard transient per-query masses; do not persist a posterior or Pgen
+bank. All 190 actual zero-diagonal distance cells, eligible identity
+support, independent transfer and added annotation accuracy remain
+separate verification obligations.
+
+Count-owner implementation
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``origin_class_pair_counts`` reuses ``column_pair_counts`` to partition one
+aligned block into same-class exchangeable, same-class zero-alternative and
+different-class ordered pair counts. Their sum recovers the original aligned
+counts. ``mixed_origin_block_matrices`` applies this owner to matched
+same-epitope/V/J/length blocks and reuses the existing pooled/equal-epitope log
+odds and distance exporter. Unknown receptors remain in support accounting.
+The caller supplies positive alternative support explicitly; the presence of an
+N base alone is insufficient. These count owners do not infer rearrangements,
+translate codons, refit model parameters or persist per-query probability banks.
+The native-backed ``--origin-mixed`` option uses one complete posterior batch and
+reuses its NNN marginal for the existing outputs. It exports channel-specific
+matrices/counts, G/P/N exposures, unknown support and N-emission parameter checks.
+Eligibility by genetic-code alternatives requires strictly positive N emissions;
+zero-emission custom models raise and require the exact alternative-mass route.
+Scientific derivation and independent validation remain separate from these
+arithmetic and interface checks.
+
+
+Identity-informed common matrix after epitope composition adjustment
+--------------------------------------------------------------------
+
+Eligible identities carry information that a mismatch-only estimator
+lacks. Let :math:`C_{e,ab}` be the symmetric ordered pair weights for
+epitope :math:`e`, after matching V/J/length and local immutable classes
+and excluding amino-acid-compulsory identities. For the 210 unordered
+residue categories, set :math:`O_{e,ab}=C_{e,ab}` when :math:`a<b`,
+:math:`O_{e,aa}=C_{e,aa}/2`, and :math:`n_e=\sum_{a\le b}O_{e,ab}`. Thus
+:math:`n_e` is posterior-weighted unordered receptor/site-pair mass, not
+a count of independent experimental observations. Estimate
+:math:`f_{e,a}`, the all-site exchangeable amino-acid frequency, from
+source-site posterior weights, including sites and epitopes with no
+observed pairs. It is not a frequency computed from mismatch endpoints.
+
+A common interaction can be estimated with the working model
+
+.. math::
+
+
+    P_{e,ab}=\frac{m_{ab}f_{e,a}f_{e,b}
+    \exp\{\eta_{e,a}+\eta_{e,b}+\mathbf1_{a\ne b}(\delta_e+\theta_{ab})\}}
+    {Z_e},\qquad m_{ab}=2-\mathbf1_{a=b},
+
+where :math:`Z_e` normalizes the 210 categories, :math:`\eta_{e,a}`
+profiles the epitope’s endpoint preferences relative to its all-site
+frequencies, :math:`\delta_e` profiles its overall mismatch/identity
+odds, and :math:`\theta` is the shared symmetric interaction. Fix
+:math:`\theta_{aa}=0`, :math:`\sum_{a<b}\theta_{ab}=0`, and
+:math:`\sum_a\eta_{e,a}=0`. The off-diagonal divergence term separates
+the shared interaction’s shape from different repertoire
+conservation/diversity levels. The model retains AA row-interaction
+contrasts; it does not impose the mismatch-only model’s zero row sums. A
+residue-only baseline fixes :math:`\theta=0` while retaining both
+nuisance terms. The fitted objective is the posterior-weighted
+multinomial working likelihood, with :math:`w_e=1` for pooled weighting
+or :math:`w_e=1/n_e` for equal-epitope weighting. Zero-pair groups do
+not identify an interaction but remain in source-exposure and support
+accounting.
+
+The implemented neutral penalties are
+
+.. math::
+
+
+    \tau[\operatorname{LSE}(\theta)-\bar\theta]
+    +\frac{\tau}{E}\sum_e[\operatorname{LSE}(\eta_e)-\bar\eta_e]
+    +\frac{\tau}{E}\sum_e[\log(1+e^{\delta_e})-\delta_e/2],\qquad \tau=1.
+
+Here :math:`E` is the number of groups with positive pair mass, LSE
+denotes log-sum-exp, and the first term includes the full 210-category
+interaction vector with its constrained diagonal. These are parameter
+penalties; they do not add reference-matrix cell counts. Missing
+observed cells and prior completion remain distinguishable in the
+exports.
+
+**The scoring gauge must preserve distance.** For any symmetric
+similarity :math:`S`, define
+
+.. math::
+
+
+    S'_{ab}=S_{ab}-\frac{S_{aa}+S_{bb}}2,\qquad
+    D_{ab}=\max(0,-2S'_{ab}).
+
+Then :math:`S'_{aa}=D_{aa}=0`, and adding any AA row term
+:math:`u_a+u_b` to :math:`S` leaves :math:`D` unchanged. Setting a
+similarity’s diagonal to zero without the accompanying off-diagonal
+subtraction does not preserve distance. In the fitted gauge, an
+observed-divergence core has
+:math:`S'_{ab}=\mathbf1_{a\ne b}(\bar\delta+\theta_{ab})/\log 2`, where
+:math:`\bar\delta` is the analysis-weighted mean epitope log-divergence.
+The exported cost is exactly the existing scorer’s nonnegative Gram
+distance in bits, with no second transform when loaded as an explicit
+cost matrix. Positive frequency rescaling can be absorbed by
+:math:`\eta_e` at the unpenalized optimum; AA frequency normalization
+alone cannot force a chosen reference distance matrix.
+
+For the PAM-compatible construction, let :math:`\pi_a` be the pooled or
+equal-epitope all-site exchangeable source frequency, retaining
+zero-pair epitopes. Use symmetric off-diagonal flux
+:math:`F_{ab}=e^{\theta_{ab}}\pi_a\pi_b`, the existing
+exposure-normalized Dayhoff step and its reversible generator :math:`Q`.
+Evaluate :math:`T(t)=e^{tQ}` at the declared 0.70-bit information scale
+and form :math:`S_{ab}=\log_2[T_{ab}(t)/\pi_b]` before the same distance
+conversion. This is a compatibility walk; its time parameter is not a
+number of biological mutations. The reference matrices never enter
+likelihood fitting, penalties or cell selection.
+
+The research script’s ``matrix-fit`` command consumes the final mixed-origin counts
+and all-site exposure tables and exports models, nuisance preferences,
+residuals, support and fit/provenance records. Its fixed epitope halves
+keep the learned core fixed while profiling only test AA margins and
+mismatch/identity odds. This is descriptive association transfer:
+receptors shared by epitope labels are not purged between halves, so it
+does not replace independent source/receptor validation or annotation
+accuracy. All 190 actual off-diagonal distances and the full paired and
+single-chain annotation comparisons remain required.
+
+
+The shared block interaction includes origin-induced codon coupling. A
+recognition-only enrichment additionally needs the nonfactorizing, origin-matched
+opportunity background derived above; a product of AA frequencies alone does
+not remove that background. Source/receptor validation and matched annotation
+remain distinct from matrix agreement and the descriptive epitope split.
+
+Research implementation
+-----------------------
+
+Matrix derivation belongs to the companion analysis repository, in
+``scripts/vdjam/derive_matrices.py`` and ``matrix_models.py``. It is not an
+annotation CLI feature. Frozen producing source archives and commands retain
+the exact implementation used for completed results. The published vdjtools
+origin APIs remain the shared owner of rearrangement enumeration.

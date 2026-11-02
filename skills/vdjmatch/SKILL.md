@@ -15,6 +15,11 @@ BLOSUM62. VDJAMr means genetic-code substitution accessibility, a different
 comparator; neither is a reason to introduce a chemistry-driven replacement.
 Reuse `match.regions.significance_weights/significance_pssm` and the existing
 historical matcher. Mode availability is not evidence of improved accuracy.
+
+Matrix derivation is research-only. Use the companion analysis repository’s
+`scripts/vdjam/derive_matrices.py` and `matrix_models.py`, pinned to vdjtools>=5.9.0
+for mixed-origin work. Read the
+[origin-aware formalism](../../docs/rearrangement-origin.rst) before interpreting.
 Keep penalties, full kernel scores and sample-level P-values separate.
 Positive kernel support alone is not a calibrated precision threshold, and
 nominal-radius pruning drops its outer-ladder contributions.
@@ -63,7 +68,7 @@ Permutation/matched-control envelopes are not Efron bootstrap CIs.
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](../../docs/cli.rst)
 for advanced scorers. Run `vdjmatch annotate --help` to verify installed options.
-Use released `seqtree>=1.3.2` and `vdjtools>=5.6.0` for native search, ingestion and abundance statistics.
+Use released `seqtree>=1.3.2` and `vdjtools>=5.7.0` for native search, ingestion and abundance statistics.
 Version 0.6.0 defaults to `--reference-population curated-benchmark`, the manuscript
 primary population. Preserve `--reference-population all-valid` for the accepted
 all-valid baseline. Curation excludes KLGGALQAK and PMID 40498839 source records;
@@ -382,6 +387,16 @@ Gaps, V/stem offsets and matrix-derived radii are unchanged. `--matrix COSTS.tsv
 accepts an explicit integer cost table. Both files are hash-bound and frozen
 across the run. These experimental inputs do not change defaults or inherit
 existing call calibration; see the CLI documentation for file contracts.
+
+For core/bundle ablations, `neighbours` or `evidence` accepts
+`--distance-matrix COSTS.tsv --matrix-bundle DIRECTORY` with compact uniform
+VDJdb-other kernel output (`--selection-only` or `--evidence-only`). The
+hash-pinned `vdjam-bundle-v1` manifest names `residue.tsv` and `gaps.tsv`;
+coordinates are anchored junction length/position, with gap length conditioned
+on the shorter junction. Missing cells are neutral. The bundle is fixed across
+queries, applies to paired marginal searches, and does not transfer calibration.
+See `docs/cli.rst` for exact table schemas. It is separate from the older
+reference-only `--position-profile` input; neither is a promoted default.
 
 For explicit linked-first paired label decisions, use `paired-labels` with
 native all-target stem4 VDJdb-other paired evidence, selection and manifest.

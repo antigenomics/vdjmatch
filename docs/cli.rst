@@ -260,6 +260,9 @@ The matrix extras are ``--distance-matrix pam250``, ``mj`` and ``vdjam``;
 their recorded geometries use ``--stem-depth 0 --junction-ends trim3``.
 They retain unclipped Gram penalties and use the same matrix units for V loops,
 junctions, gaps and the ladder.
+For explicit matrix comparisons, ``--distance-matrix COSTS.tsv`` accepts the
+existing ``aa.1``, ``aa.2``, ``cost`` table format. Its hash is recorded.
+
 ``--position-weighting significance-trimmed`` selects the recorded ``sig``
 geometry with ``--distance-matrix clipped --stem-depth 0 --junction-ends trim3``;
 ``sigb62`` changes the matrix to ``blosum62``. These require compact output.
@@ -1577,22 +1580,6 @@ coverage and normalized convex bend. ``--coverage-radius-factor`` defaults to
 normalization. These describe the reference without changing search radii.
 The radius ratio is regularized epsilon divided by epsilon plus the
 matrix-relative coverage radius; no knee is encoded as zero with its status retained.
-
-Legacy matrix and retrieval reproduction
-----------------------------------------
-
-``scoring-audit --task matrix --pmhc RAW --locus TRB --output-prefix OUT``
-rebuilds the accepted positional substitution tables and their off-diagonal
-Pearson correlations from an explicit raw VDJdb export. ``--task loo`` rebuilds
-the legacy epitope-withheld matrix training and candidate retrieval tables.
-Both accept ``--threads`` and record source/model hashes and options.
-TRA and TRB are separate invocations.
-
-These commands preserve the legacy unique-junction eligibility and, for LOO,
-composition caps, first-label assignment and tied-score balanced trapezoidal
-PR area. This metric is distinct from average precision and the current
-full-VDJdb source-record eligibility rule. Supply ``--structural-inc`` to
-include the structural matrix; without that model its row is omitted.
 
 vdjmatch fixed-scope
 ----------------------------

@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1010" viewBox="0 0 1200 1010" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1680" viewBox="0 0 1200 1680" role="img" aria-labelledby="title desc">
 <title id="title">VDJmatch: from receptor tables to antigen evidence</title>
 <desc id="desc">Bulk and paired receptor inputs share curated VDJdb searches. Receptor annotation ranks epitope evidence and preserves ambiguity. Repertoire inference compares observed target support with matched mock reference panels. All small charts are schematic, not measured results.</desc>
 <style>text{font-family:Arial,Helvetica,sans-serif;fill:#1c2939}.muted{fill:#52657b}.accent{fill:#149f89}.title{font-size:25px;font-weight:700}.body{font-size:18px}.small{font-size:15px}.line{fill:none;stroke:#52657b;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.faint{stroke:#dfe5ec}.teal{stroke:#149f89}.blue{stroke:#477fa8}</style>
-<rect width="1200" height="1010" fill="white"/>
+<rect width="1200" height="1680" fill="white"/>
 <g transform="translate(60 0)">
 <text x="0" y="51" class="accent small" font-weight="700">ISALGO / VDJMATCH</text>
 <text x="0" y="96" font-size="34" font-weight="700">From receptor tables to antigen evidence</text>
@@ -64,4 +64,27 @@
 <path d="M0 898 H1080" class="line faint"/>
 <text x="540" y="936" class="body muted" text-anchor="middle">Python API + CLI · flat evidence tables · reproducibility manifests · report figures</text>
 <text x="540" y="968" class="small muted" text-anchor="middle">Sequence evidence supports annotation; it does not establish experimental binding.</text>
+<g transform="translate(0 1010)">
+<text x="0" y="0" class="title">MATCHING METHODS · distinct geometries, shared batch search</text>
+<text x="0" y="32" class="body">Exact identity  d = 0     •     Hamming  d = Σᵢ 1[qᵢ ≠ rᵢ]  (equal lengths)</text>
+<text x="0" y="61" class="body">Levenshtein  d = minimum substitutions + insertions + deletions (unit costs)</text>
+<text x="0" y="90" class="body">Positional BLOSUM / PSSM  d = Σᵢ wᵢ Δ(qᵢ,rᵢ) + gap cost</text>
+<text x="0" y="119" class="small muted">Δ(a,b) = B(a,a) + B(b,b) − 2B(a,b); B is the substitution matrix; wᵢ is the position weight.</text>
+<text x="0" y="148" class="body">Stem4  d = 3d(core) + dᵥ + rounded mean of four opposite-end max costs</text>
+<text x="0" y="177" class="small muted">Junction alignment trims 3 residues per end; dᵥ sums aligned CDR1, CDR2 and CDR2.5 costs.</text>
+<text x="0" y="206" class="small muted">Stem4 uses untrimmed ends and unclipped BLOSUM62; no extra matrix-maximum scaling.</text>
+<text x="0" y="235" class="title">CURRENT DEFAULT · stem4 geometry + V-bounded kernel</text>
+<text x="0" y="267" class="body">S(q,X) = (1/N) Σⱼ exp(−tⱼ/τ) [0.25 nⱼ + 0.75 vⱼ] / (1 + mⱼ)</text>
+<text x="0" y="296" class="small muted">q: query; X: pMHC target; N: fixed target size; tⱼ: shell cutoff; τ: kernel scale.</text>
+<text x="0" y="325" class="small muted">nⱼ / vⱼ: all / same-V target shell counts; mⱼ: cumulative other-peptide count.</text>
+<text x="0" y="354" class="body">Retained alternatives: historical density; all / same-V-only and rare-background kernels;</text>
+<text x="0" y="383" class="body">V-loop, flank/frame, J/length and positional variants; SW/NW; PAM250, MJ and VDJAM.</text>
+<text x="0" y="412" class="title">REFERENCE PROFILES &amp; REPERTOIRE TESTS · separate statistical questions</text>
+<text x="0" y="444" class="body">V / conditional motif information: KL bits; core3 + masked four-mers; shuffle tails.</text>
+<text x="0" y="473" class="body">Levenshtein / Hamming graphs: communities, coverage, Hill diversity and rarefaction.</text>
+<text x="0" y="502" class="body">PWM motifs: residue-frequency profiles / allowed sets (precursor module; not stem4).</text>
+<text x="0" y="531" class="body">Matched-reference enrichment  P = (1 + #{Tmock ≥ Tobserved}) / (B + 1)</text>
+<text x="0" y="560" class="small muted">T: declared count, abundance or discovery endpoint; B: number of mock reference panels.</text>
+<text x="0" y="589" class="small muted">Current repertoire null: raw marginal Pgen bins match observed controls; no binding-probability interpretation.</text>
+</g>
 </g></svg>

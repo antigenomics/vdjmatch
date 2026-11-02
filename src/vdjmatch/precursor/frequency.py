@@ -80,9 +80,10 @@ def precursor_frequency(model, junctions, r: int = 1, alpha: float = ALPHA_PER_E
     "cells", "n_cells", "compartment", "lambda", "p_ge_1", "p_ge_10"}``, with the last three
     ``None`` when ``n_eff`` is not given.
 
-    **What `F` is not.** It is the probability that a precursor *exists*, not that a response is
-    *mounted*: a detectable response needs more than one cell, which is what the ``p_ge_*`` fields
-    are for, and it needs priming, help and an absence of tolerance, which nothing here models.
+    **What `F` is not.** It is the modelled repertoire fraction, not the probability that
+    a precursor exists in a finite sample. ``p_ge_1`` estimates that occupancy under the
+    stated Poisson model; ``p_ge_10`` estimates occupancy of at least ten. Neither is
+    a response probability: priming, help and tolerance are not modelled.
     """
     prof = shell_profile(model, junctions, r=r, alpha=alpha, threads=threads)
     f = q * prof["retained"]
@@ -204,10 +205,9 @@ def expected_cells(f: float, n_cells: float = N_T_CELLS, compartment: float = 1.
 def p_at_least(f: float, n_eff: float, k: int = 1) -> float:
     """``P(X >= k)`` for ``X ~ Poisson(n_eff * f)`` — the probability that ``k`` precursors exist.
 
-    ``F(e)`` on its own answers "is there at least one?", i.e. ``k = 1``. A detectable assay or
-    clinical response needs more, and once ``n_eff * F`` is of order one the two stop being a
-    monotone reparametrisation of each other — which is exactly the regime a rare neoepitope sits
-    in. That is why ``k`` is an argument rather than a fixed 1.
+    ``k`` selects the occupancy threshold under the stated Poisson model.
+    This does not model assay detection or clinical response. ``F(e)`` alone
+    is a repertoire fraction; occupancy also depends on ``n_eff``.
 
     ``n_eff`` is a count of independent rearrangements; see :func:`precursor_frequency`.
     """

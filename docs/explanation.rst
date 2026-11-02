@@ -184,3 +184,14 @@ current kernel and retained alternative formulas.
    :hidden:
 
    legacy-explanation
+
+Benchmark interpretation
+------------------------
+
+The manuscript curated primary comparison has higher equal-task mean average
+precision than each of seven available rivals on that rival's fixed matched
+task set. This is a matched-mean result, not a claim of winning every individual
+task. The accepted all-valid baseline and its curves and intervals remain
+separate. Changing reference populations does not transfer calibration.
+See :doc:`historical-comparisons` for the earlier composition-controlled matrix
+and positional-weighting studies, which use their own evaluation designs.
