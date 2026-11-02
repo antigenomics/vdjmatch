@@ -229,6 +229,61 @@ expand that support must be specified before fitting. Model-inferred
 nucleotides remain unsuitable as independent evidence for selecting this
 coupling.
 
+**Mixed codons induce a coupling without mutating germline.** A
+pure-N codon is only one origin channel. Let :math:`\zeta` identify a
+local retained-template/trim/P configuration, its N-base mask within the
+codon, the immutable bases outside that mask, and the matched flank/gene
+context. Let :math:`f_{\zeta,a}` be the translated AA distribution under
+independent N draws conditional on this configuration. Within a shared
+configuration, two independently rearranged receptors have pair mass
+:math:`f_{\zeta,a}f_{\zeta,b}`. Mixing configurations with predeclared
+weights :math:`w_\zeta` gives
+
+.. math::
+
+    q^0_{ab}=\sum_\zeta w_\zeta f_{\zeta,a}f_{\zeta,b},\qquad
+    \bar f_a=\sum_\zeta w_\zeta f_{\zeta,a},\qquad
+    q^0_{ab}-\bar f_a\bar f_b
+      =\operatorname{Cov}_{w}(f_{\zeta,a},f_{\zeta,b}).
+
+For two neutral independent draws conditioned on sharing a configuration,
+:math:`w_\zeta=\pi_\zeta^2/\sum_\xi\pi_\xi^2`, where
+:math:`\pi_\zeta=P_0(\zeta\mid h,V,J,L,C)`. Conditioning on an
+observed source instead uses its configuration posterior times the
+partner's model configuration mass inside each opportunity sum. These
+sampling rules cannot be replaced silently by equal configuration weights.
+
+Consequently whole-AA frequency normalization does not remove shared
+immutable-context structure. In particular,
+:math:`q^0_{aa}=\bar f_a^2+\operatorname{Var}_w(f_{\zeta,a})` can
+show excess identities without recognition selection. Configurations
+with no random bases are excluded from substitution exposure, rather
+than counted as conservation. With one random base, sense codons in the
+same configuration differ at at most one nucleotide; with two random
+bases they differ at at most two. Synonymous alternatives still enter
+the identity term. No retained germline nucleotide changes. P-derived
+and mixed boundary configurations remain distinct from fully retained
+germline and fully N-derived codons.
+
+This supplies a mechanistic genetic-code coupling for the stated
+shared-configuration neighbour channel. It is a derived alternative to
+postulating an ancestral one-base mutation. It does **not** establish
+that every observed Hamming-one AA pair shares such a configuration.
+For observed junctions :math:`x_i,x_j`, the compatible-configuration
+weight is
+:math:`\sum_{\zeta\in\mathcal Z}P_0(\zeta\mid x_i)
+P_0(\zeta\mid x_j)`, where :math:`\mathcal Z` is the explicitly
+matched channel; trimming/P transitions belong to separate channels.
+The local scenario posterior and masked opportunities must come from
+the existing vdjtools scenario engine. The current public pure-N
+posterior and N-interval API do not identify these full mixed-template
+posteriors; their implementation is not implied by the present N-only
+results. A future owning-library extension must expose the required
+configuration sums without materializing a Pgen bank or inferring
+germline mutations. Empirical recovery must distinguish the resulting
+origin-mixture baseline from a residual recognition matrix and must
+retain all distance cells under the same independent validation contract.
+
 **Directional roles and composition in the other-epitope comparison.**
 Within an epitope/V/J/length/position stratum, different-labelled
 partners are selected from receptors whose complete known epitope-label
@@ -830,7 +885,10 @@ equal-epitope matrices, source/support/exposure tables, and matched
 other-epitope contrasts with both count and directional-log
 symmetrization. This first estimator uses unique junction/V/J clonotypes
 as unit clusters; it does not claim BLOSUM62 redundancy clustering. The
-interface does not assign a full separate G/P/mixed posterior; the full
+vdjtools5.8.0 joint masked-N interval extension additionally supplies
+exact alternative-residue opportunities to ``--origin-rates`` and the
+profiled residue/additive/joint fits described above. Neither interface
+assigns the full separate G/P/mixed configuration posterior. The full
 origin-conditioned indel extension and independent empirical validation
 remain open. Previously reported interior/all-residue fits remain
 descriptive composition diagnostics, and the accepted core/bundle

@@ -588,3 +588,20 @@ def test_canonical_gap_masks_partition_repeated_residue_pairs():
                 assert set(represented) == possible
                 for long, p in represented.items():
                     assert gapblock.gapblock_score(short, long, gap_open=0, gap_extend=0, gap_prior=prior) == (0, p)
+
+
+def test_shared_immutable_codon_context_is_not_product_of_aa_frequencies():
+    from arda.refbuild.translate import translate
+    from vdjmatch.match.scoring_audit import AA
+
+    frequency = np.zeros((2, 20))
+    for row, fixed in enumerate(['AT', 'GT']):
+        for n in 'ACGT':
+            frequency[row, AA.index(translate(fixed+n))] += .25
+    marginal = frequency.mean(0)
+    joint = frequency.T @ frequency / 2
+    covariance = (frequency-marginal).T @ (frequency-marginal) / 2
+    assert np.allclose(joint-np.outer(marginal, marginal), covariance)
+    i, v = AA.index('I'), AA.index('V')
+    assert joint[i, v] == 0 and marginal[i]*marginal[v] == .1875
+    assert joint[i, i] == .28125 and marginal[i]**2 == .140625
