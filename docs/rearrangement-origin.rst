@@ -558,6 +558,66 @@ Epitopes lacking a training fit remain explicitly marked in the
 prediction table. These are predictive comparisons of dependent pair
 occupancies, not independent-pair significance tests.
 
+**Escape intensities require the zero-neighbour sites.** Conditioning on
+the observed event count in every unchanged-flank context discards the
+information needed to estimate its escape intensity. A rate estimator
+must instead retain all eligible N-exposed source sites, including those
+without a neighbour. Let :math:`s` specify the matched V/J and
+junction-length population, :math:`n_{es}` its number of distinct model-supported
+epitope-:math:`e` clonotypes, and :math:`a_i` the residue at site
+:math:`p` of source clonotype :math:`i`. With :math:`h_i` its unchanged
+flanks and :math:`m_{h_i,b}` the pure-N joint mass defined above, a
+directed opportunity for a partner drawn from the fixed recombination
+model is
+
+.. math::
+
+
+    E^0_{es,p,ab}=(n_{es}-1)
+    \sum_{i\in(e,s):a_i=a}\omega_{i,p}(NNN)\,m_{h_i,b},\qquad b\ne a.
+
+This conditions on the observed source clonotypes and an independently
+generated partner; it is a declared working null, not an assertion that
+an epitope-selected repertoire is neutral. A common V/J/length mass
+normalizer can be absorbed in a stratum intercept, so the model’s gene
+masses need not be changed or re-estimated. The factor :math:`n_{es}-1`
+counts distinct partner observations in this training calculation; it
+does not puncture a query’s annotation reference model. Observed
+directed counts sum the same endpoint posterior products over actual
+Hamming-one partners. For source residues,
+:math:`E^0_{es,p,a}=\sum_{b\ne a}E^0_{es,p,ab}` and a working intensity
+model is
+
+.. math::
+
+
+    O_{es,p,a}\sim\operatorname{Poisson}\!\left[
+    E^0_{es,p,a}\exp\{\alpha_{es}+\gamma_{a,p,L,C}\}\right].
+
+Here :math:`\alpha_{es}` absorbs population density and :math:`\gamma`
+describes excess neighbour incidence after matching generation
+opportunity. The factorization
+:math:`\gamma_{a,p,L,C}=u_{a,C}+v_{p,L,C}` is a restriction to test
+against the joint effect, not a property assumed from endpoint counts.
+Missing origins remain separate; a fixed-template site has zero N
+exposure and supplies no conservation evidence. Positive counts at zero
+declared opportunity diagnose a model or coordinate mismatch. These
+intensities need not be bounded by one; a probability of at least one
+neighbour requires an additional count-distribution assumption.
+
+The existing masked transfer-matrix engine can sum the 19 alternative
+residues at :math:`p` without enumerating sequences: permit every
+standard residue except :math:`a_i` there and retain the complete-codon
+N constraint. The public degenerate-AA batch already owns the masked
+sum; the pure-N constraint currently exists in the native
+scalar/single-site path. Their minimal owning-library extension is the
+required next implementation step for these all-site rate exposures. For
+gap rates the corresponding constraint must cover the entire inserted
+interval jointly; products of single-site N probabilities are
+insufficient. This is a prospective rate algorithm, distinguished from
+the implemented conditional-composition fit and the descriptive
+observed-endpoint/N-site exposure ratios.
+
 **Indels are changes of rearrangement histories.** Let :math:`G_k(x,y)`
 indicate that the existing alignment convention accepts exactly one
 contiguous amino-acid gap of size :math:`k`, with shorter length
