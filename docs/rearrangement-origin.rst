@@ -545,7 +545,7 @@ in bits. A zero stationary residue exposure leaves the full declared
 floor. Holding probabilities, gauge and walk time are explicit model
 choices, not quantities observed from Hamming-one changes.
 
-Independent source evaluation holds out the largest recorded source per
+Source-held-out evaluation holds out the largest recorded source per
 epitope, resolving size ties by source identifier. Every junction seen
 in that source is removed from training within the epitope, including
 records repeated in other sources. Only training observations determine
@@ -555,7 +555,8 @@ with exact incidence counts and N weights. The incremental pair gain
 compares the combined fit with a separately refitted residue-only model;
 total gain compares it with the fixed recombination opportunity.
 Epitopes lacking a training fit remain explicitly marked in the
-prediction table. These are predictive comparisons of dependent pair
+prediction table. Recorded source identifiers need not denote independent
+assays. These are predictive comparisons of dependent pair
 occupancies, not independent-pair significance tests.
 
 **Escape intensities require the zero-neighbour sites.** Conditioning on
