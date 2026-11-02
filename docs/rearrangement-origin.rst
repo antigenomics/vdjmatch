@@ -663,7 +663,7 @@ declared opportunity diagnose a model or coordinate mismatch. These
 intensities need not be bounded by one; a probability of at least one
 neighbour requires an additional count-distribution assumption.
 
-The ``--origin-rates`` CLI route uses the existing masked transfer-matrix
+The ``--origin-rates`` research-script route uses the existing masked transfer-matrix
 batch to sum the 19 alternative residues at each exposed site, retaining
 the complete-codon N constraint. It requires the additive joint-interval
 API in vdjtools5.8.0. One native batch handles all such sites; the
@@ -693,7 +693,7 @@ its counts and explicit status are retained. Conditioning on every
 individual flank's observed count would remove the required site-rate
 information and is not done here.
 
-The CLI fits residue-only, additive residue-plus-position, and joint
+The research script fits residue-only, additive residue-plus-position, and joint
 residue/position effects separately at each length. Its additive restriction
 is :math:`\gamma_{a,p,L,C}=u_{a,L,C}+v_{p,L,C}`. A shared AA effect
 :math:`u_{a,C}` across lengths is a stronger restriction than this
@@ -776,7 +776,7 @@ The observed length spectrum bounds the empirical comparison; lengths outside
 that spectrum are untested rather than biologically forbidden. The resulting
 rate fit uses the same exposure-offset likelihood and reports
 :math:`P(k\mid L,C,\text{observed gap pair})` separately from an absolute
-indel probability. This algorithm is specified here; its full CLI gap-rate
+indel probability. This algorithm is specified here; its full research gap-rate
 implementation and validation remain pending.
 
 **Indels are changes of rearrangement histories.** Let :math:`G_k(x,y)`
@@ -893,7 +893,7 @@ vdjtools 5.7.0, reusing the native sum-product recurrences with single-
 and tandem-D histories. Its release checks cover P-containing
 boundaries, ambiguous histories, fixed-template exclusion,
 zero-likelihood observations and serial/parallel equality. The VDJmatch
-``scoring-audit --task origin-matrix`` command implements
+research ``derive_matrices.py scoring-audit --task origin-matrix`` command implements
 posterior-weighted same-epitope/V/J/length block counts, pooled and
 equal-epitope matrices, source/support/exposure tables, and matched
 other-epitope contrasts with both count and directional-log
@@ -1129,7 +1129,7 @@ conversion. This is a compatibility walk; its time parameter is not a
 number of biological mutations. The reference matrices never enter
 likelihood fitting, penalties or cell selection.
 
-The existing ``matrix-fit`` CLI consumes the final mixed-origin counts
+The research script’s ``matrix-fit`` command consumes the final mixed-origin counts
 and all-site exposure tables and exports models, nuisance preferences,
 residuals, support and fit/provenance records. Its fixed epitope halves
 keep the learned core fixed while profiling only test AA margins and
@@ -1145,3 +1145,12 @@ recognition-only enrichment additionally needs the nonfactorizing, origin-matche
 opportunity background derived above; a product of AA frequencies alone does
 not remove that background. Source/receptor validation and matched annotation
 remain distinct from matrix agreement and the descriptive epitope split.
+
+Research implementation
+-----------------------
+
+Matrix derivation belongs to the companion analysis repository, in
+``scripts/vdjam/derive_matrices.py`` and ``matrix_models.py``. It is not an
+annotation CLI feature. Frozen producing source archives and commands retain
+the exact implementation used for completed results. The published vdjtools
+origin APIs remain the shared owner of rearrangement enumeration.

@@ -211,12 +211,6 @@ Targeted kernel evidence
 
 .. autofunction:: vdjmatch.match.geometry.precompute_v_loop_distances
 
-Legacy calculation reproduction
--------------------------------
-
-.. automodule:: vdjmatch.match.scoring_audit
-   :members: matrix_audit, loo_audit
-
 Reference graph morphology
 --------------------------
 

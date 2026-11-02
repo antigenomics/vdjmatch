@@ -262,24 +262,6 @@ They retain unclipped Gram penalties and use the same matrix units for V loops,
 junctions, gaps and the ladder.
 For explicit matrix comparisons, ``--distance-matrix COSTS.tsv`` accepts the
 existing ``aa.1``, ``aa.2``, ``cost`` table format. Its hash is recorded.
-Experimental ``--matrix-bundle DIRECTORY`` adds residue/position/length and
-gap/shorter-length multipliers to that core. It requires uniform
-``vdjdb-other`` kernel scoring with ``--selection-only`` or ``--evidence-only``;
-it cannot be combined with geometry extras or supplied marginal tables.
-
-The directory contains ``manifest.json`` with ``format: vdjam-bundle-v1`` and
-``outputs_sha256`` entries for ``residue.tsv`` and ``gaps.tsv``. Residue columns
-are ``species, locus, length, position, aa, multiplier``; gap columns are
-``species, locus, length, gap, multiplier`` (tab-separated, in that order).
-Species is ``human`` or ``mouse``, locus is ``TRA`` or ``TRB``. Lengths and
-zero-based positions refer to the full anchored junction; gap-table length
-is the shorter junction. Multipliers must be finite and nonnegative, and
-coordinates unique. Missing cells retain multiplier one. Native trimming,
-V/stem terms and radius units remain unchanged; substitutions use the native
-maximum of aligned query/reference weights. Gap multipliers scale the core's
-block cost while retaining its placement penalty. All-ones tables reproduce
-the core geometry, including paired marginal searches. These opt-in models do
-not change defaults or inherit a fitted call calibration.
 
 ``--position-weighting significance-trimmed`` selects the recorded ``sig``
 geometry with ``--distance-matrix clipped --stem-depth 0 --junction-ends trim3``;
@@ -1598,84 +1580,6 @@ coverage and normalized convex bend. ``--coverage-radius-factor`` defaults to
 normalization. These describe the reference without changing search radii.
 The radius ratio is regularized epsilon divided by epsilon plus the
 matrix-relative coverage radius; no knee is encoded as zero with its status retained.
-
-Legacy matrix and retrieval reproduction
-----------------------------------------
-
-``scoring-audit --task matrix --pmhc RAW --locus TRB --output-prefix OUT``
-rebuilds the accepted positional substitution tables and their off-diagonal
-Pearson correlations from an explicit raw VDJdb export. ``--task loo`` rebuilds
-the legacy epitope-withheld matrix training and candidate retrieval tables.
-Both accept ``--threads`` and record source/model hashes and options.
-TRA and TRB are separate invocations.
-
-These commands preserve the legacy unique-junction eligibility and, for LOO,
-composition caps, first-label assignment and tied-score balanced trapezoidal
-PR area. This metric is distinct from average precision and the current
-full-VDJdb source-record eligibility rule. Supply ``--structural-inc`` to
-include the structural matrix; without that model its row is omitted.
-
-Origin-aware block matrices
----------------------------
-
-``scoring-audit --task origin-matrix --pmhc RAW --locus TRB --threads 16
---output-prefix OUT`` derives an N-region convergence matrix using vdjtools 5.7
-or newer. ``--species`` selects the species-matched isalgo model. Eligibility is
-at least ``--min-records 30`` curated valid source records per epitope/chain,
-before deduplication; junctions require standard amino acids. Every producer-declared
-junction length is retained. No anchor-letter screen is applied: trimming and
-mixed codons can change boundary amino acids without mutating retained templates.
-``.length-band-support.tsv`` accounts separately for lengths below eight, and
-``.short-epitope-pairs.tsv`` retains their additive count contribution for
-comparison with the earlier length-filtered diagnostic.
-
-The command computes exact pure-N probabilities in one native batch and weights
-each distinct junction/V/J clonotype pair by the product of its two site
-probabilities. Blocks share epitope, resolved V/J and junction length. Unique
-clonotypes are unit clusters; this estimator does not claim 62% identity
-clustering. Identities and exchanges use identical origin eligibility. It exports
-pooled and equal-contributing-epitope matrices, per-epitope ordered pair counts,
-site exposures, block counts, source-record support accounting and call resolution.
-Missing or ambiguous calls and zero sequence likelihood remain explicit. Known
-model calls are preserved; only absent calls may undergo ARDA name resolution.
-
-Scores are unrounded log2 odds in bits against the count-derived residue
-background. Distances use ``max(0, S_aa + S_bb - 2*S_ab)``; unsupported cells
-remain null, without pseudocounts or a BLOSUM prior. This is a derivation command,
-not a change to annotation defaults. ``.recognition-pairs.tsv`` and
-``.recognition-support.tsv`` retain the matched other-epitope background and
-unmatched positive opportunity. Complete known curated labels, including tails,
-exclude shared-label partners. ``.recognition-matrix.tsv`` reports unordered
-count-density and directional-log-mean contrasts separately; symmetrizing counts
-before log odds can preserve a composition effect. These are selected-background
-comparisons, without relabelling receptors as assay negatives. See :doc:`rearrangement-origin` for the
-formalism, indel extension and independent-validation requirements.
-
-Add ``--origin-neighbours`` to derive the exact unchanged-flank N-region
-neighbour estimator in the same fresh run. One native Hamming-one batch supplies
-sequence pairs; only matched V/J pairs enter the N channel. Complete known
-labels define same-epitope versus disjoint-label incidences. The 20 residue
-alternatives per unique flank/position/V/J context are evaluated in two native
-operations, with no Pgen bank exported or cached.
-
-``.neighbour-counts.tsv`` retains exact pair-incidence counts, N-weighted counts
-and matched conditional opportunities. ``.neighbour-matrix.tsv`` exports raw-pair,
-residue-only and residue-adjusted compatibility walks at the previously declared
-0.70-bit information, with pooled and equal-epitope weighting. This completion
-supplies holding probabilities and time; neighbour observations alone do not
-identify them. Residue-adjusted fits use epitope-specific additive residue terms
-and zero AA-row sums for the shared off-diagonal interaction. A total neutral
-prior mass of one per parameter block is explicit and contains no reference
-matrix. Model-supported and directly observed cells are separate fields.
-
-``.neighbour-source-split.tsv`` identifies the largest recorded source held out
-per epitope; every junction observed there is excluded from training.
-``.neighbour-prediction.tsv`` reports held-out likelihood gains per weighted event,
-including pair gains against a separately refitted residue-only baseline.
-No-reference source-supported cases remain visible. ``.neighbour-fits.tsv`` and
-``.neighbour-preferences.tsv`` retain convergence and nuisance coefficients.
-These are working dependent-pair fits, without independent-pair confidence
-intervals. Their performance is a separately evaluated scientific result.
 
 vdjmatch fixed-scope
 ----------------------------

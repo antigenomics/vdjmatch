@@ -61,7 +61,6 @@ def register(subparsers, name='neighbours'):
     p.add_argument('--verbose',action='store_true',help='report grouped query/reference workload and count progress')
     p.add_argument('--distance-matrix',default='clipped',
                    help='clipped, blosum62, pam250, mj, vdjam, or an explicit aa.1/aa.2/cost TSV')
-    p.add_argument('--matrix-bundle',help='experimental hash-pinned residue/position/length and gap/length model directory; compact kernel evidence only')
     p.add_argument('--alphabet',choices=['full','imgt'],default='full',
                    help='experimental ordered IMGT-class geometry; same projected matrix for CDR3/V loops, raw identities retained')
     p.add_argument('--junction-ends',choices=['trim32','trim3'],default='trim32',
@@ -209,13 +208,6 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
     evidence_only=getattr(a,'evidence_only',False)
     gzip_evidence=getattr(a,'gzip_evidence',False)
     stream_evidence=getattr(a,'stream_evidence',False)
-    matrix_bundle=None
-    if getattr(a,'matrix_bundle',None):
-        if (not kernel or a.background!='vdjdb-other' or not (selection_only or evidence_only)
-                or a.position_weighting!='uniform' or geometry_extra or marginal_tables is not None):
-            raise ValueError('--matrix-bundle requires fresh compact uniform vdjdb-other kernel evidence')
-        from ..match.matrix_bundle import load_matrix_bundle
-        matrix_bundle=load_matrix_bundle(a.matrix_bundle)
     matrix_path=Path(a.distance_matrix).expanduser()
     matrix_hash=sha256(matrix_path) if matrix_path.is_file() else None
     streamed_rows=False
@@ -502,7 +494,6 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
             query_keys += ['ja','jb'] if paired else ['j']
         options=dict(species=organism,threads=a.threads,ctrim=ctrim,
                      position_weighting=a.position_weighting,exclude_exact=a.exclude_exact,linear_mass=linear,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,v_loop_distances=v_loop_distances)
-        if matrix_bundle is not None:options['matrix_bundle']=matrix_bundle
         def boundaries(sequences,genes):
             return [boundary_map[(s,v)] for s,v in zip(sequences,genes)]
         def counts(part,population,thresholds=None,*,same_v_gene=False):
@@ -610,8 +601,6 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
         grouped_detailed=_grouped_detailed_eligible(a,kernel,selection_only,groups,r)
         if evidence_only and not grouped_detailed:
             raise ValueError('--evidence-only requires grouped detailed kernel eligibility and non-null target epitopes')
-        if matrix_bundle is not None and not (grouped_kernel or grouped_detailed):
-            raise ValueError('matrix bundle requires the grouped kernel route')
         global_curves=None
         if not (grouped_kernel or grouped_detailed) and kernel and a.background=='vdjdb-other' and len(groups)>1:
             # All-label targets share the same query population. Concatenating
@@ -1074,14 +1063,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
         from .calibration import paired_call_event,paired_pipeline_sources
     if matrix_hash is not None and sha256(matrix_path)!=matrix_hash:
         raise ValueError('core matrix changed during scoring')
-    if matrix_bundle is not None:
-        checked=load_matrix_bundle(a.matrix_bundle)
-        if checked['manifest_sha256']!=matrix_bundle['manifest_sha256']:
-            raise ValueError('matrix bundle changed during scoring')
     manifest={'sample_sha256':sha256(Path(a.sample)),
         **({'core_matrix_sha256':matrix_hash} if matrix_hash is not None else {}),
-        **({'matrix_bundle':dict(path=matrix_bundle['path'],sha256=matrix_bundle['manifest_sha256'],
-            model=matrix_bundle['manifest'],calibration_transfer='none',default_changed=False)} if matrix_bundle is not None else {}),
         'selection_only':selection_only,
         **({'evidence_only':True} if evidence_only else {}),
         **({'stream_evidence':True,'evidence_order':'native execution order; compare by query/full-pMHC keys',

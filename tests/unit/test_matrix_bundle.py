@@ -52,25 +52,23 @@ def test_bundle_rejects_negative_or_unverified_assets(tmp_path):
 
 
 @pytest.mark.parametrize('paired',[False,True])
-def test_cli_neutral_bundle_and_explicit_core_preserve_evidence(tmp_path,paired):
+def test_cli_explicit_core_preserves_evidence(tmp_path,paired):
     import polars as pl
     from polars.testing import assert_frame_equal
     from test_kernel_evidence_only import fixture
     from vdjmatch.cli.__main__ import main
     from vdjmatch.match.geometry import _substitution_costs,amino_acids
     sample,reference=fixture(tmp_path,paired)
-    bundle(tmp_path/'model')
     aa=amino_acids();cost=_substitution_costs('full','blosum62')
     table=tmp_path/'core.tsv'
     table.write_text('aa.1\taa.2\tcost\n'+''.join(f'{x}\t{y}\t{cost[i,j]}\n' for i,x in enumerate(aa) for j,y in enumerate(aa) if i<j))
     args=['evidence',str(sample),'--vdjdb',str(reference),'--locus','paired' if paired else 'TRB','--all-targets','--evidence-only','--exclude-exact']
-    for name,extra in [('baseline',[]),('bundle',['--matrix-bundle',str(tmp_path/'model'),'--distance-matrix',str(table)])]:
+    for name,extra in [('baseline',[]),('explicit-core',['--distance-matrix',str(table)])]:
         assert main(args+extra+['--output-prefix',str(tmp_path/name)])==0
     for lane in ['', '.TRA','.TRB'] if paired else ['']:
         for kind in ['queries','selection','enrichment']:
             left=pl.read_csv(str(tmp_path/'baseline')+lane+'.'+kind+'.tsv',separator='\t',infer_schema_length=None)
-            right=pl.read_csv(str(tmp_path/'bundle')+lane+'.'+kind+'.tsv',separator='\t',infer_schema_length=None)
+            right=pl.read_csv(str(tmp_path/'explicit-core')+lane+'.'+kind+'.tsv',separator='\t',infer_schema_length=None)
             assert_frame_equal(left,right)
-    manifest=json.loads((tmp_path/'bundle.manifest.json').read_text())
-    assert manifest['matrix_bundle']['default_changed'] is False
+    manifest=json.loads((tmp_path/'explicit-core.manifest.json').read_text())
     assert manifest['core_matrix_sha256']==hashlib.sha256(table.read_bytes()).hexdigest()

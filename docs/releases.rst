@@ -1,6 +1,14 @@
 Release notes
 =============
 
+1.2.0
+-----
+
+Matrix derivation is provided as research scripts in the companion analysis
+repository; its unused installed CLI commands have been removed. Experimental
+bundles are API-only. Annotation defaults and the vdjtools 5.6.0 runtime floor
+are unchanged. The origin-aware statistical derivation is documented separately.
+
 1.1.0
 -----
 
