@@ -599,27 +599,116 @@ Here :math:`\alpha_{es}` absorbs population density and :math:`\gamma`
 describes excess neighbour incidence after matching generation
 opportunity. The factorization
 :math:`\gamma_{a,p,L,C}=u_{a,C}+v_{p,L,C}` is a restriction to test
-against the joint effect, not a property assumed from endpoint counts. An additive gauge is fixed
-within each connected supported design component; unsupported cells do not
-become identifiable through normalization.
+against the joint effect, not a property assumed from endpoint counts. Each connected supported design component has an additive gauge;
+normalization does not identify unsupported cells or contrasts across
+disconnected components.
 Missing origins remain separate; a fixed-template site has zero N
 exposure and supplies no conservation evidence. Positive counts at zero
 declared opportunity diagnose a model or coordinate mismatch. These
 intensities need not be bounded by one; a probability of at least one
 neighbour requires an additional count-distribution assumption.
 
-The existing masked transfer-matrix engine can sum the 19 alternative
-residues at :math:`p` without enumerating sequences: permit every
-standard residue except :math:`a_i` there and retain the complete-codon
-N constraint. The public degenerate-AA batch already owns the masked
-sum; the pure-N constraint currently exists in the native
-scalar/single-site path. Their minimal owning-library extension is the
-required next implementation step for these all-site rate exposures. For
-gap rates the corresponding constraint must cover the entire inserted
-interval jointly; products of single-site N probabilities are
-insufficient. This is a prospective rate algorithm, distinguished from
-the implemented conditional-composition fit and the descriptive
-observed-endpoint/N-site exposure ratios.
+The ``--origin-rates`` CLI route uses the existing masked transfer-matrix
+batch to sum the 19 alternative residues at each exposed site, retaining
+the complete-codon N constraint. It requires the additive joint-interval
+API in vdjtools5.8.0. One native batch handles all such sites; the
+Hamming-one search is shared when ``--origin-neighbours`` is also requested.
+Only grouped sufficient counts, exposures and fitted parameters are exported.
+Unknown-origin and fixed-template sites remain in the count table; neither
+becomes an N-origin conservation observation.
+
+For each length separately, write :math:`s=(e,V,J,L)`,
+:math:`c=(p,a)`, :math:`n_s=\sum_c O_{sc}`, and
+:math:`Z_s(\gamma)=\sum_c E^0_{sc}\exp(\gamma_c)`.
+Profiling the Poisson stratum intercept gives
+
+.. math::
+
+    \widehat\alpha_s=\log n_s-\log Z_s(\gamma),\qquad
+    \ell_{\mathrm{profile}}(\gamma)
+      =\sum_{sc}O_{sc}\gamma_c-\sum_s n_s\log Z_s(\gamma)
+      +\mathrm{constant}.
+
+This is the existing conditional-multinomial objective, reused with
+opportunities from **all** sites. A zero-neighbour site contributes to
+:math:`Z_s` even when its observed count is zero. A wholly zero-event
+stratum has the boundary estimate :math:`\widehat\alpha_s=-\infty`
+and cannot identify relative effects under a freely fitted density;
+its counts and explicit status are retained. Conditioning on every
+individual flank's observed count would remove the required site-rate
+information and is not done here.
+
+The CLI fits residue-only, additive residue-plus-position, and joint
+residue/position effects. The additive design uses orthonormal residue
+and position contrasts; singular-value decomposition removes algebraic
+null directions on represented cells, and the existing fitter performs
+the same profiled likelihood optimization. A reference-free prior supplies
+one total uniform pseudo-event over cells in each model. Effects have zero
+mean log rate. Event-bearing opportunity components are exported because
+contrasts between disconnected components remain prior-completed rather
+than data-identified. Per-stratum intercepts, zero-event counts and working
+deviance are exported alongside every fitted cell. Deviance is descriptive:
+endpoint observations share receptors, so a Poisson likelihood-ratio
+significance calibration is not asserted. Independent lengths have their
+own gauges and intercepts; these fits do not identify absolute rate
+comparisons between lengths. Relative intensity is not a per-site
+substitution probability.
+
+For gap rates the N constraint must cover the entire inserted interval
+jointly; products of single-site N probabilities are insufficient. That
+interval primitive is provided by the same native API. The full gap-rate
+estimator remains separate work from the implemented all-site substitution
+models and the earlier descriptive endpoint/N-site ratios.
+
+**A finite masked algorithm for exact gap opportunities.** Preserve both
+terminal anchors and use the existing gap-block owner's leftmost optimal
+placement. For a shorter junction :math:`x` of length :math:`L`, gap size
+:math:`k\ge1`, and internal placement :math:`1\le p\le L-1`, form
+:math:`y=x_{<p}b_1\cdots b_kx_{\ge p}`. The insertion is leftmost at
+:math:`p` exactly when :math:`p=1` or :math:`b_k\ne x_{p-1}`. Indeed,
+deleting at both :math:`p` and an earlier location implies a period-:math:`k`
+overlap, hence deletion at :math:`p-1` is also valid; the adjacent deletion
+is valid exactly when those two residues coincide. This supplies a disjoint
+partition of sequence pairs despite repeated residues.
+
+Therefore one masked query per :math:`(x,p,k,V,J)` suffices: the first
+:math:`k-1` inserted residues admit all standard amino acids, the last admits
+all except :math:`x_{p-1}` when :math:`p>1`, and the entire inserted codon
+interval is constrained to N origin. Summing over placements counts each
+admissible sequence pair once. Singleton masks for an observed longer
+junction, divided by its unconstrained sequence mass, give the posterior
+probability of the corresponding joint N interval. This defines an
+operational canonical-placement channel; ambiguous sequence alignment does
+not establish a uniquely identified physical insertion history.
+
+When conditioning partner sampling on its observed length, let
+:math:`Z_{VJ,L+k}` be the model mass of every standard-AA junction of that
+length and the stated genes. The same existing masked batch obtains it by
+allowing all standard residues at all positions, without an N constraint.
+For :math:`n_{e,VJ,L+k}` observed supported longer partners, the forward
+opportunity is
+
+.. math::
+
+    E^0_{e,VJ,L,k}=
+    \frac{n_{e,VJ,L+k}}{Z_{VJ,L+k}}
+    \sum_{x\in(e,VJ,L)}\sum_{p=1}^{L-1}
+    P_0\{Y\in\mathcal M(x,p,k),\ [p,p+k)\text{ is N};V,J\}.
+
+Here :math:`\mathcal M` denotes the disjoint canonical masks above. The
+partner factor has no minus one because shorter and longer populations
+are disjoint. The length normalizer depends on :math:`k`; a single
+shorter-length intercept cannot absorb it. It is a fixed model probability,
+not a refitted gene mass. All masses remain transient, and existing native
+batching owns their computation. Observed and modeled support are separate:
+no sampled longer partners gives zero sampled opportunity even when the
+model permits that length. Zero model mass cannot support a fitted rate.
+The observed length spectrum bounds the empirical comparison; lengths outside
+that spectrum are untested rather than biologically forbidden. The resulting
+rate fit uses the same exposure-offset likelihood and reports
+:math:`P(k\mid L,C,\text{observed gap pair})` separately from an absolute
+indel probability. This algorithm is specified here; its full CLI gap-rate
+implementation and validation remain pending.
 
 **Indels are changes of rearrangement histories.** Let :math:`G_k(x,y)`
 indicate that the existing alignment convention accepts exactly one

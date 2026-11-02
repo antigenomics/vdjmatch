@@ -976,7 +976,7 @@ def n_region_residue_opportunities(model, junctions, positions, v, j, *, threads
 
 
 def fit_exchangeability(
-    observed, expected, *, balanced, prior_mass=1.0, residue_groups=None, fit_pairs=True
+    observed, expected, *, balanced, prior_mass=1.0, residue_groups=None, fit_pairs=True, design=None
 ):
     """Conditional multinomial fit, migrated from the established M4 owner.
 
@@ -1000,6 +1000,11 @@ def fit_exchangeability(
         or prior_mass < 0
     ):
         raise ValueError("finite counts and nonnegative prior required")
+    if design is not None:
+        design = np.asarray(design, float)
+        if (residue_groups is not None or design.ndim != 2 or design.shape[0] != o.shape[1]
+            or not np.isfinite(design).all() or design.shape[1] == 0):
+            raise ValueError("finite cell-by-effect design requires the ordinary conditional fit")
     keep = o.sum(1) > 0
     groups = None
     if not fit_pairs and residue_groups is None:
@@ -1025,7 +1030,7 @@ def fit_exchangeability(
         logb = np.log(b)
     if groups is None:
         weights = 1 / n if balanced else np.ones(len(n))
-        free_pairs, free_residues = k - 1, 0
+        free_pairs, free_residues = k - 1 if design is None else design.shape[1], 0
     else:
         i, j = np.triu_indices(20, 1)
         incidence = np.zeros((k, 20))
@@ -1043,7 +1048,7 @@ def fit_exchangeability(
 
     def unpack(x):
         if groups is None:
-            return np.r_[0.0, x], None
+            return (np.r_[0.0, x] if design is None else design @ x), None
         return pair_basis @ x[:free_pairs], x[free_pairs:].reshape(
             ng, 19
         ) @ residue_basis.T
@@ -1063,7 +1068,7 @@ def fit_exchangeability(
         value += prior_mass * (logsumexp(beta) - beta.mean())
         gb = residual.sum(0) + prior_mass * (np.exp(beta - logsumexp(beta)) - 1 / k)
         if eta is None:
-            gradient = gb[1:]
+            gradient = gb[1:] if design is None else design.T @ gb
         else:
             value += prior_mass * np.mean(logsumexp(eta, axis=1) - eta.mean(axis=1))
             ge = np.zeros_like(eta)
@@ -1079,6 +1084,10 @@ def fit_exchangeability(
     # Reuse the fixed Fisher-diagonal scaling from the established recognition
     # fitter. This changes coordinates, never counts, priors or the objective.
     parameter_scale = np.ones(free_pairs + free_residues)
+    if design is not None:
+        diagonal = (wn @ b) @ (design * design) - np.sum(wn[:, None] * (b @ design) ** 2, axis=0)
+        diagonal += prior_mass * np.var(design, axis=0)
+        parameter_scale = 1 / np.sqrt(np.maximum(diagonal / scale, 1e-12))
     if groups is not None:
         pair_mean = b @ pair_basis
         pair_diagonal = (wn @ b) @ (pair_basis * pair_basis) - np.sum(
@@ -1127,6 +1136,8 @@ def fit_exchangeability(
         epitopes=len(n),
         strata=len(n),
     )
+    if design is not None:
+        report["design_coefficients"] = fit.x.tolist()
     if eta is not None:
         report.update(
             epitopes=ng,
@@ -1207,29 +1218,8 @@ def transition_from_counts(counts, frequency, changed_fraction=0.01):
     return transition
 
 
-def origin_neighbour_tables(
-    model,
-    queries,
-    membership,
-    origins,
-    known_labels,
-    *,
-    source_membership=None,
-    threads=1,
-):
-    """NNN-weighted Hamming-one counts, exact flank opportunity and shared fit.
-
-    Reuse one native neighbour search and the published generative batch owners.
-    Final outputs contain sufficient counts/model parameters, never a Pgen bank.
-    Source-holdout pairs share no junction with training within their epitope.
-    """
-    import json
-    import sys
-    import time
-    from scipy.special import logsumexp
-    from threadpoolctl import threadpool_limits
-
-    primary = membership.select("query_id", "epitope").unique()
+def origin_substitution_pairs(queries, origins, *, threads=1):
+    """One native Hamming-one batch with matched V/J and endpoint origin weights."""
     pairs = substitution_events(
         queries.with_columns(pl.lit("").alias("epitope")),
         threads=threads,
@@ -1264,6 +1254,34 @@ def origin_neighbour_tables(
         .otherwise(pl.lit("zero_N_opportunity"))
         .alias("status")
     )
+    return pairs, pair_count
+
+
+def origin_neighbour_tables(
+    model,
+    queries,
+    membership,
+    origins,
+    known_labels,
+    *,
+    source_membership=None,
+    threads=1,
+    pair_data=None,
+):
+    """NNN-weighted Hamming-one counts, exact flank opportunity and shared fit.
+
+    Reuse one native neighbour search and the published generative batch owners.
+    Final outputs contain sufficient counts/model parameters, never a Pgen bank.
+    Source-holdout pairs share no junction with training within their epitope.
+    """
+    import json
+    import sys
+    import time
+    from scipy.special import logsumexp
+    from threadpoolctl import threadpool_limits
+
+    primary = membership.select("query_id", "epitope").unique()
+    pairs, pair_count = origin_substitution_pairs(queries, origins, threads=threads) if pair_data is None else pair_data
     support = pairs.group_by("status").agg(
         pl.len().alias("clonotype_pairs"), pl.col("weight").sum().alias("N_pair_weight")
     )
@@ -1726,3 +1744,127 @@ def origin_neighbour_tables(
         ),
     )
     return result
+
+
+def origin_rate_tables(model, queries, membership, origins, *, threads=1, pair_data=None):
+    """All-site N-channel escape opportunities, including zero-neighbour sites.
+
+    One native masked batch sums the19alternative residues. Only final grouped
+    exposure/count tables and model parameters leave this function; individual
+    generation masses remain transient. Strata retain V/J, length and position.
+    """
+    from vdjtools.model.native import pgen_aa_degenerate_batch
+    import inspect
+    if 'n_regions' not in inspect.signature(pgen_aa_degenerate_batch).parameters:
+        raise RuntimeError('origin rates require vdjtools>=5.8.0 with exact masked N intervals')
+    primary=membership.select('query_id','epitope').unique()
+    meta=queries.with_columns(pl.col('cdr3').str.len_chars().alias('L'))
+    supported=origins.group_by('query_id').agg(pl.col('n_probability').is_not_null().all().alias('model_supported'))
+    population=meta.join(supported,on='query_id',validate='1:1').filter(pl.col('model_supported')).join(
+        primary,on='query_id',validate='1:m').group_by('epitope','v','j','L').len(name='population_clonotypes')
+    sites=origins.join(meta,on='query_id',validate='m:1').with_columns(
+        pl.col('cdr3').str.slice(pl.col('position'),1).alias('aa'))
+    exposed=sites.filter(pl.col('n_probability')>0).sort('query_id','position')
+    motifs=[list(s) for s in exposed['cdr3']]
+    for allowed,p,a in zip(motifs,exposed['position'],exposed['aa']):
+        allowed[p]=AA.replace(a,'')
+    masses=pgen_aa_degenerate_batch(model,motifs,v=exposed['v'].to_list(),j=exposed['j'].to_list(),
+        n_regions=[(p,p+1) for p in exposed['position']],threads=threads)
+    if not np.isfinite(masses).all() or np.any(np.asarray(masses)<0):
+        raise RuntimeError('masked N opportunity must be finite and nonnegative')
+    exposed=exposed.select('query_id','position').with_columns(pl.Series('alternative_N_mass',masses,dtype=pl.Float64))
+    del motifs,masses
+    sites=sites.join(exposed,on=['query_id','position'],how='left',validate='1:1').join(
+        primary,on='query_id',validate='m:m').join(population,on=['epitope','v','j','L'],how='left',validate='m:1')
+    sites=sites.with_columns(
+        pl.when(pl.col('n_probability').is_null()).then(None)
+        .when(pl.col('n_probability')==0).then(0.)
+        .otherwise(pl.col('n_probability')*pl.col('alternative_N_mass')*(pl.col('population_clonotypes')-1))
+        .alias('expected_endpoint_opportunity'))
+    key=['epitope','v','j','L','position','aa']
+    counts=sites.group_by(key).agg(
+        pl.len().alias('site_instances'),pl.col('n_probability').is_null().sum().alias('unknown_origin_sites'),
+        (pl.col('n_probability')==0).sum().alias('zero_N_sites'),
+        pl.when(pl.col('n_probability').is_not_null().any()).then(pl.col('n_probability').sum()).otherwise(None).alias('N_site_weight'),
+        pl.when(pl.col('expected_endpoint_opportunity').is_not_null().any()).then(pl.col('expected_endpoint_opportunity').sum()).otherwise(None).alias('expected_endpoint_opportunity'),
+        pl.col('population_clonotypes').first())
+    pairs,_=origin_substitution_pairs(queries,origins,threads=threads) if pair_data is None else pair_data
+    same=pairs.filter(pl.col('status')=='pure_N').join(primary.rename({'query_id':'qid'}),on='qid',validate='m:m').join(
+        primary.rename({'query_id':'rid'}),on=['rid','epitope'],validate='m:m')
+    endpoints=pl.concat([same.select('epitope','v','j','L',pl.col('pos').alias('position'),pl.col(a).alias('aa'),'weight') for a in ['a','b']])
+    observed=endpoints.group_by(key).agg(pl.len().alias('endpoint_incidences'),pl.col('weight').sum().alias('N_endpoint_weight'))
+    counts=counts.join(observed,on=key,how='left',validate='1:1').with_columns(
+        pl.col('endpoint_incidences').fill_null(0),pl.col('N_endpoint_weight').fill_null(0.))
+    if counts.filter((pl.col('N_endpoint_weight')>0)&(pl.col('expected_endpoint_opportunity').fill_null(0)<=0)).height:
+        raise RuntimeError('observed N endpoint has zero or missing declared opportunity')
+    counts=counts.with_columns(pl.when(pl.col('N_site_weight')>0).then(
+        pl.col('N_endpoint_weight')/pl.col('N_site_weight')).otherwise(None).alias('observed_incidence_per_N_site'))
+    return {'origin-rate-counts':counts.sort(key)} | origin_rate_models(counts)
+
+
+def origin_rate_models(counts):
+    """Profile V/J/epitope density, comparing AA, AA+position and joint rates.
+
+    Lengths are fitted separately: their stratum intercepts absorb length density.
+    Zero-neighbour cells enter the same likelihood as observed cells. A total
+    neutral pseudo-event regularizes unobserved cells, never a reference matrix.
+    """
+    from scipy.linalg import helmert
+    from scipy.sparse import csr_matrix
+    from scipy.sparse.csgraph import connected_components
+    from scipy.special import logsumexp, xlogy
+
+    parameters, summaries, intercepts = [], [], []
+    exposed = counts.filter(pl.col('expected_endpoint_opportunity') > 0)
+    for (length,), block in exposed.partition_by('L', as_dict=True).items():
+        strata = block.select('epitope', 'v', 'j').unique().sort('epitope', 'v', 'j').with_row_index('stratum')
+        cells = block.select('position', 'aa').unique().sort('position', 'aa').with_row_index('cell')
+        indexed = block.join(strata, on=['epitope', 'v', 'j'], validate='m:1').join(cells, on=['position', 'aa'], validate='m:1')
+        observed = np.zeros((strata.height, cells.height))
+        expected = np.zeros_like(observed)
+        rows, cols = indexed['stratum'].to_numpy(), indexed['cell'].to_numpy()
+        observed[rows, cols] = indexed['N_endpoint_weight']
+        expected[rows, cols] = indexed['expected_endpoint_opportunity']
+        n = observed.sum(1)
+        if not np.any(n > 0) or cells.height < 2:
+            summaries.append(dict(L=length, model='unidentified', strata=len(n), zero_event_strata=int((n == 0).sum()), cells=cells.height, N_endpoint_weight=float(n.sum())))
+            continue
+        # Components describe which cell contrasts share an event-bearing stratum.
+        support = csr_matrix((expected[n > 0] > 0).astype(np.int64))
+        _, component = connected_components(support.T @ support, directed=False)
+        aa_ids = np.array([AA.index(a) for a in cells['aa']])
+        _, pos_ids = np.unique(cells['position'], return_inverse=True)
+        aa_basis = helmert(20, full=False).T[aa_ids]
+        pos_basis = helmert(pos_ids.max()+1, full=False).T[pos_ids]
+        for name, raw_design in [('residue', aa_basis), ('factorized', np.column_stack([aa_basis, pos_basis])), ('joint', None)]:
+            design = None
+            if raw_design is not None:
+                # Remove only algebraic null directions on the represented cells.
+                centered = raw_design - raw_design.mean(0)
+                u, singular, _ = np.linalg.svd(centered, full_matrices=False)
+                design = u[:, singular > max(centered.shape)*np.finfo(float).eps*singular.max()]
+                if not design.shape[1]:
+                    beta, report = np.zeros(cells.height), dict(iterations=0, objective=0., prior_mass=1.)
+                else:
+                    beta, report = fit_exchangeability(observed, expected, balanced=False, design=design)
+            else:
+                beta, report = fit_exchangeability(observed, expected, balanced=False)
+            with np.errstate(divide='ignore'):
+                loge = np.log(expected)
+                logn = np.log(n)
+            alpha = logn - logsumexp(loge + beta, axis=1)
+            mu = np.exp(loge + beta + alpha[:, None])
+            deviance = 2 * np.sum(xlogy(observed, np.divide(observed, mu, out=np.ones_like(mu), where=mu > 0)) - observed + mu)
+            parameters.append(cells.with_columns(pl.lit(length).alias('L'), pl.lit(name).alias('model'),
+                pl.Series('log_relative_rate', beta), pl.Series('relative_rate', np.exp(beta)),
+                pl.Series('likelihood_component', component), pl.Series('N_endpoint_weight', observed.sum(0)),
+                pl.Series('expected_endpoint_opportunity', expected.sum(0))))
+            intercepts.append(strata.with_columns(pl.lit(length).alias('L'), pl.lit(name).alias('model'),
+                pl.Series('log_stratum_intensity', alpha), pl.Series('N_endpoint_weight', n)))
+            summaries.append(dict(L=length, model=name, strata=len(n), zero_event_strata=int((n == 0).sum()),
+                cells=cells.height, N_endpoint_weight=float(n.sum()), working_deviance=float(deviance),
+                likelihood_components=int(component.max()+1),
+                **{f"fit_{key}":value for key,value in report.items() if isinstance(value, (int,float,str,bool))}))
+    return {'origin-rate-models': pl.concat(parameters) if parameters else pl.DataFrame(schema={'L':pl.Int64}),
+            'origin-rate-intercepts': pl.concat(intercepts) if intercepts else pl.DataFrame(schema={'L':pl.Int64}),
+            'origin-rate-fits': pl.DataFrame(summaries, infer_schema_length=None)}

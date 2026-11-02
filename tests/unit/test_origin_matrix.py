@@ -189,17 +189,25 @@ def test_origin_cli_preserves_source_units_and_zero_support(tmp_path, monkeypatc
     band = pl.read_csv(str(prefix) + ".length-band-support.tsv", separator="\t")
     assert band.filter(pl.col("legacy_length_lt8"))["source_records"].sum() == 1
 
-    def neighbour_route(model, queries, membership, origins, known_labels, *, source_membership, threads):
+    def neighbour_route(model, queries, membership, origins, known_labels, *, source_membership, threads, pair_data):
         assert queries.height == 4 and source_membership.height == 4
         assert source_membership['reference_id'].null_count() == 4
         assert known_labels.filter(pl.col('epitope') == 'TAIL').height == 2
         return {'neighbour-route': pl.DataFrame({'queries': [queries.height]})}
 
     monkeypatch.setattr(owner, 'origin_neighbour_tables', neighbour_route)
+    rate_calls = []
+    def rate_route(model, queries, membership, origins, *, threads, pair_data):
+        assert pair_data is not None
+        rate_calls.append(queries.height)
+        return {'origin-rate-counts': pl.DataFrame({'queries': [queries.height]})}
+    monkeypatch.setattr(owner, 'origin_rate_tables', rate_route)
+    args.origin_rates = True
     args.origin_neighbours = True
     args.output_prefix = str(tmp_path / 'neighbours')
     assert args.func(args) == 0
     assert pl.read_csv(str(args.output_prefix) + '.neighbour-route.tsv', separator='\t')['queries'][0] == 4
+    assert rate_calls == [4]
 
 
 def test_matched_background_uses_disjoint_complete_labels_and_same_N_opportunity():
@@ -487,3 +495,96 @@ def test_residue_fit_keeps_small_groups_when_pair_mass_is_unequal():
         residue_groups=np.zeros(6, dtype=int), fit_pairs=False, prior_mass=1/3)
     assert np.allclose(np.asarray(joint['residue_log_preferences'])[1],
                        np.asarray(single['residue_log_preferences'])[0], atol=2e-3)
+
+
+def test_all_site_rate_opportunity_retains_zero_neighbour_and_unknown_sites(monkeypatch):
+    from vdjtools.model.io import from_germline
+    from vdjtools.model import Model,n_region_posterior_batch
+    import vdjtools.model.native as native
+    from vdjmatch.match.scoring_audit import AA,origin_rate_tables
+
+    germline=pl.DataFrame([dict(allele=a,gene=a.split('*')[0],segment=k,sequence=s,
+        cdr3_anchor=-1,functional=True,full_germline='') for a,k,s in
+        [('TOYV1*01','V','TGT'),('TOYJ1*01','J','TTT')]])
+    model=from_germline(germline,locus='TOY',ins_max=6,palindrome_max={'v_3':0,'j_5':0})
+    tables=dict(model.tables)
+    for name in ['v_3_del','j_5_del']:
+        tables[name]=tables[name].with_columns(p=(pl.col('ndel')==0).cast(pl.Float64))
+    tables['vj_ins']=tables['vj_ins'].with_columns(p=(pl.col('length')==6).cast(pl.Float64))
+    for name in ['vj_first_nt','vj_dinucl']:
+        tables[name]=tables[name].with_columns(p=pl.lit(.25))
+    model=Model(manifest=model.manifest,tables=tables,genomic=model.genomic).validate()
+    queries=pl.DataFrame(dict(query_id=[0,1,2,3],cdr3=['CAAF','CCAF','CDCF','AAAA'],v=['TOYV1*01']*4,j=['TOYJ1*01']*4))
+    primary=queries.select('query_id').with_columns(pl.lit('E').alias('epitope'))
+    origins=n_region_posterior_batch(model,queries['cdr3'].to_list(),threads=1).rename({'row':'query_id'})
+    degeneracy=dict(zip(AA,[4,2,2,2,2,4,2,3,2,6,1,2,4,2,6,6,4,4,1,2]))
+    calls=[]
+    real_masked = native.pgen_aa_degenerate_batch
+    def masked_oracle(model,allowed,v,j,*,n_regions,threads):
+        calls.append(len(allowed))
+        result=[]
+        for motif,(p,end) in zip(allowed,n_regions):
+            assert p in [1,2] and end==p+1 and len(motif[p])==19
+            other=2 if p==1 else 1
+            result.append(sum(degeneracy[a] for a in motif[p])*degeneracy[motif[other]]/4096)
+        import inspect
+        if 'n_regions' in inspect.signature(real_masked).parameters:
+            actual = real_masked(model, allowed, v=v, j=j, n_regions=n_regions, threads=threads)
+            assert np.allclose(actual, result, rtol=1e-12, atol=0)
+            return actual
+        return result
+    monkeypatch.setattr(native,'pgen_aa_degenerate_batch',masked_oracle)
+    counts=origin_rate_tables(model,queries,primary,origins,threads=1)['origin-rate-counts']
+    assert calls==[6]  # One native operation; fixed/unknown sites never become N queries.
+    zero=counts.filter((pl.col('position')==1)&(pl.col('aa')=='D')).row(0,named=True)
+    assert zero['N_site_weight']==1 and zero['endpoint_incidences']==0
+    assert zero['expected_endpoint_opportunity']==pytest.approx(59/1024)
+    assert counts['unknown_origin_sites'].sum()==4
+    assert counts['N_endpoint_weight'].sum()==2 and counts['endpoint_incidences'].sum()==2
+    assert counts.filter(pl.col('position').is_in([0,3]))['N_site_weight'].drop_nulls().sum()==0
+
+
+def test_profiled_all_site_rates_recover_factorization_and_keep_zero_event_strata():
+    from vdjmatch.match.scoring_audit import AA, origin_rate_models
+
+    rng = np.random.default_rng(72)
+    positions = np.repeat(np.arange(1, 4), 20)
+    residues = np.tile(np.arange(20), 3)
+    target = np.linspace(-.4, .4, 20)[residues] + np.array([-.3, .1, .2])[positions-1]
+    baseline = rng.uniform(.5, 2., (3, len(target)))
+    observed = baseline * np.exp(target) * np.array([2e5, 3e5, 0.])[:, None]
+    counts = pl.DataFrame([dict(epitope=f'E{e}', v='V', j='J', L=6,
+        position=int(p), aa=AA[a], expected_endpoint_opportunity=float(baseline[e, c]),
+        N_endpoint_weight=float(observed[e, c]))
+        for e in range(3) for c, (p, a) in enumerate(zip(positions, residues))])
+    tables = origin_rate_models(counts)
+    fitted = tables['origin-rate-models'].filter(pl.col('model') == 'factorized').sort('position', 'aa')
+    assert np.allclose(fitted['log_relative_rate'], target-target.mean(), atol=2e-4)
+    fits = tables['origin-rate-fits']
+    assert fits['zero_event_strata'].to_list() == [1, 1, 1]
+    assert fits.filter(pl.col('model') == 'factorized')['working_deviance'][0] < 1e-4
+    assert tables['origin-rate-intercepts'].filter(pl.col('epitope') == 'E2')['log_stratum_intensity'].to_list() == [-np.inf]*3
+    assert fitted['likelihood_component'].n_unique() == 1
+
+
+def test_canonical_gap_masks_partition_repeated_residue_pairs():
+    from itertools import product
+    from seqtree import gapblock
+
+    prior = lambda p, k, m: 0 if 1 <= p <= m-k-1 else gapblock.UNREACHABLE
+    for interior_length in range(4):
+        for middle in product('AC', repeat=interior_length):
+            short = 'C' + ''.join(middle) + 'F'
+            for k in range(1, 4):
+                represented = {}
+                possible = set()
+                for p in range(1, len(short)):
+                    for insertion in product('AC', repeat=k):
+                        long = short[:p] + ''.join(insertion) + short[p:]
+                        possible.add(long)
+                        if p == 1 or insertion[-1] != short[p-1]:
+                            assert long not in represented
+                            represented[long] = p
+                assert set(represented) == possible
+                for long, p in represented.items():
+                    assert gapblock.gapblock_score(short, long, gap_open=0, gap_extend=0, gap_prior=prior) == (0, p)

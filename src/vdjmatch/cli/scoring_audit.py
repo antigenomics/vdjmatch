@@ -13,6 +13,7 @@ def register(subparsers):
     p.add_argument('--min-epi', type=int, default=30, help='legacy unique-junction eligibility; not the full-VDJdb source-record gate')
     p.add_argument('--min-records', type=int, default=30, help='origin-matrix: valid source-record eligibility before deduplication')
     p.add_argument('--origin-neighbours', action='store_true', help='origin-matrix: derive exact flank-conditioned N-region neighbour models and source-held-out predictions')
+    p.add_argument('--origin-rates', action='store_true', help='origin-matrix: all-site N-region escape exposures, retaining zero-neighbour sites; requires vdjtools>=5.8.0')
     p.add_argument('--vlen', type=int, default=4, help='matrix task V prefix length')
     p.add_argument('--jlen', type=int, default=6, help='matrix task J suffix length')
     p.add_argument('--legacy', help='explicit legacy similarity TSV; default packaged vdjam.txt')
@@ -30,8 +31,8 @@ def register(subparsers):
 def main(a):
     if a.task == 'origin-matrix':
         return origin_matrix(a)
-    if a.origin_neighbours:
-        raise ValueError('--origin-neighbours requires --task origin-matrix')
+    if a.origin_neighbours or a.origin_rates:
+        raise ValueError('--origin-neighbours/--origin-rates require --task origin-matrix')
     import json
     import math
     import time
@@ -120,7 +121,7 @@ def origin_matrix(a):
     import vdjtools._core as native
     from .. import db
     from ..db.cache import sha256
-    from ..match.scoring_audit import origin_block_matrices, origin_neighbour_tables
+    from ..match.scoring_audit import origin_block_matrices, origin_neighbour_tables, origin_rate_tables, origin_substitution_pairs
     from ..runner.annotation import _validate_output_paths
     from .epitope import pool_epitopes, write_tables
 
@@ -303,11 +304,14 @@ def origin_matrix(a):
         ).sort("segment", "call", nulls_last=True),
     }
     tables.update(contrast)
+    pair_data = origin_substitution_pairs(queries, origins, threads=a.threads) if a.origin_neighbours or a.origin_rates else None
+    if a.origin_rates:
+        tables.update(origin_rate_tables(model, queries, membership, origins, threads=a.threads, pair_data=pair_data))
     if a.origin_neighbours:
         source_membership = ready.select("epitope", "cdr3", "v", "j", "reference_id").join(
             queries, on=["cdr3", "v", "j"], validate="m:1").select("query_id", "epitope", "reference_id").unique()
         tables.update(origin_neighbour_tables(model, queries, membership, origins, known_labels,
-            source_membership=source_membership, threads=a.threads))
+            source_membership=source_membership, threads=a.threads, pair_data=pair_data))
     prefix.parent.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():
         table.with_columns(
@@ -358,6 +362,12 @@ def origin_matrix(a):
             completion="reversible compatibility walk with matched N-site stationary exposure at fixed0.70bits information",
             pair_units="distinct junction/V/J pair incidences per eligible epitope; N-posterior products are fractional weights",
         ) if a.origin_neighbours else None),
+        rate_estimator=(dict(
+            exposure="all source sites; source N posterior times exact19-alternative N mass times distinct model-supported partner count",
+            units="directed endpoint incidences and expected opportunities; no-neighbour and zero/unknown N sites retained",
+            population="epitope/V/J/junction length; constant model mass normalizer belongs to nuisance intercept",
+            interpretation="working convergent-neighbour intensity, not an ancestral mutation probability",
+        ) if a.origin_rates else None),
         known_label_source_records=all_labels.height,
         known_label_query_memberships=known_labels.height,
         length_policy="all producer-declared junction lengths retained; no anchor motif screen or fabrication; legacy_length_lt8 is an audit band only",
