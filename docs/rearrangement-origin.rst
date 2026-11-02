@@ -1018,3 +1018,18 @@ discard transient per-query masses; do not persist a posterior or Pgen
 bank. All 190 actual zero-diagonal distance cells, eligible identity
 support, independent transfer and added annotation accuracy remain
 separate verification obligations.
+
+Count-owner implementation
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``origin_class_pair_counts`` reuses ``column_pair_counts`` to partition one
+aligned block into same-class exchangeable, same-class zero-alternative and
+different-class ordered pair counts. Their sum recovers the original aligned
+counts. ``mixed_origin_block_matrices`` applies this owner to matched
+same-epitope/V/J/length blocks and reuses the existing pooled/equal-epitope log
+odds and distance exporter. Unknown receptors remain in support accounting.
+The caller supplies positive alternative support explicitly; the presence of an
+N base alone is insufficient. These count owners do not infer rearrangements,
+translate codons, refit model parameters or persist per-query probability banks.
+The full native-backed mixed-origin CLI derivation and its scientific results
+remain separate from these arithmetic checks.

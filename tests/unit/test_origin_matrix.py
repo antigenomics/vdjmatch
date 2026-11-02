@@ -624,3 +624,42 @@ def test_joint_rate_preconditioning_matches_scalar_stationarity_solution():
     fitted, report = fit_exchangeability(observed[None], baseline[None], balanced=False, precondition=True)
     assert np.allclose(fitted, exact, atol=2e-3)
     assert report['max_scaled_gradient'] < 1e-6
+
+
+def test_local_origin_pair_channels_partition_without_compulsory_conservation():
+    from vdjmatch.match.scoring_audit import origin_class_pair_counts
+    encoded=np.array([[0,15],[1,15]],dtype=np.uint8)
+    classes=pl.DataFrame(dict(row=[0,0,1,1,0,1],position=[0,0,0,0,1,1],
+        pattern=[0,1,0,1,2,2],probability=[.4,.6,.7,.3,1.,1.],
+        exchangeable=[True,True,True,True,False,False]))
+    channels=origin_class_pair_counts(encoded,classes)
+    assert set(channels)=={'same_exchangeable','same_zero_alternative','different_class'}
+    assert channels['same_exchangeable'][0,1]==pytest.approx(.46)
+    assert channels['same_exchangeable'].sum()==pytest.approx(.92)
+    assert channels['same_zero_alternative'][15,15]==pytest.approx(2.)
+    assert channels['different_class'][0,1]==pytest.approx(.54)
+    total=sum(channels.values())
+    assert np.allclose(total,column_pair_counts(encoded,np.arange(2),np.ones_like(encoded))[0])
+    shuffled=origin_class_pair_counts(encoded,classes.reverse())
+    assert all(np.allclose(channels[k],shuffled[k]) for k in channels)
+    with pytest.raises(ValueError,match='partition'):
+        origin_class_pair_counts(encoded,classes.with_columns(pl.col('probability')*.5))
+    with pytest.raises(ValueError,match='unique'):
+        origin_class_pair_counts(encoded,pl.concat([classes,classes.head(1)]))
+
+
+def test_mixed_block_owner_reuses_NNN_counts_and_keeps_unknowns():
+    from vdjmatch.match.scoring_audit import mixed_origin_block_matrices
+    clones,origins=_inputs()
+    classes=origins.rename({'n_probability':'probability'}).with_columns(
+        pl.when(pl.col('probability').is_not_null()).then(0).otherwise(-1).alias('pattern'),
+        pl.lit(True).alias('exchangeable'))
+    # Complete supported posteriors, retaining the original unknown receptor.
+    classes=classes.with_columns(pl.when(pl.col('probability').is_not_null()).then(1.).otherwise(None).alias('probability'))
+    expected=origin_block_matrices(clones,classes.rename({'probability':'n_probability'}))[0]
+    tables=mixed_origin_block_matrices(clones,classes)
+    got=tables['mixed-matrix'].filter(pl.col('channel')=='same_exchangeable').drop('channel')
+    assert got.equals(expected)
+    assert tables['mixed-support'].filter(~pl.col('origin_supported'))['query_id'].to_list()==[4]
+    empty_channels=tables['mixed-matrix'].filter(pl.col('channel')!='same_exchangeable')
+    assert empty_channels['pair_weight'].sum()==0

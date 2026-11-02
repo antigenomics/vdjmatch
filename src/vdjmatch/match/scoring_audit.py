@@ -500,6 +500,65 @@ def column_pair_counts(encoded, labels, mask, *, include_within=False):
     return observed, expected, stats
 
 
+
+def origin_class_pair_counts(encoded, classes):
+    """Partition one aligned block using the existing between-cluster counter.
+
+    Each receptor is a unit cluster. Positive local posterior rows have integer
+    row/position/pattern, probability and an explicit exchangeable flag from
+    positive alternative support. Unknown origins are handled before this owner.
+    Zero-alternative contributions remain accounted but cannot inflate conservation.
+    No generation masses, translation or rearrangement histories are inferred.
+    """
+    encoded=np.asarray(encoded)
+    total,_,_=column_pair_counts(encoded,np.arange(len(encoded)),np.ones(encoded.shape))
+    keys=['row','position','pattern']
+    if classes.select(keys).is_duplicated().any():
+        raise ValueError('local classes must be unique within each receptor/site')
+    coordinates=[classes[k].to_numpy() for k in keys]
+    if any(not np.issubdtype(x.dtype,np.integer) for x in coordinates):
+        raise ValueError('local class coordinates must be integers')
+    row,position,pattern=coordinates
+    if (np.any(row<0) or np.any(row>=len(encoded)) or np.any(position<0)
+        or np.any(position>=encoded.shape[1]) or np.any(pattern<0) or np.any(pattern>=729)):
+        raise ValueError('local class coordinates outside the block or base-nine support')
+    probability=classes['probability'].to_numpy()
+    if not np.isfinite(probability).all() or np.any(probability<=0) or np.any(probability>1):
+        raise ValueError('local posterior classes must have positive finite probabilities')
+    if classes['exchangeable'].dtype!=pl.Boolean or classes['exchangeable'].null_count():
+        raise ValueError('every local class requires explicit alternative-support status')
+    partition=np.zeros(encoded.shape)
+    np.add.at(partition,(row,position),probability)
+    if not np.allclose(partition,1.,rtol=1e-9,atol=0):
+        raise ValueError('local classes must partition every supported receptor/site')
+    same=np.zeros((20,20))
+    exchangeable=same.copy()
+    # Reuse the established cluster arithmetic; group only positive sparse rows,
+    # rather than allocating receptor x position x729 whole-cohort tensors.
+    grouped=classes.sort('position','pattern','row').group_by('position','pattern',maintain_order=True)
+    for (p,_),part in grouped:
+        if part.height<2:
+            continue
+        sites=encoded[part['row'].to_numpy(),p][:,None]
+        weights=part['probability'].to_numpy()[:,None]
+        labels=np.arange(part.height)
+        observed,_,_=column_pair_counts(sites,labels,weights)
+        same+=observed
+        if part['exchangeable'].all():
+            exchangeable+=observed
+        elif part['exchangeable'].any():
+            allowed=weights*part['exchangeable'].to_numpy()[:,None]
+            exchangeable+=column_pair_counts(sites,labels,allowed)[0]
+    result={'same_exchangeable':exchangeable,'same_zero_alternative':same-exchangeable,
+            'different_class':total-same}
+    tolerance=1e-9*max(1.,float(total.max(initial=0)))
+    for key,counts in result.items():
+        if np.any(counts < -tolerance):
+            raise RuntimeError('local-origin channel exceeds its parent pair count')
+        result[key]=np.maximum(counts,0.)
+    return result
+
+
 def similarity_from_counts(
     observed, expected=None, lambda_bits=0.5, *, round_scores=True
 ):
@@ -532,6 +591,63 @@ def costs_from_similarity(similarity):
     )
     np.fill_diagonal(cost, 0)
     return cost
+
+
+
+def _origin_encoded(sequences, length):
+    """Use the established standard-AA block encoding for origin count owners."""
+    lookup=np.full(128,20,dtype=np.uint8)
+    lookup[np.frombuffer(AA.encode(),dtype=np.uint8)]=np.arange(20)
+    return lookup[np.frombuffer(''.join(sequences).encode(),dtype=np.uint8)].reshape(-1,length)
+
+
+def _origin_matrix_rows(counts):
+    """Shared pooled/equal-epitope log odds and scorer distance export."""
+    matrix_rows = []
+    contributing = [c for c in counts.values() if c.sum() > 0]
+    pooled = sum(contributing, np.zeros((20, 20)))
+    balanced = sum((c / c.sum() for c in contributing), np.zeros((20, 20)))
+    for weighting, observed in [("pooled", pooled), ("equal_epitope", balanced)]:
+        if observed.sum() > 0:
+            score, p = similarity_from_counts(
+                observed, lambda_bits=1.0, round_scores=False
+            )
+            q = observed / observed.sum()
+            expected = np.outer(p, p)
+            cost = costs_from_similarity(score)
+            identified = (
+                np.isfinite(score)
+                & np.isfinite(np.diag(score))[:, None]
+                & np.isfinite(np.diag(score))[None, :]
+            )
+            cost = np.where(identified, cost, np.nan)
+        else:
+            q = expected = np.zeros((20, 20))
+            score = cost = np.full((20, 20), np.nan)
+        for i, a in enumerate(AA):
+            for k, b in enumerate(AA):
+                matrix_rows.append(
+                    dict(
+                        weighting=weighting,
+                        a=a,
+                        b=b,
+                        pair_weight=float(observed[i, k]),
+                        q=float(q[i, k]),
+                        background_q=float(expected[i, k]),
+                        score_bits=float(score[i, k]),
+                        distance_bits=float(cost[i, k]),
+                        supported=bool(
+                            np.isfinite(score[i, k])
+                            and np.isfinite(score[i, i])
+                            and np.isfinite(score[k, k])
+                        ),
+                        contributing_epitopes=len(contributing),
+                    )
+                )
+    matrix = pl.DataFrame(matrix_rows).with_columns(
+        pl.col("score_bits", "distance_bits").fill_nan(None)
+    )
+    return matrix
 
 
 def origin_block_matrices(clonotypes, origins, known_labels=None):
@@ -606,9 +722,7 @@ def origin_block_matrices(clonotypes, origins, known_labels=None):
         ):
             if not block["cdr3"].str.contains(VALID).all():
                 raise ValueError("block junctions require standard amino acids")
-            encoded = aa_lookup[
-                np.frombuffer("".join(block["cdr3"]).encode(), dtype=np.uint8)
-            ].reshape(-1, length)
+            encoded = _origin_encoded(block["cdr3"], length)
             mask = weights[[lookup[q] for q in block["query_id"]], :length]
             observed, _, stats = column_pair_counts(
                 encoded, np.arange(block.height), mask
@@ -630,50 +744,7 @@ def origin_block_matrices(clonotypes, origins, known_labels=None):
         contrast = _matched_origin_background(
             selected, weights, lookup, aa_lookup, known_labels
         )
-    matrix_rows = []
-    contributing = [c for c in counts.values() if c.sum() > 0]
-    pooled = sum(contributing, np.zeros((20, 20)))
-    balanced = sum((c / c.sum() for c in contributing), np.zeros((20, 20)))
-    for weighting, observed in [("pooled", pooled), ("equal_epitope", balanced)]:
-        if observed.sum() > 0:
-            score, p = similarity_from_counts(
-                observed, lambda_bits=1.0, round_scores=False
-            )
-            q = observed / observed.sum()
-            expected = np.outer(p, p)
-            cost = costs_from_similarity(score)
-            identified = (
-                np.isfinite(score)
-                & np.isfinite(np.diag(score))[:, None]
-                & np.isfinite(np.diag(score))[None, :]
-            )
-            cost = np.where(identified, cost, np.nan)
-        else:
-            q = expected = np.zeros((20, 20))
-            score = cost = np.full((20, 20), np.nan)
-        for i, a in enumerate(AA):
-            for k, b in enumerate(AA):
-                matrix_rows.append(
-                    dict(
-                        weighting=weighting,
-                        a=a,
-                        b=b,
-                        pair_weight=float(observed[i, k]),
-                        q=float(q[i, k]),
-                        background_q=float(expected[i, k]),
-                        score_bits=float(score[i, k]),
-                        distance_bits=float(cost[i, k]),
-                        supported=bool(
-                            np.isfinite(score[i, k])
-                            and np.isfinite(score[i, i])
-                            and np.isfinite(score[k, k])
-                        ),
-                        contributing_epitopes=len(contributing),
-                    )
-                )
-    matrix = pl.DataFrame(matrix_rows).with_columns(
-        pl.col("score_bits", "distance_bits").fill_nan(None)
-    )
+    matrix = _origin_matrix_rows(counts)
     blocks = pl.DataFrame(
         rows,
         schema={
@@ -727,6 +798,45 @@ def origin_block_matrices(clonotypes, origins, known_labels=None):
         epitope_pairs,
         contrast,
     )
+
+
+
+def mixed_origin_block_matrices(clonotypes, classes):
+    """Origin-channel block counts using the existing validation/count/score owners.
+
+    Classes have query_id,position,pattern,probability,exchangeable. The explicit
+    exchangeable flag requires positive alternative support, not merely an N base.
+    Each supported codon's complete posterior is retained; unknowns remain in
+    support accounting. Individual classes/masses are not exported as a bank.
+    """
+    collapsed=classes.group_by('query_id','position').agg(
+        pl.when(pl.col('probability').is_not_null().any()).then(1.)
+        .otherwise(None).alias('n_probability'))
+    _,_,support,_,_=origin_block_matrices(clonotypes,collapsed)
+    meta=clonotypes.join(support,on='query_id',validate='m:1').filter(pl.col('origin_supported')).select(
+        'epitope','v','j','query_id','cdr3',pl.col('cdr3').str.len_chars().alias('length'))
+    joined=meta.join(classes,on='query_id',validate='m:m').sort('epitope','v','j','length','query_id','position','pattern')
+    counts={name:{} for name in ['same_exchangeable','same_zero_alternative','different_class']}
+    blocks=[]
+    for (epitope,v,j,length),part in joined.group_by('epitope','v','j','length',maintain_order=True):
+        queries=part.select('query_id','cdr3').unique().sort('query_id')
+        row={q:i for i,q in enumerate(queries['query_id'])}
+        local=part.select(pl.col('query_id').replace_strict(row).alias('row'),
+            'position','pattern','probability','exchangeable')
+        channels=origin_class_pair_counts(_origin_encoded(queries['cdr3'],length),local)
+        for channel,observed in channels.items():
+            counts[channel].setdefault(epitope,np.zeros((20,20)))[:]+=observed
+            blocks.append(dict(epitope=epitope,v=v,j=j,length=length,clonotypes=queries.height,
+                channel=channel,weighted_ordered_site_pairs=float(observed.sum())))
+    matrices=pl.concat([_origin_matrix_rows(part).with_columns(pl.lit(channel).alias('channel'))
+        for channel,part in counts.items()])
+    pairs=pl.DataFrame([dict(channel=channel,epitope=e,a=a,b=b,pair_weight=float(c[i,k]))
+        for channel,part in counts.items() for e,c in sorted(part.items())
+        for i,a in enumerate(AA) for k,b in enumerate(AA)],schema=dict(
+        channel=pl.String,epitope=pl.String,a=pl.String,b=pl.String,pair_weight=pl.Float64))
+    block_table=pl.DataFrame(blocks,schema=dict(epitope=pl.String,v=pl.String,j=pl.String,
+        length=pl.Int64,clonotypes=pl.Int64,channel=pl.String,weighted_ordered_site_pairs=pl.Float64))
+    return {'mixed-matrix':matrices,'mixed-epitope-pairs':pairs,'mixed-blocks':block_table,'mixed-support':support}
 
 
 def _matched_origin_background(selected, weights, lookup, aa_lookup, known_labels):
