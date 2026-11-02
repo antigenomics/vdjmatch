@@ -909,3 +909,112 @@ descriptive composition diagnostics, and the accepted core/bundle
 accuracy comparison retains its original producing scope. No completed
 independent high-:math:`R^2` recovery is claimed for the origin-aware
 estimator.
+
+
+Local classes, amino-acid variability and boundary changes
+----------------------------------------------------------
+
+Let :math:`x` denote an anchor-inclusive junction, :math:`p` a
+zero-based codon position, and :math:`h=x_{-p}` its unchanged amino-acid
+flanks together with species, chain and V/J conditioning. A local class
+:math:`\kappa` records the three G/P/N roles and the immutable
+nucleotide at each G/P base; N bases have no fixed letter. This class
+coarsens complete rearrangement histories: it neither fixes the entire
+trimming history nor asserts common ancestry. Define the exact joint
+mass and posterior
+
+.. math::
+
+
+    m_{h,a,\kappa}=\sum_z P(z)\,\mathbf1\{T(z)=(h,a),\ K_p(z)=\kappa\},\qquad
+    \omega_{x,p,\kappa}=\frac{m_{h,a,\kappa}}{\sum_\lambda m_{h,a,\lambda}}.
+
+Here :math:`z` is a complete model history, :math:`T` its translated
+junction and :math:`K_p` the local-class map. The denominator is the
+ordinary model mass of the observed junction, not a new selection
+correction. Zero denominator leaves origin unknown. The sum over classes
+equals the original mass, without posterior truncation or
+renormalization.
+
+An N base need not permit an amino-acid change. For source residue
+:math:`a`, the relevant alternative opportunity is
+
+.. math::
+
+
+    A_{h,a,\kappa}=\sum_{b\ne a}m_{h,b,\kappa}.
+
+For example, TCN has one stochastic base but always encodes serine,
+whereas ATN permits isoleucine and methionine. A class with
+:math:`A_{h,a,\kappa}=0` remains in origin accounting and supplies no
+within-class amino-acid substitution or conservation exposure.
+Genetic-code compatibility is a structural support bound; model-specific
+zero N emissions can reduce positive-mass alternatives further. Use
+exact masked masses unless strict positive N emissions have been
+verified for the relevant model/history support.
+
+For two independently rearranged receptors :math:`x,y`, the full latent
+pair weight is
+
+.. math::
+
+
+    W_{xy,p,\kappa\lambda}=\omega_{x,p,\kappa}\omega_{y,p,\lambda}.
+
+These weights sum to one for supported endpoints. The same-class
+component :math:`\kappa=\lambda` holds local immutable letters and roles
+fixed; its off-diagonal support comes from compatible N choices. The
+complementary :math:`\kappa\ne\lambda` component retains changes
+associated with different local template/P/N assignments, including
+trimming-boundary shifts. It must be reported separately rather than
+silently discarded or called a germline mutation. Equal local classes
+can still represent different complete histories; these channels have
+exactly the declared local, rather than ancestral, meaning.
+
+For observed directed Hamming-one pairs (both orientations of each distinct
+receptor pair), the same-class counts and
+source-conditioned opportunities are
+
+.. math::
+
+
+    O_{es,p,ab}^{\rm same}=\sum_{(i,j):a_i=a,a_j=b}\sum_\kappa W_{ij,p,\kappa\kappa},\qquad
+    E_{es,p,ab}^{\rm same}=(n_{es}-1)\sum_{i:a_i=a}\sum_\kappa\omega_{i,p,\kappa}m_{h_i,b,\kappa},\quad b\ne a.
+
+The corresponding different-class expressions sum
+:math:`\kappa\ne\lambda`, replacing the partner mass by
+:math:`m_{h_i,b,\lambda}`. Both expressions use the same source,
+partner-count and V/J/length population convention as the all-site rate
+model. A supported off-diagonal same-class event automatically has
+positive alternative support in that class; unknown endpoint origins
+remain explicit. Neither channel requires changing model gene masses or
+allowing a retained template base to mutate. Same- and disjoint-epitope
+pair tables use these identical channels and ascertainment rules.
+
+BLOSUM-style block counts additionally retain eligible identities
+between distinct receptor clusters, with the same origin and redundancy
+weights on diagonal and off-diagonal cells. For diagonal within-class
+contributions, exclude classes with zero alternative opportunity;
+otherwise compulsory template or synonymous-only identity would inflate
+conservation. Hamming-one data alone contain no diagonal observations.
+Consequently an off-diagonal pair fit with freely fitted epitope
+amino-acid preferences does not identify a unique diagonal-completed
+scoring matrix: row effects can be exchanged with pair effects. Fix
+preferences from the eligible block/site exposure population, or fit the
+block identities and escape exposure jointly under a declared holding
+model. Do not replace the missing diagonal by an arbitrary constant and
+claim that Gram conversion resolves this identifiability problem. The
+existing reversible rate/holding construction is the PAM-like route; its
+step scale and stationary exposure remain explicit, without interpreting
+a graph walk as biological mutation time.
+
+Implementation uses the existing vdjtools masked sum-product owner:
+local posterior classes in one native batch, and alternative motifs
+conditioned on the same local class in the existing degenerate-AA batch.
+The proposed mixed estimator reuses the established batched Hamming-one
+search, epitope/source split, count reducer and exchangeability fitter.
+Compute only requested positions, aggregate final sufficient counts, and
+discard transient per-query masses; do not persist a posterior or Pgen
+bank. All 190 actual zero-diagonal distance cells, eligible identity
+support, independent transfer and added annotation accuracy remain
+separate verification obligations.
