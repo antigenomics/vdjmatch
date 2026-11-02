@@ -1880,7 +1880,7 @@ def origin_rate_models(counts):
             summaries.append(dict(L=length, model=name, strata=len(n), zero_event_strata=int((n == 0).sum()),
                 cells=cells.height, N_endpoint_weight=float(n.sum()), working_deviance=float(deviance),
                 likelihood_components=int(component.max()+1),
-                **{f"fit_{key}":value for key,value in report.items() if isinstance(value, (int,float,str,bool))}))
+                **{f"fit_{key}":value for key,value in report.items() if key != "epitopes" and isinstance(value, (int,float,str,bool))}))
     return {'origin-rate-models': pl.concat(parameters) if parameters else pl.DataFrame(schema={'L':pl.Int64}),
             'origin-rate-intercepts': pl.concat(intercepts) if intercepts else pl.DataFrame(schema={'L':pl.Int64}),
             'origin-rate-fits': pl.DataFrame(summaries, infer_schema_length=None)}

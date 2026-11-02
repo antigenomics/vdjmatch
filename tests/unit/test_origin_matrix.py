@@ -562,6 +562,8 @@ def test_profiled_all_site_rates_recover_factorization_and_keep_zero_event_strat
     assert np.allclose(fitted['log_relative_rate'], target-target.mean(), atol=2e-4)
     fits = tables['origin-rate-fits']
     assert fits['zero_event_strata'].to_list() == [1, 1, 1]
+    assert fits['fit_strata'].to_list() == [2, 2, 2]
+    assert 'fit_epitopes' not in fits.columns
     assert fits.filter(pl.col('model') == 'factorized')['working_deviance'][0] < 1e-4
     assert tables['origin-rate-intercepts'].filter(pl.col('epitope') == 'E2')['log_stratum_intensity'].to_list() == [-np.inf]*3
     assert fitted['likelihood_component'].n_unique() == 1
