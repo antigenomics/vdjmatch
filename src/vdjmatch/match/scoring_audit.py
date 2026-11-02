@@ -976,7 +976,7 @@ def n_region_residue_opportunities(model, junctions, positions, v, j, *, threads
 
 
 def fit_exchangeability(
-    observed, expected, *, balanced, prior_mass=1.0, residue_groups=None, fit_pairs=True, design=None
+    observed, expected, *, balanced, prior_mass=1.0, residue_groups=None, fit_pairs=True, design=None, precondition=False
 ):
     """Conditional multinomial fit, migrated from the established M4 owner.
 
@@ -1025,6 +1025,14 @@ def fit_exchangeability(
     n, k = o.sum(1), o.shape[1]
     if not len(n) or (e.sum(1) <= 0).any() or ((o > 0) & (e == 0)).any():
         raise ValueError("observed events require positive composition opportunity")
+    order = None
+    if precondition and groups is None and design is None:
+        # Fix a supported reference cell; an arbitrarily rare first cell makes
+        # the common shift of every free effect nearly unidentified numerically.
+        order = np.arange(o.shape[1])
+        reference = int(o.sum(0).argmax())
+        order[0], order[reference] = order[reference], order[0]
+        o, e = o[:, order], e[:, order]
     b = e / e.sum(1, keepdims=True)
     with np.errstate(divide="ignore"):
         logb = np.log(b)
@@ -1084,6 +1092,10 @@ def fit_exchangeability(
     # Reuse the fixed Fisher-diagonal scaling from the established recognition
     # fitter. This changes coordinates, never counts, priors or the objective.
     parameter_scale = np.ones(free_pairs + free_residues)
+    if precondition and groups is None and design is None:
+        diagonal = np.sum(wn[:, None] * b[:, 1:] * (1-b[:, 1:]), axis=0)
+        diagonal += prior_mass * (1/k) * (1-1/k)
+        parameter_scale = 1 / np.sqrt(np.maximum(diagonal / scale, 1e-12))
     if design is not None:
         diagonal = (wn @ b) @ (design * design) - np.sum(wn[:, None] * (b @ design) ** 2, axis=0)
         diagonal += prior_mass * np.var(design, axis=0)
@@ -1112,7 +1124,7 @@ def fit_exchangeability(
         jac=True,
         method="L-BFGS-B",
         options={
-            "maxiter": 10000 if groups is not None else 2000,
+            "maxiter": 10000 if groups is not None or precondition else 2000,
             "ftol": 1e-14,
             "gtol": 1e-10,
             "maxls": 50,
@@ -1127,6 +1139,8 @@ def fit_exchangeability(
     fit.fun, fit.jac = objective(fit.x)
     beta, eta = unpack(fit.x)
     beta -= beta.mean()
+    if order is not None:
+        beta = beta[np.argsort(order)]
     report = dict(
         iterations=fit.nit,
         objective=float(fit.fun),
@@ -1809,6 +1823,7 @@ def origin_rate_models(counts):
     Zero-neighbour cells enter the same likelihood as observed cells. A total
     neutral pseudo-event regularizes unobserved cells, never a reference matrix.
     """
+    import sys
     from scipy.linalg import helmert
     from scipy.sparse import csr_matrix
     from scipy.sparse.csgraph import connected_components
@@ -1837,6 +1852,7 @@ def origin_rate_models(counts):
         aa_basis = helmert(20, full=False).T[aa_ids]
         pos_basis = helmert(pos_ids.max()+1, full=False).T[pos_ids]
         for name, raw_design in [('residue', aa_basis), ('factorized', np.column_stack([aa_basis, pos_basis])), ('joint', None)]:
+            print(f"origin-rate-fit L={length} model={name} strata={len(n)} cells={cells.height} N_endpoints={n.sum():.9g}", file=sys.stderr, flush=True)
             design = None
             if raw_design is not None:
                 # Remove only algebraic null directions on the represented cells.
@@ -1846,9 +1862,9 @@ def origin_rate_models(counts):
                 if not design.shape[1]:
                     beta, report = np.zeros(cells.height), dict(iterations=0, objective=0., prior_mass=1.)
                 else:
-                    beta, report = fit_exchangeability(observed, expected, balanced=False, design=design)
+                    beta, report = fit_exchangeability(observed, expected, balanced=False, design=design, precondition=True)
             else:
-                beta, report = fit_exchangeability(observed, expected, balanced=False)
+                beta, report = fit_exchangeability(observed, expected, balanced=False, precondition=True)
             with np.errstate(divide='ignore'):
                 loge = np.log(expected)
                 logn = np.log(n)

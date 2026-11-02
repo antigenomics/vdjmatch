@@ -694,12 +694,26 @@ individual flank's observed count would remove the required site-rate
 information and is not done here.
 
 The CLI fits residue-only, additive residue-plus-position, and joint
-residue/position effects. The additive design uses orthonormal residue
+residue/position effects separately at each length. Its additive restriction
+is :math:`\gamma_{a,p,L,C}=u_{a,L,C}+v_{p,L,C}`. A shared AA effect
+:math:`u_{a,C}` across lengths is a stronger restriction than this
+implemented within-length comparison. The additive design uses orthonormal residue
 and position contrasts; singular-value decomposition removes algebraic
 null directions on represented cells, and the existing fitter performs
-the same profiled likelihood optimization. A reference-free prior supplies
-one total uniform pseudo-event over cells in each model. Effects have zero
-mean log rate. Event-bearing opportunity components are exported because
+the same profiled likelihood optimization. A reference-free prior acts on the normalized rate effects, with
+:math:`K` represented cells and fixed :math:`\tau=1`:
+
+.. math::
+
+    \ell_{\mathrm{regularized}}(\gamma)=\ell_{\mathrm{profile}}(\gamma)
+      +\tau\left[K^{-1}\sum_c\gamma_c-\log\sum_c e^{\gamma_c}\right].
+
+This is one uniform pseudo-event on the rate-effect simplex, not an
+addition of uniform counts to baseline-weighted fitted probabilities.
+Effects have zero mean log rate. Joint rate fits use a supported reference
+cell and a fixed Fisher-diagonal coordinate scaling; these change neither
+the likelihood nor the prior. An independently derived single-stratum
+stationarity solution checks the solver with rare cells. Event-bearing opportunity components are exported because
 contrasts between disconnected components remain prior-completed rather
 than data-identified. Per-stratum intercepts, zero-event counts and working
 deviance are exported alongside every fitted cell. Deviance is descriptive:

@@ -605,3 +605,20 @@ def test_shared_immutable_codon_context_is_not_product_of_aa_frequencies():
     i, v = AA.index('I'), AA.index('V')
     assert joint[i, v] == 0 and marginal[i]*marginal[v] == .1875
     assert joint[i, i] == .28125 and marginal[i]**2 == .140625
+
+
+def test_joint_rate_preconditioning_matches_scalar_stationarity_solution():
+    from scipy.special import softmax
+    from vdjmatch.match.scoring_audit import fit_exchangeability
+
+    baseline = softmax(np.linspace(-24, 0, 60))
+    observed = softmax(np.log(baseline) + np.sin(np.arange(60))) * 50000
+    from scipy.optimize import brentq
+    # The neutral prior acts on rate effects, not on baseline-weighted probabilities.
+    root = brentq(lambda z: np.sum((observed+1/60)/(1+z*baseline))-1,
+                  0, (observed.sum()+1)/baseline.min())
+    exact = np.log((observed+1/60)/(1+root*baseline))
+    exact -= exact.mean()
+    fitted, report = fit_exchangeability(observed[None], baseline[None], balanced=False, precondition=True)
+    assert np.allclose(fitted, exact, atol=2e-3)
+    assert report['max_scaled_gradient'] < 1e-6
