@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Retain ARDA unknown-V repair proposals when the input J call is missing,
+  preserving submitted calls, junctions, counts and batch annotation.
+
 ## [1.1.0] - 2026-11-01
 
 - Add reference-mock repertoire enrichment with explicit matching, chain support,

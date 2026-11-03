@@ -395,3 +395,26 @@ def test_hill_summary_schema_stable_from_degenerate_to_informative_depth():
     assert shallow['original_effect_hill0'].dtype==pl.Float64
     assert pl.concat([shallow,deeper]).height==2
     assert deeper['original_effect_hill0'].item()>0
+
+
+def test_unknown_v_repair_retains_batched_proposals_with_missing_j(monkeypatch):
+    from types import SimpleNamespace
+    import arda.cdr3fix as fix
+    from vdjmatch.io.columns import repair_unknown_v
+
+    monkeypatch.setattr(fix, 'load_anchors', lambda *a: None)
+    monkeypatch.setattr(fix, 'resolve_allele', lambda v, *a: v == 'TRBV19')
+    calls = []
+    def markup(frame, **kwargs):
+        calls.append(frame.height)
+        return [SimpleNamespace(v_call='TRBV19*01', locus='TRB') for _ in frame.iter_rows()]
+    monkeypatch.setattr(fix, 'markup_records', markup)
+    frame = pl.DataFrame({'junction_aa': ['CASSLGQETQYF'] * 3,
+                          'v': ['unknown', 'unknown', 'TRBV19'],
+                          'j': [None] * 3, 'count': [2, 3, 5]},
+                         schema_overrides={'j': pl.String})
+    result = repair_unknown_v(frame, locus='TRB', species='human')
+    assert calls == [1]
+    assert result['v'].to_list() == ['TRBV19'] * 3
+    assert result['v_repaired'].to_list() == [True, True, False]
+    assert result.select('junction_aa', 'j', 'count').equals(frame.select('junction_aa', 'j', 'count'))
