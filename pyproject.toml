@@ -61,4 +61,4 @@ packages = ["src/vdjmatch"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src", "tests", "skills", "examples", "docs/*.rst", "docs/conf.py", "docs/notebooks", "docs/_static", "docs/_templates", "appendix/*.tex", "pyproject.toml", "README.md", "LICENSE*", "setup.sh"]
-exclude = ["**/*_local.md", "AGENTS.md", "**/__pycache__", "**/.ipynb_checkpoints"]
+exclude = ["/attic/", "**/*_local.md", "AGENTS.md", "**/__pycache__", "**/.ipynb_checkpoints"]
