@@ -43,8 +43,8 @@ jobs:
           assert 'skip_empty' in Index.search_paired_batch_consume.__doc__
           assert 'collapse' in signature(read_mitcr).parameters
           PYTHON
-          pytest tests/unit/test_classical.py tests/unit/test_fixed_scope.py -q
+          python -c 'import vdjtools, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' tests/unit/test_classical.py tests/unit/test_fixed_scope.py -q
       - name: Run unit tests
-        run: pytest -m "not slow" -ra
+        run: python -c 'import vdjtools, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' -m "not slow" -ra
       - name: Verify cohort CLI/library parallelism and process-tree memory
-        run: pytest tests/test_annotation_resources.py -q
+        run: python -c 'import vdjtools, pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' tests/test_annotation_resources.py -q

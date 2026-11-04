@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from vdjtools.cores import kernel_threads
+
 import polars as pl
 
 from . import db
@@ -32,13 +34,17 @@ def _norm_locus(x):
     return _LOCUS.get(str(x).upper())
 
 
-def _prepare(data, cdr3="cdr3", v=None, j=None, locus=None, sequence_convention=None):
+def _prepare(data, cdr3="cdr3", v=None, j=None, locus=None, sequence_convention=None, *, reference_loci=None):
     if isinstance(data, str):
         data = [data]
     if not isinstance(data, pl.DataFrame):
         data = pl.DataFrame({cdr3: pl.Series(list(data), dtype=pl.String)})
     # Preserve caller data; computation IDs are positional and cannot collide with caller IDs.
     qcol = "junction_aa" if cdr3 == "cdr3" and "junction_aa" in data.columns else cdr3
+    paired_column = {'cdr3_alpha_aa': 'junction_aa_alpha', 'cdr3_beta_aa': 'junction_aa_beta',
+                     'cdr3a': 'junction_aa_alpha', 'cdr3b': 'junction_aa_beta'}.get(qcol)
+    if qcol not in data.columns and paired_column in data.columns:
+        qcol = paired_column
     if qcol not in data.columns:
         raise ValueError(
             f'no junction column {qcol!r}; pass cdr3="junction_aa" or the producer-specific junction column'
@@ -47,8 +53,10 @@ def _prepare(data, cdr3="cdr3", v=None, j=None, locus=None, sequence_convention=
         c in data.columns for c in ["sequence_id", "productive", "v_call"]
     ):
         raise ValueError("AIRR cdr3_aa excludes anchors; provide junction_aa")
-    if locus is None and "locus" in data.columns:
-        locus = "locus"
+    if locus is None:
+        locus = next((c for c in ('locus', 'gene') if c in data.columns), None)
+        if locus is None and reference_loci is not None and len(reference_loci) == 1:
+            locus = reference_loci[0]
     if v is None and "v" in data.columns:
         v = "v"
     if j is None and "j" in data.columns:
@@ -135,6 +143,54 @@ class Annotator:
     def from_frame(cls, vdj, *, species=None):
         return cls(VdjdbIndex.build(vdj, species=species))
 
+    @classmethod
+    def from_labels(cls, reference, *, locus=None, species=None, **filters):
+        """Index user-owned labeled junctions without VDJdb curation or diagnostics.
+
+        Accept a DataFrame, CSV/TSV/Parquet path, (junction, label) rows, or
+        (TRA junction, TRB junction, label) rows. Single chains require a locus
+        column or explicit TRA/TRB ``locus``. Labels need not be peptide sequences.
+        """
+        from os import PathLike
+
+        if isinstance(reference, (str, PathLike)):
+            from .io.airr import _read_table
+            reference = _read_table(reference)
+        elif not isinstance(reference, pl.DataFrame):
+            rows = list(reference)
+            width = len(rows[0]) if rows else 0
+            if width not in (2, 3):
+                raise ValueError('provide (junction, label) or (TRA junction, TRB junction, label) rows')
+            names = ['junction_aa', 'label'] if width == 2 else ['junction_aa_alpha', 'junction_aa_beta', 'label']
+            reference = pl.DataFrame(rows, schema=names, orient='row')
+        if 'label' in reference.columns and 'epitope' in reference.columns:
+            raise ValueError('provide one label or epitope target column, not both')
+        if 'label' not in reference.columns:
+            if 'epitope' not in reference.columns:
+                raise ValueError('labeled references require a label or epitope column')
+            reference = reference.rename({'epitope': 'label'})
+        paired = any(c in reference.columns for c in ('junction_aa_alpha', 'junction_aa_beta', 'cdr3.alpha', 'cdr3.beta'))
+        if locus is not None:
+            if locus not in ('TRA', 'TRB') or paired:
+                raise ValueError('locus must be TRA/TRB for a single-chain reference; omit it for paired rows')
+            declared = next((c for c in ('gene', 'locus') if c in reference.columns), None)
+            if declared:
+                values = pl.col(declared).cast(pl.String).replace('', None)
+                if reference.filter(values.is_not_null() & (values != locus)).height:
+                    raise ValueError('reference locus conflicts with the supplied locus')
+                reference = reference.with_columns(values.fill_null(locus).alias(declared))
+            else:
+                reference = reference.with_columns(pl.lit(locus).alias('gene'))
+        if not paired and not {'gene', 'locus'} & set(reference.columns):
+            raise ValueError('single-chain labels require locus="TRA"/"TRB" or a locus column')
+        from .db.schema import normalize
+        from .db.vdjdb import _select_reference
+        reference = _select_reference(normalize(reference, source_curation=False),
+                                      species=species, **filters)
+        return cls(VdjdbIndex.build(reference, reference_population='custom'),
+                   provenance={'source': 'custom_labels', 'locus': locus,
+                               'species': species, 'filters': filters})
+
     @property
     def reference_report(self):
         """Retained reference observations versus searchable valid junctions."""
@@ -193,7 +249,7 @@ class Annotator:
         q,
         sp,
         *,
-        threads=1,
+        threads=0,
         match_v=False,
         match_j=False,
         align=False,
@@ -214,6 +270,7 @@ class Annotator:
     ):
         import math
 
+        threads = kernel_threads(threads)
         if not math.isfinite(score_scale) or score_scale <= 0:
             raise ValueError("score_scale must be finite and positive")
         if exclude_epitopes is not None:
@@ -351,7 +408,7 @@ class Annotator:
                 exclude_exact=exclude_exact,
                 _reference_records=reference_records if (match_v or match_j) else None,
                 **({} if retain_hits else {'consumer':consume,
-                    'chunk':256 if _membership_max_score is not None else 32,
+                    'chunk':256,
                     '_candidate_only':True}),
             )
             if retain_hits:
@@ -368,15 +425,15 @@ class Annotator:
         )
 
     def target_memberships(self, data, *, scope, max_score, score_scale=1.,
-                           threads=1, match_v=False, match_j=False, species=None):
+                           threads=0, match_v=False, match_j=False, species=None):
         """Unique query/pMHC memberships from individually accepted native alignments."""
-        _, q = _prepare(data)
+        _, q = _prepare(data, reference_loci=self.loci)
         return self._evidence(q, scope, threads=threads, match_v=match_v,
             match_j=match_j, species=species, score_scale=score_scale,
             retain_hits=False, _membership_max_score=max_score)[1].select('query_id', *PMHC).unique()
 
     def graded_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
-                          threads=1, control=None, calibrate=False, species=None,
+                          threads=0, control=None, calibrate=False, species=None,
                           matrix=None, sequence_convention=None, exclude_exact=False,
                           return_hits=False, match_v=False, match_j=False, progress=False,
                           max_radius=5):
@@ -392,7 +449,7 @@ class Annotator:
         """
         if isinstance(max_radius, bool) or not isinstance(max_radius, int) or not 1 <= max_radius <= 5:
             raise ValueError('max_radius must be an integer from 1 through 5')
-        _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
+        _, q = _prepare(data, cdr3, v, j, locus, sequence_convention, reference_loci=self.loci)
         if matrix is None:
             sp = graded_search_params(max_radius)
             h, c = self._evidence(q, sp, threads=threads, control=control,
@@ -417,7 +474,7 @@ class Annotator:
         return (h, c) if return_hits else c
 
     def unified_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
-                           threads=1, control=None, species=None, exclude_exact=False,
+                           threads=0, control=None, species=None, exclude_exact=False,
                            sequence_convention=None, return_hits=False, distance="edit"):
         """Experimental fixed-ball background-mass evidence for a selected distance.
 
@@ -426,13 +483,13 @@ class Annotator:
         Sequence-only controls do not provide V-conditioned or paired calibration.
         """
         from .match.unified import unified_evidence
-        _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
+        _, q = _prepare(data, cdr3, v, j, locus, sequence_convention, reference_loci=self.loci)
         h, c = unified_evidence(self, q, threads=threads, control=control,
                                 species=species, exclude_exact=exclude_exact, distance=distance)
         return (h, c) if return_hits else c
 
     def ranked_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
-                          k=10, threads=1, matrix=None, control=None,
+                          k=10, threads=0, matrix=None, control=None,
                           sequence_convention=None, exclude_exact=False, paired=False):
         """Global gap-block top-K evidence and a separate global enrichment test.
 
@@ -443,7 +500,7 @@ class Annotator:
         if paired:
             q = data
         else:
-            _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
+            _, q = _prepare(data, cdr3, v, j, locus, sequence_convention, reference_loci=self.loci)
         return ranked_evidence(self, q, k=k, threads=threads, matrix=matrix,
                                control=control, exclude_exact=exclude_exact, paired=paired)
 
@@ -456,11 +513,11 @@ class Annotator:
         match_v=False,
         match_j=False,
         exclude_exact=False,
-        threads=1,
+        threads=0,
         **kw,
     ):
         """Long reference observations; internal cdr3 names denote anchor-inclusive junctions."""
-        _, q = _prepare(cdr3s, locus=locus)
+        _, q = _prepare(cdr3s, locus=locus, reference_loci=self.loci)
         sp = (
             search_params(
                 scope,
@@ -491,7 +548,7 @@ class Annotator:
         j=None,
         locus=None,
         scope=DEFAULT_SCOPE,
-        threads=1,
+        threads=0,
         match_v=False,
         match_j=False,
         control=None,
@@ -509,7 +566,7 @@ class Annotator:
         NED-v1 uses +1 control counts, temperature 400 and existing soft-V weight 0.25.
         ``exclude_exact`` filters exact hits in target and control searches; model populations stay fixed.
         """
-        _, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
+        _, q = _prepare(data, cdr3, v, j, locus, sequence_convention, reference_loci=self.loci)
         sp = (
             search_params(
                 scope,
@@ -545,7 +602,7 @@ class Annotator:
         locus=None,
         scope=DEFAULT_SCOPE,
         prefix="vdjmatch_",
-        threads=1,
+        threads=0,
         match_v=False,
         match_j=False,
         control=None,
@@ -561,7 +618,7 @@ class Annotator:
         Exact ranking ties abstain (ambiguous). Confidence is exposed as evidence; NED and
         the fixed-ball enrichment P-value are never a probability of the winning label.
         """
-        data, q = _prepare(data, cdr3, v, j, locus, sequence_convention)
+        data, q = _prepare(data, cdr3, v, j, locus, sequence_convention, reference_loci=self.loci)
         sp = (
             search_params(
                 scope,
@@ -596,7 +653,7 @@ class Annotator:
         cdr3a="cdr3_alpha_aa",
         cdr3b="cdr3_beta_aa",
         scope=DEFAULT_SCOPE,
-        threads=1,
+        threads=0,
         control=None,
         calibrate=False,
         species=None,
@@ -632,6 +689,7 @@ class Annotator:
         """
         import math
 
+        threads = kernel_threads(threads)
         from seqtree.evalue import evalue_result
 
         from .evalue.paired import build_paired_ref, _joint_punctured_results
@@ -968,7 +1026,7 @@ class Annotator:
                                 scope=DEFAULT_SCOPE, ball=False, matrix=None,
                                 va='va',vb='vb',ja='ja',jb='jb',
                                 match_v=False, match_j=False, control=None, calibrate=False,
-                                species=None, threads=1, progress=False, exclude_exact=False,
+                                species=None, threads=0, progress=False, exclude_exact=False,
                                 max_radius=5):
         """Separate linked and full-reference marginal scope evidence.
 
@@ -1048,7 +1106,7 @@ class Annotator:
         cdr3b="cdr3_beta_aa",
         scope=DEFAULT_SCOPE,
         prefix="vdjmatch_",
-        threads=1,
+        threads=0,
         control=None,
         calibrate=False,
         species=None,

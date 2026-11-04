@@ -1,7 +1,10 @@
 """Fixed geometry and empirical background-mass ranking across length routes."""
 from __future__ import annotations
 
+from vdjtools.cores import kernel_threads
+
 import numpy as np
+
 import polars as pl
 from seqtree import SubstitutionMatrix, gapblock
 
@@ -20,8 +23,7 @@ def gapped_extension(queries, reference, control, *, species='human', threads=1,
     all those representatives; unavailable genes contribute no extension edges.
     """
     from .geometry import distance_matrix,load_v_loops,_cdr3_options,resolve_v_alleles
-    if isinstance(threads,bool) or not isinstance(threads,int) or threads<1:
-        raise ValueError('threads must be positive')
+    threads = kernel_threads(threads)
     if isinstance(radius,bool) or not isinstance(radius,int) or radius<0 or not np.isfinite(temperature) or temperature<=0:
         raise ValueError('nonnegative integer radius and finite positive temperature required')
     if queries['query_id'].null_count() or queries['query_id'].n_unique()!=queries.height:
@@ -157,8 +159,7 @@ def historical_pssm_extension(queries, reference, control, *, species='human', t
         raise ValueError('matched_background must be boolean')
     if isinstance(kernel_scale,bool) or not isinstance(kernel_scale,(int,float)) or not np.isfinite(kernel_scale) or kernel_scale<=0:
         raise ValueError('kernel_scale must be finite and positive')
-    if isinstance(threads,bool) or not isinstance(threads,int) or threads<1:
-        raise ValueError('threads must be positive')
+    threads = kernel_threads(threads)
     if queries['query_id'].null_count() or queries['query_id'].n_unique()!=queries.height:
         raise ValueError('query_id must be unique and non-null')
     def prepare(frame):
@@ -276,8 +277,7 @@ def historical_pssm_extension(queries, reference, control, *, species='human', t
 
 
 def unified_evidence(ann, q, *, threads=1, control=None, species=None, exclude_exact=False, distance="edit"):
-    if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
-        raise ValueError("threads must be a positive integer")
+    threads = kernel_threads(threads)
     if distance not in {"edit", "gapblock"}:
         raise ValueError("distance must be edit or gapblock")
     active = sorted(set(q["locus"].drop_nulls()) & set(ann.loci))

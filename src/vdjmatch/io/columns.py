@@ -9,7 +9,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "cdr3": ("junction_aa", "cdr3_aa", "cdr3"),
     "v": ("v_call", "v_gene", "v.segm", "v"),
     "j": ("j_call", "j_gene", "j.segm", "j"),
-    "locus": ("locus", "chain"),
+    "locus": ("locus", "chain", "gene"),
     "count": (
         "duplicate_count",
         "reads",
@@ -172,6 +172,6 @@ def repair_unknown_v(frame: pl.DataFrame, *, locus: str, species: str) -> pl.Dat
         lookup=unknown.with_columns(pl.Series('_proposed_v',[
             r.v_call.split(',')[0].split('*')[0] if r.locus==locus and r.v_call else None
             for r in records],dtype=pl.String))
-        frame=frame.join(lookup,on=keys,how='left',validate='m:1',maintain_order='left').with_columns(
+        frame=frame.join(lookup,on=keys,how='left',validate='m:1',maintain_order='left',nulls_equal=True).with_columns(
             pl.coalesce('_proposed_v','v').alias('v')).drop('_proposed_v')
     return frame.with_columns((pl.col('v')!=pl.col('original_v')).fill_null(False).alias('v_repaired'))

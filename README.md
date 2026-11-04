@@ -39,7 +39,7 @@ native thread validation.
 
 ```sh
 python -m pip install vdjmatch
-vdjmatch annotate sample.tsv --threads 4 -o annotation
+vdjmatch annotate sample.tsv -o annotation
 ```
 
 Use AIRR `junction_aa` (including conserved anchors) and V calls. The curated
@@ -49,6 +49,43 @@ are retained by default. Scores describe sequence evidence, not proof of binding
 
 For a small offline example, download the [examples directory](examples/) and run
 `sh examples/annotate.sh annotation-demo` from the repository root.
+
+## Choose a reference
+
+The existing `match` command and `Annotator` API support three reference choices:
+
+| Reference | Python | CLI |
+| --- | --- | --- |
+| Official vdjdb-db release | `Annotator.latest()` | `vdjmatch match queries.tsv` |
+| Your VDJdb-format table/archive | `Annotator.from_path("reference.tsv")` | `vdjmatch match queries.tsv --reference reference.tsv` |
+| Your labeled chains or pairs | `Annotator.from_labels(rows, locus="TRB")` | `vdjmatch match queries.tsv --reference labels.csv --reference-format labels --locus TRB` |
+
+`--vdjdb` remains an alias for `--reference`. Ordinary queries retain exact matches.
+Use `--exclude-exact` only when explicitly evaluating a classifier or assessing
+record reliability; it filters hits while retaining the complete reference model.
+
+A simple single-chain reference needs `junction_aa,label` (or `epitope` instead of
+`label`). Supply `--locus TRA/TRB` or a reference `locus` column. For paired tables,
+use `junction_aa_alpha,junction_aa_beta,label` and add `--paired`; each reference row
+links its actual TRA/TRB pair. V/J, species and MHC metadata are optional. Missing
+query locus fields use the explicit hint or the reference's sole locus; supplied
+query metadata is retained. The sequences include conserved junction anchors.
+
+```python
+from vdjmatch import Annotator
+
+single = Annotator.from_labels([("CASSQYF", "class-a"), ("CATSRYF", "class-b")], locus="TRB")
+calls = single.annotate(["CASSQYF", "CWWWWWWWF"])
+
+paired = Annotator.from_labels([("CAVQYF", "CASSQYF", "class-a")])
+```
+
+Labeled references are indexed directly without VDJdb-specific curation or
+reference-diagnostic preparation. Their labels are opaque class names, reported
+in the existing `epitope` output fields. They default to uncalibrated matching;
+request `--evalue` with the appropriate organism/controls for calibration.
+Run [the synthetic single/paired example](examples/labeled_references.py) for a
+complete Python example.
 
 ## Documentation
 
@@ -68,3 +105,12 @@ JitPack artifact `com.github.antigenomics:vdjmatch:1.3.1`.
 ## License
 
 ISALGO LAB Academic and Non-Commercial Research License v1.0. See [LICENSE](LICENSE).
+
+CPU budgets use `threads=0` for automatic parallel work, capped at 16 allocated CPUs.
+Use `1` for serial work or a positive
+count to override the automatic cap within the scheduler/container allocation.
+Sample workers keep their inner numerical kernels serial.
+
+Candidate-only annotation coalesces up to 256 complete query identities and
+64 MiB of queued expanded tables per reduction. Native search and alias expansion
+keep small blocks; larger complete-query frames are consumed directly.

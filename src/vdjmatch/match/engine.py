@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from vdjtools.cores import kernel_threads, require_serial_pools
+
 import polars as pl
 from seqtree import Index, SearchParams
 
@@ -28,6 +30,7 @@ def _search_unique_junctions(index, junctions, params, threads):
     Query V/J calls, counts and pairing affect later evidence, not sequence search.
     Shared inner hit lists must not be mutated by callers. Nothing persists across calls.
     """
+    threads = kernel_threads(threads)
     keys = list(dict.fromkeys(junctions))
     results = index.search_batch(keys, params, threads)
     by_junction = dict(zip(keys, results))
@@ -44,7 +47,10 @@ class VdjdbIndex:
     @classmethod
     def build(cls, df: pl.DataFrame, species: str | None = None, *, reference_population='curated-benchmark') -> "VdjdbIndex":
         """Build the declared fixed population; all-valid bypasses source curation only."""
-        df = schema.normalize(df).with_columns(
+        require_serial_pools(outer=False)
+        if reference_population not in ('curated-benchmark', 'all-valid', 'custom'):
+            raise ValueError('unknown reference population')
+        df = schema.normalize(df, source_curation=reference_population != 'custom').with_columns(
             pl.col("vdjdb_score").cast(pl.Int64, strict=False).fill_null(0)
         )
         if species is not None:
@@ -53,8 +59,6 @@ class VdjdbIndex:
                     "reference has no species metadata; use species=None explicitly"
                 )
             df = df.filter(pl.col("species") == species)
-        if reference_population not in ('curated-benchmark', 'all-valid'):
-            raise ValueError('unknown reference population')
         if reference_population == 'all-valid':
             df = df.with_columns(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('reference_valid'))
         all_records = df
@@ -133,7 +137,7 @@ class VdjdbIndex:
         params: SearchParams,
         *,
         gene: str,
-        threads: int = 1,
+        threads: int = 0,
         match_v: bool = False,
         match_j: bool = False,
         exclude_exact: bool = False,
@@ -148,18 +152,21 @@ class VdjdbIndex:
         """Long hit evidence, preserving query_id/locus and all reference metadata.
 
         Search is one native batch of distinct junctions even with progress enabled. ``threads`` controls seqtree;
-        Polars performs sequential post-search stages in its existing process-wide pool.
+        Polars performs post-search stages in its existing process-wide pool.
+        Streaming callbacks overlap native workers, so multithreaded streaming
+        requires a serial Polars pool initialized before import (the default).
         With ``consumer``, one native population batch emits owned primitive buffers
         for at most ``chunk`` complete distinct junctions per block. Python Hit
         objects and the full hit table are never retained. Duplicate junctions
         expand back to every original query identity in complete-query blocks
         of at most ``chunk`` original identities.
+        Expanded frames coalesce up to ``chunk`` identities or 64 MiB of queued
+        payload. A larger complete-query frame is consumed directly. Native and
+        alias-expansion blocks stay at most 32 queries.
         ``exclude_exact`` removes zero-edit hits before alignment and observation expansion.
         """
-        if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
-            raise ValueError(
-                "threads must be a nonnegative integer (0 selects native automatic)"
-            )
+        threads = kernel_threads(threads)
+        require_serial_pools(outer=consumer is not None and threads > 1)
         if consumer is not None and (type(chunk) is not int or chunk < 1):
             raise ValueError('positive integer output chunk required')
         if _candidate_only and consumer is None:
@@ -309,14 +316,36 @@ class VdjdbIndex:
             mapping = q.select('qi', 'cdr3').join(unique, on='cdr3', validate='m:1').select('_native_qi', 'qi').sort('_native_qi', 'qi')
             offsets = np.r_[0, np.cumsum(np.bincount(mapping['_native_qi'].to_numpy(), minlength=unique.height))]
             primitive_schema = [('_native_qi', pl.UInt32), *_HIT_SCHEMA[1:]]
+            # Keep native/alias expansion blocks small; coalesce only their measured
+            # output before Python reduction. The native callback mutex owns this queue.
+            native_chunk = min(chunk, 32)
+            max_bytes = 64 * 1024**2
+            pending, pending_queries, pending_bytes = [], 0, 0
+            def flush():
+                nonlocal pending_queries, pending_bytes
+                if pending:
+                    consumer(pending[0] if len(pending) == 1 else pl.concat(pending))
+                    pending.clear()
+                    pending_queries = pending_bytes = 0
             def emit(start, stop, buffer):
+                nonlocal pending_queries, pending_bytes
                 hits = pl.DataFrame(np.asarray(buffer), schema=primitive_schema, orient='row')
                 members = mapping.slice(int(offsets[start]), int(offsets[stop]-offsets[start]))
-                for part in members.iter_slices(chunk):
+                for part in members.iter_slices(native_chunk):
                     selected = hits.join(part, on='_native_qi', validate='m:m').drop('_native_qi')
-                    consumer(expanded(selected))
+                    frame = expanded(selected)
+                    size = frame.estimated_size()
+                    if pending and (pending_queries + part.height > chunk or pending_bytes + size > max_bytes):
+                        flush()
+                    if size >= max_bytes or part.height >= chunk:
+                        consumer(frame)  # A complete query is never split or truncated.
+                    else:
+                        pending.append(frame)
+                        pending_queries += part.height
+                        pending_bytes += size
             idx.search_batch_consume(unique['cdr3'].to_list(), params, emit,
-                threads=threads, chunk_size=chunk, max_hit_bytes=64*1024**2)
+                threads=threads, chunk_size=native_chunk, max_hit_bytes=max_bytes)
+            flush()
             if progress:
                 print(f"{gene}: native search complete", file=sys.stderr)
             return self.empty_hits(q.schema['query_id'], align=align, region_aware=region_aware)

@@ -57,7 +57,7 @@ def register(subparsers, name='neighbours'):
         p.add_argument('--gzip-evidence',action='store_true',help='with --evidence-only: gzip enrichment and paired-evidence TSVs at level1')
     p.add_argument('--all-targets',action='store_true',help='emit separate evidence for every full pMHC; query target labels are ignored')
     p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep the full background model fixed')
-    p.add_argument('--threads',type=int,default=0,help='native threads (0 = allocated cores)')
+    p.add_argument('--threads',type=int,default=0,help='native threads (0 = automatic, up to 16 allocated cores)')
     p.add_argument('--verbose',action='store_true',help='report grouped query/reference workload and count progress')
     p.add_argument('--distance-matrix',default='clipped',
                    help='clipped, blosum62, pam250, mj, vdjam, or an explicit aa.1/aa.2/cost TSV')
@@ -98,7 +98,8 @@ def register(subparsers, name='neighbours'):
     radius.add_argument('--radius-factor',type=float,help='radius / maximum effective matrix substitution cost; default22.5 (radius90 with clipped BLOSUM62)')
     p.add_argument('--reference-radius',action='store_true',help='reference-only Kneedle radius per compatible target; uniform nearest-rank mode')
     p.add_argument('--knee-floor-factor',type=float,default=.5,help='positive-knee median floor within this species/locus/geometry')
-    p.add_argument('--exclude-exact',action='store_true')
+    p.add_argument('--exclude-exact',action='store_true',
+                   help='opt-in evaluation/record-reliability mode; ordinary queries retain exact hits')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
     p.add_argument('--conditional-j',action='store_true',help='experimental J usage conditional on V and junction length; ranking only')
     p.add_argument('--epitope-rules',action='store_true',help='experimental joint V usage with V-conditioned CDR3/motif kernels; ranking only')

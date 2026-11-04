@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import math
 
+from vdjtools.cores import kernel_threads
+
 import polars as pl
 from seqtree import gapblock
 
@@ -60,8 +62,7 @@ def ranked_evidence(annotator, q, *, k=10, threads=1, matrix=None,
 
     if isinstance(k, bool) or not isinstance(k, int) or k < 1:
         raise ValueError("k must be a positive integer")
-    if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
-        raise ValueError("threads must be a nonnegative integer")
+    threads = kernel_threads(threads)
     kwargs = dict(matrix=matrix, gap_open=2 * matrix.scale() if matrix is not None else 2, gap_extend=1,
                   gap_prior=gapblock.positions_prior(gap_positions), threads=threads)
     if paired:

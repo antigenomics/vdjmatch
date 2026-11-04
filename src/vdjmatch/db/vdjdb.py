@@ -321,8 +321,10 @@ def _read_table(
         return pl.read_parquet(path)
     if legacy is None:
         legacy = path.suffix == ".txt"
+    suffix = path.with_suffix("").suffix if path.suffix.lower() == ".gz" else path.suffix
     return pl.read_csv(
-        path, separator="\t", quote_char=None if legacy else '"', infer_schema_length=0
+        path, separator="," if suffix.lower() == ".csv" else "\t",
+        quote_char=None if legacy else '"', infer_schema_length=0
     )
 
 

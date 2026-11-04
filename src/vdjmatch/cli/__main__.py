@@ -119,6 +119,7 @@ _PARAM_FLAGS = (
     "evalue",
     "align",
     "species",
+    "locus",
     "threads",
 )
 
@@ -144,6 +145,13 @@ def _cmd_match(a: argparse.Namespace) -> int:
     db, match = __getattr__("db"), __getattr__("match")
     annotate_sample = __getattr__("annotate_sample")
     p = _resolve_params(a)
+    reference_format = getattr(a, "reference_format", "vdjdb")
+    if reference_format == "labels":
+        configured = json.loads(Path(a.config).read_text()) if a.config else {}
+        if not hasattr(a, "species") and "species" not in configured:
+            p.species = "any"
+        if not hasattr(a, "evalue") and "evalue" not in configured:
+            p.evalue = bool(getattr(a, "control", None) or getattr(a, "fresh_control", False))
     search_mode = getattr(a, "search_mode", "fixed")
     max_radius = getattr(a, 'max_radius', 5)
     if search_mode != 'ball' and max_radius != 5:
@@ -158,6 +166,8 @@ def _cmd_match(a: argparse.Namespace) -> int:
     if getattr(a, "unified_distance", None) is not None and search_mode != "unified":
         raise ValueError("--unified-distance requires --search-mode unified")
     paired = getattr(a, "paired", False)
+    if paired and p.locus is not None:
+        raise ValueError("--locus selects a single chain; omit it with --paired")
     paired_marginals = getattr(a, 'paired_marginals', False)
     if paired_marginals and (not paired or search_mode not in {'fixed','ball'}):
         raise ValueError('--paired-marginals requires --paired and fixed or ball mode')
@@ -186,6 +196,8 @@ def _cmd_match(a: argparse.Namespace) -> int:
     if len(set(names)) != len(names):
         raise ValueError("sample output names collide; use distinct input basenames")
     reference = a.vdjdb
+    if reference is None and reference_format == "labels":
+        raise ValueError("--reference-format labels requires --reference")
     if reference is None:
         reference = db.fetch_latest(
             asset=a.asset, pin=a.pin, cache=getattr(a, "cache", None)
@@ -208,10 +220,19 @@ def _cmd_match(a: argparse.Namespace) -> int:
             "evidence_type",
         )
     }
+    if p.locus is not None:
+        reference_filters["gene"] = p.locus
     if getattr(a, 'epitope_profiles', False) and not getattr(a, 'fresh_reference', False):
         raise ValueError('match --epitope-profiles requires --fresh-reference')
     from ..db.index import load_or_build_index
-    if getattr(a, 'fresh_reference', False):
+    if reference_format == "labels":
+        if getattr(a, 'epitope_profiles', False):
+            raise ValueError("--epitope-profiles requires --reference-format vdjdb")
+        from ..api import Annotator
+        index = Annotator.from_labels(reference, locus=p.locus, species=reference_species,
+                                      min_score=p.min_score, **reference_filters)._index
+        index_manifest = dict(identity=dict(source=db.provenance(reference)), fresh=True)
+    elif getattr(a, 'fresh_reference', False):
         fresh = db.load(reference, asset=a.asset, species=reference_species,
             min_score=p.min_score, **reference_filters)
         pooling = None
@@ -232,7 +253,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
         )
     vdj = index.reference
     print(
-        f"VDJdb: {vdj.height:,} observations; indexed loci {index.genes}",
+        f"{'Reference' if reference_format == 'labels' else 'VDJdb'}: {vdj.height:,} observations; indexed loci {index.genes}",
         file=sys.stderr,
     )
     reference_provenance = index_manifest["identity"]["source"]
@@ -268,6 +289,7 @@ def _cmd_match(a: argparse.Namespace) -> int:
             progress=a.verbose,
             source=getattr(a, "input_format", "auto"),
             sequence_convention=getattr(a, "sequence_convention", None),
+            locus=(p.locus or (index.genes[0] if len(index.genes) == 1 else None)) if not paired else None,
             paired=getattr(a, "paired", False),
             link=getattr(a, "link", None),
             control=controls,
@@ -286,7 +308,8 @@ def _cmd_match(a: argparse.Namespace) -> int:
             )
         manifest = {
             "reference": reference_provenance,
-            "fresh_reference": getattr(a, "fresh_reference", False),
+            "reference_format": reference_format,
+            "fresh_reference": index_manifest.get("fresh", getattr(a, "fresh_reference", False)),
             "sample": {"sha256": sha256(Path(sample))},
             "software": {
                 pkg: importlib.metadata.version(pkg)
@@ -527,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
         help="bundle/table role (default: primary, historical long fallback)",
     )
     up.add_argument("--cache", default=None, help="reference download directory")
-    up.add_argument("--threads", type=int, default=0, help="native indexing threads (0 = allocated cores)")
+    up.add_argument("--threads", type=int, default=0, help="native indexing threads (0 = automatic, up to 16 allocated cores)")
     up.add_argument(
         "--pin", default=None, help="pin a specific release tag (default: latest)"
     )
@@ -540,7 +563,7 @@ def main(argv: list[str] | None = None) -> int:
     ix.add_argument("--vdjdb", help="custom reference table, archive or directory; otherwise fetch VDJdb")
     ix.add_argument("--asset", default="default", choices=["slim", "full", "default", "primary", "legacy", "airr"])
     ix.add_argument("--species", default=None, help="optional reference species filter")
-    ix.add_argument("--threads", type=int, default=0, help="native indexing threads (0 = allocated cores)")
+    ix.add_argument("--threads", type=int, default=0, help="native indexing threads (0 = automatic, up to 16 allocated cores)")
     ix.add_argument("--cache", default=None, help="reference download directory")
     ix.add_argument("--pin", default=None, help="pin a release when fetching VDJdb")
     ix.set_defaults(func=_cmd_index)
@@ -559,8 +582,13 @@ def main(argv: list[str] | None = None) -> int:
         help="output path prefix; files are <prefix>.<sample>.{hits,calls,summary}.txt",
     )
     m.add_argument(
-        "--vdjdb", default=None, help="custom VDJdb table path (default: fetch latest)"
+        "--reference", "--vdjdb", dest="vdjdb", default=None,
+        help="custom reference path (default: fetch latest VDJdb release)"
     )
+    m.add_argument("--reference-format", choices=["vdjdb", "labels"], default="vdjdb",
+                   help="VDJdb-format reference or a simple labeled table (default: vdjdb)")
+    m.add_argument("--locus", choices=["TRA", "TRB"], default=argparse.SUPPRESS,
+                   help="single-chain reference locus and hint for queries without a locus column")
     m.add_argument(
         "--asset",
         default="default",
@@ -637,7 +665,7 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--fresh-control", action="store_true",
                    help="build fresh raw controls; human TRB bundled, other loci require --control")
     m.add_argument("--exclude-exact", action="store_true",
-                   help="exclude exact identities from target and control search evidence")
+                   help="opt-in evaluation/record-reliability mode; ordinary queries retain exact hits")
     # --- params (overridable from --config; SUPPRESS default => only override JSON when passed) ---
     m.add_argument(
         "--species",
@@ -678,7 +706,10 @@ def main(argv: list[str] | None = None) -> int:
         default=argparse.SUPPRESS,
         help="require the J gene to match as well as the CDR3",
     )
-    m.add_argument(
+    calibration = m.add_mutually_exclusive_group()
+    calibration.add_argument("--evalue", dest="evalue", action="store_const", const=True,
+                             default=argparse.SUPPRESS, help="request control-calibrated E-values (opt-in for labeled references)")
+    calibration.add_argument(
         "--no-evalue",
         dest="evalue",
         action="store_const",
@@ -698,7 +729,7 @@ def main(argv: list[str] | None = None) -> int:
         "--threads",
         type=int,
         default=argparse.SUPPRESS,
-        help="native search threads (default: 0 = allocated cores)",
+        help="native search threads (default: 0 = automatic, up to 16 allocated cores)",
     )
     m.set_defaults(func=_cmd_match)
 
@@ -827,7 +858,7 @@ def main(argv: list[str] | None = None) -> int:
         "the measured per-chain values (TRB 4.62, TRA 1.07)",
     )
     pc.add_argument(
-        "--threads", type=int, default=0, help="worker threads (0 = all cores)"
+        "--threads", type=int, default=0, help="worker threads (0 = automatic, up to 16 allocated cores)"
     )
     pc.add_argument(
         "-v", "--verbose", action="store_true", help="per-group progress bar"

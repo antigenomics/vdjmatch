@@ -18,7 +18,7 @@ _VDJDB_MAP = {
     "mhc_a": ("mhc.a", "mhc_allele_1"),
     "mhc_b": ("mhc.b", "mhc_allele_2"),
     "mhc_class": ("mhc.class",),
-    "epitope": ("antigen.epitope", "antigen_epitope", "peptide_sequence_aa"),
+    "epitope": ("antigen.epitope", "antigen_epitope", "peptide_sequence_aa", "label"),
     "antigen_gene": ("antigen.gene", "antigen"),
     "antigen_species": ("antigen.species", "antigen_source_species"),
     "reference_id": ("reference.id", "reactivity_refs"),
@@ -89,7 +89,7 @@ def _unpivot_paired(df: pl.DataFrame) -> pl.DataFrame:
     return pl.concat(parts, how="vertical")
 
 
-def normalize(df: pl.DataFrame) -> pl.DataFrame:
+def normalize(df: pl.DataFrame, *, source_curation: bool = True) -> pl.DataFrame:
     """Add canonical matching fields without discarding source fields or identifiers."""
     if not any(c in df.columns for c in ("cdr3", "junction_aa")):
         aliases = []
@@ -116,6 +116,7 @@ def normalize(df: pl.DataFrame) -> pl.DataFrame:
             "antigen.epitope",
             "antigen_epitope",
             "peptide_sequence_aa",
+            "label",
         )
     ):
         raise ValueError("reference requires peptide annotation (epitope)")
@@ -165,9 +166,9 @@ def normalize(df: pl.DataFrame) -> pl.DataFrame:
     # Source-defined curation, never a motif/length screen on natural receptors.
     # Retain excluded observations for provenance; all matching routes use this flag.
     reason = (
-        pl.when(pl.col("epitope").str.strip_chars().str.to_uppercase() == "KLGGALQAK")
+        pl.when(pl.lit(source_curation) & (pl.col("epitope").str.strip_chars().str.to_uppercase() == "KLGGALQAK"))
         .then(pl.lit("KLGGALQAK_artifact"))
-        .when(pl.col("reference_id").cast(pl.String).str.contains(r"(?:^|[^0-9])40498839(?:[^0-9]|$)").fill_null(False))
+        .when(pl.lit(source_curation) & pl.col("reference_id").cast(pl.String).str.contains(r"(?:^|[^0-9])40498839(?:[^0-9]|$)").fill_null(False))
         .then(pl.lit("engineered_phage_library_PMID40498839"))
         .when(~junction_valid).then(pl.lit("invalid_junction"))
         .otherwise(pl.lit(None, dtype=pl.String))

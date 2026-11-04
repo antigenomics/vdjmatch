@@ -46,3 +46,6 @@ tmp/
 /bench/plotting_memo.md
 /bench/comparisons/comparison_01.ipynb
 /bench/comparisons/comparison_02.ipynb
+
+# Private retired branches, notes and scratch; never package or publish.
+/attic/

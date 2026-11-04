@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+## 1.2.1
+
+- Add direct single/paired labeled references through `Annotator.from_labels` and
+  `match --reference-format labels`, reusing existing readers and scorers. Retain
+  exact hits by default; make exclusion explicitly evaluation/reliability-only.
+- Accept `--reference` alongside `--vdjdb`, CSV VDJdb-format tables, explicit locus
+  hints and standard paired junction column names. Preserve supplied query loci.
+
+- Use the bounded automatic native budget in default `match` configurations,
+  preserving explicit serial or positive user budgets.
+
+- Coalesce complete-query candidate reductions in measured, bounded table batches,
+  while retaining small native search/alias blocks and fixed scoring populations.
+
+- Cap automatic native CPU budgets at 16 allocated CPUs; preserve larger explicit
+  requests within the allocation and serial inner kernels in sample workers.
+
+- Accept both setup test flags, reject unknown arguments before installation, and
+  initialize shared runtime limits before test plugins in setup and CI.
+
+- Initialize API numerical budgets before Polars, default Annotator searches to
+  allocated CPUs, and resolve native batch budgets through VDJtools so outer
+  sample workers cannot launch nested automatic search pools.
+
+- Retain ARDA unknown-V repair proposals when the input J call is missing,
+  preserving submitted calls, junctions, counts and batch annotation.
+
 ## [1.1.0] - 2026-11-01
 
 - Add reference-mock repertoire enrichment with explicit matching, chain support,
