@@ -158,6 +158,9 @@ class VdjdbIndex:
         objects and the full hit table are never retained. Duplicate junctions
         expand back to every original query identity in complete-query blocks
         of at most ``chunk`` original identities.
+        Expanded frames coalesce up to ``chunk`` identities or 64 MiB of queued
+        payload. A larger complete-query frame is consumed directly. Native and
+        alias-expansion blocks stay at most 32 queries.
         ``exclude_exact`` removes zero-edit hits before alignment and observation expansion.
         """
         threads = kernel_threads(threads)
@@ -311,14 +314,36 @@ class VdjdbIndex:
             mapping = q.select('qi', 'cdr3').join(unique, on='cdr3', validate='m:1').select('_native_qi', 'qi').sort('_native_qi', 'qi')
             offsets = np.r_[0, np.cumsum(np.bincount(mapping['_native_qi'].to_numpy(), minlength=unique.height))]
             primitive_schema = [('_native_qi', pl.UInt32), *_HIT_SCHEMA[1:]]
+            # Keep native/alias expansion blocks small; coalesce only their measured
+            # output before Python reduction. The native callback mutex owns this queue.
+            native_chunk = min(chunk, 32)
+            max_bytes = 64 * 1024**2
+            pending, pending_queries, pending_bytes = [], 0, 0
+            def flush():
+                nonlocal pending_queries, pending_bytes
+                if pending:
+                    consumer(pending[0] if len(pending) == 1 else pl.concat(pending))
+                    pending.clear()
+                    pending_queries = pending_bytes = 0
             def emit(start, stop, buffer):
+                nonlocal pending_queries, pending_bytes
                 hits = pl.DataFrame(np.asarray(buffer), schema=primitive_schema, orient='row')
                 members = mapping.slice(int(offsets[start]), int(offsets[stop]-offsets[start]))
-                for part in members.iter_slices(chunk):
+                for part in members.iter_slices(native_chunk):
                     selected = hits.join(part, on='_native_qi', validate='m:m').drop('_native_qi')
-                    consumer(expanded(selected))
+                    frame = expanded(selected)
+                    size = frame.estimated_size()
+                    if pending and (pending_queries + part.height > chunk or pending_bytes + size > max_bytes):
+                        flush()
+                    if size >= max_bytes or part.height >= chunk:
+                        consumer(frame)  # A complete query is never split or truncated.
+                    else:
+                        pending.append(frame)
+                        pending_queries += part.height
+                        pending_bytes += size
             idx.search_batch_consume(unique['cdr3'].to_list(), params, emit,
-                threads=threads, chunk_size=chunk, max_hit_bytes=64*1024**2)
+                threads=threads, chunk_size=native_chunk, max_hit_bytes=max_bytes)
+            flush()
             if progress:
                 print(f"{gene}: native search complete", file=sys.stderr)
             return self.empty_hits(q.schema['query_id'], align=align, region_aware=region_aware)

@@ -311,3 +311,14 @@ legacy reproduction is explicit.
 :func:`vdjmatch.evalue.mock_reference.sample_stratified_panels` draws fresh panels.
 
 .. autofunction:: vdjmatch.aggregate.repertoire_enrichment.exact_reference_counts
+
+Candidate reduction batches
+---------------------------
+
+Candidate-only annotation reuses one native population search per locus. Native
+and duplicate-query expansion blocks contain at most 32 query identities. Their
+expanded tables coalesce before scoring, up to 256 complete query identities or
+64 MiB of queued payload. A larger complete frame is consumed directly; no query
+is split or truncated. These are working-buffer bounds, not a process RSS limit.
+Source observations, full pMHC identities, exact-hit exclusion and model
+populations retain their existing semantics.

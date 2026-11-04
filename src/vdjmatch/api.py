@@ -354,7 +354,7 @@ class Annotator:
                 exclude_exact=exclude_exact,
                 _reference_records=reference_records if (match_v or match_j) else None,
                 **({} if retain_hits else {'consumer':consume,
-                    'chunk':256 if _membership_max_score is not None else 32,
+                    'chunk':256,
                     '_candidate_only':True}),
             )
             if retain_hits:

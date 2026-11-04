@@ -73,3 +73,7 @@ CPU budgets use `threads=0` for automatic parallel work, capped at 16 allocated 
 Use `1` for serial work or a positive
 count to override the automatic cap within the scheduler/container allocation.
 Sample workers keep their inner numerical kernels serial.
+
+Candidate-only annotation coalesces up to 256 complete query identities and
+64 MiB of queued expanded tables per reduction. Native search and alias expansion
+keep small blocks; larger complete-query frames are consumed directly.

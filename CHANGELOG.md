@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Coalesce complete-query candidate reductions in measured, bounded table batches,
+  while retaining small native search/alias blocks and fixed scoring populations.
+
 - Cap automatic native CPU budgets at 16 allocated CPUs; preserve larger explicit
   requests within the allocation and serial inner kernels in sample workers.
 

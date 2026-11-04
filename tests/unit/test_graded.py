@@ -202,3 +202,54 @@ def test_four_families_preserve_weighted_evidence_beyond_membership():
             scores[match_v, weighted] = result['ned_score'].item()
         assert scores[match_v, False] != scores[match_v, True]
     assert len(set(scores.values())) == 4
+
+
+@pytest.mark.parametrize('exclude_exact', [False, True])
+@pytest.mark.parametrize('match_genes', [False, True])
+def test_candidate_reductions_coalesce_complete_queries_without_changing_evidence(
+        monkeypatch, exclude_exact, match_genes):
+    from polars.testing import assert_frame_equal
+    import vdjmatch.api as api
+    from vdjmatch.match.engine import VdjdbIndex
+
+    amino = 'ACDEFGHIKLMNPQRSTVWY'
+    junctions = ['CASS' + amino[i % 20] + amino[i // 20] + 'QYF' for i in range(72)]
+    ref = pl.DataFrame({'gene': ['TRB'] * 72, 'cdr3': junctions,
+                        'epitope': ['E' + str(i % 3) for i in range(72)],
+                        'v': ['TRBV1*01'] * 72, 'j': ['TRBJ1-1*01'] * 72})
+    ref = pl.concat([ref.with_columns(pl.lit(mhc).alias('mhc_a'),
+                                      pl.lit(study).alias('reference_id'))
+                     for mhc, study in [('B*27:02', 'R1'), ('B*27:05', 'R2'), ('B*27:05', 'R3')]])
+    ann = Annotator.from_frame(ref)
+    queries = pl.DataFrame({'query_id': ['Q' + str(i) for i in range(288)],
+                            'cdr3': junctions * 4, 'v': ['TRBV1*02'] * 288,
+                            'j': ['TRBJ1-1*01'] * 288})
+    options = dict(scope='2,0,0,2', threads=1, exclude_exact=exclude_exact,
+                   match_v=match_genes, match_j=match_genes,
+                   control=(ref.head(4).select('cdr3', 'v', 'j') if match_genes else Index.build(junctions[:4])),
+                   species='human', sequence_convention='junction')
+    annotate = VdjdbIndex.annotate
+    def one_query(self, *args, **kwargs):
+        kwargs['chunk'] = 1
+        return annotate(self, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(VdjdbIndex, 'annotate', one_query)
+        expected = ann.candidates(queries, **options)
+
+    reduce = api.reduce_candidates
+    sizes = []
+    def observed(hits, *args, **kwargs):
+        sizes.append(hits['query_id'].n_unique())
+        return reduce(hits, *args, **kwargs)
+    monkeypatch.setattr(api, 'reduce_candidates', observed)
+    actual = ann.candidates(queries, **options)
+    assert sizes == [256, 32]
+    assert_frame_equal(actual, expected, check_exact=True)
+    assert set(actual['mhc_a']) == {'B*27:02', 'B*27:05'}
+
+    # Large expanded frames are consumed immediately; the coalescing queue cannot grow.
+    monkeypatch.setattr(pl.DataFrame, 'estimated_size', lambda self, *a, **k: 64 * 1024**2)
+    sizes.clear()
+    bounded = ann.candidates(queries, **options)
+    assert len(sizes) > 1 and max(sizes) <= 32
+    assert_frame_equal(bounded, expected, check_exact=True)
