@@ -124,10 +124,12 @@ queries, selections = result["queries"], result["selection"]
   its candidate scope and aggregate indel cap precede NW alignment. Preserve its
   trained marginal outputs without inventing a paired probability or transferring
   another scorer's calibration.
-- Supply an explicit `--threads` budget. Keep queries in population batches; do not
-  wrap annotation/search in a per-receptor or per-file multiprocessing pool.
-  For Python, set `POLARS_MAX_THREADS` before importing Polars if its existing pool
-  would exceed the requested budget; the API rejects that mismatch before loading.
+- Ordinary annotation and public `Annotator` searches default to `threads=0`
+  (allocated CPUs); a positive count selects a smaller budget. Import the API
+  before initializing Polars. VDJtools owns shared runtime setup and resolves
+  native batches to one thread inside its sample workers; excessive explicit
+  counts and oversized preinitialized table pools raise. Keep queries in population
+  batches; do not wrap search in a per-receptor multiprocessing pool.
 - Use matrix-relative distance settings for comparisons. The shortlist API's
   omitted radius and stem4 reference-call geometry derive their scales from the
   selected matrix. Historical absolute overrides remain explicit reproduction
