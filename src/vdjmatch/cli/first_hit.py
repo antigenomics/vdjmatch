@@ -15,6 +15,8 @@ import sys
 import time
 
 
+from . import cpu_budget
+
 def register(subparsers):
     parser = subparsers.add_parser(
         "first-hit", help="global first-hit control calibration"
@@ -24,7 +26,7 @@ def register(subparsers):
     parser.add_argument("--locus", choices=["TRA", "TRB"], default="TRB")
     parser.add_argument("--species", default="HomoSapiens")
     parser.add_argument("--scope", default="5,2,2,5")
-    parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument("--threads", type=cpu_budget, default="0")
     parser.add_argument("--min-refs", type=int, default=2)
     parser.add_argument("--exclude-exact", action="store_true",
                         help="opt-in evaluation/record-reliability mode; ordinary queries retain exact hits")

@@ -8,6 +8,7 @@ import polars as pl
 import pytest
 
 from vdjmatch.cli.__main__ import main
+from vdjtools.cores import kernel_threads
 
 
 @pytest.fixture(scope='module')
@@ -87,7 +88,7 @@ def test_control_union_features_one_batch(tmp_path, model_path, monkeypatch):
     _, out, manifest = run(tmp_path, model_path,
         pl.DataFrame({'junction_aa': ['CAVRDSNYQLIW'] * 2}),
         '--control', str(control), '--mismatches', '1')
-    assert calls == [(['CASSF', 'CAVRDSNYQLIW', 'CAVSDRGSTLGRLYF'], {'mismatches': 1, 'threads': 1})]
+    assert calls == [(['CASSF', 'CAVRDSNYQLIW', 'CAVSDRGSTLGRLYF'], {'mismatches': 1, 'threads': kernel_threads(0)})]
     assert out.height == 2
     features = pl.read_parquet(tmp_path/'result.features.parquet')
     assert features['junction_aa'].to_list() == calls[0][0]
@@ -126,7 +127,7 @@ def test_missing_v_locus_and_zero_mass(tmp_path,model_path,monkeypatch):
 
 @pytest.mark.parametrize('kwargs,match',[
     ({'species':'mouse'},'model species'),({'locus':'TRB'},'model locus'),
-    ({'threads':'0'},'positive threads')])
+    ({'threads':'-1'},'threads must be non-negative')])
 def test_model_and_resource_validation(tmp_path,model_path,kwargs,match,capsys):
     path=tmp_path/'input.tsv';pl.DataFrame({'junction_aa':['CAVRDSNYQLIW']}).write_csv(path,separator='\t')
     options={'species':'human','locus':'TRA','threads':'1',**kwargs}

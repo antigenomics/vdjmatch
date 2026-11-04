@@ -2,12 +2,14 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     parser = subparsers.add_parser('paired-score', help=__doc__)
     parser.add_argument('selection', help='native paired selection TSV, optionally gzip compressed')
     parser.add_argument('--input-manifest', required=True)
     parser.add_argument('--output-prefix', required=True)
-    parser.add_argument('--threads', type=int, default=1, help='positive table thread budget (default: 1)')
+    parser.add_argument('--threads', type=cpu_budget, default="0", help='table CPU budget (0: automatic, up to 16 allocated)')
     parser.set_defaults(func=main)
 
 

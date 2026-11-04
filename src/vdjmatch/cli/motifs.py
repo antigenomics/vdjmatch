@@ -2,6 +2,8 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     p=subparsers.add_parser('motif-evidence',help='experimental masked-motif V+K-mer evidence for sample-declared pMHC')
     p.add_argument('sample')
@@ -10,7 +12,7 @@ def register(subparsers):
     p.add_argument('--species',default='HomoSapiens')
     p.add_argument('--exclude-exact',action='store_true',help='benchmark-only exact-hit filtering; motif models remain fixed')
     p.add_argument('--output-prefix',required=True)
-    p.add_argument('--threads',type=int,default=1,help='positive table thread budget (default: 1); BLAS stays serial')
+    p.add_argument('--threads',type=cpu_budget, default="0",help='table CPU budget (0: automatic, up to 16 allocated); BLAS managed internally')
     p.set_defaults(func=main)
 
 

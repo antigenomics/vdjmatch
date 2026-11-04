@@ -4,6 +4,8 @@ from collections import deque
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def _take_prepared(prepared, queries, reference, counts):
     if counts is None or not queries.height or not reference.height:
         return None
@@ -43,7 +45,7 @@ def register(subparsers):
     p.add_argument('--gap-temperature',type=float,default=12,help='clipped BLOSUM62 geometry extension temperature only')
     p.add_argument('--pssm-kernel-scale',type=float,default=400,help='positive positional-kernel decay scale in integer penalty units; positional modes only')
     p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep other target models and controls fixed')
-    p.add_argument('--threads',type=int,default=1)
+    p.add_argument('--threads',type=cpu_budget, default="0")
     p.add_argument('--output-prefix',required=True)
     p.add_argument('--gzip-scores',action='store_true',help='write scores.tsv.gz with native gzip level1; default scores.tsv is unchanged')
     p.set_defaults(func=main)

@@ -2,12 +2,14 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     parser = subparsers.add_parser('score-confusion', help=__doc__)
     parser.add_argument('scores', help='long TSV: species,locus,query_id,epitope,scorer,score,supported')
     parser.add_argument('--truth', required=True, help='TSV of all known query/epitope memberships')
     parser.add_argument('--profiles', required=True, help='pooled reference profiles with source-record eligibility')
-    parser.add_argument('--threads', type=int, default=1)
+    parser.add_argument('--threads', type=cpu_budget, default="0")
     parser.add_argument('--nboot', type=int, default=1000, help='paired empirical epitope bootstrap replicates for class means (default: 1000)')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--output-prefix', required=True)

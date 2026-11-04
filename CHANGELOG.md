@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 1.2.2
+
+- Use the automatic allocation-aware CPU budget across diagnostic CLI commands,
+  including Pgen and reference scoring. Explicit budgets remain supported and
+  nested numerical pools stay managed internally.
+- Harmonize workflow artwork, navigation and skill references; correct stale
+  serial-default guidance. Scoring formulas and model assets are unchanged.
+
 ## 1.2.1
 
 - Add direct single/paired labeled references through `Annotator.from_labels` and

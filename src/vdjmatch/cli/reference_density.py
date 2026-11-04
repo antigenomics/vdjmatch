@@ -6,6 +6,8 @@ are density diagnostics; this command does not fit graphs, communities or calls.
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     p = subparsers.add_parser('reference-density', help=__doc__.splitlines()[0])
     p.add_argument('--vdjdb', required=True)
@@ -18,7 +20,7 @@ def register(subparsers):
     p.add_argument('--cdr-loops', choices=['junction', 'cdr12', 'cdr12plus'], default='cdr12plus')
     p.add_argument('--gap-open', type=int, default=11)
     p.add_argument('--gap-extend', type=int, default=1)
-    p.add_argument('--threads', type=int, default=1)
+    p.add_argument('--threads', type=cpu_budget, default="0")
     p.add_argument('--pair-budget', type=int, default=2_000_000)
     p.add_argument('--output-prefix', required=True)
     from .epitope import add_options
