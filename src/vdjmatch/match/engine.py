@@ -152,7 +152,9 @@ class VdjdbIndex:
         """Long hit evidence, preserving query_id/locus and all reference metadata.
 
         Search is one native batch of distinct junctions even with progress enabled. ``threads`` controls seqtree;
-        Polars performs sequential post-search stages in its existing process-wide pool.
+        Polars performs post-search stages in its existing process-wide pool.
+        Streaming callbacks overlap native workers, so multithreaded streaming
+        requires a serial Polars pool initialized before import (the default).
         With ``consumer``, one native population batch emits owned primitive buffers
         for at most ``chunk`` complete distinct junctions per block. Python Hit
         objects and the full hit table are never retained. Duplicate junctions
@@ -164,7 +166,7 @@ class VdjdbIndex:
         ``exclude_exact`` removes zero-edit hits before alignment and observation expansion.
         """
         threads = kernel_threads(threads)
-        require_serial_pools(outer=False)
+        require_serial_pools(outer=consumer is not None and threads > 1)
         if consumer is not None and (type(chunk) is not int or chunk < 1):
             raise ValueError('positive integer output chunk required')
         if _candidate_only and consumer is None:

@@ -84,3 +84,27 @@ else:
     env = dict(os.environ, POLARS_MAX_THREADS='4', SLURM_CPUS_PER_TASK='2', SLURM_CPUS_ON_NODE='2')
     subprocess.run([sys.executable, '-c', code], env=env, text=True,
                    capture_output=True, check=True, timeout=20)
+
+
+def test_streaming_rejects_nested_table_pool_but_serial_search_remains_supported():
+    code = '''
+import polars as pl
+assert pl.thread_pool_size() == 2
+from vdjmatch.match import VdjdbIndex, search_params
+ref = pl.DataFrame({'gene': ['TRB'], 'cdr3': ['CASSF'], 'epitope': ['EXAMPLE']})
+index = VdjdbIndex.build(ref)
+queries = pl.DataFrame({'cdr3': ['CASSF']})
+try:
+    index.annotate(queries, search_params('0'), gene='TRB', threads=2, consumer=lambda frame: None)
+except RuntimeError as exc:
+    assert 'Polars' in str(exc) and 'fresh process' in str(exc)
+else:
+    raise AssertionError('streaming allowed nested Polars and native pools')
+parts = []
+index.annotate(queries, search_params('0'), gene='TRB', threads=1, consumer=parts.append)
+assert sum(part.height for part in parts) == 1
+assert index.annotate(queries, search_params('0'), gene='TRB', threads=2).height == 1
+'''
+    env = dict(os.environ, POLARS_MAX_THREADS='2', SLURM_CPUS_PER_TASK='2', SLURM_CPUS_ON_NODE='2')
+    subprocess.run([sys.executable, '-c', code], env=env, text=True,
+                   capture_output=True, check=True, timeout=20)
