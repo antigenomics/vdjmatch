@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.2.1
+
 - Add direct single/paired labeled references through `Annotator.from_labels` and
   `match --reference-format labels`, reusing existing readers and scorers. Retain
   exact hits by default; make exclusion explicitly evaluation/reliability-only.
