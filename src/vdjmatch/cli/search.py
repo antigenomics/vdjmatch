@@ -24,7 +24,7 @@ def register(subparsers):
     parser.add_argument("--same-key-col", help="keep hits with equal non-null keys before output/rescoring")
     parser.add_argument("--scope", default="1,0,0,1")
     parser.add_argument("--engine", choices=["seqtm", "seqtrie"], default="seqtm")
-    parser.add_argument("--threads", type=int, default=0, help="native threads (0 = allocated cores)")
+    parser.add_argument("--threads", type=int, default=0, help="native threads (0 = automatic, up to 16 allocated cores)")
     parser.add_argument(
         "--matrix", choices=["none", "vdjam", "blosum62"], default="none"
     )

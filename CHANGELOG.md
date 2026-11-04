@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Cap automatic native CPU budgets at 16 allocated CPUs; preserve larger explicit
+  requests within the allocation and serial inner kernels in sample workers.
+
 - Accept both setup test flags, reject unknown arguments before installation, and
   initialize shared runtime limits before test plugins in setup and CI.
 

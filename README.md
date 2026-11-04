@@ -68,3 +68,8 @@ JitPack artifact `com.github.antigenomics:vdjmatch:1.3.1`.
 ## License
 
 ISALGO LAB Academic and Non-Commercial Research License v1.0. See [LICENSE](LICENSE).
+
+CPU budgets use `threads=0` for automatic parallel work, capped at 16 allocated CPUs.
+Use `1` for serial work or a positive
+count to override the automatic cap within the scheduler/container allocation.
+Sample workers keep their inner numerical kernels serial.
