@@ -19,7 +19,7 @@ extensions = [
 ]
 
 # autodoc imports vdjmatch with its heavy / optional deps mocked.
-autodoc_mock_imports = ["seqtree", "polars", "huggingface_hub", "numpy", "scipy", "Bio", "ezodf", "psutil"]
+autodoc_mock_imports = ["vdjtools", "seqtree", "polars", "huggingface_hub", "numpy", "scipy", "Bio", "ezodf", "psutil"]
 autodoc_typehints = "description"
 autodoc_member_order = "bysource"
 
