@@ -142,11 +142,11 @@ def test_single_batch_for_thousand_original_rows(tmp_path, monkeypatch):
     assert pl.read_csv(tmp_path / "out.evidence.tsv", separator="\t").height == 1000
 
 
-@pytest.mark.parametrize("value", ["0", "-1"])
+@pytest.mark.parametrize("value", ["-1", "invalid"])
 def test_invalid_threads_fail_before_input_read(tmp_path, value):
-    options = args(tmp_path, None, "--threads", value)
-    with pytest.raises(ValueError, match="threads"):
-        cli.main(options)
+    with pytest.raises(SystemExit) as error:
+        args(tmp_path, None, "--threads", value)
+    assert error.value.code == 2
 
 
 def test_nonbundled_control_requires_explicit_raw_input(tmp_path):

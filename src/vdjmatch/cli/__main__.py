@@ -973,10 +973,13 @@ def main(argv: list[str] | None = None) -> int:
     register_fixed_scope(sub)
     register_fixed_scope(sub, trained=True)
 
-    a = p.parse_args(argv)
     import os
 
+    # Argument conversion may initialize vdjtools. Preserve caller settings first.
     previous_threads = os.environ.get("POLARS_MAX_THREADS")
+    kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
+    original_kernels = {key: os.environ.get(key) for key in kernel_env}
+    a = p.parse_args(argv)
     native_threads = None
     evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     evidence_commands.add('paired-score')
@@ -984,27 +987,22 @@ def main(argv: list[str] | None = None) -> int:
     evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment', 'repertoire-tcrnet'})
     if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
         evidence_commands.add('annotate')
-    kernel_env = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
-    previous_kernels = {key: os.environ.get(key) for key in kernel_env} if a.cmd in evidence_commands else {}
+    previous_kernels = original_kernels if a.cmd in evidence_commands else {}
     if a.cmd in {"match", "update", "first-hit", "database-evidence", "search", "historical-density", "neighbours", "evidence", "annotate", "scoring-audit", "pgen", "reference-calls", "paired-evidence-order", "reference-radius", "reference-support", "reference-structure", "reference-coverage", "fixed-scope", "trained-score"} | evidence_commands:
         import os
         import json
 
-        threads = getattr(a, "threads", 0 if a.cmd == "match" else 1)
+        threads = getattr(a, "threads", 0)
         if getattr(a, "config", None) and not hasattr(a, "threads"):
             threads = json.loads(Path(a.config).read_text()).get("threads", 0)
         if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
             p.error("threads must be a nonnegative integer")
-        ordinary_commands = {"annotate", "neighbours", "evidence", "search", "match", "index", "update"}
-        if a.cmd in evidence_commands and a.cmd not in ordinary_commands and threads == 0:
-            p.error("threads must be positive")
-        if threads > 0 or a.cmd in ordinary_commands:
-            from vdjtools.cores import kernel_threads
-            try:
-                threads = kernel_threads(threads)
-            except (TypeError, ValueError) as exc:
-                p.error(str(exc))
-            a.threads = native_threads = threads
+        from vdjtools.cores import kernel_threads
+        try:
+            threads = kernel_threads(threads)
+        except (TypeError, ValueError) as exc:
+            p.error(str(exc))
+        a.threads = native_threads = threads
         if threads > 0:
             try:
                 table_threads = int(previous_threads) if previous_threads is not None else threads

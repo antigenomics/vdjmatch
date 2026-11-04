@@ -3,6 +3,8 @@ from pathlib import Path
 from ..config import GRADED_FAMILIES
 
 
+from . import cpu_budget
+
 def _single_v(frame,column,*,species='human',locus='TRB',impute=True):
     """Pool alleles and impute unresolved V without changing source rows/counts."""
     import polars as pl
@@ -38,7 +40,7 @@ def register(subparsers):
     p.add_argument('--locus',choices=['TRA','TRB','paired'],default='TRB')
     p.add_argument('--reference-population',choices=['all-valid','curated-benchmark'],default=None)
     p.add_argument('--mock-replicates',type=int,default=200);p.add_argument('--seed',type=int,default=0)
-    p.add_argument('--threads',type=int,default=4);p.add_argument('--output-prefix',required=True)
+    p.add_argument('--threads',type=cpu_budget, default="0");p.add_argument('--output-prefix',required=True)
     p.add_argument('--null', choices=['repertoire','reference'], default='repertoire')
     p.add_argument('--mock-policy', choices=['pgen','pgen-vj','pgen-different-v'], default='pgen')
     p.add_argument('--control-tra', help='TRA control for paired reference-null mode; --control supplies TRB')

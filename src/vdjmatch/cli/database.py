@@ -2,6 +2,8 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     p=subparsers.add_parser('database-evidence',help=__doc__)
     p.add_argument('sample')
@@ -19,7 +21,7 @@ def register(subparsers):
     p.add_argument('--epitope',action='append',help='filter the reference before matching and recalibration')
     p.add_argument('--evidence-type',action='append',help='select supplied reference evidence types before recalibration')
     p.add_argument('--min-score',type=int,default=0,help='minimum supplied reference evidence score')
-    p.add_argument('--threads',type=int,default=1)
+    p.add_argument('--threads',type=cpu_budget, default="0")
     p.add_argument('--input-format',choices=['auto','airr','legacy','custom'],default='auto')
     p.add_argument('--sequence-convention',choices=['junction'])
     p.add_argument('--output-prefix',required=True)

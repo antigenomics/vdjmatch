@@ -2,6 +2,8 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers, *, trained=False):
     name = 'trained-score' if trained else 'fixed-scope'
     description='frozen manuscript same-antigen model and hit informativeness' if trained else __doc__
@@ -16,7 +18,7 @@ def register(subparsers, *, trained=False):
         p.add_argument('--max-indels',type=int,default=2,help='aggregate insertion plus deletion budget (default: 2)')
     p.add_argument('--exclude-exact',action='store_true')
     p.add_argument('--reference-population',choices=['all-valid','curated-benchmark'],default='all-valid')
-    p.add_argument('--threads',type=int,default=1)
+    p.add_argument('--threads',type=cpu_budget, default="0")
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main,score_model='trained' if trained else 'naive')
 

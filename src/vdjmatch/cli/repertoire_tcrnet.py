@@ -2,6 +2,8 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     p=subparsers.add_parser('repertoire-tcrnet',help=__doc__)
     p.add_argument('metadata',help='sample_id/path manifest')
@@ -13,7 +15,7 @@ def register(subparsers):
     p.add_argument('--tcrnet-fdr',type=float,default=.1)
     p.add_argument('--scope',default='3,1,1,3',help='flexible matching subs,ins,dels,total; TCRnet itself uses Hamming1')
     p.add_argument('--match-v',action='store_true')
-    p.add_argument('--threads',type=int,default=4)
+    p.add_argument('--threads',type=cpu_budget, default="0")
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
 

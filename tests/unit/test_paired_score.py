@@ -32,7 +32,7 @@ def test_cli_reducer_is_fresh_and_calibration_remains_unbound(tmp_path):
     options=dict(locus='paired',background='vdjdb-other',neighbour_weighting='kernel',stem_depth=4,kernel_scorer='v-bounded',all_targets=False,targets_from_sample=True)
     manifest.write_text(json.dumps(dict(parameters=options)))
     args=['paired-score',str(selection),'--input-manifest',str(manifest),'--output-prefix',str(tmp_path/'candidate')]
-    with pytest.raises(SystemExit):main(args+['--threads','0'])
+    with pytest.raises(SystemExit):main(args+['--threads','-1'])
     assert main(args)==0
     out=pl.read_csv(tmp_path/'candidate.scores.tsv',separator='\t',schema_overrides={'query_id':pl.String,'pair_id':pl.String})
     assert out['query_id'].to_list()==sample()['query_id'].to_list()

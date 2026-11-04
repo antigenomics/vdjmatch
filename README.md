@@ -19,13 +19,20 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Academic%20%26%20Non--Commercial-green"></a>
 </p>
 
+<p align="center"><b>
+  <a href="https://docs.isalgo.dev/vdjmatch/tutorial.html">Get started</a> ·
+  <a href="https://docs.isalgo.dev/vdjmatch/how-to.html">Guides</a> ·
+  <a href="https://docs.isalgo.dev/vdjmatch/cli.html">Commands</a> ·
+  <a href="https://docs.isalgo.dev/vdjmatch/api.html">API</a> ·
+  <a href="https://docs.isalgo.dev/vdjmatch/examples.html">Examples</a>
+</b></p>
+
 `vdjmatch` annotates selected T-cell receptors and repertoires against
 [VDJdb](https://github.com/antigenomics/vdjdb-db), preserving query identities and
 reporting peptide–MHC candidates, competing evidence and optional background calibration.
 Native sequence search uses [`seqtree`](https://github.com/antigenomics/seqtree);
 repertoire ingestion reuses published `vdjtools` readers.
-Requires released `seqtree>=1.3.2` and `vdjtools>=5.6.0`, including allocation-aware
-native thread validation.
+Dependency versions and native CPU budgets are managed by the installed package.
 
 <p align="center">
   <picture>

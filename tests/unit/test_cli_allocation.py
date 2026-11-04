@@ -15,6 +15,10 @@ from vdjmatch.cli.__main__ import main
     ['evidence', 'sample.tsv', '--vdjdb', 'ref.tsv', '--locus', 'TRB', '--output-prefix', 'out'],
     ['search', 'sample.tsv', '--reference', 'ref.tsv', '--sequence-col', 'junction_aa', '--output-prefix', 'out'],
     ['match', 'sample.tsv'], ['index'], ['update'],
+    ['reference-rule-scores', '--vdjdb', 'ref.tsv', '--locus', 'TRB', '--output-prefix', 'out'],
+    ['paired-evidence-order', 'pairs.tsv', '--output', 'out.tsv'],
+    ['reference-structure', '--vdjdb', 'ref.tsv', '--locus', 'TRB', '--output-prefix', 'out'],
+    ['repertoire-enrichment', 'sample.tsv', '--vdjdb', 'ref.tsv', '--control', 'control.tsv', '--output-prefix', 'out'],
 ])
 def test_cli_allocation_budget(arguments):
     original = argparse.ArgumentParser.parse_args

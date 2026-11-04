@@ -3,6 +3,8 @@ from pathlib import Path
 from ..config import GRADED_FAMILIES
 
 
+from . import cpu_budget
+
 def register(sub):
     p=sub.add_parser('repertoire-exact',help=__doc__)
     p.add_argument('metadata',help='TSV sample_id,path and optional FDR-group columns')
@@ -33,7 +35,7 @@ def register(sub):
     p.add_argument('--mock-replicates',type=int,default=200)
     p.add_argument('--seed',type=int,default=42)
     p.add_argument('--fdr-group',action='append',default=[],help='Metadata columns defining FDR families within each target')
-    p.add_argument('--threads',type=int,default=0,help='Native CPU budget; 0 selects the allocation')
+    p.add_argument('--threads',type=cpu_budget, default="0",help='Native CPU budget; 0 selects the allocation')
     p.add_argument('--output-prefix',required=True)
     p.set_defaults(func=main)
 

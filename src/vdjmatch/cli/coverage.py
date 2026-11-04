@@ -2,6 +2,8 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     p = subparsers.add_parser('reference-coverage', help=__doc__)
     p.add_argument('--vdjdb', required=True)
@@ -16,7 +18,7 @@ def register(subparsers):
     p.add_argument('--mock-replicates', type=int, default=0)
     p.add_argument('--pgen-features', help='validated PREFIX.features.parquet Hamming-1 bank for control matching')
     p.add_argument('--seed', type=int, default=0)
-    p.add_argument('--threads', type=int, default=1)
+    p.add_argument('--threads', type=cpu_budget, default="0")
     p.add_argument('--output-prefix', required=True)
     from .epitope import add_options
     add_options(p)

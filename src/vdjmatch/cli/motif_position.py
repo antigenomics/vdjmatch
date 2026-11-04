@@ -2,6 +2,8 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     p = subparsers.add_parser('motif-position', help=__doc__)
     p.add_argument('--vdjdb', required=True)
@@ -17,7 +19,7 @@ def register(subparsers):
     p.add_argument('--generative-background', choices=['olga'],
         help='exact masked-DP V/J/length-conditioned generation probabilities (bundled human OLGA)')
     p.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
-    p.add_argument('--threads', type=int, default=1)
+    p.add_argument('--threads', type=cpu_budget, default="0")
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
 

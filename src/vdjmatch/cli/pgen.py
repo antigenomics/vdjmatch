@@ -2,6 +2,8 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     p = subparsers.add_parser('pgen', help='marginal full-junction generation probability')
     p.add_argument('sample', help='AIRR junction table, or a local reference with --vdjdb')
@@ -13,7 +15,7 @@ def register(subparsers):
     p.add_argument('--mismatches', type=int, choices=[0, 1], default=0,
                    help='inclusive AA Hamming radius, without indels (default: 0)')
     p.add_argument('--features-only', action='store_true', help='write unique .features.parquet and manifest without the row-wise score table')
-    p.add_argument('--threads', type=int, default=1)
+    p.add_argument('--threads', type=cpu_budget, default="0")
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
 

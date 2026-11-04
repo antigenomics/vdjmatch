@@ -72,6 +72,16 @@ for release changes, and read :doc:`scoring` for the detailed score derivation.
 Native search uses `seqtree <https://github.com/antigenomics/seqtree>`_;
 ingestion uses `vdjtools <https://github.com/antigenomics/vdjtools>`_.
 
+.. image:: ../assets/algorithm-overview.svg
+   :alt: vdjmatch workflow overview: inputs, processing and outputs.
+   :width: 100%
+   :class: only-light
+
+.. image:: ../assets/algorithm-overview-dark.svg
+   :alt: vdjmatch workflow overview: inputs, processing and outputs.
+   :width: 100%
+   :class: only-dark
+
 .. toctree::
    :hidden:
    :maxdepth: 2

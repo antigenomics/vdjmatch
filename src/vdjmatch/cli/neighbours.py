@@ -6,6 +6,8 @@ GEOMETRY_EXTRAS = ('flank', 'framev', 'framemid', 'framej', 'freegap', 'jw',
 J_GEOMETRY_EXTRAS = frozenset(('jw', 'stem4j', 'jlen', 'vjlen', 'jnorm'))
 
 
+from . import cpu_budget
+
 def _grouped_detailed_eligible(a,kernel,selection_only,groups,references):
     """Keep advanced radius/rank and null-label diagnostics on their existing route."""
     return (not selection_only and kernel and a.background=='vdjdb-other' and
@@ -57,7 +59,7 @@ def register(subparsers, name='neighbours'):
         p.add_argument('--gzip-evidence',action='store_true',help='with --evidence-only: gzip enrichment and paired-evidence TSVs at level1')
     p.add_argument('--all-targets',action='store_true',help='emit separate evidence for every full pMHC; query target labels are ignored')
     p.add_argument('--withhold-epitope',action='append',help='hide this peptide from candidate hits at every MHC restriction; keep the full background model fixed')
-    p.add_argument('--threads',type=int,default=0,help='native threads (0 = automatic, up to 16 allocated cores)')
+    p.add_argument('--threads',type=cpu_budget, default="0",help='native threads (0 = automatic, up to 16 allocated cores)')
     p.add_argument('--verbose',action='store_true',help='report grouped query/reference workload and count progress')
     p.add_argument('--distance-matrix',default='clipped',
                    help='clipped, blosum62, pam250, mj, vdjam, or an explicit aa.1/aa.2/cost TSV')

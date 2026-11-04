@@ -3,6 +3,8 @@ from pathlib import Path
 import json
 
 
+from . import cpu_budget
+
 def register(subparsers):
     p = subparsers.add_parser('prepare-control', help=__doc__)
     p.add_argument('--control', required=True)
@@ -11,7 +13,7 @@ def register(subparsers):
     p.add_argument('--output-dir', required=True, help='new directory; existing paths are refused')
     modes = ['exact3', 'imgt3', 'wild4', 'imgt_wild4']
     p.add_argument('--motif-mode', nargs='+', choices=modes, default=modes)
-    p.add_argument('--threads', type=int, default=1)
+    p.add_argument('--threads', type=cpu_budget, default="0")
     p.set_defaults(func=main)
 
 

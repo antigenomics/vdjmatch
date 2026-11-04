@@ -2,6 +2,8 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def reference_groups(raw, a):
     """Fixed full-pMHC groups or declared compatible unions shared by diagnostics."""
     import polars as pl
@@ -39,7 +41,7 @@ def register(subparsers, name='reference-structure'):
                    help='Pgen-matched control TF-IDF envelopes; zero disables, otherwise at least two')
     p.add_argument('--pgen-features', help='validated PREFIX.features.parquet Hamming-1 bank for control matching')
     p.add_argument('--seed', type=int, default=0)
-    p.add_argument('--threads', type=int, default=1)
+    p.add_argument('--threads', type=cpu_budget, default="0")
     p.add_argument('--output-prefix', required=True)
     from .epitope import add_options
     add_options(p, default=name == 'reference-diagnostics')

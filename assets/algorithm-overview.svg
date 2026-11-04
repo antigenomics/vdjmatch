@@ -1,10 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1680" viewBox="0 0 1200 1680" role="img" aria-labelledby="title desc">
 <title id="title">VDJmatch: from receptor tables to antigen evidence</title>
 <desc id="desc">Bulk and paired receptor inputs share curated VDJdb searches. Receptor annotation ranks epitope evidence and preserves ambiguity. Repertoire inference compares observed target support with matched mock reference panels. All small charts are schematic, not measured results.</desc>
-<style>text{font-family:Arial,Helvetica,sans-serif;fill:#1c2939}.muted{fill:#52657b}.accent{fill:#149f89}.title{font-size:25px;font-weight:700}.body{font-size:18px}.small{font-size:15px}.line{fill:none;stroke:#52657b;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.faint{stroke:#dfe5ec}.teal{stroke:#149f89}.blue{stroke:#477fa8}</style>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#1a2332}.muted{fill:#54657a}.accent{fill:#168b78}.title{font-size:25px;font-weight:700}.body{font-size:18px}.small{font-size:15px}.line{fill:none;stroke:#54657a;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.faint{stroke:#e6e9ee}.teal{stroke:#168b78}.blue{stroke:#3f75ac}</style>
 <rect width="1200" height="1680" fill="white"/>
 <g transform="translate(60 0)">
-<text x="0" y="51" class="accent small" font-weight="700">ISALGO / VDJMATCH</text>
 <text x="0" y="96" font-size="34" font-weight="700">From receptor tables to antigen evidence</text>
 <text x="0" y="130" class="body muted">Shared matching machinery, distinct receptor and repertoire questions</text>
 <path d="M0 157 H1080" class="line faint"/>
@@ -31,8 +30,8 @@
 <text x="0" y="35" class="title">Which epitopes have support?</text>
 <!-- Schematic sequence neighbourhood, explicitly without a metric scale. -->
 <path d="M48 105 L106 78 L164 109 L109 143 Z M106 78 L109 143 M164 109 L215 74" class="line faint"/>
-<g fill="#149f89"><circle cx="48" cy="105" r="8"/><circle cx="106" cy="78" r="8"/><circle cx="164" cy="109" r="8"/><circle cx="109" cy="143" r="8"/></g>
-<circle cx="215" cy="74" r="8" fill="white" stroke="#477fa8" stroke-width="3"/>
+<g fill="#168b78"><circle cx="48" cy="105" r="8"/><circle cx="106" cy="78" r="8"/><circle cx="164" cy="109" r="8"/><circle cx="109" cy="143" r="8"/></g>
+<circle cx="215" cy="74" r="8" fill="white" stroke="#3f75ac" stroke-width="3"/>
 <text x="260" y="86" class="body">Sequence neighbourhood</text>
 <text x="260" y="116" class="body">V-gene context + motifs</text>
 <text x="260" y="146" class="small muted">Schematic reference family</text>
