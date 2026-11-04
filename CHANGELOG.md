@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Initialize API numerical budgets before Polars, default Annotator searches to
+  allocated CPUs, and resolve native batch budgets through VDJtools so outer
+  sample workers cannot launch nested automatic search pools.
+
 - Retain ARDA unknown-V repair proposals when the input J call is missing,
   preserving submitted calls, junctions, counts and batch annotation.
 

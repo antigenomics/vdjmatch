@@ -9,6 +9,8 @@ from __future__ import annotations
 import math
 from collections import Counter, defaultdict
 
+from vdjtools.cores import kernel_threads
+
 import polars as pl
 from seqtree import Index, SearchParams
 from seqtree.evalue import evalue_result
@@ -57,12 +59,14 @@ class PairedVdjdbIndex:
     def _matched_complexes(self, idx: Index, refs: list[str], cdr3_to_cplx: dict,
                            queries: list[str], params: SearchParams, threads: int) -> list[set]:
         """For each query, the unique paired keys with an accepted chain match."""
+        threads = kernel_threads(threads)
         res = idx.search_batch(queries, params, threads)
         return [set().union(*(cdr3_to_cplx[refs[h.ref_id]] for h in hl)) for hl in res]
 
     def annotate_pairs(self, pairs: pl.DataFrame, control_a: Index, control_b: Index,
                        params: SearchParams, threads: int = 0) -> pl.DataFrame:
         """Fixed-ball pair/chain counts and calibrated E/p values; ties sort by epitope."""
+        threads = kernel_threads(threads)
         Ma, Mb, N = len(control_a), len(control_b), self.n_pairs
         if not Ma or not Mb:
             raise ValueError("paired calibration requires nonempty alpha and beta controls")

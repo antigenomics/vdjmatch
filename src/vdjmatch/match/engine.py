@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from vdjtools.cores import kernel_threads, require_serial_pools
+
 import polars as pl
 from seqtree import Index, SearchParams
 
@@ -28,6 +30,7 @@ def _search_unique_junctions(index, junctions, params, threads):
     Query V/J calls, counts and pairing affect later evidence, not sequence search.
     Shared inner hit lists must not be mutated by callers. Nothing persists across calls.
     """
+    threads = kernel_threads(threads)
     keys = list(dict.fromkeys(junctions))
     results = index.search_batch(keys, params, threads)
     by_junction = dict(zip(keys, results))
@@ -44,6 +47,7 @@ class VdjdbIndex:
     @classmethod
     def build(cls, df: pl.DataFrame, species: str | None = None, *, reference_population='curated-benchmark') -> "VdjdbIndex":
         """Build the declared fixed population; all-valid bypasses source curation only."""
+        require_serial_pools(outer=False)
         df = schema.normalize(df).with_columns(
             pl.col("vdjdb_score").cast(pl.Int64, strict=False).fill_null(0)
         )
@@ -133,7 +137,7 @@ class VdjdbIndex:
         params: SearchParams,
         *,
         gene: str,
-        threads: int = 1,
+        threads: int = 0,
         match_v: bool = False,
         match_j: bool = False,
         exclude_exact: bool = False,
@@ -156,10 +160,8 @@ class VdjdbIndex:
         of at most ``chunk`` original identities.
         ``exclude_exact`` removes zero-edit hits before alignment and observation expansion.
         """
-        if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
-            raise ValueError(
-                "threads must be a nonnegative integer (0 selects native automatic)"
-            )
+        threads = kernel_threads(threads)
+        require_serial_pools(outer=False)
         if consumer is not None and (type(chunk) is not int or chunk < 1):
             raise ValueError('positive integer output chunk required')
         if _candidate_only and consumer is None:

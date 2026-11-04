@@ -8,6 +8,19 @@ The public API is re-exported from the top-level :mod:`vdjmatch` package —
 :class:`vdjmatch.api.Annotator` and the module-level :func:`vdjmatch.annotate` shortcut. The
 submodules below expose the building blocks (VDJdb access, the search index, E-values, I/O).
 
+CPU budgets
+-----------
+
+``Annotator`` search methods default to ``threads=0`` (all allocated CPUs);
+``threads=1`` selects serial work, and a positive count selects a smaller budget.
+The shared VDJtools resolver respects scheduler/affinity/container limits and
+keeps inner native batches serial inside its sample workers. Excessive explicit
+counts raise. Searches remain one native batch per population, not a query pool.
+The API loads the shared runtime before Polars without importing NumPy or the
+recombination model. Import the annotation API before initializing numerical
+libraries in a fresh process; an existing Polars pool cannot be resized. Reference
+building and searching reject an existing pool wider than the CPU allocation.
+
 Saved reference assets
 ----------------------
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from vdjtools.cores import kernel_threads
+
 import polars as pl
 
 from . import db
@@ -193,7 +195,7 @@ class Annotator:
         q,
         sp,
         *,
-        threads=1,
+        threads=0,
         match_v=False,
         match_j=False,
         align=False,
@@ -214,6 +216,7 @@ class Annotator:
     ):
         import math
 
+        threads = kernel_threads(threads)
         if not math.isfinite(score_scale) or score_scale <= 0:
             raise ValueError("score_scale must be finite and positive")
         if exclude_epitopes is not None:
@@ -368,7 +371,7 @@ class Annotator:
         )
 
     def target_memberships(self, data, *, scope, max_score, score_scale=1.,
-                           threads=1, match_v=False, match_j=False, species=None):
+                           threads=0, match_v=False, match_j=False, species=None):
         """Unique query/pMHC memberships from individually accepted native alignments."""
         _, q = _prepare(data)
         return self._evidence(q, scope, threads=threads, match_v=match_v,
@@ -376,7 +379,7 @@ class Annotator:
             retain_hits=False, _membership_max_score=max_score)[1].select('query_id', *PMHC).unique()
 
     def graded_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
-                          threads=1, control=None, calibrate=False, species=None,
+                          threads=0, control=None, calibrate=False, species=None,
                           matrix=None, sequence_convention=None, exclude_exact=False,
                           return_hits=False, match_v=False, match_j=False, progress=False,
                           max_radius=5):
@@ -417,7 +420,7 @@ class Annotator:
         return (h, c) if return_hits else c
 
     def unified_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
-                           threads=1, control=None, species=None, exclude_exact=False,
+                           threads=0, control=None, species=None, exclude_exact=False,
                            sequence_convention=None, return_hits=False, distance="edit"):
         """Experimental fixed-ball background-mass evidence for a selected distance.
 
@@ -432,7 +435,7 @@ class Annotator:
         return (h, c) if return_hits else c
 
     def ranked_candidates(self, data, *, cdr3="cdr3", v=None, j=None, locus=None,
-                          k=10, threads=1, matrix=None, control=None,
+                          k=10, threads=0, matrix=None, control=None,
                           sequence_convention=None, exclude_exact=False, paired=False):
         """Global gap-block top-K evidence and a separate global enrichment test.
 
@@ -456,7 +459,7 @@ class Annotator:
         match_v=False,
         match_j=False,
         exclude_exact=False,
-        threads=1,
+        threads=0,
         **kw,
     ):
         """Long reference observations; internal cdr3 names denote anchor-inclusive junctions."""
@@ -491,7 +494,7 @@ class Annotator:
         j=None,
         locus=None,
         scope=DEFAULT_SCOPE,
-        threads=1,
+        threads=0,
         match_v=False,
         match_j=False,
         control=None,
@@ -545,7 +548,7 @@ class Annotator:
         locus=None,
         scope=DEFAULT_SCOPE,
         prefix="vdjmatch_",
-        threads=1,
+        threads=0,
         match_v=False,
         match_j=False,
         control=None,
@@ -596,7 +599,7 @@ class Annotator:
         cdr3a="cdr3_alpha_aa",
         cdr3b="cdr3_beta_aa",
         scope=DEFAULT_SCOPE,
-        threads=1,
+        threads=0,
         control=None,
         calibrate=False,
         species=None,
@@ -632,6 +635,7 @@ class Annotator:
         """
         import math
 
+        threads = kernel_threads(threads)
         from seqtree.evalue import evalue_result
 
         from .evalue.paired import build_paired_ref, _joint_punctured_results
@@ -968,7 +972,7 @@ class Annotator:
                                 scope=DEFAULT_SCOPE, ball=False, matrix=None,
                                 va='va',vb='vb',ja='ja',jb='jb',
                                 match_v=False, match_j=False, control=None, calibrate=False,
-                                species=None, threads=1, progress=False, exclude_exact=False,
+                                species=None, threads=0, progress=False, exclude_exact=False,
                                 max_radius=5):
         """Separate linked and full-reference marginal scope evidence.
 
@@ -1048,7 +1052,7 @@ class Annotator:
         cdr3b="cdr3_beta_aa",
         scope=DEFAULT_SCOPE,
         prefix="vdjmatch_",
-        threads=1,
+        threads=0,
         control=None,
         calibrate=False,
         species=None,
