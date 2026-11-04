@@ -152,8 +152,13 @@ def normalize_annotation_input(path: str | os.PathLike, *, source="auto", sequen
     return raw, report
 
 
-def _read_query(path, *, valid_aa, source, sequence_convention, raw=None):
+def _read_query(path, *, valid_aa, source, sequence_convention, raw=None, default_locus=None):
     raw = _read_table(path) if raw is None else raw
+    if default_locus is not None:
+        if default_locus not in ("TRA", "TRB") or _is_wide(raw):
+            raise ValueError("a locus hint requires a single-chain TRA/TRB query table")
+        if "locus" not in columns._resolve(raw):
+            raw = raw.with_columns(pl.lit(default_locus).alias("locus"))
     if _is_wide(raw):
         raw = _annotation_frame(raw, source=source, sequence_convention=sequence_convention)
         return columns.normalize_query(raw, valid_aa=valid_aa, source="airr", return_report=True)
@@ -243,15 +248,18 @@ def read_rearrangement(
     source: str = "auto",
     sequence_convention: str | None = None,
     return_report: bool = False,
+    locus: str | None = None,
 ):
     """Read original query rows with stable IDs; explicitly request key deduplication.
 
     ``dedup=True`` sums counts per junction/V/J/locus/pair and retains original
     identities as ``query_ids`` and (when supplied) ``sequence_ids`` lists.
     ``return_report=True`` returns ``(frame, ingestion_counts)``.
+    ``locus`` supplies a TRA/TRB hint only when the input has no locus/chain field.
     """
     df, report = _read_query(
-        path, valid_aa=valid_aa, source=source, sequence_convention=sequence_convention
+        path, valid_aa=valid_aa, source=source, sequence_convention=sequence_convention,
+        default_locus=locus,
     )
     if dedup:
         ids = [c for c in ("query_id", "sequence_id") if c in df.columns]
@@ -260,6 +268,8 @@ def read_rearrangement(
         )
     report["output_rows"] = df.height
     report["deduplicated_rows"] = report["retained_rows"] - df.height
+    if locus is not None:
+        report["locus_hint"] = locus
     return (df, report) if return_report else df
 
 

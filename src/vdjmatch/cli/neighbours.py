@@ -98,7 +98,8 @@ def register(subparsers, name='neighbours'):
     radius.add_argument('--radius-factor',type=float,help='radius / maximum effective matrix substitution cost; default22.5 (radius90 with clipped BLOSUM62)')
     p.add_argument('--reference-radius',action='store_true',help='reference-only Kneedle radius per compatible target; uniform nearest-rank mode')
     p.add_argument('--knee-floor-factor',type=float,default=.5,help='positive-knee median floor within this species/locus/geometry')
-    p.add_argument('--exclude-exact',action='store_true')
+    p.add_argument('--exclude-exact',action='store_true',
+                   help='opt-in evaluation/record-reliability mode; ordinary queries retain exact hits')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
     p.add_argument('--conditional-j',action='store_true',help='experimental J usage conditional on V and junction length; ranking only')
     p.add_argument('--epitope-rules',action='store_true',help='experimental joint V usage with V-conditioned CDR3/motif kernels; ranking only')

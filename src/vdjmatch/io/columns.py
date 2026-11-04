@@ -9,7 +9,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "cdr3": ("junction_aa", "cdr3_aa", "cdr3"),
     "v": ("v_call", "v_gene", "v.segm", "v"),
     "j": ("j_call", "j_gene", "j.segm", "j"),
-    "locus": ("locus", "chain"),
+    "locus": ("locus", "chain", "gene"),
     "count": (
         "duplicate_count",
         "reads",

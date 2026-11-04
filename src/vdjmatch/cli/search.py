@@ -33,7 +33,8 @@ def register(subparsers):
         action="store_true",
         help="end-anchored positional matrix weighting (seqtm, no indels)",
     )
-    parser.add_argument("--exclude-exact", action="store_true")
+    parser.add_argument("--exclude-exact", action="store_true",
+                        help="opt-in evaluation/record-reliability mode; ordinary queries retain exact hits")
     parser.add_argument("--counts-only", action="store_true")
     parser.add_argument("--output-prefix", required=True)
     parser.set_defaults(func=main)

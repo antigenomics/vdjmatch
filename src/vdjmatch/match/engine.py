@@ -48,7 +48,9 @@ class VdjdbIndex:
     def build(cls, df: pl.DataFrame, species: str | None = None, *, reference_population='curated-benchmark') -> "VdjdbIndex":
         """Build the declared fixed population; all-valid bypasses source curation only."""
         require_serial_pools(outer=False)
-        df = schema.normalize(df).with_columns(
+        if reference_population not in ('curated-benchmark', 'all-valid', 'custom'):
+            raise ValueError('unknown reference population')
+        df = schema.normalize(df, source_curation=reference_population != 'custom').with_columns(
             pl.col("vdjdb_score").cast(pl.Int64, strict=False).fill_null(0)
         )
         if species is not None:
@@ -57,8 +59,6 @@ class VdjdbIndex:
                     "reference has no species metadata; use species=None explicitly"
                 )
             df = df.filter(pl.col("species") == species)
-        if reference_population not in ('curated-benchmark', 'all-valid'):
-            raise ValueError('unknown reference population')
         if reference_population == 'all-valid':
             df = df.with_columns(pl.col('cdr3').str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]+$').fill_null(False).alias('reference_valid'))
         all_records = df

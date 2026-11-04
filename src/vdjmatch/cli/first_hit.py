@@ -26,7 +26,8 @@ def register(subparsers):
     parser.add_argument("--scope", default="5,2,2,5")
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--min-refs", type=int, default=2)
-    parser.add_argument("--exclude-exact", action="store_true")
+    parser.add_argument("--exclude-exact", action="store_true",
+                        help="opt-in evaluation/record-reliability mode; ordinary queries retain exact hits")
     parser.add_argument(
         "--control", help="raw junction repertoire; required for nonbundled controls"
     )

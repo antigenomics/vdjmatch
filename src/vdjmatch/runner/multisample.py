@@ -21,10 +21,11 @@ def annotate_sample(
     match_v=False,
     match_j=False,
     align=True,
-    threads=1,
+    threads=0,
     progress=False,
     source="auto",
     sequence_convention=None,
+    locus=None,
     control=None,
     paired=False,
     link=None,
@@ -40,6 +41,8 @@ def annotate_sample(
     Requested calibration errors propagate. Summary counts are descriptive match counts;
     sample-level statistical inference is outside this operation.
     """
+    if paired and locus is not None:
+        raise ValueError("a locus hint is for single-chain queries; omit it with paired=True")
     if search_mode not in {"fixed", "ball", "unified"}:
         raise ValueError("search_mode must be fixed, ball or unified")
     if search_mode != 'ball' and max_radius != 5:
@@ -127,6 +130,7 @@ def annotate_sample(
         source=source,
         sequence_convention=sequence_convention,
         return_report=True,
+        locus=locus,
     )
     if match_v or match_j:
         queries = ann._matching_queries(queries, match_v=match_v, match_j=match_j, species=species)

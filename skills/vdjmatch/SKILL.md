@@ -5,10 +5,22 @@ description: Annotate single or paired TCR repertoires against VDJdb with the vd
 
 # VDJmatch repertoire annotation
 
+## Choose the reference
+
+Use `Annotator.latest()` for official vdjdb-db, `from_path(path)` for custom
+VDJdb-format data, and `from_labels(rows_or_table, locus="TRA"/"TRB")` for simple
+`junction_aa,label` references. Three-value rows or wide alpha/beta junction
+columns define real pairs. `match --reference PATH --reference-format labels`
+uses the same direct index; add `--locus TRA/TRB` or `--paired` as appropriate.
+Labels need no V/J, MHC or species boilerplate and skip reference diagnostics.
+Exact hits are retained in ordinary queries. Exclusion is explicit classifier
+assessment/record reliability, never an ordinary-query default. See
+[reference interfaces](../../docs/api.rst#user-owned-labeled-references).
+
 ## Read before selecting a scorer
 
-Read [the accepted scoring evidence](../../README.md#scoring-what-works-and-what-doesnt)
-and [score definitions](../../docs/scoring.rst) before choosing a fuzzy mode.
+Read [the scoring evidence and definitions](../../docs/scoring.rst) before
+choosing a fuzzy mode.
 Preserve one-mismatch matching; prioritize BLOSUM62 and the established
 end-anchored positional-BLOSUM62 recipe. Data-derived VDJAM underperformed
 BLOSUM62. VDJAMr means genetic-code substitution accessibility, a different

@@ -11,8 +11,8 @@ submodules below expose the building blocks (VDJdb access, the search index, E-v
 CPU budgets
 -----------
 
-``Annotator`` search methods default to ``threads=0`` (all allocated CPUs);
-``threads=1`` selects serial work, and a positive count selects a smaller budget.
+``Annotator`` search methods default to ``threads=0`` (up to 16 allocated CPUs);
+``threads=1`` selects serial work, and a positive count selects an explicit budget within the allocation.
 The shared VDJtools resolver respects scheduler/affinity/container limits and
 keeps inner native batches serial inside its sample workers. Excessive explicit
 counts raise. Searches remain one native batch per population, not a query pool.
@@ -322,3 +322,34 @@ expanded tables coalesce before scoring, up to 256 complete query identities or
 is split or truncated. These are working-buffer bounds, not a process RSS limit.
 Source observations, full pMHC identities, exact-hit exclusion and model
 populations retain their existing semantics.
+
+User-owned labeled references
+-----------------------------
+
+``Annotator.latest()`` loads the official vdjdb-db release;
+``Annotator.from_path(path)`` accepts a custom VDJdb-format reference.
+``Annotator.from_labels(reference, locus="TRB")`` accepts a DataFrame,
+CSV/TSV/Parquet path or ``(junction, label)`` rows. Labels are arbitrary class
+names, mapped to the existing ``epitope`` output fields. ``epitope`` is also
+accepted as the input target column; supplying both target columns is rejected.
+
+Single chains require a reference locus column or an explicit TRA/TRB locus.
+``(TRA junction, TRB junction, label)`` rows, or columns
+``junction_aa_alpha,junction_aa_beta,label``, define genuine paired references.
+The same wide junction columns work with ``annotate_paired`` without column
+arguments. No sequence anchors, V/J calls, organism or MHC alleles are invented.
+A sole reference locus supplies the default for otherwise untyped single-chain
+queries; supplied query locus/gene fields take precedence.
+
+Labels bypass VDJdb-specific source curation and diagnostic-profile preparation.
+Invalid sequences remain reported as unsearchable reference rows. Contradictory
+labels retain ambiguity. Ordinary single/paired queries retain exact hits;
+``exclude_exact=True`` is an explicit evaluation/record-reliability option and
+never changes the fixed model population.
+
+CLI equivalents use ``match --reference PATH --reference-format labels`` with
+``--locus TRA``/``TRB`` for untyped single-chain references or ``--paired`` for
+paired queries. Label mode defaults to uncalibrated matching without assuming
+species metadata. Explicit ``--evalue``/control settings retain the existing
+organism and calibration validation. Existing reference selectors also apply
+when the corresponding metadata is supplied; filtering precedes native indexing.

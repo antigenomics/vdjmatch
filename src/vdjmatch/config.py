@@ -28,6 +28,7 @@ class Params:
     evalue: bool = True  # compute control-calibrated E-value
     align: bool = True  # emit per-hit CIGAR/alignment
     species: str = "HomoSapiens"  # species filter
+    locus: str | None = None  # single-chain reference selector and missing query-locus hint
     threads: int = 0  # automatic native budget, capped at 16 allocated CPUs
 
     def validate(self) -> None:
@@ -46,6 +47,8 @@ class Params:
             raise ValueError("matrix must be vdjam or none")
         if not isinstance(self.species, str) or not self.species:
             raise ValueError("species must be a nonempty string")
+        if self.locus not in (None, "TRA", "TRB"):
+            raise ValueError("locus must be TRA, TRB or None")
 
     @classmethod
     def defaults(cls) -> "Params":

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add direct single/paired labeled references through `Annotator.from_labels` and
+  `match --reference-format labels`, reusing existing readers and scorers. Retain
+  exact hits by default; make exclusion explicitly evaluation/reliability-only.
+- Accept `--reference` alongside `--vdjdb`, CSV VDJdb-format tables, explicit locus
+  hints and standard paired junction column names. Preserve supplied query loci.
+
 - Use the bounded automatic native budget in default `match` configurations,
   preserving explicit serial or positive user budgets.
 
