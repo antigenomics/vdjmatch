@@ -28,7 +28,7 @@ class Params:
     evalue: bool = True  # compute control-calibrated E-value
     align: bool = True  # emit per-hit CIGAR/alignment
     species: str = "HomoSapiens"  # species filter
-    threads: int = 1  # native threads (0 = explicit automatic)
+    threads: int = 0  # automatic native budget, capped at 16 allocated CPUs
 
     def validate(self) -> None:
         """Reject invalid numerical budgets and configuration types."""

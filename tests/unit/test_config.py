@@ -99,7 +99,7 @@ def test_cli_graded_hard_v_filters_and_remains_uncalibrated(tmp_path):
 def test_params_defaults():
     p = Params.defaults()
     assert p.scope == "1,0,0,1" and p.matrix == "vdjam" and p.min_score == 0
-    assert p.evalue is True and p.align is True and p.species == "HomoSapiens" and p.threads == 1
+    assert p.evalue is True and p.align is True and p.species == "HomoSapiens" and p.threads == 0
 
 
 def test_params_json_roundtrip(tmp_path):

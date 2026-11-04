@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Use the bounded automatic native budget in default `match` configurations,
+  preserving explicit serial or positive user budgets.
+
 - Coalesce complete-query candidate reductions in measured, bounded table batches,
   while retaining small native search/alias blocks and fixed scoring populations.
 
