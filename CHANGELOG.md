@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Accept both setup test flags, reject unknown arguments before installation, and
+  initialize shared runtime limits before test plugins in setup and CI.
+
 - Initialize API numerical budgets before Polars, default Annotator searches to
   allocated CPUs, and resolve native batch budgets through VDJtools so outer
   sample workers cannot launch nested automatic search pools.
