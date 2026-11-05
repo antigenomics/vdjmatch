@@ -2,12 +2,14 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     parser = subparsers.add_parser('reference-rule-scores', help=__doc__)
     parser.add_argument('--vdjdb', required=True)
     parser.add_argument('--species', choices=['human', 'mouse'], default='human')
     parser.add_argument('--locus', choices=['TRA', 'TRB', 'paired'], required=True)
-    parser.add_argument('--threads', type=int, default=1)
+    parser.add_argument('--threads', type=cpu_budget, default="0")
     parser.add_argument('--min-records', type=int, default=30)
     parser.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
     parser.add_argument('--class-policy',help='frozen reference-policy.tsv and sibling manifest; export only the experimental class-policy scorer')

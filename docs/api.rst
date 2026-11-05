@@ -100,7 +100,7 @@ by ``annotate_paired``.
 
    detail, candidates = annotator.paired_candidates(
        cells, cdr3a="cdr3a", cdr3b="cdr3b", align=True,
-       score_scale=400.0, return_hits=True, threads=1,
+       score_scale=400.0, return_hits=True, threads=0,
    )
 
 vdjmatch.db

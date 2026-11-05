@@ -27,9 +27,17 @@ native index and epitope/pMHC profiles for CLI and API use.
    * - ``--cache``
      - Directory retaining downloaded immutable reference inputs.
    * - ``--pin``
-     - Specific release tag; omit to resolve latest.
+     - Exact release tag (including historical date tags); omit to resolve latest.
    * - ``--force``
      - Fetch the requested release again.
+
+Release manifests select ``primary`` for ``default`` and the declared legacy or
+AIRR role for explicit requests. Additional bundle roles do not change this
+selection. Text tables may use ``.txt.gz`` or ``.tsv.gz``; fetched legacy tables
+retain their compressed filename. Historical Hugging Face fetches also retain
+the source gzip bytes; existing verified plain-file caches remain readable.
+A plain and compressed copy of the same table
+in one directory or archive is rejected as ambiguous.
 
 vdjmatch index
 --------------
@@ -52,7 +60,7 @@ format determine identity; incomplete or corrupt assets rebuild from the source.
 The reference's parent directory must be writable. ``Annotator.from_path`` and
 ``match`` also prepare these assets automatically. ``annotate`` scores its
 reference directly without preparing unused profile sidecars. ``index`` and
-``update`` accept a positive ``--threads`` budget (default 4).
+``update`` accept ``--threads 0`` (default) for up to 16 allocated CPUs.
 
 Use ``reference-profiles`` for a fresh scientific classification rebuild:
 
@@ -1395,7 +1403,7 @@ Cohort-relative paired evidence ordering
 The opt-in ``paired-evidence-order`` command reduces existing fixed-radius
 clipped BLOSUM62 geometry evidence; it performs no sequence search and changes no default scorer::
 
-   vdjmatch paired-evidence-order evidence.tsv --output ordered.tsv --threads 1
+   vdjmatch paired-evidence-order evidence.tsv --output ordered.tsv
 
 Supply one row per linked query, cohort, species and full pMHC. Required columns:
 
@@ -1468,14 +1476,14 @@ Zero supported motifs, invalid queries and absent references have explicit statu
 This command supplies a candidate component, not a switched scorer, joint paired
 likelihood, P-value or specificity probability. Pairing remains in the output IDs;
 run both loci and join by the original linkage to compare genuine paired queries.
-``--threads`` sets a positive table-thread budget (default ``1``); BLAS stays
+``--threads`` defaults to ``0`` (up to 16 allocated CPUs); BLAS stays
 serial. Output tables and the manifest must not overlap inputs or lie inside
 the reference directory.
 
 Global evidence combination
 ---------------------------
 
-Both commands accept a positive ``--threads`` table budget (default ``1``),
+Both commands default to ``--threads 0`` (up to 16 allocated CPUs),
 respect a smaller parent table cap, and keep numerical BLAS work serial.
 
 ``fit-evidence TABLE --model MODEL`` fits one experimental logistic formula from
@@ -2161,7 +2169,7 @@ a pure V(D)J generation law.
    vdjmatch motif-position --vdjdb reference.zip --species human --locus TRB \
      --epitope GLCTLVAML --v-gene TRBV6-1 --j-gene TRBJ2-1 --junction-length 17 \
      --control raw-events.tsv.gz --control-model prepared-control --motif GIV \
-     --threads 1 --output-prefix motif-position
+     --threads 0 --output-prefix motif-position
 
 Add ``--generative-background olga`` to append a separately labelled exact
 generation contrast. The immutable bundled human OLGA model is loaded without
@@ -2382,7 +2390,7 @@ population.
 .. code-block:: sh
 
    vdjmatch score-confusion candidates.tsv --truth truth.tsv \
-     --profiles profiles.tsv --threads 1 --output-prefix retrieval
+     --profiles profiles.tsv --threads 0 --output-prefix retrieval
 
 Candidate columns are ``species,locus,query_id,epitope,scorer,score,supported``.
 Scores increase with evidence; ``supported`` is an explicit Boolean. Every

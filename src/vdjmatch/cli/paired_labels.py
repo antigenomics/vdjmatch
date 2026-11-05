@@ -2,13 +2,15 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     p=subparsers.add_parser('paired-labels',help=__doc__)
     p.add_argument('evidence',help='native wide paired-evidence TSV, optionally gzip compressed')
     p.add_argument('--selection',required=True,help='matching native paired selection TSV')
     p.add_argument('--input-manifest',required=True,help='native paired all-target kernel manifest')
     p.add_argument('--output-prefix',required=True)
-    p.add_argument('--threads',type=int,default=4)
+    p.add_argument('--threads',type=cpu_budget, default="0")
     p.set_defaults(func=main)
 
 

@@ -2,13 +2,15 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     parser = subparsers.add_parser('reference-support', help='count distinct sources per curated clonotype/pMHC')
     parser.add_argument('--vdjdb', required=True)
     parser.add_argument('--min-refs', type=int, default=2)
     parser.add_argument('--gene-level', action='store_true', help='strip V/J allele suffixes explicitly')
     parser.add_argument('--output', required=True)
-    parser.add_argument('--threads', type=int, default=1)
+    parser.add_argument('--threads', type=cpu_budget, default="0")
     parser.set_defaults(func=main)
     return parser
 

@@ -2,6 +2,8 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     p = subparsers.add_parser('reference-radius', help='Kneedle distance radii from nonexact reference neighbours')
     p.add_argument('--vdjdb', required=True)
@@ -12,7 +14,7 @@ def register(subparsers):
     p.add_argument('--junction-ends', choices=['trim32', 'trim3'], default='trim3')
     p.add_argument('--matrix', choices=['clipped', 'blosum62', 'pam250', 'mj', 'vdjam'],
                    default='clipped', help='shared substitution costs for junctions, V loops and distance units')
-    p.add_argument('--threads', type=int, default=1)
+    p.add_argument('--threads', type=cpu_budget, default="0")
     p.add_argument('--knee-floor-factor', type=float, default=.5)
     p.add_argument('--coverage-radius-factor', type=float, default=22.5,
                    help='coverage radius in shared substitution-matrix scale units')

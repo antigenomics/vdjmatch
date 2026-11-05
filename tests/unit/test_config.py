@@ -35,7 +35,8 @@ main({args!r}+{(['--threads',str(threads)] if threads is not None else [])!r})
 '''
     result=subprocess.run([sys.executable,'-c',code],env=env,capture_output=True,text=True,check=True,timeout=15)
     observed=json.loads(result.stdout)
-    assert observed['table']==(threads or 1)
+    from vdjtools.cores import kernel_threads
+    assert observed['table']==(threads or kernel_threads(0))
     # Accelerate on macOS is not reported by threadpoolctl; its environment cap is checked too.
     assert all(n==1 for n in observed['blas']) and observed['kernel_env']==['1']*4
 

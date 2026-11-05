@@ -2,13 +2,15 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     parser = subparsers.add_parser('reference-profiles', help=__doc__)
     parser.add_argument('--vdjdb', required=True)
     parser.add_argument('--species', choices=['human', 'mouse', 'HomoSapiens', 'MusMusculus'])
     parser.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
     parser.add_argument('--shuffles', type=int, default=999, help='label-shuffle null replicates (default: 999)')
-    parser.add_argument('--threads', type=int, default=4)
+    parser.add_argument('--threads', type=cpu_budget, default="0")
     parser.add_argument('--output-prefix', required=True)
     parser.set_defaults(func=main)
 

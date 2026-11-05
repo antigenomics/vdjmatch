@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 1.2.3
+
+- Read compressed legacy and AIRR tables from role-specific VDJdb release ZIPs,
+  preserving physical gzip filenames and rejecting ambiguous table copies.
+- Require exact requested release tags, including dated and date-NOTE tags, and
+  retain checksum validation before replacing a downloaded reference.
+- Preserve compressed inputs when fetching historical Hugging Face references.
+  Annotation defaults, reference curation, scoring formulas and model assets are unchanged.
+
+## 1.2.2
+
+- Use the automatic allocation-aware CPU budget across diagnostic CLI commands,
+  including Pgen and reference scoring. Explicit budgets remain supported and
+  nested numerical pools stay managed internally.
+- Harmonize workflow artwork, navigation and skill references; correct stale
+  serial-default guidance. Scoring formulas and model assets are unchanged.
+
 ## 1.2.1
 
 - Add direct single/paired labeled references through `Annotator.from_labels` and

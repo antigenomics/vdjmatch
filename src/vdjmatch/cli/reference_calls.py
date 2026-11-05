@@ -2,6 +2,8 @@
 from pathlib import Path
 
 
+from . import cpu_budget
+
 def register(subparsers):
     p = subparsers.add_parser('reference-calls', help='benchmark full-reference winning labels or peptide-withheld nulls')
     p.add_argument('--vdjdb', required=True)
@@ -11,7 +13,7 @@ def register(subparsers):
     p.add_argument('--reference-population', choices=['all-valid', 'curated-benchmark'], default='curated-benchmark')
     p.add_argument('--control', help='matching raw repertoire; human TRB has a bundled input')
     p.add_argument('--scope', default='1,0,0,1')
-    p.add_argument('--threads', type=int, default=1)
+    p.add_argument('--threads', type=cpu_budget, default="0")
     p.add_argument('--calibration-score', choices=['E', 'p_enrichment', 'score'], default='score',
                    help='optional recommendation statistic; never filters continuous outputs')
     p.add_argument('--min-target-records', type=int, default=30,
