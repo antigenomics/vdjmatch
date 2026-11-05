@@ -34,7 +34,9 @@ native index and epitope/pMHC profiles for CLI and API use.
 Release manifests select ``primary`` for ``default`` and the declared legacy or
 AIRR role for explicit requests. Additional bundle roles do not change this
 selection. Text tables may use ``.txt.gz`` or ``.tsv.gz``; fetched legacy tables
-retain their compressed filename. A plain and compressed copy of the same table
+retain their compressed filename. Historical Hugging Face fetches also retain
+the source gzip bytes; existing verified plain-file caches remain readable.
+A plain and compressed copy of the same table
 in one directory or archive is rejected as ambiguous.
 
 vdjmatch index

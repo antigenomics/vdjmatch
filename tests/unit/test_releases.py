@@ -655,3 +655,38 @@ def test_reordered_manifest_gzip_roles_and_failed_replacement(tmp_path, monkeypa
     assert legacy.read_bytes() == old_table
     assert (legacy.parent / 'release.zip').read_bytes() == old_archive
     assert db.load(legacy).height == 1
+
+
+def test_hf_preserves_gzip_quoting_and_failed_replacement(tmp_path, monkeypatch):
+    import gzip
+    from types import SimpleNamespace
+    source = tmp_path / 'remote.txt.gz'
+    payload = gzip.compress(b'gene\tcdr3\tantigen.epitope\tcomment\nTRB\tCASSF\tPEP\t"literal"\n', mtime=0)
+    source.write_bytes(payload)
+    monkeypatch.setitem(sys.modules, 'huggingface_hub', SimpleNamespace(hf_hub_download=lambda **kwargs: str(source)))
+    path = db.fetch_hf(cache=tmp_path / 'cache')
+    assert path.name == 'vdjdb.txt.gz'
+    assert path.read_bytes() == payload
+    assert not path.with_suffix('').exists()
+    assert db.load(path)['comment'][0] == '"literal"'
+    assert db.provenance(path)['file'].endswith('/vdjdb.txt.gz')
+    source.write_bytes(gzip.compress(b'unexpected\theader\nno\tjunction\n', mtime=0))
+    with pytest.raises(ValueError):
+        db.fetch_hf(cache=tmp_path / 'cache', force=True)
+    assert path.read_bytes() == payload
+    assert valid(path) and db.load(path).height == 1
+
+
+def test_hf_old_plain_cache_readable_without_download(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from vdjmatch.db.vdjdb import _HF_REPO, _HF_REVISION, _HF_TAG
+    filename = f'vdjdb/vdjdb-{_HF_TAG}/vdjdb.txt.gz'
+    identity = hashlib.sha256(f'{_HF_REPO}/{_HF_REVISION}/{filename}'.encode()).hexdigest()[:24]
+    old = tmp_path / 'huggingface' / identity / 'vdjdb.txt'
+    old.parent.mkdir(parents=True)
+    with staging(old) as stage:
+        stage.write_text('gene\tcdr3\tantigen.epitope\nTRB\tCASSF\tPEP\n')
+        publish(stage, old)
+    monkeypatch.setitem(sys.modules, 'huggingface_hub', SimpleNamespace(hf_hub_download=lambda **kwargs: pytest.fail('old cache should remain usable')))
+    assert db.fetch_hf(cache=tmp_path) == old
+    assert db.load(old).height == 1

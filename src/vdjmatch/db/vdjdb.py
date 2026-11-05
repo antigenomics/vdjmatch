@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import gzip
 import json
 import os
 import re
@@ -263,8 +262,11 @@ def fetch_hf(
     identity = hashlib.sha256(f"{repo}/{revision}/{filename}".encode()).hexdigest()[:24]
     folder = cache_dir(cache) / "huggingface" / identity
     folder.mkdir(parents=True, exist_ok=True)
-    out = folder / member
-    with locked(out):
+    old = folder / member
+    out = folder / (member + ".gz")
+    with locked(old):
+        if not force and not valid(out) and valid(old):
+            out = old
         if force or not valid(out):
             from huggingface_hub import hf_hub_download
 
@@ -277,7 +279,7 @@ def fetch_hf(
                 force_download=force,
             )
             with staging(out) as stage:
-                with gzip.open(gz, "rb") as src, stage.open("wb") as dst:
+                with Path(gz).open("rb") as src, stage.open("wb") as dst:
                     shutil.copyfileobj(src, dst)
                 schema.normalize(_read_table(stage, parquet=False, legacy=True))
                 publish(stage, out)
