@@ -155,3 +155,6 @@ A web-based GUI for querying VDJdb and annotating RepSeq samples can be both acc
 ### Compiling from source (advanced)
 
 Just clone the repository and run ``gradle clean build``.
+### Dated database releases
+
+JVM VDJmatch 1.3.2 reads plain and gzip legacy tables and installs both historical flat ZIPs and versioned `YYYY-MM-DD[-NOTE]` release ZIPs. Upgrade the JAR before updating to these compressed releases. The updater validates one complete legacy table set and ZIP member CRCs in a staging directory before switching the version pointer; a failed download leaves the current installation selected. Explicit file-based loaders also accept `.gz` tables. Matching and scoring are unchanged.
