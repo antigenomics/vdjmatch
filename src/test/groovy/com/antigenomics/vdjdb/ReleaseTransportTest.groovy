@@ -17,9 +17,9 @@ class ReleaseTransportTest {
                 def archive = new File(root, layout + '.zip')
                 archive.withOutputStream { out ->
                     new ZipOutputStream(out).withCloseable { zip ->
-                        ['vdjdb.txt', 'vdjdb.slim.txt', 'vdjdb.meta.txt', 'vdjdb.slim.meta.txt'].each { name ->
-                            zip.putNextEntry(new ZipEntry((layout == 'dated' ? 'vdjdb-legacy-2026-11-06/' : '') + name + (layout == 'dated' ? '.gz' : '')))
-                            if (layout == 'dated') {
+                        ['vdjdb.txt', 'vdjdb.slim.txt', 'vdjdb.meta.txt', 'vdjdb.slim.meta.txt', 'cluster_members.txt', 'motif_pwms.txt', 'vdjdb_summary_embed.html'].each { name ->
+                            zip.putNextEntry(new ZipEntry((layout == 'dated' ? 'vdjdb-legacy-2026-11-06/' : '') + name + (layout == 'dated' && name.endsWith('.txt') ? '.gz' : '')))
+                            if (layout == 'dated' && name.endsWith('.txt')) {
                                 def bytes = new ByteArrayOutputStream()
                                 new GZIPOutputStream(bytes).withCloseable { it.write((name + '\n').getBytes('UTF-8')) }
                                 zip.write(bytes.toByteArray())
@@ -32,6 +32,11 @@ class ReleaseTransportTest {
                 assert Util.checkDatabase(home, true, pointer.toURI().toURL())
                 assert !Util.checkDatabase(home, true, pointer.toURI().toURL())
                 def installed = Util.databaseDirectory(home)
+                ['cluster_members.txt', 'motif_pwms.txt', 'vdjdb_summary_embed.html'].each { name ->
+                    Util.tableAsStream(new File(installed, name)).withCloseable {
+                        assert it.getText('UTF-8') == name + '\n'
+                    }
+                }
                 assert new File(installed, 'vdjdb.slim.txt' + (layout == 'dated' ? '.gz' : '')).delete()
                 assert Util.checkDatabase(home, true, pointer.toURI().toURL())
                 Util.tableAsStream(new File(Util.databaseDirectory(home), 'vdjdb.txt')).withCloseable {

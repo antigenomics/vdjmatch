@@ -65,7 +65,7 @@ class Util {
                             throw new IOException("Unsafe or duplicate release member: " + entry.name)
                         def name = parts[-1]
                         def logical = name.endsWith(".gz") ? name[0..<-3] : name
-                        if (!entry.directory && DATABASE_FILES.contains(logical)) {
+                        if (!entry.directory && RELEASE_FILES.contains(logical)) {
                             if (tableFile(new File(staging, logical)).exists())
                                 throw new IOException("Ambiguous release table: " + logical)
                             parents.add(parts.size() > 1 ? parts[0..<-1].join("/") : "")
@@ -103,6 +103,10 @@ class Util {
 
     private static final List<String> DATABASE_FILES =
             ["vdjdb.txt", "vdjdb.meta.txt", "vdjdb.slim.txt", "vdjdb.slim.meta.txt"]
+
+    private static final List<String> RELEASE_FILES = DATABASE_FILES +
+            ["vdjdb_full.txt", "cluster_members.txt", "motif_pwms.txt",
+             "cluster_members_tcremp.txt", "motif_pwms_tcremp.txt", "vdjdb_summary_embed.html", "LICENSE"]
 
     private static String releaseDirectory(String url) {
         "vdjdb-" + MessageDigest.getInstance("SHA-256").digest(url.getBytes("UTF-8")).encodeHex().toString()
