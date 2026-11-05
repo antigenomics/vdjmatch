@@ -18,6 +18,11 @@
 package com.antigenomics.vdjdb
 
 import com.milaboratory.core.sequence.AminoAcidSequence
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+import java.util.zip.GZIPInputStream
+import java.util.zip.ZipInputStream
 
 class Util {
     /**
@@ -32,41 +37,96 @@ class Util {
      * @return true if a new database was downloaded
      */
     static boolean checkDatabase(boolean updateIfNewer = false) {
-        def version
+        checkDatabase(new File(HOME_DIR), updateIfNewer,
+                new URL("https://raw.githubusercontent.com/antigenomics/vdjdb-db/master/latest-version.txt"))
+    }
 
-        def versionFile = new File(HOME_DIR + "/latest-version.txt")
-        if (!versionFile.exists()) {
-            System.err.println("[VDJDB-update] No database is present (running for the first time, I assume), downloading it. " +
-                    "NOTE: No automatic update will be performed next time VDJdb is run - use Update command to check for database updates.")
-            version = ""
-        } else {
-            version = versionFile.readLines()[0]
-        }
+    static boolean checkDatabase(File home, boolean updateIfNewer, URL pointer) {
+        def versionFile = new File(home, "latest-version.txt")
+        def version = versionFile.isFile() ? versionFile.readLines("UTF-8").find { it.trim() } : null
+        if (version && !updateIfNewer) return false
+        def latest = pointer.withInputStream { it.readLines("UTF-8").find { line -> line.trim() } }
+        if (!latest) throw new IOException("Empty database release pointer")
+        if (version == latest && DATABASE_FILES.every { tableFile(new File(databaseDirectory(home), it)).isFile() })
+            return false
 
-        if (!versionFile.exists() || updateIfNewer) {
-            def latestVersion = new URL("https://raw.githubusercontent.com/antigenomics/vdjdb-db/master/latest-version.txt").openStream().readLines()[0]
-
-            if (version != latestVersion) {
-                versionFile << latestVersion
+        home.mkdirs()
+        def staging = Files.createTempDirectory(home.toPath(), ".vdjdb-install-").toFile()
+        try {
+            def names = [] as Set
+            def parents = [] as Set
+            new URL(latest).withInputStream { raw ->
+                new ZipInputStream(new BufferedInputStream(raw)).withCloseable { zip ->
+                    def entry
+                    while ((entry = zip.nextEntry) != null) {
+                        def parts = entry.name.split("/", -1)
+                        if (entry.name.startsWith("/") || entry.name.contains("\\") ||
+                                parts.any { it == ".." || it == "." } || !names.add(entry.name))
+                            throw new IOException("Unsafe or duplicate release member: " + entry.name)
+                        def name = parts[-1]
+                        def logical = name.endsWith(".gz") ? name[0..<-3] : name
+                        if (!entry.directory && DATABASE_FILES.contains(logical)) {
+                            if (tableFile(new File(staging, logical)).exists())
+                                throw new IOException("Ambiguous release table: " + logical)
+                            parents.add(parts.size() > 1 ? parts[0..<-1].join("/") : "")
+                            new File(staging, name).withOutputStream { out -> out << zip }
+                        }
+                        zip.closeEntry() // validates the ZIP member CRC
+                    }
+                }
             }
+            if (parents.size() != 1 || !DATABASE_FILES.every { tableFile(new File(staging, it)).isFile() })
+                throw new IOException("Release does not contain one complete legacy database")
+            def target = new File(home, releaseDirectory(latest))
+            if (target.exists() && !DATABASE_FILES.every { tableFile(new File(target, it)).isFile() }) {
+                def backup = new File(home, ".vdjdb-repair-" + UUID.randomUUID())
+                Files.move(target.toPath(), backup.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                try {
+                    Files.move(staging.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                } catch (Exception error) {
+                    Files.move(backup.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                    throw error
+                }
+                backup.deleteDir()
+            } else if (!target.exists()) {
+                Files.move(staging.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            }
+            def marker = Files.createTempFile(home.toPath(), ".vdjdb-version-", ".txt")
+            try {
+                marker.toFile().setText(latest + "\n", "UTF-8")
+                Files.move(marker, versionFile.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            } finally { Files.deleteIfExists(marker) }
+            System.err.println("[VDJDB-update] Done, using " + latest)
+            true
+        } finally { staging.deleteDir() }
+    }
 
-            def dbZip = new File(HOME_DIR + "/vdjdb.zip")
-            def out = new BufferedOutputStream(new FileOutputStream(dbZip))
-            out << new URL(latestVersion).openStream()
-            out.close()
+    private static final List<String> DATABASE_FILES =
+            ["vdjdb.txt", "vdjdb.meta.txt", "vdjdb.slim.txt", "vdjdb.slim.meta.txt"]
 
-            def ant = new AntBuilder()
+    private static String releaseDirectory(String url) {
+        "vdjdb-" + MessageDigest.getInstance("SHA-256").digest(url.getBytes("UTF-8")).encodeHex().toString()
+    }
 
-            ant.unzip(src: dbZip.absolutePath,
-                    dest: HOME_DIR,
-                    overwrite: "true")
+    static File databaseDirectory(File home = new File(HOME_DIR)) {
+        def marker = new File(home, "latest-version.txt")
+        def url = marker.isFile() ? marker.readLines("UTF-8").find { it.trim() } : null
+        def installed = url ? new File(home, releaseDirectory(url)) : home
+        installed.isDirectory() ? installed : home // historical flat installations
+    }
 
-            System.err.println("[VDJDB-update] Done, you are now using VDJDB-V${latestVersion.split("/")[-2]}")
+    private static File tableFile(File file) {
+        def gzip = new File(file.path + ".gz")
+        if (file.isFile() && gzip.isFile()) throw new IOException("Ambiguous table: " + file)
+        !file.isFile() && gzip.isFile() ? gzip : file
+    }
 
-            return true
-        }
-
-        false
+    static InputStream tableAsStream(File file) {
+        def resolved = tableFile(file)
+        def stream = new FileInputStream(resolved)
+        if (!resolved.name.endsWith(".gz")) return stream
+        try { new GZIPInputStream(stream) }
+        catch (Exception error) { stream.close(); throw error }
     }
 
     /**

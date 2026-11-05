@@ -53,7 +53,7 @@ class VdjdbInstance {
 
     VdjdbInstance(boolean useFatDb = true) {
         this(checkDbAndGetMetadata(useFatDb),
-                new FileInputStream(Util.HOME_DIR + (useFatDb ? "/vdjdb.txt" : "/vdjdb.slim.txt")))
+                Util.tableAsStream(new File(Util.databaseDirectory(), useFatDb ? "vdjdb.txt" : "vdjdb.slim.txt")))
     }
 
     VdjdbInstance(Database dbInstance) {
@@ -62,7 +62,7 @@ class VdjdbInstance {
 
     private static InputStream checkDbAndGetMetadata(boolean useFatDb) {
         Util.checkDatabase()
-        new FileInputStream(Util.HOME_DIR + (useFatDb ? "/vdjdb.meta.txt" : "/vdjdb.slim.meta.txt"))
+        Util.tableAsStream(new File(Util.databaseDirectory(), useFatDb ? "vdjdb.meta.txt" : "vdjdb.slim.meta.txt"))
     }
 
     VdjdbInstance(InputStream metadata, InputStream entries) {
@@ -71,7 +71,7 @@ class VdjdbInstance {
     }
 
     VdjdbInstance(File metadata, File entries) {
-        this(new FileInputStream(metadata), new FileInputStream(entries))
+        this(Util.tableAsStream(metadata), Util.tableAsStream(entries))
     }
 
     /**
