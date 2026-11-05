@@ -528,3 +528,165 @@ def test_directory_provenance_binds_names_and_bytes_independent_of_location(tmp_
     assert db.provenance(roots[1])['input_sha256']!=left['input_sha256']
     (roots[0]/'a').write_bytes(b'changed')
     assert db.provenance(roots[0])['input_sha256']!=left['input_sha256']
+
+
+def compress_tables(directory):
+    import gzip
+    for path in directory.glob('*'):
+        if path.suffix in {'.txt', '.tsv'}:
+            path.with_name(path.name + '.gz').write_bytes(gzip.compress(path.read_bytes(), mtime=0))
+            path.unlink()
+
+
+@pytest.mark.parametrize('layout', ['rich', 'airr', 'legacy'])
+def test_gzip_directory_archive_and_direct_table(tmp_path, layout):
+    if layout == 'rich':
+        rich_tables(tmp_path)
+        member = 'records.tsv.gz'
+        count = 3
+    elif layout == 'airr':
+        airr_tables(tmp_path)
+        member = 'vdjdb.rearrangement.tsv.gz'
+        count = 2
+    else:
+        (tmp_path / 'vdjdb.txt').write_text('gene\tcdr3\tantigen.epitope\tcomment\nTRB\tCASSF\tPEP\t"literal"\n')
+        member = 'vdjdb.txt.gz'
+        count = 1
+    compress_tables(tmp_path)
+    assert db.load(tmp_path).height == count
+    out = db.load(tmp_path / member)
+    assert out.height == count
+    if layout == 'legacy':
+        assert out['comment'][0] == '"literal"'
+    archive = tmp_path / 'compressed.zip'
+    with zipfile.ZipFile(archive, 'w') as zf:
+        for path in tmp_path.glob('*.gz'):
+            zf.write(path, 'release/' + path.name)
+    assert db.load(archive).height == count
+
+
+def test_gzip_physical_duplicates_rejected(tmp_path):
+    import gzip
+    plain = tmp_path / 'vdjdb.txt'
+    plain.write_text('gene\tcdr3\tantigen.epitope\nTRB\tCASSF\tPEP\n')
+    plain.with_suffix('.txt.gz').write_bytes(gzip.compress(plain.read_bytes()))
+    with pytest.raises(ValueError, match='ambiguous'):
+        db.load(tmp_path)
+    archive = tmp_path / 'duplicate.zip'
+    with zipfile.ZipFile(archive, 'w') as zf:
+        for path in tmp_path.glob('vdjdb*'):
+            zf.write(path, path.name)
+    with pytest.raises(ValueError, match='ambiguous'):
+        db.load(archive)
+
+
+@pytest.mark.parametrize('tag', ['test-tag', '2026-10-01', '2026-06-11-ZENODO'])
+def test_explicit_pin_is_exact(tmp_path, monkeypatch, tag):
+    calls = mock_release(monkeypatch, legacy_zip())
+    monkeypatch.setattr(vdjdb, '_release_json', lambda pin: {'tag_name': tag, 'assets': [{'name': 'test.zip', 'browser_download_url': 'https://example.test/test.zip'}]})
+    with pytest.raises(ValueError, match='pin'):
+        db.fetch_latest(cache=tmp_path, pin='other-tag')
+    assert not calls
+    assert db.load(db.fetch_latest(cache=tmp_path, pin=tag)).height == 1
+
+
+@pytest.mark.parametrize('declaration', ['manifest', 'digest', 'sums'])
+def test_nonhex_digest_rejected(tmp_path, monkeypatch, declaration):
+    rel = {'tag_name': 'tag', 'assets': [{'name': 'test.zip', 'browser_download_url': 'https://example.test/test.zip'}]}
+    monkeypatch.setattr(vdjdb, '_release_json', lambda pin: rel)
+    if declaration == 'manifest':
+        rel['assets'].append({'name': 'manifest.json', 'browser_download_url': 'https://example.test/manifest.json'})
+        monkeypatch.setattr(vdjdb, '_json_url', lambda url: {'tag': 'tag', 'bundles': [{'role': 'primary', 'file': 'test.zip', 'sha256': 'z' * 64}]})
+    elif declaration == 'digest':
+        rel['assets'][0]['digest'] = 'sha256:' + 'z' * 64
+    else:
+        rel['assets'].append({'name': 'SHA256SUMS', 'browser_download_url': 'https://example.test/SHA256SUMS'})
+        monkeypatch.setattr(vdjdb.urllib.request, 'urlopen', lambda req, timeout: io.BytesIO(('z' * 64 + '  test.zip\n').encode()))
+    with pytest.raises(ValueError, match='SHA256'):
+        db.fetch_latest(cache=tmp_path)
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+def test_reordered_manifest_gzip_roles_and_failed_replacement(tmp_path, monkeypatch, reverse):
+    import gzip
+    rich = tmp_path / 'rich'
+    rich_tables(rich)
+    compress_tables(rich)
+    payloads = {}
+    members = {}
+    for role in ['primary', 'legacy', 'airr', 'web-structures']:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as zf:
+            if role == 'primary':
+                for path in rich.iterdir():
+                    zf.write(path, 'release/' + path.name)
+            else:
+                zf.writestr('release/vdjdb.txt.gz', gzip.compress(b'gene\tcdr3\tantigen.epitope\nTRB\tCASSF\tPEP\n', mtime=0))
+            members[role] = zf.namelist()
+        payloads[role + '.zip'] = buf.getvalue()
+    manifest = {'tag': 'test-tag', 'bundles': [
+        {'role': role, 'file': role + '.zip', 'sha256': hashlib.sha256(payloads[role + '.zip']).hexdigest(), 'members': members[role]}
+        for role in ['web-structures', 'legacy', 'airr', 'primary']]}
+    assets = [{'name': name, 'browser_download_url': 'https://example.test/' + name} for name in payloads]
+    assets.append({'name': 'manifest.json', 'browser_download_url': 'https://example.test/manifest.json'})
+    if reverse:
+        assets.reverse()
+        manifest['bundles'].reverse()
+    rel = {'tag_name': 'test-tag', 'assets': assets}
+    monkeypatch.setattr(vdjdb, '_release_json', lambda pin: rel)
+    monkeypatch.setattr(vdjdb, '_json_url', lambda url: manifest)
+    monkeypatch.setattr(vdjdb.urllib.request, 'urlopen', lambda req, timeout: io.BytesIO(payloads[req.full_url.rsplit('/', 1)[1]]))
+    primary = db.fetch_latest(cache=tmp_path / 'cache')
+    assert primary.suffix == '.zip' and db.load(primary).height == 3
+    legacy = db.fetch_latest(asset='legacy', cache=tmp_path / 'cache')
+    assert legacy.name == 'vdjdb.txt.gz' and db.load(legacy).height == 1
+    assert db.provenance(legacy)['path'] == str(legacy.resolve())
+    assert vdjdb._select_asset(rel, 'airr')[1]['role'] == 'airr'
+    old_archive = (legacy.parent / 'release.zip').read_bytes()
+    old_table = legacy.read_bytes()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr('release/vdjdb.txt.gz', b'not gzip')
+    payloads['legacy.zip'] = buf.getvalue()
+    entry = next(e for e in manifest['bundles'] if e['role'] == 'legacy')
+    entry['sha256'] = hashlib.sha256(payloads['legacy.zip']).hexdigest()
+    with pytest.raises(Exception):
+        db.fetch_latest(asset='legacy', cache=tmp_path / 'cache', force=True)
+    assert legacy.read_bytes() == old_table
+    assert (legacy.parent / 'release.zip').read_bytes() == old_archive
+    assert db.load(legacy).height == 1
+
+
+def test_hf_preserves_gzip_quoting_and_failed_replacement(tmp_path, monkeypatch):
+    import gzip
+    from types import SimpleNamespace
+    source = tmp_path / 'remote.txt.gz'
+    payload = gzip.compress(b'gene\tcdr3\tantigen.epitope\tcomment\nTRB\tCASSF\tPEP\t"literal"\n', mtime=0)
+    source.write_bytes(payload)
+    monkeypatch.setitem(sys.modules, 'huggingface_hub', SimpleNamespace(hf_hub_download=lambda **kwargs: str(source)))
+    path = db.fetch_hf(cache=tmp_path / 'cache')
+    assert path.name == 'vdjdb.txt.gz'
+    assert path.read_bytes() == payload
+    assert not path.with_suffix('').exists()
+    assert db.load(path)['comment'][0] == '"literal"'
+    assert db.provenance(path)['file'].endswith('/vdjdb.txt.gz')
+    source.write_bytes(gzip.compress(b'unexpected\theader\nno\tjunction\n', mtime=0))
+    with pytest.raises(ValueError):
+        db.fetch_hf(cache=tmp_path / 'cache', force=True)
+    assert path.read_bytes() == payload
+    assert valid(path) and db.load(path).height == 1
+
+
+def test_hf_old_plain_cache_readable_without_download(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from vdjmatch.db.vdjdb import _HF_REPO, _HF_REVISION, _HF_TAG
+    filename = f'vdjdb/vdjdb-{_HF_TAG}/vdjdb.txt.gz'
+    identity = hashlib.sha256(f'{_HF_REPO}/{_HF_REVISION}/{filename}'.encode()).hexdigest()[:24]
+    old = tmp_path / 'huggingface' / identity / 'vdjdb.txt'
+    old.parent.mkdir(parents=True)
+    with staging(old) as stage:
+        stage.write_text('gene\tcdr3\tantigen.epitope\nTRB\tCASSF\tPEP\n')
+        publish(stage, old)
+    monkeypatch.setitem(sys.modules, 'huggingface_hub', SimpleNamespace(hf_hub_download=lambda **kwargs: pytest.fail('old cache should remain usable')))
+    assert db.fetch_hf(cache=tmp_path) == old
+    assert db.load(old).height == 1

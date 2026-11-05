@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import gzip
 import json
 import os
+import re
 import shutil
 import tempfile
 import urllib.parse
@@ -28,6 +28,15 @@ _MEMBER = {
 _HF_REPO = "isalgo/airr_benchmark"
 _HF_TAG = "2026-06-11-ZENODO"
 _HF_REVISION = "ebf0885fbaf76610eca450d361d9ee5499834733"
+
+
+def _logical_name(name: str) -> str:
+    """Resolve compressed text tables without changing their physical paths."""
+    return name[:-3] if name.endswith((".txt.gz", ".tsv.gz", ".csv.gz")) else name
+
+
+def _is_sha256(value) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{64}", value) is not None
 
 
 def _json_url(url: str) -> dict:
@@ -69,7 +78,7 @@ def _select_asset(rel: dict, asset: str) -> tuple[dict, dict | None]:
             raise ValueError(
                 f"manifest bundle {entry.get('file')!r} missing from release"
             )
-        if not isinstance(entry.get("sha256"), str) or len(entry["sha256"]) != 64:
+        if not _is_sha256(entry.get("sha256")):
             raise ValueError("manifest bundle requires SHA256 digest")
         return matches[0], entry
     zips = [a for a in assets if a["name"].endswith(".zip")]
@@ -96,9 +105,9 @@ def _release_checksum(rel: dict, remote: dict) -> str | None:
         for line in lines
         if len(line.split()) == 2 and line.split()[1].lstrip("*") == remote["name"]
     ]
-    if len(matches) != 1 or len(matches[0]) != 64:
+    if len(matches) != 1 or not _is_sha256(matches[0]):
         raise ValueError("SHA256SUMS does not identify the selected release asset")
-    return matches[0]
+    return matches[0].lower()
 
 
 def _archive_members(zf: zipfile.ZipFile) -> dict[str, str]:
@@ -120,9 +129,10 @@ def _archive_members(zf: zipfile.ZipFile) -> dict[str, str]:
             raise ValueError(f"unsafe archive member: {info.filename!r}")
         if info.is_dir():
             continue
-        if p.name in members:
+        name = _logical_name(p.name)
+        if name in members:
             raise ValueError(f"ambiguous archive basename: {p.name}")
-        members[p.name] = info.filename
+        members[name] = info.filename
     return members
 
 
@@ -166,6 +176,8 @@ def fetch_latest(
     unique staging files and are checksummed and published under an OS process lock.
     """
     rel = _release_json(pin)
+    if pin is not None and rel.get("tag_name") != pin:
+        raise ValueError("GitHub release tag does not match requested pin")
     remote, entry = _select_asset(rel, asset)
     # URL identity separates assets/tags and avoids untrusted names becoming filesystem paths.
     import hashlib
@@ -175,12 +187,16 @@ def fetch_latest(
     folder.mkdir(parents=True, exist_ok=True)
     archive = folder / "release.zip"
     expected = entry["sha256"] if entry else remote.get("digest", "")
-    if expected and expected.startswith("sha256:"):
+    if isinstance(expected, str) and expected.startswith("sha256:"):
         expected = expected[7:]
+    if expected and _is_sha256(expected):
+        expected = expected.lower()
     sums = _release_checksum(rel, remote)
     if sums and expected and sums != expected:
         raise ValueError("release checksum declarations disagree")
     expected = expected or sums or None
+    if expected is not None and not _is_sha256(expected):
+        raise ValueError("release requires a hexadecimal SHA256 digest")
     with locked(archive):
         if force or not valid(archive, expected):
             with staging(archive) as stage:
@@ -212,14 +228,12 @@ def fetch_latest(
         if entry and entry["role"] in {"primary", "airr"}:
             return archive
         member = _MEMBER.get(asset, "vdjdb.txt")
-        out = folder / member
-        if force or not valid(out):
-            with zipfile.ZipFile(archive) as zf:
-                names = _archive_members(zf)
-                if member not in names:
-                    raise ValueError(
-                        f"required table {member!r} missing from release archive"
-                    )
+        with zipfile.ZipFile(archive) as zf:
+            names = _archive_members(zf)
+            if member not in names:
+                raise ValueError(f"required table {member!r} missing from release archive")
+            out = folder / PurePosixPath(names[member]).name
+            if force or not valid(out):
                 with staging(out) as stage:
                     with zf.open(names[member]) as src, stage.open("wb") as dst:
                         shutil.copyfileobj(src, dst)
@@ -248,8 +262,11 @@ def fetch_hf(
     identity = hashlib.sha256(f"{repo}/{revision}/{filename}".encode()).hexdigest()[:24]
     folder = cache_dir(cache) / "huggingface" / identity
     folder.mkdir(parents=True, exist_ok=True)
-    out = folder / member
-    with locked(out):
+    old = folder / member
+    out = folder / (member + ".gz")
+    with locked(old):
+        if not force and not valid(out) and valid(old):
+            out = old
         if force or not valid(out):
             from huggingface_hub import hf_hub_download
 
@@ -262,7 +279,7 @@ def fetch_hf(
                 force_download=force,
             )
             with staging(out) as stage:
-                with gzip.open(gz, "rb") as src, stage.open("wb") as dst:
+                with Path(gz).open("rb") as src, stage.open("wb") as dst:
                     shutil.copyfileobj(src, dst)
                 schema.normalize(_read_table(stage, parquet=False, legacy=True))
                 publish(stage, out)
@@ -320,7 +337,7 @@ def _read_table(
     if is_parquet:
         return pl.read_parquet(path)
     if legacy is None:
-        legacy = path.suffix == ".txt"
+        legacy = Path(_logical_name(path.name)).suffix == ".txt"
     suffix = path.with_suffix("").suffix if path.suffix.lower() == ".gz" else path.suffix
     return pl.read_csv(
         path, separator="," if suffix.lower() == ".csv" else "\t",
@@ -362,7 +379,8 @@ def _require(frame: pl.DataFrame, columns: set[str], name: str):
 def _load_directory(path: Path, asset: str) -> pl.DataFrame:
     files: dict[str, Path] = {}
     for file in path.rglob("*"):
-        if file.is_file() and file.name in {
+        name = _logical_name(file.name)
+        if file.is_file() and name in {
             "vdjdb.parquet",
             "records.parquet",
             "records.tsv",
@@ -375,9 +393,9 @@ def _load_directory(path: Path, asset: str) -> pl.DataFrame:
             "vdjdb.reactivity.tsv",
             *_MEMBER.values(),
         }:
-            if file.name in files:
+            if name in files:
                 raise ValueError(f"ambiguous release member: {file.name}")
-            files[file.name] = file
+            files[name] = file
     if asset not in {"default", "primary", "legacy", "slim", "full", "airr"}:
         raise ValueError(f"unsupported VDJdb asset: {asset!r}")
     if asset in {"legacy", "slim", "full"}:
@@ -560,7 +578,7 @@ def load(
     elif path.suffix == ".zip":
         _validate_zip(path)
         raw = _load_archive(path, asset)
-    elif path.name in {
+    elif _logical_name(path.name) in {
         "records.tsv",
         "records.parquet",
         "chains.tsv",
