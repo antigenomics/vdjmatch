@@ -2,7 +2,7 @@ name: Native Windows end-to-end
 
 on:
   push:
-    branches: [master]
+    branches: [master, codex/windows-e2e]
   pull_request:
     branches: [master]
   workflow_dispatch:
@@ -28,17 +28,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: antigenomics/seqtree
-          ref: ${{ inputs.dependency_ref || 'master' }}
+          ref: ${{ inputs.dependency_ref || (github.ref_name == 'codex/windows-e2e' && github.ref_name) || 'master' }}
           path: .upstream/seqtree
       - uses: actions/checkout@v4
         with:
           repository: antigenomics/arda
-          ref: ${{ inputs.dependency_ref || 'master' }}
+          ref: ${{ inputs.dependency_ref || (github.ref_name == 'codex/windows-e2e' && github.ref_name) || 'master' }}
           path: .upstream/arda
       - uses: actions/checkout@v4
         with:
           repository: antigenomics/vdjtools
-          ref: ${{ inputs.dependency_ref || 'master' }}
+          ref: ${{ inputs.dependency_ref || (github.ref_name == 'codex/windows-e2e' && github.ref_name) || 'master' }}
           path: .upstream/vdjtools
       - name: Build source dependencies and package
         shell: pwsh
