@@ -1,7 +1,7 @@
 """Synthetic single-chain and paired label lookups; no download or scientific evaluation."""
-import polars as pl
-
 from vdjmatch import Annotator
+
+import polars as pl
 
 single = Annotator.from_labels([('CASSQYF', 'class-a'), ('CATSRYF', 'class-b')], locus='TRB')
 calls = single.annotate(['CASSQYF', 'CWWWWWWWF'])
