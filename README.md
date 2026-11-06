@@ -49,6 +49,11 @@ python -m pip install vdjmatch
 vdjmatch annotate sample.tsv -o annotation
 ```
 
+Native Windows is supported without WSL using the same pip installation.
+Source builds of the native dependencies require Microsoft C++ Build Tools.
+Windows CI builds the source stack and checks single-chain, paired and CLI
+annotation on synthetic fixtures.
+
 Use AIRR `junction_aa` (including conserved anchors) and V calls. The curated
 VDJdb reference is fetched on first use; add `--vdjdb reference.zip` for offline
 input. Single TRA/TRB receptors and paired receptors are supported. Exact hits
