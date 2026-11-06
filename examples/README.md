@@ -128,8 +128,10 @@ with permission to inspect its own processes. A restricted sandbox may reject it
 See the [resource measurements](https://docs.isalgo.dev/vdjmatch/performance.html).
 
 The accuracy and precursor notebooks retain reviewed aggregate outputs. The
-full-cohort vaccination notebook is a workflow draft: its four-worker run has
-not met the 30-minute budget and has no completed cohort outputs. To execute
+full-cohort vaccination notebook is a workflow draft with no completed cohort
+outputs. The recorded four-worker attempt used an earlier canonical-residue
+subset and exceeded 30 minutes; it does not measure the current complete-cohort
+runner. See the [recorded timing scope](../docs/performance.rst). To execute
 the biological workflows alongside the original gallery in a fresh environment:
 
 ```sh
