@@ -10,8 +10,6 @@ import hashlib
 import importlib.metadata
 import json
 from pathlib import Path
-import resource
-import sys
 import time
 
 
@@ -239,8 +237,8 @@ def main(args):
     prefix = Path(args.output_prefix)
     prefix.parent.mkdir(parents=True, exist_ok=True)
     output.write_csv(str(prefix) + ".evidence.tsv", separator="\t")
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    peak_bytes = peak if sys.platform == "darwin" else peak * 1024
+    from .__main__ import _peak_rss_gb
+    peak_bytes = int(_peak_rss_gb() * 1e9)
     manifest = {
         "calculation": "global-first-hit-v1",
         "interpretation": "whole-reference enrichment; not pMHC specificity confidence",

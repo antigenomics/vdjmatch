@@ -9,8 +9,6 @@ from __future__ import annotations
 import importlib.metadata
 import json
 from pathlib import Path
-import resource
-import sys
 import time
 
 
@@ -242,7 +240,8 @@ def main(args):
             )
             rescore_seconds = time.perf_counter() - tick
         pairs.write_csv(paths["pairs"], separator="\t")
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    from .__main__ import _peak_rss_gb
+    peak_bytes = int(_peak_rss_gb() * 1e9)
     options = {
         name: getattr(args, name)
         for name in (
@@ -318,7 +317,7 @@ def main(args):
             "search_seconds": search_seconds,
             "positional_rescore_seconds": rescore_seconds,
             "wall_seconds": time.perf_counter() - started,
-            "process_peak_rss_bytes": peak if sys.platform == "darwin" else peak * 1024,
+            "process_peak_rss_bytes": peak_bytes,
             "native_threads": args.threads,
             "polars_pool_threads": pl.thread_pool_size(),
             "rss_scope": "CLI process; no subprocesses created",
