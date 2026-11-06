@@ -20,13 +20,13 @@ def test_explicit_pool_closes_before_default_training(tmp_path, monkeypatch):
     for budget in (True, 0, 1.5):
         with pytest.raises(ValueError, match="allocated_cpu_budget"):
             worker._threads(dict(allocated_cpu_budget=budget))
-    with pytest.raises(ValueError, match="allocation"):
-        worker._threads(dict(threads=2, allocated_cpu_budget=1))
+    assert worker._threads(dict(threads=2, allocated_cpu_budget=1)) == 1
     monkeypatch.setattr(worker.sys, "platform", "darwin")
     monkeypatch.setattr(worker.os, "cpu_count", lambda: 4)
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "2")
     assert worker._threads(dict(threads=2)) == 2
-    for value in (True, 0, -1, 1.5, 3):
+    assert worker._threads(dict(threads=3)) == 2
+    for value in (True, 0, -1, 1.5):
         with pytest.raises(ValueError):
             worker._threads(dict(threads=value))
     for key in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS",

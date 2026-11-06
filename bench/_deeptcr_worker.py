@@ -36,8 +36,8 @@ def _threads(payload):
             raise ValueError("SLURM_CPUS_PER_TASK must be positive")
         limits.append(allocated)
     if threads > min(limits):
-        raise ValueError("threads exceeds the available CPU allocation")
-    return threads
+        print(f"Requested {threads} threads; available allocation {min(limits)}; using {min(limits)} threads", file=sys.stderr)
+    return min(threads, min(limits))
 
 
 def main():
