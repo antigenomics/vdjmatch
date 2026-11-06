@@ -60,3 +60,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python examples/labeled_references.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          vdjmatch annotate examples/inputs/paired.tsv --locus paired --vdjdb examples/inputs/reference.tsv --threads 2 --output-prefix windows-paired
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -c "from vdjmatch.cli.__main__ import _peak_rss_gb; assert _peak_rss_gb() > 0"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

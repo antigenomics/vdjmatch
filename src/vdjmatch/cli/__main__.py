@@ -19,7 +19,6 @@ Paired mode reports same-complex candidate evidence and descriptive pair counts.
 from __future__ import annotations
 
 import argparse
-import resource
 import sys
 import time
 from pathlib import Path
@@ -104,6 +103,24 @@ def _cmd_annotate(a: argparse.Namespace) -> int:
 
 def _peak_rss_gb() -> float:
     """Peak resident set in GB (macOS reports ru_maxrss in bytes, Linux in KiB)."""
+    if sys.platform == "win32":
+        import ctypes as C
+        from ctypes import wintypes as W
+        class Memory(C.Structure):
+            _fields_ = [("cb", W.DWORD), ("faults", W.DWORD)] + [
+                (name, C.c_size_t) for name in (
+                    "peak", "working", "quota_peak_paged", "quota_paged",
+                    "quota_peak_nonpaged", "quota_nonpaged", "pagefile", "peak_pagefile")]
+        kernel = C.WinDLL("kernel32", use_last_error=True)
+        kernel.GetCurrentProcess.restype = W.HANDLE
+        query = C.WinDLL("psapi", use_last_error=True).GetProcessMemoryInfo
+        query.argtypes = [W.HANDLE, C.POINTER(Memory), W.DWORD]
+        memory = Memory()
+        memory.cb = C.sizeof(memory)
+        if not query(kernel.GetCurrentProcess(), C.byref(memory), memory.cb):
+            raise C.WinError(C.get_last_error())
+        return memory.peak / 1e9
+    import resource
     rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     rss_bytes = rss if sys.platform == "darwin" else rss * 1024
     return rss_bytes / 1e9
