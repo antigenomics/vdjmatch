@@ -156,7 +156,7 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     offsets; source IDs, metadata and sample-scoped pairing remain available in the
     returned tables. Defaults and advanced scorer options come from the existing
     targeted annotation parser. No per-file search pool or computed cache is used.
-    ``threads=0`` uses up to 16 allocated cores; positive counts override this cap.
+    ``threads=0`` uses all allocated physical cores; positive counts may use allocated logical CPUs.
     Outputs are ``<prefix>.queries.tsv``, ``.selection.tsv``, optional detail tables,
     and ``.manifest.json``. The result contains frames, manifest and output paths.
     """

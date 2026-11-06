@@ -109,15 +109,15 @@ The legacy Java/Groovy implementation remains on [`legacy-java`](https://github.
 and [Java tag 1.3.1](https://github.com/antigenomics/vdjmatch/tree/1.3.1), with
 JitPack artifact `com.github.antigenomics:vdjmatch:1.3.1`.
 
+## CPU budgets
+
+`threads=0` selects the available physical cores, constrained by CPU affinity,
+scheduler allocation and container quota. On a fully allocated 20-core/40-thread
+host, automatic selection uses 20 workers. Use `1` for serial work; an explicit
+positive count may use logical CPUs within the allocation.
+
+Sample workers keep their inner numerical kernels serial.
+
 ## License
 
 ISALGO LAB Academic and Non-Commercial Research License v1.0. See [LICENSE](LICENSE).
-
-CPU budgets use `threads=0` for automatic parallel work, capped at 16 allocated CPUs.
-Use `1` for serial work or a positive
-count to override the automatic cap within the scheduler/container allocation.
-Sample workers keep their inner numerical kernels serial.
-
-Candidate-only annotation coalesces up to 256 complete query identities and
-64 MiB of queued expanded tables per reduction. Native search and alias expansion
-keep small blocks; larger complete-query frames are consumed directly.

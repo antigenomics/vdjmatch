@@ -11,7 +11,7 @@ submodules below expose the building blocks (VDJdb access, the search index, E-v
 CPU budgets
 -----------
 
-``Annotator`` search methods default to ``threads=0`` (up to 16 allocated CPUs);
+``Annotator`` search methods default to ``threads=0`` (all allocated physical cores);
 ``threads=1`` selects serial work, and a positive count selects an explicit budget within the allocation.
 The shared VDJtools resolver respects scheduler/affinity/container limits and
 keeps inner native batches serial inside its sample workers. Excessive explicit

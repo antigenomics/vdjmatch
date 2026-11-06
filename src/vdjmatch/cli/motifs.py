@@ -12,7 +12,7 @@ def register(subparsers):
     p.add_argument('--species',default='HomoSapiens')
     p.add_argument('--exclude-exact',action='store_true',help='benchmark-only exact-hit filtering; motif models remain fixed')
     p.add_argument('--output-prefix',required=True)
-    p.add_argument('--threads',type=cpu_budget, default="0",help='table CPU budget (0: automatic, up to 16 allocated); BLAS managed internally')
+    p.add_argument('--threads',type=cpu_budget, default="0",help='table CPU budget (0: automatic, all allocated physical cores); BLAS managed internally')
     p.set_defaults(func=main)
 
 

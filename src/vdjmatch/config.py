@@ -29,7 +29,7 @@ class Params:
     align: bool = True  # emit per-hit CIGAR/alignment
     species: str = "HomoSapiens"  # species filter
     locus: str | None = None  # single-chain reference selector and missing query-locus hint
-    threads: int = 0  # automatic native budget, capped at 16 allocated CPUs
+    threads: int = 0  # automatic native budget, using allocated physical cores
 
     def validate(self) -> None:
         """Reject invalid numerical budgets and configuration types."""

@@ -60,7 +60,7 @@ format determine identity; incomplete or corrupt assets rebuild from the source.
 The reference's parent directory must be writable. ``Annotator.from_path`` and
 ``match`` also prepare these assets automatically. ``annotate`` scores its
 reference directly without preparing unused profile sidecars. ``index`` and
-``update`` accept ``--threads 0`` (default) for up to 16 allocated CPUs.
+``update`` accept ``--threads 0`` (default) for all allocated physical cores.
 
 Use ``reference-profiles`` for a fresh scientific classification rebuild:
 
@@ -1476,14 +1476,14 @@ Zero supported motifs, invalid queries and absent references have explicit statu
 This command supplies a candidate component, not a switched scorer, joint paired
 likelihood, P-value or specificity probability. Pairing remains in the output IDs;
 run both loci and join by the original linkage to compare genuine paired queries.
-``--threads`` defaults to ``0`` (up to 16 allocated CPUs); BLAS stays
+``--threads`` defaults to ``0`` (all allocated physical cores); BLAS stays
 serial. Output tables and the manifest must not overlap inputs or lie inside
 the reference directory.
 
 Global evidence combination
 ---------------------------
 
-Both commands default to ``--threads 0`` (up to 16 allocated CPUs),
+Both commands default to ``--threads 0`` (all allocated physical cores),
 respect a smaller parent table cap, and keep numerical BLAS work serial.
 
 ``fit-evidence TABLE --model MODEL`` fits one experimental logistic formula from

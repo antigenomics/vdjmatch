@@ -9,7 +9,7 @@ def register(subparsers):
     parser.add_argument('selection', help='native paired selection TSV, optionally gzip compressed')
     parser.add_argument('--input-manifest', required=True)
     parser.add_argument('--output-prefix', required=True)
-    parser.add_argument('--threads', type=cpu_budget, default="0", help='table CPU budget (0: automatic, up to 16 allocated)')
+    parser.add_argument('--threads', type=cpu_budget, default="0", help='table CPU budget (0: automatic, all allocated physical cores)')
     parser.set_defaults(func=main)
 
 

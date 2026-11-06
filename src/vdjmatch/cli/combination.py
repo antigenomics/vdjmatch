@@ -10,7 +10,7 @@ def register(subparsers):
         p.add_argument('evidence', help='TSV of component scores and reference structure')
         p.add_argument('--model', required=command == 'fit-evidence')
         p.add_argument('--group-column', default='epitope', help='held-out group identity')
-        p.add_argument('--threads',type=cpu_budget, default="0",help='table CPU budget (0: automatic, up to 16 allocated); BLAS managed internally')
+        p.add_argument('--threads',type=cpu_budget, default="0",help='table CPU budget (0: automatic, all allocated physical cores); BLAS managed internally')
         if command == 'fit-evidence':
             p.add_argument('--label-column', default='label')
             p.add_argument('--weight-column')

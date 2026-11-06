@@ -11,7 +11,7 @@ def register(subparsers):
     )
     parser.add_argument("input", help="flat paired evidence TSV (one row per query/cohort/full pMHC)")
     parser.add_argument("--output", required=True, help="output TSV, preserving all input columns")
-    parser.add_argument("--threads", type=cpu_budget, default="0", help="table CPU budget (0: automatic, up to 16 allocated)")
+    parser.add_argument("--threads", type=cpu_budget, default="0", help="table CPU budget (0: automatic, all allocated physical cores)")
     parser.set_defaults(func=main)
     return parser
 
