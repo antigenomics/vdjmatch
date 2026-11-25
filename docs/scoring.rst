@@ -40,6 +40,31 @@ document retained historical and experimental statistics; they do not redefine
 the annotation default.
 
 
+Target-specific distance and support ranks
+------------------------------------------
+
+The experimental ``equal-tail`` command ranks a receptor against a specified
+peptide–MHC using the nearest native TCRdist3 distance :math:`D` and the stem4
+kernel support :math:`K`. A linked distance sums the
+two chain distances to the **same reference pair** before taking the minimum.
+
+Let :math:`B` be the set of distinct other-peptide reference keys for this
+species and receptor axis, and :math:`M=|B|`. Score each key against the same
+target as the query. For :math:`M>0`, the ranking score in nats is
+
+.. math::
+
+   p_D = \frac{1+\#\{b\in B:D_b\leq D\}}{M+1},\qquad
+   p_K = \frac{1+\#\{b\in B:K_b\geq K\}}{M+1},\qquad
+   S = -\log p_D-\log p_K .
+
+Both tails include ties. A missing distance or zero kernel support contributes
+zero nats from that component. An empty background leaves the score undefined.
+The compatible-HLA option restricts the calibration keys to other peptides
+with a compatible MHC restriction. The two measurements share reference data,
+so their product has no independent-tail probability interpretation. A cutoff
+for calling an epitope requires calibration of the complete selection procedure.
+
 Choosing a fuzzy-matching comparison
 ------------------------------------
 

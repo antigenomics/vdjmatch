@@ -940,6 +940,8 @@ def main(argv: list[str] | None = None) -> int:
             annotation._optionals._group_actions.remove(action)
             advanced._group_actions.append(action)
     annotation.set_defaults(func=_cmd_annotate, selection_only=True)
+    from .equal_tail import register as register_equal_tail
+    register_equal_tail(sub)
     from .pgen import register as register_pgen
     register_pgen(sub)
     from .calibration import register as register_calibration
@@ -1000,7 +1002,7 @@ def main(argv: list[str] | None = None) -> int:
     original_kernels = {key: os.environ.get(key) for key in kernel_env}
     a = p.parse_args(argv)
     native_threads = None
-    evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
+    evidence_commands = {"equal-tail", "motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     evidence_commands.add('paired-score')
     evidence_commands.add('repertoire-exact')
     evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment', 'repertoire-tcrnet'})

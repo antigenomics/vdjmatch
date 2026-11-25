@@ -4,6 +4,35 @@ Command-line interface
 The console script provides reference management, annotation and benchmark commands. Use
 ``vdjmatch match -h`` for the installed version's complete options.
 
+vdjmatch equal-tail
+-------------------
+
+Rank a single-chain or linked receptor against one or more candidate pMHCs.
+Supply ``epitope``, ``mhc_a``, ``mhc_b`` and ``mhc_class`` on each query row,
+alongside the anchored junction, locus and V call. For linked receptors, give
+the TRA and TRB rows the same pair ID. To test a second candidate, repeat the
+receptor with that candidate's pMHC and a distinct pair ID.
+
+.. code-block:: bash
+
+   vdjmatch equal-tail candidates.tsv --vdjdb reference.zip --species human \
+       --locus paired --output-prefix results/paired
+
+The command writes ``results/paired.scores.tsv`` and a provenance manifest.
+Use ``--locus TRA`` or ``--locus TRB`` for single chains.
+``--background-scope compatible-hla`` restricts the other-peptide calibration
+population by MHC. For an exact-excluded benchmark, pass ``--exclude-exact``.
+See :doc:`scoring` for the score definition and units.
+
+The output includes exact marginal counts ``D_tail_n`` and ``K_tail_n``.
+For exact ranking across candidates, use Python's ``fractions.Fraction``
+and sort by ``Fraction(int(product_numerator), int(tail_denominator)**2)``
+in ascending order. Equal fractions tie. The CLI exports the counts for this
+comparison. ``calibration_available`` requires both target and background
+keys. Otherwise, the score and tail counts are null. When calibration is
+available, a query with missing distance and zero kernel has a continuous
+score of zero, ``has_evidence=false`` and ``status=no_evidence``.
+
 vdjmatch update
 ---------------
 
