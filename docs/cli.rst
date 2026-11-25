@@ -81,6 +81,17 @@ withheld queries; eligibility on either locus suffices for genuine pairs.
        --background-scope all-hla --apply-any-call results/nulls.calibration.json \
        --output-prefix results/queries
 
+The optional ``--kernel-score-budget-bytes`` controls how many target columns
+share a full kernel traversal. It applies to declared scoring, database-wide
+selection, fitting and application. The default is 134217728 bytes (128 MiB).
+One target column requires eight bytes per combined reference and query row;
+at least one target is processed per batch. The native count buffer and
+other working arrays require additional memory. Use a larger budget when
+sufficient RAM is available, for example ``--kernel-score-budget-bytes
+9663676416`` for 9 GiB. The budget is recorded as execution provenance and
+may differ between fit and application. The Python keyword is
+``kernel_score_budget_bytes``.
+
 Keep the recipe and its sibling ``.null-cases.tsv`` together. Fitting writes
 the cutoff and per-source operating points. Application verifies the recipe's
 reference, model, scoring code, locus, exact-hit policy, HLA scope and selection

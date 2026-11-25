@@ -210,3 +210,59 @@ def test_paired_all_target_search_can_use_unlinked_beta_alone(tmp_path):
     pairs=equal_tail_selection(q,ref,locus='paired',**options)
     beta=equal_tail_selection(q,ref,locus='TRB',**options)
     assert pairs.equals(beta) and pairs['score'].null_count()==0
+
+
+def test_kernel_score_slab_budget_preserves_declared_and_null_ranks(tmp_path):
+    sample, ref = _files(tmp_path)
+    # Repeat A as C to retain exact multi-target ties. Include a no-hit query.
+    raw = pl.read_csv(sample, separator='\t')
+    raw = pl.concat([raw,raw.tail(2).with_columns(pl.lit('nohit').alias('pair_id'),
+                         pl.concat_str(pl.lit('x'), 'query_id').alias('query_id'),
+                         pl.lit(None,dtype=pl.String).alias('junction_aa'))])
+    raw.write_csv(sample,separator='\t')
+    records=pl.read_csv(ref,separator='\t')
+    extra=records.filter(pl.col('epitope')=='A').with_columns(pl.lit('C').alias('epitope'),
+                                                               (pl.col('complex_id')+4).alias('complex_id'))
+    pl.concat([records,extra]).write_csv(ref,separator='\t')
+    cmd=['equal-tail',str(sample),'--vdjdb',str(ref),'--locus','paired',
+         '--distance-geometry','blosum62-double-cdr12','--exclude-exact']
+    for name, budget in [('split',1),('single',2**30)]:
+        args=cmd+['--kernel-score-budget-bytes',str(budget)]
+        def run(suffix, *options):
+            prefix=tmp_path/(name+suffix)
+            main(args+list(options)+['--output-prefix',str(prefix)])
+            return prefix
+        run('declared')
+        run('fit','--all-targets','--fit-any-call','.25','--min-null-target-records','1')
+        run('apply','--all-targets','--apply-any-call',str(tmp_path/(name+'fit.calibration.json')))
+    for suffix in ['declared.scores.tsv','fit.null-cases.tsv','fit.operating_points.tsv','apply.selection.tsv','apply.null-tails.tsv']:
+        left=pl.read_csv(tmp_path/('split'+suffix),separator='\t')
+        right=pl.read_csv(tmp_path/('single'+suffix),separator='\t')
+        assert left.equals(right)
+    for pref in ['split','single']:
+        result=pl.read_csv(tmp_path/(pref+'apply.selection.tsv'),separator='\t')
+        assert result.filter(pl.col('query_id')=='nohit')['E_null'].item()==0
+        assert 'ambiguous' in result['selection_status'].to_list()
+    r0=json.loads((tmp_path/'splitfit.calibration.json').read_text())
+    r1=json.loads((tmp_path/'singlefit.calibration.json').read_text())
+    assert r0==r1
+    with pytest.raises(SystemExit):
+        main(cmd+['--kernel-score-budget-bytes','0','--output-prefix',str(tmp_path/'invalid')])
+
+
+def test_previous_fixed_budget_binding_requires_the_verified_sources_and_event():
+    from vdjmatch.cli.equal_tail_compatibility import _BUDGET_REVISION, compatible_binding
+    from vdjmatch.db.cache import sha256
+    from vdjmatch.cli import equal_tail as cli, equal_tail_calibration
+    from vdjmatch.evalue import equal_tail, equal_tail_selection
+    from pathlib import Path
+    files={m.__name__:Path(m.__file__) for m in [cli,equal_tail,equal_tail_selection]}
+    files['calibration']=Path(equal_tail_calibration.__file__)
+    old={name:ids[0] for name,ids in _BUDGET_REVISION.items()}
+    live={name:sha256(path) for name,path in files.items()}
+    frozen=dict(source_sha256=old|{'geometry':'same'},locus='TRB')
+    current=dict(source_sha256=live|{'geometry':'same'},locus='TRB')
+    assert compatible_binding(frozen,current)
+    assert not compatible_binding(frozen,current|{'locus':'TRA'})
+    assert not compatible_binding(frozen,current|{'source_sha256':live|{'geometry':'different'}})
+    assert not compatible_binding(frozen,current|{'source_sha256':current['source_sha256']|{'calibration':'unknown'}})

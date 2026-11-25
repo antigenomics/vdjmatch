@@ -3,11 +3,12 @@ import numpy as np
 import polars as pl
 
 from ..aggregate.candidates import PMHC
-from .equal_tail import equal_tail_scores
+from .equal_tail import DEFAULT_KERNEL_SCORE_BUDGET_BYTES, equal_tail_scores
 
 
 def equal_tail_selection(queries, reference, *, locus, species, threads, exclude_exact=False,
-                         distance_geometry='native', background_scope='all-hla', withheld_column=None):
+                         distance_geometry='native', background_scope='all-hla', withheld_column=None,
+                         kernel_score_budget_bytes=DEFAULT_KERNEL_SCORE_BUDGET_BYTES):
     """Return one selected any-call score per query, retaining tied and unsupported cases.
 
     For a paired query, take the maximum over linked, TRA, and TRB selections.
@@ -51,7 +52,8 @@ def equal_tail_selection(queries, reference, *, locus, species, threads, exclude
     for axis in axes:
         equal_tail_scores(queries, reference, locus=axis, species=species, threads=threads,
                           exclude_exact=exclude_exact, distance_geometry=distance_geometry,
-                          background_scope=background_scope, _consume=consume)
+                          background_scope=background_scope, kernel_score_budget_bytes=kernel_score_budget_bytes,
+                          _consume=consume)
     labels = list(catalog)
     any_hit = winner >= 0
     score = -np.log(np.asarray(numerator.astype(object) / denominator.astype(object)**2, dtype=float))

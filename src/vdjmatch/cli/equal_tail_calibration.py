@@ -10,6 +10,7 @@ from ..db.cache import sha256
 from ..evalue.equal_tail_selection import equal_tail_selection
 from ..evalue.paired import build_paired_ref
 from .calibration import apply_calibration, null_tail_probabilities, operating_points
+from .equal_tail_compatibility import compatible_binding
 
 
 def null_path(recipe):
@@ -60,13 +61,15 @@ def _withheld(reference, locus, minimum):
 def run_database(args, queries, reference, species, prefix, ingestion):
     binding=_binding(args,species)
     options=dict(locus=args.locus,species=species,threads=args.threads,exclude_exact=args.exclude_exact,
-                 distance_geometry=args.distance_geometry,background_scope=args.background_scope)
+                 distance_geometry=args.distance_geometry,background_scope=args.background_scope,
+                 kernel_score_budget_bytes=args.kernel_score_budget_bytes)
     prefix.parent.mkdir(parents=True,exist_ok=True)
-    meta=dict(command='equal-tail', binding=binding, input_sha256=sha256(Path(args.sample)), ingestion=ingestion)
+    meta=dict(command='equal-tail', binding=binding, kernel_score_budget_bytes=args.kernel_score_budget_bytes,
+              input_sha256=sha256(Path(args.sample)), ingestion=ingestion)
     recipe=None
     if args.apply_any_call:
         recipe=json.loads(Path(args.apply_any_call).read_text())
-        if recipe.get('equal_tail_binding') != binding:
+        if not compatible_binding(recipe.get('equal_tail_binding'),binding):
             raise ValueError('any-call recipe does not match this equal-tail search')
         source=null_path(args.apply_any_call)
         if sha256(source)!=recipe['null_cases_sha256']:

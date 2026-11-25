@@ -25,6 +25,8 @@ def register(subparsers):
                       help='apply a matching equal-tail recipe and its original source-stratified null maxima')
     p.add_argument('--min-null-target-records', type=int, default=30,
                    help='minimum source records for peptide-withheld query eligibility; default 30')
+    p.add_argument('--kernel-score-budget-bytes', type=int, default=128*1024**2,
+                   help='working memory for the kernel score slab (default 128 MiB; minimum one target)')
     p.add_argument('--threads', type=cpu_budget, default='0')
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
@@ -91,6 +93,8 @@ def main(a):
     from ..evalue.control import _organism
     from ..evalue.equal_tail import equal_tail_scores
     from ..runner.annotation import _validate_output_paths
+    if a.kernel_score_budget_bytes < 1:
+        raise ValueError('--kernel-score-budget-bytes must be a positive integer')
     if (a.fit_any_call is not None or a.apply_any_call) and not a.all_targets:
         raise ValueError('any-call calibration requires --all-targets')
     if a.fit_any_call is not None and not 0 <= a.fit_any_call < 1:
@@ -112,13 +116,14 @@ def main(a):
         return run_database(a, q, ref, species, prefix, ingestion)
     scores = equal_tail_scores(q, ref, locus=a.locus, species=species, threads=a.threads,
                               exclude_exact=a.exclude_exact, background_scope=a.background_scope,
-                              distance_geometry=a.distance_geometry)
+                              distance_geometry=a.distance_geometry, kernel_score_budget_bytes=a.kernel_score_budget_bytes)
     prefix.parent.mkdir(parents=True,exist_ok=True)
     scores.write_csv(str(prefix)+'.scores.tsv',separator='\t')
     template = files('vdjmatch.resources')/'vloops'/(species+'_v_loops.tsv')
     report = dict(command='equal-tail', reference=db.provenance(a.vdjdb), sample_sha256=sha256(Path(a.sample)),
                   v_loops_sha256=hashlib.sha256(template.read_bytes()).hexdigest(), ingestion=ingestion,
                   species=species, locus=a.locus, exclude_exact=a.exclude_exact, threads=a.threads,
+                  kernel_score_budget_bytes=a.kernel_score_budget_bytes,
                   background_scope=a.background_scope, reference_population='curated-benchmark',
                   versions={p:version(p) for p in ('vdjmatch','vdjtools','seqtree')},
                   target_selection='declared compatible full pMHC', queries=len(scores),

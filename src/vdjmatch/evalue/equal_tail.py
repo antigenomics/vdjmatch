@@ -14,6 +14,7 @@ from .kernel import grouped_kernel_enrichment, ladder_cutoffs
 from .paired import build_paired_ref
 
 _NO_DISTANCE = np.iinfo(np.int32).max
+DEFAULT_KERNEL_SCORE_BUDGET_BYTES = 128 * 1024**2
 
 
 def _prepare(frame, chains, model):
@@ -62,17 +63,21 @@ def _nearest(queries, target, chains, context, species, threads, exclude_exact):
 
 
 def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_exact=False,
-                      background_scope='all-hla', distance_geometry='native', _consume=None):
+                      background_scope='all-hla', distance_geometry='native',
+                      kernel_score_budget_bytes=DEFAULT_KERNEL_SCORE_BUDGET_BYTES, _consume=None):
     """Score prepared query rows against one curated, species-specific reference.
 
     Queries carry query_id, species, full candidate pMHC and cdr3a/va and/or cdr3b/vb.
     Linked queries and references use the same pair in both native geometry terms.
     The native distance uses clipped BLOSUM62. ``blosum62-double-cdr12`` uses full
     BLOSUM62 and doubles CDR1/CDR2 in both query and background distances.
-    The kernel uses the same fixed geometry for either distance choice.
+    The kernel uses the same fixed geometry for either distance choice. Its score
+    slab batches targets within kernel_score_budget_bytes, with a minimum of one target.
     Counts retain exact hits in the model. Missing distance/kernel support contributes
     a unit tail; an absent target or empty calibration population has no combined score.
     """
+    if type(kernel_score_budget_bytes) is not int or kernel_score_budget_bytes < 1:
+        raise ValueError('kernel_score_budget_bytes must be a positive integer')
     if locus not in ('TRA', 'TRB', 'paired') or background_scope not in ('all-hla', 'compatible-hla'):
         raise ValueError('unsupported equal-tail locus or background scope')
     chains = {'TRA': 'a', 'TRB': 'b', 'paired': 'ab'}[locus]
@@ -122,7 +127,7 @@ def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_ex
     scale = kctx['distance_units'][0]
     rows = []
     # Cap retained kernel values per target batch; native search itself streams query blocks.
-    batch = max(1, (128 * 1024**2) // max(1, len(allkeys) * 8))
+    batch = max(1, kernel_score_budget_bytes // max(1, len(allkeys) * np.dtype(np.float64).itemsize))
     for offset in range(0, len(groups), batch):
         tasks = groups[offset:offset + batch]
         values = np.full((len(tasks), len(allkeys)), np.nan)
