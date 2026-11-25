@@ -24,6 +24,11 @@ Use ``--locus TRA`` or ``--locus TRB`` for single chains.
 population by MHC. For an exact-excluded benchmark, pass ``--exclude-exact``.
 See :doc:`scoring` for the score definition and units.
 
+The ``native`` geometry reproduced the external TCRdist3 nearest distances
+for all 2,636 paired queries in the November benchmark, using the same target
+references and exact-hit exclusion. This equivalence applies to the distance
+component. The equal-tail command combines it with kernel evidence.
+
 To use full BLOSUM62 with twice the aligned CDR1 and CDR2 costs in the
 distance component, run::
 
@@ -97,13 +102,19 @@ the cutoff and per-source operating points. Application verifies the recipe's
 reference, model, scoring code, locus, exact-hit policy, HLA scope and selection
 event. For an exact-excluded benchmark, include ``--exclude-exact`` in both
 commands. For ordinary annotation, retain exact hits in both commands.
-Per-query ``E_null`` in ``.selection.tsv`` is the maximum observed fraction
-of null queries from each source at least as extreme as the selected score.
-``p_null`` uses the inclusive plus-one rank in each source. No-support nulls
-count in each denominator. A no-support query has ``E_null=0`` and ``p_null=1``.
-Source-specific counts and tails are in ``.null-tails.tsv``. The false-call
-fraction is an empirical estimate for the supplied null populations. A
-recipe fitted to fixture data is only a software check.
+For a supported query, let :math:`k_b` count null queries from source :math:`b`
+with a score at least as high as the selected score, and let :math:`N_b` be
+the total number of null queries in that source, including those without
+support. The selection table reports ``E_null`` as :math:`\max_b k_b/N_b`
+and ``p_null`` as :math:`\max_b (1+k_b)/(1+N_b)`. A query without support
+has ``E_null=0`` and ``p_null=1`` and receives no call.
+
+``E_null`` estimates the number of false any-calls per null query at that
+score in the supplied calibration populations. Each query contributes at most
+one any-call, including when the leading pMHCs tie. The event therefore
+measures whether the search made a call and does not assess whether it assigned
+the correct pMHC. Source-specific counts and tails are in ``.null-tails.tsv``.
+A recipe fitted to fixture data is only a software check.
 
 vdjmatch update
 ---------------
