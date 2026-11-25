@@ -43,3 +43,19 @@ def test_cli_reducer_is_fresh_and_calibration_remains_unbound(tmp_path):
     options['locus']='TRB';manifest.write_text(json.dumps(dict(parameters=options)))
     with pytest.raises(SystemExit) as exc:main(args[:-1]+[str(tmp_path/'invalid')])
     assert exc.value.code==2
+
+
+def test_conditional_filter_requires_unique_winner_and_resolved_null_tail():
+    from vdjmatch.cli.paired_score import conditional_linked_calls, linked_first_scores
+
+    native = sample().with_columns(
+        *[pl.lit('A').alias(c) for c in ('selected_linked_epitope', 'selected_alpha_epitope', 'selected_beta_epitope')],
+        *[pl.lit(1).alias(c) for c in ('tied_peptides', 'alpha_tied_peptides', 'beta_tied_peptides')],
+    )
+    null = native.head(1).drop('query_id').join(pl.DataFrame({'query_id': range(99)}), how='cross')
+    null = null.with_columns(pl.lit('0.1').alias('kernel_score'))
+    result = conditional_linked_calls(linked_first_scores(native), null)
+    assert result['call_status'].to_list() == ['accepted'] + ['no_supported_match'] * 4
+    assert result['p_null'][0] == .01 and result['E_null'][0] == 0
+    for more in [null.head(98), null.with_columns(pl.lit('0.2').alias('kernel_score'))]:
+        assert conditional_linked_calls(linked_first_scores(native), more)['call_status'][0] == 'no_supported_match'

@@ -89,7 +89,7 @@ def register(subparsers, name='neighbours'):
     p.add_argument('--neighbour-weighting',choices=['ball','linear','local-rank','kernel'],default='ball',
                    help='ball/linear enrichment or experimental background-local rank evidence')
     p.add_argument('--kernel-scorer', choices=['v-bounded','all-bounded','vonly-bounded',
-                   'v-rare','all-rare','vonly-rare'], default='v-bounded',
+                   'v-rare','all-rare','vonly-rare','count-enrichment'], default='v-bounded',
                    help='advanced ladder alternative; v-bounded is the targeted default')
     p.add_argument('--geometry-extra', choices=GEOMETRY_EXTRAS,
                    help='advanced retained fixed geometry; sets its matrix, trim3 ends and stem recipe; requires compact kernel scoring')
@@ -1112,8 +1112,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
             'matrix':a.distance_matrix,'cutoffs':kernel_cutoffs,
             'count_cutoff':kernel_cutoffs[-1],'count_columns':'n_reference and n_control count through the ladder reach',
             'kernel_scale':22.5*matrix_scale,
-            'cross_v':.25 if a.kernel_scorer.startswith('v-') else 1. if a.kernel_scorer.startswith('all-') else 0.,
-            'denominator':'1+control_count' if a.kernel_scorer.endswith('bounded') else 'max(control_count,0.01)',
+            'cross_v':None if a.kernel_scorer=='count-enrichment' else .25 if a.kernel_scorer.startswith('v-') else 1. if a.kernel_scorer.startswith('all-') else 0.,
+            'denominator':'pooled hit proportion; one-sided likelihood ratio in bits' if a.kernel_scorer=='count-enrichment' else '1+control_count' if a.kernel_scorer.endswith('bounded') else 'max(control_count,0.01)',
             'normalization':'fixed target population; exact hits filtered only','interpretation':'relative evidence; not a calibrated P/E or binding probability',
             'paired':'linked alpha+beta sum plus separate full-reference chain scores; no joint probability or fitted fusion'}} if kernel else {}),
         'parameters':{k:v for k,v in vars(a).items() if k!='func'},

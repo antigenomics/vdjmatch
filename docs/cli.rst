@@ -1322,6 +1322,17 @@ hashes. Its ``.scores.tsv`` is continuous ranking evidence, unlike the decision
 indicators from ``paired-labels``. It changes no default or label assignment;
 the existing any-axis call calibration does not apply to this candidate.
 
+For experimental database-wide rejection, supply ``--withheld-manifest`` with
+the paired ``reference-calls --leave-epitope-out`` manifest and its sibling
+``.calls.tsv``. The reference, geometry and exact-hit policy must match the
+annotated population. Among withheld reference queries with the same winning
+peptide and axis, let *n* count all such queries and *k* count scores at least
+as large as the observed one. The output reports ``null_queries``,
+``E_null = k/n``, and the inclusive rank ``p_null = (k+1)/(n+1)``.
+A unique supported winner passes at ``p_null <= 0.01``. Missing groups and
+ambiguous winners abstain. This tests a selected peptide. A full HLA restriction
+requires separate evidence from the winning reference records.
+
 The original scorer requires a matching raw ``--control`` repertoire for nonbundled
 species/loci. Its output
 includes continuous candidates, calls, full truth labels, calibration input and a
