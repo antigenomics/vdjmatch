@@ -75,8 +75,9 @@ def masked_motif_scores(queries, reference, *, exclude_exact=False, target_refer
                 (pl.col('hit_x_va').cast(pl.Int64)-pl.col('_removed').fill_null(0)).alias('hit_x_va')).drop('_removed')
         hits=hits.filter(pl.col('hit_x_va')>0).with_columns(
             (pl.col('hit_x_va')/pl.col('x')*(pl.col('X')/pl.col('x')).log()).alias('_mfikf'))
+        # Identical token contributions must produce identical empirical-tail ties.
         return (hits.group_by('query_id',*PMHC,'t0').agg(pl.col('_mfikf').max(),pl.col('seq0').first())
-            .group_by('query_id',*PMHC).agg((pl.col('_mfikf').sum()/pl.col('seq0').first().str.len_chars()).alias('motif_score'),
+            .group_by('query_id',*PMHC).agg((pl.col('_mfikf').sort().sum()/pl.col('seq0').first().str.len_chars()).alias('motif_score'),
                 pl.len().alias('supported_motifs')))
 
     if _consume is None:
