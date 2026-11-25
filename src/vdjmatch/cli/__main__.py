@@ -950,6 +950,8 @@ def main(argv: list[str] | None = None) -> int:
     register_reference_confusion(sub)
     from .reference_profiles import register as register_reference_profiles
     register_reference_profiles(sub)
+    from .motif_depth import register as register_motif_depth
+    register_motif_depth(sub)
     from .reference_rule_scores import register as register_reference_rule_scores
     register_reference_rule_scores(sub)
     from .paired_labels import register as register_paired_labels

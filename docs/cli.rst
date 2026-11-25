@@ -68,6 +68,31 @@ Use ``reference-profiles`` for a fresh scientific classification rebuild:
 
    vdjmatch reference-profiles --vdjdb reference.zip --threads 4 --output-prefix fresh
 
+For the breadth of the entire observed motif catalog, use the standalone command:
+
+.. code-block:: bash
+
+   vdjmatch motif-depth --vdjdb reference.zip --depth 100 --depth 10000 --output-prefix depth
+
+For each species, locus and peptide, the sample consists of distinct junction/V-gene
+keys from curated observations. A catalog entry is a resolved V gene and one exact
+three-residue motif in the junction core after trimming three residues from each
+end. Repeated windows count once per key. Unresolved V calls remain in the sample
+denominator. The expected number of catalog entries encountered is the sum of their
+hypergeometric detection probabilities. Entries can overlap. An empty estimate
+marks a requested depth beyond the available keys. Catalog membership describes
+sequence patterns and does not establish specificity or enrichment.
+
+Add repeatable ``--motif-depth N`` to request the probability of observing
+the selected V-conditioned motif in a uniform sample of N distinct
+junction/V keys without replacement. The additional ``.motif-discovery.tsv``
+table reports the carrier count, population size, motif identity and original
+support status for both motif catalogs. An unavailable motif or depth larger
+than the observed population gives an empty probability. The calculation
+conditions on the selected motif and estimates its rediscovery within that
+collection. It does not estimate discovery power or the unseen repertoire.
+
+
 It reloads raw observations and rebuilds graphs and label-shuffle diagnostics
 on every invocation, without reopening saved profile/index bundles. Outputs are
 ``fresh.profiles.tsv``, ``fresh.joint-profiles.tsv`` and a manifest with raw,

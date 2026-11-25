@@ -220,3 +220,23 @@ def joint_reference_profiles(profiles: pl.DataFrame) -> pl.DataFrame:
         pl.concat_str(pl.lit('alpha: '), pl.col('alpha_profile_class').fill_null('missing_chain'),
             pl.lit('; beta: '), pl.col('beta_profile_class').fill_null('missing_chain')).alias('joint_class')
     ).sort(keys)
+
+
+def motif_discovery(profiles, depths):
+    """Rediscovery of the profile's selected V/core motif in its observed TCR keys."""
+    from scipy.stats import hypergeom
+
+    if not depths or any(type(depth) is not int or depth < 1 for depth in depths):
+        raise ValueError('motif depths must be positive integers')
+    identity = ['level', 'species', 'locus', 'epitope', *_MHC, 'reference_v_keys']
+    rows = []
+    for prefix, catalog in [('', 'core-exact3'), ('full20_', 'core-exact3-wild4')]:
+        motifs = profiles.select(*identity, pl.lit(catalog).alias('catalog'),
+            *[pl.col(prefix + col).alias(col) for col in
+              ('motif_v_gene', 'motif', 'motif_supported', 'motif_reference_with_motif')])
+        for depth in sorted(set(depths)):
+            probability = hypergeom.sf(0, motifs['reference_v_keys'].to_numpy(),
+                motifs['motif_reference_with_motif'].to_numpy(), depth)
+            rows.append(motifs.with_columns(pl.lit(depth).alias('sample_keys'),
+                pl.Series('rediscovery_probability', probability).fill_nan(None)))
+    return pl.concat(rows)
