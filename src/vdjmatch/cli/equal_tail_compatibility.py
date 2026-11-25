@@ -1,4 +1,4 @@
-"""Recognize the one verified execution-only transition from the fixed 128 MiB score slab."""
+"""Recognize verified execution-only transitions for equal-tail batching."""
 
 # A change in any other source, scientific setting or reference still invalidates the recipe.
 _BUDGET_REVISION = {
@@ -17,14 +17,20 @@ _BUDGET_REVISION = {
 }
 
 
+_NEAREST_REVISION = '4b14a04046519ff0024284321064acd14d8c6a6802df8eb3649a800562d36693'
+
+
 def compatible_binding(frozen, current):
     if frozen == current:
         return True
     if not isinstance(frozen, dict) or not isinstance(frozen.get('source_sha256'), dict):
         return False
     pins = frozen['source_sha256'].copy()
-    for name, (old, new) in _BUDGET_REVISION.items():
-        if pins.get(name) != old or current['source_sha256'].get(name) != new:
-            return False
-        pins[name] = new
+    current_pins = current['source_sha256']
+    if all(pins.get(name) == old for name, (old, _) in _BUDGET_REVISION.items()):
+        pins.update({name: new for name, (_, new) in _BUDGET_REVISION.items()})
+    name = 'vdjmatch.evalue.equal_tail'
+    if (pins.get(name) == _BUDGET_REVISION[name][1]
+            and current_pins.get(name) == _NEAREST_REVISION):
+        pins[name] = _NEAREST_REVISION
     return (frozen | {'source_sha256': pins}) == current

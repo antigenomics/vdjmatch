@@ -14,6 +14,7 @@ from .kernel import grouped_kernel_enrichment, ladder_cutoffs
 from .paired import build_paired_ref
 
 _NO_DISTANCE = np.iinfo(np.int32).max
+_NEAREST_BLOCK_CELLS = 32 * 1024**2 // 16
 DEFAULT_KERNEL_SCORE_BUDGET_BYTES = 128 * 1024**2
 
 
@@ -39,18 +40,29 @@ def _eligible(chains, allele, minimum):
     ])
 
 
-def _nearest(queries, target, chains, context, species, threads, exclude_exact):
+def _nearest(queries, targets, chains, context, species, threads, exclude_exact):
     """Reduce bounded native query/reference blocks with a full-junction hit mask."""
-    result = np.full(len(queries), _NO_DISTANCE, dtype=np.int32)
+    result = np.full((len(targets), len(queries)), _NO_DISTANCE, dtype=np.int32)
     eligible = _eligible(chains, 'native', 5)
     queries = queries.with_row_index('_i').filter(eligible)
-    target = target.filter(eligible)
+    # Contiguous membership rows share query validation and native alignment across targets.
+    # A reference belonging to two targets contributes to each target's own minimum.
+    columns = ['_junction', *['cdr3' + c for c in chains], *['native' + c for c in chains]]
+    if len(targets) == 1:
+        refs = targets[0].filter(eligible)
+    else:
+        refs = pl.concat([target.select(columns).with_columns(pl.lit(i).alias('_target'))
+                          for i, target in enumerate(targets)]).filter(eligible)
     distance = paired_distance_matrix if len(chains) == 2 else distance_matrix
-    for ref in target.iter_slices(65536):
+    for ref in refs.iter_slices(65536):
+        if len(targets) > 1:
+            target_ids = ref['_target'].to_numpy()
+            starts = np.r_[0, np.flatnonzero(target_ids[1:] != target_ids[:-1]) + 1]
+            groups = target_ids[starts]
         refseq = [ref['cdr3' + c].to_list() for c in chains]
         refv = [ref['native' + c].to_list() for c in chains]
         refid = ref['_junction'].to_numpy()
-        for part in queries.iter_slices(max(1, (32 * 1024**2) // (16 * len(ref)))):
+        for part in queries.iter_slices(max(1, _NEAREST_BLOCK_CELLS // len(ref))):
             matrix = distance(*[part['cdr3' + c].to_list() for c in chains], *refseq,
                               *[part['native' + c].to_list() for c in chains], *refv,
                               species=species, threads=threads, allow_short=True,
@@ -58,8 +70,24 @@ def _nearest(queries, target, chains, context, species, threads, exclude_exact):
             if exclude_exact:
                 matrix[part['_junction'].to_numpy()[:, None] == refid[None, :]] = _NO_DISTANCE
             idx = part['_i'].to_numpy()
-            result[idx] = np.minimum(result[idx], matrix.min(axis=1))
+            if len(targets) == 1:
+                result[0, idx] = np.minimum(result[0, idx], matrix.min(axis=1))
+            else:
+                reduced = np.minimum.reduceat(matrix, starts, axis=1).T
+                block = np.ix_(groups, idx)
+                result[block] = np.minimum(result[block], reduced)
     return result
+
+
+def _sparse_minima(queries, targets, chains, context, species, threads, exclude_exact):
+    # Dense targets already fill native rectangles. Leave them to the dedicated
+    # reference/query blocks, which also omit background rows unused by that target.
+    small = [i for i, target in enumerate(targets)
+             if len(target) * len(queries) <= _NEAREST_BLOCK_CELLS]
+    if len(small) < 2:
+        return {}
+    tile = _nearest(queries, [targets[i] for i in small], chains, context, species, threads, exclude_exact)
+    return dict(zip(small, tile))
 
 
 def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_exact=False,
@@ -126,6 +154,10 @@ def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_ex
     kernel_q = allkeys.filter(kernel_ok).rename(qr | {'_sid':'query_id'})
     scale = kctx['distance_units'][0]
     rows = []
+    cols = ['_sid', '_junction', *identity]
+    complete = pl.concat([fixed.select(cols), q.select(cols)]) if _consume is not None else None
+    # Limit the retained int32 minima independently of the requested kernel-score budget.
+    nearest_batch = max(1, 128 * 1024**2 // max(1, len(allkeys) * np.dtype(np.int32).itemsize))
     # Cap retained kernel values per target batch; native search itself streams query blocks.
     batch = max(1, kernel_score_budget_bytes // max(1, len(allkeys) * np.dtype(np.float64).itemsize))
     for offset in range(0, len(groups), batch):
@@ -143,7 +175,13 @@ def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_ex
                 species=species, threads=threads, ctrim=3, v_loop_weight=1, alphabet='full',
                 stem_depth=4, stem_weight=1., matrix='blosum62', exclude_exact=exclude_exact,
             )
-        for i, (task, part, target) in enumerate(tasks):
+        targets = [target.unique('_sid', maintain_order=True) for _, _, target in tasks]
+        distances = {}
+        for i, (task, part, _) in enumerate(tasks):
+            if complete is not None and i % nearest_batch == 0:
+                distances.clear()
+                distances = _sparse_minima(complete, targets[i:i + nearest_batch], chains,
+                                           dctx, species, threads, exclude_exact)
             observed = q if _consume is not None else q.join(part.select(pl.col('query_id').alias('_sid')), on='_sid', how='semi')
             other = ref.filter(pl.col('epitope') != task['epitope'])
             if background_scope == 'compatible-hla':
@@ -151,11 +189,14 @@ def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_ex
                                      & mhc_compatible('mhc_a', task['mhc_a'])
                                      & mhc_compatible('mhc_b', task['mhc_b']))
             bg = other.unique('_sid', maintain_order=True)
-            target = target.unique('_sid', maintain_order=True)
-            cols = ['_sid', '_junction', *identity]
+            target = targets[i]
             combined = pl.concat([bg.select(cols), observed.select(cols)])
             m, n = len(bg), len(target)
-            dist = _nearest(combined, target, chains, dctx, species, threads, exclude_exact)
+            position = i % nearest_batch
+            if position not in distances:
+                dist = _nearest(combined, [target], chains, dctx, species, threads, exclude_exact)[0]
+            else:
+                dist = distances[position][combined['_sid'].to_numpy()]
             kernel = values[i, combined['_sid'].to_numpy()]
             missing = np.isnan(kernel[m:])
             kernel = np.nan_to_num(kernel, nan=0.)

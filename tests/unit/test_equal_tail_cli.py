@@ -266,3 +266,27 @@ def test_previous_fixed_budget_binding_requires_the_verified_sources_and_event()
     assert not compatible_binding(frozen,current|{'locus':'TRA'})
     assert not compatible_binding(frozen,current|{'source_sha256':live|{'geometry':'different'}})
     assert not compatible_binding(frozen,current|{'source_sha256':current['source_sha256']|{'calibration':'unknown'}})
+
+
+@pytest.mark.parametrize('exclude_exact', [False, True])
+def test_nearest_batch_handles_shared_empty_and_unsupported_targets(exclude_exact):
+    import numpy as np
+    from vdjmatch.evalue.equal_tail import _nearest, _NO_DISTANCE
+    from vdjmatch.match.geometry import paired_distance_matrix, precompute_v_loop_distances
+
+    ctx = precompute_v_loop_distances(matrix='blosum62', v_regions='double-cdr12')
+    q = pl.DataFrame(dict(cdr3a=['CAVAF', 'CAVGF', 'CAVAF', None],
+                          cdr3b=['CASSF', 'CASSF', 'CASRF', 'CASSF'],
+                          nativea=['TRAV12-2*01'] * 4, nativeb=['TRBV19*01'] * 4,
+                          _junction=[0, 1, 2, 3]))
+    targets = [q[:2], q[1:3], q[3:], q[:0]]
+    batch = _nearest(q, targets, 'ab', ctx, 'human', 1, exclude_exact)
+    expected = np.full((4, len(q)), _NO_DISTANCE, dtype=np.int32)
+    for i, refs in enumerate(targets[:2]):
+        d = paired_distance_matrix(*[f['cdr3' + c] for f in [q[:3], refs] for c in 'ab'],
+                                   *[f['native' + c] for f in [q[:3], refs] for c in 'ab'],
+                                   matrix='blosum62', v_loop_distances=ctx, allow_short=True)
+        if exclude_exact:
+            d[q['_junction'][:3].to_numpy()[:, None] == refs['_junction'].to_numpy()] = _NO_DISTANCE
+        expected[i, :3] = d.min(axis=1)
+    np.testing.assert_array_equal(batch, expected)
