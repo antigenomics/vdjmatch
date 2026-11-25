@@ -267,6 +267,17 @@ def test_geometry_unbounded_nearest_outside_ball_and_exact_only(tmp_path, capsys
     else:
         assert status['query_id'].to_list()==['hit','unknown','invalid','other']
         assert status['status'].to_list()==['matched','matched','invalid_query_or_gene','unselected_species']
+    # Short canonical junctions enter the opt-in nearest mode, unknown V alleles do not.
+    raw.with_columns(pl.lit('CASSLGF').alias('junction_aa')).write_csv(sample,separator='\t')
+    ref.with_columns(pl.lit('CATSLVF').alias('cdr3')).write_csv(reference,separator='\t')
+    assert main(args+['--resolved-v-nearest'])==0
+    native=pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t')
+    assert native['distance'].to_list()==([0] if locus=='paired' else [0,0])
+    if locus=='TRB':
+        unavailable=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t').filter(pl.col('query_id')=='unknown')
+        assert unavailable['available'].to_list()==[False]
+        assert unavailable['v_geometry_imputed'].to_list()==[False]
+    raw.write_csv(sample,separator='\t')
     # The only reference is now a full junction identity (a full pair in paired mode).
     ref.with_columns(pl.lit(a).alias('cdr3')).write_csv(reference,separator='\t')
     assert main(args+['--unbounded-nearest'])==0

@@ -1071,6 +1071,17 @@ unselected species and missing partners retain their query rows and existing
 statuses. Without this flag, the original radius-ball candidate output is
 unchanged. The new flag requires ``--targets-from-sample``.
 
+For nearest-reference ranking with resolved V alleles, use
+``neighbours --targets-from-sample --resolved-v-nearest``. This selects an
+unbounded minimum with the full alphabet, clipped BLOSUM62, three N-terminal
+and two C-terminal residues trimmed, and unit weight for the three aligned V
+loops. Query and reference junctions must be canonical and at least five
+residues long. Unresolved V alleles are unavailable. The bundled allele
+resolver accepts model-supported aliases and interprets a missing allele suffix
+as ``*01``, so equivalence on another database depends on its allele mapping.
+Add ``--exclude-exact`` to reproduce the benchmark hit-list filter. Rank by
+ascending ``distance`` or equivalently by descending negative distance.
+
 This mode reduces each existing bounded native distance-matrix batch to query
 minima and radius counts; it does not materialize all query/reference hit pairs.
 The manifest records the selection mode and all CLI parameters. The resulting

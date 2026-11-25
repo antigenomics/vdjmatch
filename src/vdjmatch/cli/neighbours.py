@@ -102,6 +102,9 @@ def register(subparsers, name='neighbours'):
     p.add_argument('--knee-floor-factor',type=float,default=.5,help='positive-knee median floor within this species/locus/geometry')
     p.add_argument('--exclude-exact',action='store_true',
                    help='opt-in evaluation/record-reliability mode; ordinary queries retain exact hits')
+    if name == 'neighbours':
+        p.add_argument('--resolved-v-nearest', action='store_true',
+                       help='unbounded clipped-BLOSUM62 nearest with resolved V alleles and canonical junctions of length >=5')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
     p.add_argument('--conditional-j',action='store_true',help='experimental J usage conditional on V and junction length; ranking only')
     p.add_argument('--epitope-rules',action='store_true',help='experimental joint V usage with V-conditioned CDR3/motif kernels; ranking only')
@@ -118,7 +121,7 @@ def register(subparsers, name='neighbours'):
     return p
 
 
-def _paired_input(path, raw, model, organism):
+def _paired_input(path, raw, model, organism, *, resolved_v_nearest=False):
     """Preserve raw pair/chain identities, including rows dropped during ingestion."""
     import polars as pl
     from .. import io
@@ -157,15 +160,16 @@ def _paired_input(path, raw, model, organism):
     # Chain IDs and V calls come from raw rows, including missing/invalid sequences.
     cells=cells.drop([c for c in cells.columns if c.startswith('query_id') or c.startswith('sequence_id')])
     pairs=pairs.join(cells,on='pair_id',how='left',validate='1:1',maintain_order='left')
+    sequence_pattern = r'^[ACDEFGHIKLMNPQRSTVWY]{5,}$' if resolved_v_nearest else r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$'
     for suffix,locus,name in [('a','TRA','alpha'),('b','TRB','beta')]:
         allele='_allele'+suffix
-        alleles, imputed = impute_reference_v_alleles(pairs['v_call_'+name], model, locus=locus)
+        alleles, imputed = impute_reference_v_alleles(pairs['v_call_'+name], model, locus=locus, impute=not resolved_v_nearest)
         pairs=pairs.with_columns(alleles.alias(allele), imputed.alias('v_geometry_imputed_'+name)).with_columns(
             pl.when(pl.col('v_geometry_imputed_'+name)).then(pl.struct(pl.col('v_call_'+name).alias('v')).struct.json_encode())
                 .otherwise(pl.col(allele)).alias('_v_key'+suffix))
         allowed=[v for v,m in model.items() if m['locus']==locus]
         pairs=pairs.with_columns(
-            pl.col('cdr3'+suffix).str.contains(r'^[ACDEFGHIKLMNPQRSTVWY]{8,}$').fill_null(False).alias('_sequence_valid'+suffix),
+            pl.col('cdr3'+suffix).str.contains(sequence_pattern).fill_null(False).alias('_sequence_valid'+suffix),
             pl.col(allele).is_in(allowed).fill_null(False).alias('_gene_valid'+suffix))
         pairs=pairs.with_columns((pl.col('_sequence_valid'+suffix)&pl.col('_gene_valid'+suffix)).alias('_valid'+suffix))
     species_ok=(pl.col('species').str.strip_chars().str.to_lowercase().is_in(
@@ -211,6 +215,15 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
     evidence_only=getattr(a,'evidence_only',False)
     gzip_evidence=getattr(a,'gzip_evidence',False)
     stream_evidence=getattr(a,'stream_evidence',False)
+    resolved_v_nearest = getattr(a, 'resolved_v_nearest', False)
+    minimum_length = 5 if resolved_v_nearest else 8
+    if resolved_v_nearest:
+        if (a.distance_matrix != 'clipped' or a.junction_ends != 'trim32' or a.stem_depth or
+                a.v_loop_weight != 1 or a.v_regions != 'cdr12plus' or a.alphabet != 'full' or
+                a.position_weighting != 'uniform' or a.background or a.shortlist_audit or
+                a.neighbour_weighting != 'ball'):
+            raise ValueError('--resolved-v-nearest requires the default neighbours geometry and nearest reducer')
+        a.unbounded_nearest = True
     matrix_path=Path(a.distance_matrix).expanduser()
     matrix_hash=sha256(matrix_path) if matrix_path.is_file() else None
     streamed_rows=False
@@ -326,7 +339,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
         raise ValueError('run-local V tables must match the requested species and geometry')
     model=v_loop_distances['model']
     if paired:
-        pair_rows,ingestion=_paired_input(a.sample,raw,model,organism)
+        pair_rows,ingestion=_paired_input(a.sample,raw,model,organism,resolved_v_nearest=resolved_v_nearest)
         q=pair_rows.filter(pl.col('available'))
         metadata=pair_rows.select('query_id',*[c for c in ['species',*PMHC] if c in pair_rows.columns])
     else:
@@ -351,23 +364,23 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
     withheld_records=r.filter(pl.col('epitope').is_in(a.withhold_epitope or [])).height
     allowed=[v for v,m in model.items() if m['locus']==a.locus]
     def prepare(frame):
-        alleles, imputed = impute_reference_v_alleles(frame['v'], model, locus=a.locus)
+        alleles, imputed = impute_reference_v_alleles(frame['v'], model, locus=a.locus, impute=not resolved_v_nearest)
         # Imputation shares geometry, but must not merge distinct original keys.
         return frame.with_columns(alleles.alias('_allele'), imputed).with_columns(
             pl.when(pl.col('v_geometry_imputed')).then(pl.struct('v').struct.json_encode())
                 .otherwise(pl.col('_allele')).alias('_v_key')).filter(
-                pl.col('_allele').is_in(allowed)&(pl.col('cdr3').str.len_chars()>=8))
+                pl.col('_allele').is_in(allowed)&(pl.col('cdr3').str.len_chars()>=minimum_length))
     if paired:
         from ..evalue.paired import build_paired_ref
         r=build_paired_ref(r)
         paired_observations=r.height
         for suffix,locus in [('alpha','TRA'),('beta','TRB')]:
             allowed_chain=[v for v,m in model.items() if m['locus']==locus]
-            alleles, imputed = impute_reference_v_alleles(r['v_'+suffix], model, locus=locus)
+            alleles, imputed = impute_reference_v_alleles(r['v_'+suffix], model, locus=locus, impute=not resolved_v_nearest)
             r=r.with_columns(alleles.alias('_allele_'+suffix), imputed.alias('v_geometry_imputed_'+suffix)).with_columns(
                 pl.when(pl.col('v_geometry_imputed_'+suffix)).then(pl.struct(pl.col('v_'+suffix).alias('v')).struct.json_encode())
                     .otherwise(pl.col('_allele_'+suffix)).alias('_v_key_'+suffix)).filter(
-                    pl.col('_allele_'+suffix).is_in(allowed_chain) & (pl.col(suffix).str.len_chars()>=8))
+                    pl.col('_allele_'+suffix).is_in(allowed_chain) & (pl.col(suffix).str.len_chars()>=minimum_length))
         search_keys=['alpha','beta','_allele_alpha','_allele_beta','_v_key_alpha','_v_key_beta']
         if j_geometry:
             for column in ('j_alpha','j_beta'):
@@ -837,10 +850,10 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
                 qa,qb=part['cdr3a'].to_list(),part['cdr3b'].to_list()
                 ra,rb=reference_part['alpha'].to_list(),reference_part['beta'].to_list()
                 distances=paired_distance_matrix(qa,qb,ra,rb,part['_allelea'].to_list(),part['_alleleb'].to_list(),
-                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,v_loop_distances=v_loop_distances)
+                    reference_part['_allele_alpha'].to_list(),reference_part['_allele_beta'].to_list(),species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,v_loop_distances=v_loop_distances,allow_short=resolved_v_nearest)
             else:
                 seqs=part['cdr3'].to_list()
-                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,v_loop_distances=v_loop_distances)
+                distances=distance_matrix(seqs,rs,part['_allele'].to_list(),rv,species=organism,threads=a.threads,ctrim=ctrim,v_loop_weight=a.v_loop_weight,alphabet=a.alphabet,stem_depth=a.stem_depth,stem_weight=a.stem_weight,matrix=a.distance_matrix,v_loop_distances=v_loop_distances,allow_short=resolved_v_nearest)
             keep=distances<=radius
             nonexact=True
             if a.exclude_exact:
@@ -927,7 +940,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
     if not paired:
         v_column=io.columns._resolve(raw).get('v')
         raw_calls=raw[v_column] if v_column else pl.Series([None]*raw.height,dtype=pl.String)
-        alleles, imputed = impute_reference_v_alleles(raw_calls, model, locus=a.locus)
+        alleles, imputed = impute_reference_v_alleles(raw_calls, model, locus=a.locus, impute=not resolved_v_nearest)
         status=status.with_columns(raw_calls.alias('v_call'),
             alleles.alias('resolved_v_allele'), imputed)
     status=status.with_columns(pl.col('available').fill_null(False))
@@ -1096,7 +1109,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
         'reference':db.provenance(a.vdjdb),'reference_population':a.reference_population,'ingestion':ingestion,'reference_observations':original,'withheld_reference_chain_records':withheld_records,
         'v_loop_model':{'sha256':sha256(Path(str(files('vdjmatch.resources')/'vloops'/f'{organism}_v_loops.tsv'))),
                         'precomputation':'one exact aligned-loop table per locus and invocation; reused across population batches',
-                        'missing_v_policy':'fixed first complete co-locus template; original raw calls retained with geometry imputation flags',
+                        'missing_v_policy':'unresolved V allele unavailable' if resolved_v_nearest else 'fixed first complete co-locus template; original raw calls retained with geometry imputation flags',
                         'imputed_reference_keys':{c:int(r[c].sum()) for c in r.columns if c.startswith('v_geometry_imputed')}},
         'reference_usable_keys':r.height,'query_rows':raw.height,'query_usable_rows':2*q.height if paired else q.height,
         'withholding':'candidate hits only; full background populations and geometry parameters retained',

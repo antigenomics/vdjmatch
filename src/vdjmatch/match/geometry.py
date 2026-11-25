@@ -206,7 +206,7 @@ def resolve_v_alleles(calls, model, *, locus=None):
 
 
 
-def impute_reference_v_alleles(calls, model, *, locus, cdr_loops=('cdr1', 'cdr2', 'cdr25')):
+def impute_reference_v_alleles(calls, model, *, locus, cdr_loops=('cdr1', 'cdr2', 'cdr25'), impute=True):
     """Fixed-population loop templates; preserve raw keys and flag every fallback.
 
     Use the first complete co-locus template in lexical order for unresolved
@@ -214,6 +214,9 @@ def impute_reference_v_alleles(calls, model, *, locus, cdr_loops=('cdr1', 'cdr2'
     No target labels enter.
     """
     import polars as pl
+    if not impute:
+        alleles = resolve_v_alleles(calls, model, locus=locus)
+        return alleles, pl.repeat(False, len(alleles), eager=True).alias('v_geometry_imputed')
     complete = {a: row for a, row in model.items() if row['locus'] == locus and all(
         row[loop].replace('.', '') and set(row[loop].replace('.', '')) <= set('ACDEFGHIKLMNPQRSTVWY')
         for loop in cdr_loops)}
@@ -352,7 +355,7 @@ def _cdr3_options(threads=1, costs=None, ctrim=2, v_loop_distances=None):
                 gap_prior=_gap_prior if ctrim==2 else _gap_prior_trim3,threads=threads)
 
 
-def _distance_inputs(queries, references, query_v, reference_v, species, threads, ctrim, *, dense=False, v_loop_distances=None):
+def _distance_inputs(queries, references, query_v, reference_v, species, threads, ctrim, *, dense=False, v_loop_distances=None, allow_short=False):
     """Shared junction/gene availability contract for dense distances and counts."""
     if isinstance(ctrim,bool) or not isinstance(ctrim,int) or ctrim not in (2,3):
         raise ValueError('ctrim must be 2 (clipped BLOSUM62 geometry) or 3 (symmetric trim)')
@@ -364,8 +367,9 @@ def _distance_inputs(queries, references, query_v, reference_v, species, threads
     if dense and 4*len(queries)*len(references)>64*1024**2:
         raise ValueError('distance output exceeds64MiB; use contiguous query batches')
     canonical=set('ACDEFGHIKLMNPQRSTVWY')
-    if any(not isinstance(s,str) or len(s)<8 or not set(s)<=canonical for s in queries+references):
-        raise ValueError('junctions require canonical amino acids and length>=8')
+    minimum_length = 5 if allow_short else 8
+    if any(not isinstance(s,str) or len(s)<minimum_length or not set(s)<=canonical for s in queries+references):
+        raise ValueError(f'junctions require canonical amino acids and length>={minimum_length}')
     if v_loop_distances is not None and v_loop_distances.get('species') != species:
         raise ValueError('precomputed V loops require matching species')
     model=load_v_loops(species) if v_loop_distances is None else v_loop_distances['model']
@@ -521,7 +525,7 @@ def stem_penalty(queries, references, *, depth=STEM_DEPTH_DEFAULT, weight=1.0, c
     return result.astype(np.int32)
 
 
-def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2, v_loop_weight=1, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='clipped', v_loop_distances=None, v_regions=None):
+def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2, v_loop_weight=1, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='clipped', v_loop_distances=None, v_regions=None, allow_short=False):
     """Junction and V-loop distances in a bounded native batch, maximum64MiB output.
 
     Exact alleles are used; a missing allele suffix explicitly means *01, as in the
@@ -545,7 +549,7 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     if type(v_loop_weight) is not int or v_loop_weight not in (0,1):
         raise ValueError("v_loop_weight must be integer0 or1")
     queries, references, model, genes = _distance_inputs(
-        queries, references, query_v, reference_v, species, threads, ctrim, dense=True, v_loop_distances=v_loop_distances)
+        queries, references, query_v, reference_v, species, threads, ctrim, dense=True, v_loop_distances=v_loop_distances, allow_short=allow_short)
     d=_prepared_costs(alphabet,matrix,v_loop_distances)
     stem_penalty([],[],depth=stem_depth,weight=stem_weight,costs=d)
     if not queries or not references:
@@ -1039,7 +1043,7 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
 def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_beta,
                            query_v_alpha, query_v_beta, reference_v_alpha, reference_v_beta,
                            *, species='human', threads=1, ctrim=2, v_loop_weight=1, alphabet='full',
-                           stem_depth=0, stem_weight=1.0, matrix='clipped',v_loop_distances=None, v_regions=None):
+                           stem_depth=0, stem_weight=1.0, matrix='clipped',v_loop_distances=None, v_regions=None, allow_short=False):
     """Sum alpha/beta distances against the same ordered reference pairs.
 
     Each position identifies one linked receptor pair; independent marginal nearest
@@ -1064,7 +1068,7 @@ def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_b
     if any(v is None for v in qva+rva+qvb+rvb):
         raise ValueError('linked pair V calls must resolve uniquely to their declared alpha/beta locus')
     shared=dict(species=species,threads=threads,ctrim=ctrim,v_loop_weight=v_loop_weight,
-                alphabet=alphabet,stem_depth=stem_depth,stem_weight=stem_weight,matrix=matrix,v_loop_distances=v_loop_distances)
+                alphabet=alphabet,stem_depth=stem_depth,stem_weight=stem_weight,matrix=matrix,v_loop_distances=v_loop_distances,allow_short=allow_short)
     out=distance_matrix(qa,ra,qva,rva,**shared)
     out+=distance_matrix(qb,rb,qvb,rvb,**shared)
     return out
