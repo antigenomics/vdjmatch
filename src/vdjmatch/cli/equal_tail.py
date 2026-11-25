@@ -16,19 +16,29 @@ def register(subparsers):
     p.add_argument('--background-scope', choices=['all-hla', 'compatible-hla'], default='all-hla',
                    help='other-peptide calibration keys from all restrictions or compatible pMHCs only')
     p.add_argument('--exclude-exact', action='store_true', help='exclude exact full-junction hits from both components')
+    p.add_argument('--all-targets', action='store_true',
+                   help='select over all eligible database pMHCs; input antigen labels are ignored')
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument('--fit-any-call', type=float, metavar='FPR',
+                      help='fit a database-wide cutoff using peptide-withheld reference queries and the supplied generated-null sample')
+    mode.add_argument('--apply-any-call', metavar='CALIBRATION_JSON',
+                      help='apply a matching equal-tail recipe and its original source-stratified null maxima')
+    p.add_argument('--min-null-target-records', type=int, default=30,
+                   help='minimum source records for peptide-withheld query eligibility; default 30')
     p.add_argument('--threads', type=cpu_budget, default='0')
     p.add_argument('--output-prefix', required=True)
     p.set_defaults(func=main)
 
 
-def _queries(path, locus, species):
+def _queries(path, locus, species, *, declared=True):
     import polars as pl
     from ..aggregate.candidates import PMHC
     from ..db.schema import normalize_mhc_class
     from ..evalue.control import _organism
     from ..io.airr import normalize_annotation_input
     raw, report = normalize_annotation_input(path)
-    missing = [c for c in PMHC if c not in raw]
+    pfields = PMHC if declared else []
+    missing = [c for c in pfields if c not in raw]
     if missing:
         raise ValueError('declared candidate pMHC requires columns: ' + ', '.join(missing))
     if 'species' not in raw:
@@ -37,31 +47,32 @@ def _queries(path, locus, species):
     raw = raw.with_columns(pl.col('species').replace_strict(species_map,default=None).alias('species'),
                            pl.col('locus').str.strip_chars().str.to_uppercase().replace({'ALPHA':'TRA','BETA':'TRB'}),
                            pl.col('junction_aa').str.strip_chars().str.to_uppercase())
-    raw = raw.with_columns(pl.col(*PMHC).str.strip_chars()).with_columns(
-        normalize_mhc_class(pl.col('mhc_class')))
+    if declared:
+        raw = raw.with_columns(pl.col(*PMHC).str.strip_chars()).with_columns(
+            normalize_mhc_class(pl.col('mhc_class')))
     if locus == 'paired':
         if 'pair_id' not in raw:
             raise ValueError('linked queries require pair_id, cell_id or clone_id')
         if raw.filter(pl.col('pair_id').is_null() | (pl.col('pair_id').str.strip_chars()=='')).height:
             raise ValueError('missing paired query identity')
-        if raw.group_by('pair_id').agg(pl.col('species', *PMHC).n_unique()).filter(
-            pl.any_horizontal(pl.col('species', *PMHC)>1)).height:
+        if raw.group_by('pair_id').agg(pl.col('species', *pfields).n_unique()).filter(
+            pl.any_horizontal(pl.col('species', *pfields)>1)).height:
             raise ValueError('paired query has conflicting species or candidate pMHC')
     raw = raw.filter(pl.col('species') == species)
     if locus in ('TRA','TRB'):
         raw = raw.filter(pl.col('locus') == locus)
-    if raw.filter(pl.any_horizontal([pl.col(c).str.strip_chars().eq('').fill_null(True) for c in PMHC])).height:
+    if declared and raw.filter(pl.any_horizontal([pl.col(c).str.strip_chars().eq('').fill_null(True) for c in PMHC])).height:
         raise ValueError('each query requires nonempty epitope, mhc_a, mhc_b and mhc_class')
     if locus != 'paired':
         c = 'a' if locus == 'TRA' else 'b'
         return raw.select('query_id',*[k for k in ('sequence_id','pair_id','source_query_id') if k in raw],
-                          'species',*PMHC,pl.col('junction_aa').alias('cdr3'+c),pl.col('v_call').alias('v'+c)), report
+                          'species',*pfields,pl.col('junction_aa').alias('cdr3'+c),pl.col('v_call').alias('v'+c)), report
     if raw.filter(~pl.col('locus').is_in(['TRA','TRB']).fill_null(False)).height:
         raise ValueError('paired input requires unambiguous TRA/TRB chain roles')
     if raw.group_by('pair_id','locus').len().filter(pl.col('len')>1).height:
         raise ValueError('multiple chains per pair and locus')
     q = raw.group_by('pair_id', maintain_order=True).agg(
-        pl.col('species',*PMHC).first(),
+        pl.col('species',*pfields).first(),
         *[pl.col(column).filter(pl.col('locus')==axis).first().alias(name+c)
           for axis,c in [('TRA','a'),('TRB','b')]
           for column,name in [('junction_aa','cdr3'),('v_call','v'),('query_id','chain_query_id')]],
@@ -80,12 +91,25 @@ def main(a):
     from ..evalue.control import _organism
     from ..evalue.equal_tail import equal_tail_scores
     from ..runner.annotation import _validate_output_paths
-    prefix = _validate_output_paths(a.output_prefix, [a.sample,a.vdjdb])
+    if (a.fit_any_call is not None or a.apply_any_call) and not a.all_targets:
+        raise ValueError('any-call calibration requires --all-targets')
+    if a.fit_any_call is not None and not 0 <= a.fit_any_call < 1:
+        raise ValueError('--fit-any-call requires a false-call rate in [0, 1)')
+    if a.min_null_target_records < 1 or (a.fit_any_call is None and a.min_null_target_records != 30):
+        raise ValueError('--min-null-target-records must be positive and is used only for fitting')
+    protected = [a.sample, a.vdjdb]
+    if a.apply_any_call:
+        from .equal_tail_calibration import null_path
+        protected.extend([a.apply_any_call, null_path(a.apply_any_call)])
+    prefix = _validate_output_paths(a.output_prefix, protected)
     species = _organism(a.species)
-    q, ingestion = _queries(a.sample, a.locus, species)
+    q, ingestion = _queries(a.sample, a.locus, species, declared=not a.all_targets)
     if q.is_empty():
         raise ValueError('no queries for the selected species and locus')
     ref = db.load(a.vdjdb,species={'human':'HomoSapiens','mouse':'MusMusculus'}[species]).filter('reference_valid')
+    if a.all_targets:
+        from .equal_tail_calibration import run_database
+        return run_database(a, q, ref, species, prefix, ingestion)
     scores = equal_tail_scores(q, ref, locus=a.locus, species=species, threads=a.threads,
                               exclude_exact=a.exclude_exact, background_scope=a.background_scope,
                               distance_geometry=a.distance_geometry)

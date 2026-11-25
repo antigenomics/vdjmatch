@@ -127,3 +127,86 @@ def test_double_cdr12_ranks_queries_and_background_with_same_geometry(tmp_path, 
         assert new['d'][i] == distance
         assert new['D_tail_n'][i] == 1 + (others <= distance).sum()
     assert new['D_tail_n'][2] == len(background) + 1
+
+
+@pytest.mark.parametrize('locus', ['paired','TRB'])
+def test_database_any_call_fit_apply_and_binding(tmp_path, locus):
+    sample, ref = _files(tmp_path)
+    raw = pl.read_csv(sample, separator='\t').drop('epitope','mhc_a','mhc_b','mhc_class')
+    # Drop one linked partner, preserving its full marginal scoring population.
+    raw = raw.filter(~((pl.col('pair_id') == 'p1') & (pl.col('locus') == 'TRA')))
+    raw.write_csv(sample, separator='\t')
+    prefix = tmp_path / 'cal'
+    cmd = ['equal-tail', str(sample), '--vdjdb', str(ref), '--locus', locus, '--threads','1',
+           '--all-targets','--exclude-exact','--distance-geometry','blosum62-double-cdr12']
+    assert main(cmd + ['--fit-any-call','.25','--min-null-target-records','1','--output-prefix',str(prefix)]) == 0
+    recipe = prefix.with_suffix('.calibration.json')
+    from vdjmatch.db.cache import sha256
+    from vdjmatch.cli import calibration
+    from vdjmatch.evalue import directional
+    from pathlib import Path
+    pins = json.loads(recipe.read_text())['equal_tail_binding']['source_sha256']
+    for owner in (calibration, directional):
+        assert pins[owner.__name__] == sha256(Path(owner.__file__))
+    cases = pl.read_csv(prefix.with_suffix('.null-cases.tsv'),separator='\t')
+    assert cases.group_by('null_source').len().sort('null_source')['len'].to_list() == [4,4]
+    run = cmd + ['--apply-any-call',str(recipe),'--output-prefix',str(tmp_path/'result')]
+    assert main(run) == 0
+    selected = pl.read_csv(tmp_path/'result.selection.tsv',separator='\t')
+    assert len(selected) == 4 and selected['score'].null_count() == 0
+    for row in selected.iter_rows(named=True):
+        tails = [g['score'].ge(row['score']).sum()/g.height for g in cases.partition_by('null_source')]
+        assert row['E_null'] == max(tails)
+    with pytest.raises(SystemExit):
+        main(run + ['--background-scope','compatible-hla'])
+    with pytest.raises(SystemExit):
+        main(run + ['--distance-geometry','native'])
+    prefix.with_suffix('.null-cases.tsv').write_text('changed')
+    with pytest.raises(SystemExit):
+        main(run)
+
+
+def test_complete_search_ties_no_hits_and_withholding(tmp_path):
+    from fractions import Fraction
+    from vdjmatch import db
+    from vdjmatch.cli.equal_tail import _queries
+    from vdjmatch.evalue.equal_tail import equal_tail_scores
+    from vdjmatch.evalue.equal_tail_selection import equal_tail_selection
+
+    sample, ref = _files(tmp_path)
+    # B and C have the same target model; C remains eligible when B is withheld.
+    r = db.load(ref, species='HomoSapiens').filter('reference_valid')
+    r = pl.concat([r, r.filter(pl.col('epitope') == 'B').with_columns(pl.lit('C').alias('epitope'))])
+    q, _ = _queries(sample, 'TRB', 'human', declared=False)
+    q = q.head(1).with_columns(pl.lit(None, dtype=pl.String).alias('cdr3b'))
+    q = pl.concat([q, q.with_columns(pl.lit('seen').alias('query_id'), pl.lit('CASSWWWWWYEQYF').alias('cdr3b'))])
+    opts = dict(locus='TRB', species='human', threads=1, distance_geometry='blosum62-double-cdr12')
+    selected = equal_tail_selection(q, r, **opts)
+    assert selected['selection_status'].to_list() == ['no_support','ambiguous']
+    assert selected['score'][0] is None and selected['selected_epitope'][1] is None
+    held = equal_tail_selection(q.with_columns(pl.lit('B').alias('held')), r, withheld_column='held', **opts)
+    assert held['selection_status'].to_list() == ['no_support','unique']
+    assert held['selected_epitope'][1] == 'C'
+    truth = []
+    for task in r.select('epitope','mhc_a','mhc_b','mhc_class').unique().iter_rows(named=True):
+        declared = q.with_columns(*[pl.lit(v).alias(k) for k,v in task.items()])
+        z = equal_tail_scores(declared,r,**opts).row(1,named=True)
+        if z['calibration_available'] and z['has_evidence']:
+            truth.append(Fraction(z['product_numerator'], z['tail_denominator']**2))
+    assert min(truth) == Fraction(selected['product_numerator'][1], selected['tail_denominator'][1]**2)
+    assert selected['score'][1] == held['score'][1]
+
+
+
+def test_paired_all_target_search_can_use_unlinked_beta_alone(tmp_path):
+    from vdjmatch import db
+    from vdjmatch.cli.equal_tail import _queries
+    from vdjmatch.evalue.equal_tail_selection import equal_tail_selection
+
+    s,r = _files(tmp_path)
+    ref = db.load(r,species='HomoSapiens').filter(pl.col('reference_valid') & (pl.col('gene')=='TRB'))
+    q,_ = _queries(s,'paired','human',declared=False)
+    options=dict(species='human',threads=1,distance_geometry='blosum62-double-cdr12')
+    pairs=equal_tail_selection(q,ref,locus='paired',**options)
+    beta=equal_tail_selection(q,ref,locus='TRB',**options)
+    assert pairs.equals(beta) and pairs['score'].null_count()==0

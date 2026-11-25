@@ -49,6 +49,51 @@ keys. Otherwise, the score and tail counts are null. When calibration is
 available, a query with missing distance and zero kernel has a continuous
 score of zero, ``has_evidence=false`` and ``status=no_evidence``.
 
+Database-wide equal-tail calls
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``--all-targets`` to search the reference's complete human or mouse pMHC
+catalogue. Supply ordinary receptor input without a candidate pMHC. The result
+has one row per query. Paired queries search three axes: the genuine linked
+pair and the full TRA and TRB reference populations. The best supported score
+across axes and pMHCs determines the any-call event. An exact tie across
+distinct pMHCs retains the any-call score and leaves the assigned pMHC empty.
+A query without supported, calibrated candidates has a null score.
+
+Fit a calibration from the raw reference and an existing pinned generated-null
+receptor sample. For paired use, supply independently generated alpha and beta
+chains linked by their control pair IDs. This command treats the supplied
+sample as generated controls; its provenance must establish that sampling
+design. It does not generate controls. A second null source uses distinct
+reference junction/V/J/peptide observations. For each such query, its annotated
+peptide is withheld from winner selection at every restriction on every axis.
+The complete reference remains fixed for geometry, kernel counts and component
+tails. The default minimum of 30 source records defines which peptides supply
+withheld queries; eligibility on either locus suffices for genuine pairs.
+
+.. code-block:: bash
+
+   vdjmatch equal-tail generated-pairs.tsv --vdjdb reference.zip --species human \
+       --locus paired --all-targets --distance-geometry blosum62-double-cdr12 \
+       --background-scope all-hla --fit-any-call 0.01 --output-prefix results/nulls
+   vdjmatch equal-tail sample.airr.tsv --vdjdb reference.zip --species human \
+       --locus paired --all-targets --distance-geometry blosum62-double-cdr12 \
+       --background-scope all-hla --apply-any-call results/nulls.calibration.json \
+       --output-prefix results/queries
+
+Keep the recipe and its sibling ``.null-cases.tsv`` together. Fitting writes
+the cutoff and per-source operating points. Application verifies the recipe's
+reference, model, scoring code, locus, exact-hit policy, HLA scope and selection
+event. For an exact-excluded benchmark, include ``--exclude-exact`` in both
+commands. For ordinary annotation, retain exact hits in both commands.
+Per-query ``E_null`` in ``.selection.tsv`` is the maximum observed fraction
+of null queries from each source at least as extreme as the selected score.
+``p_null`` uses the inclusive plus-one rank in each source. No-support nulls
+count in each denominator. A no-support query has ``E_null=0`` and ``p_null=1``.
+Source-specific counts and tails are in ``.null-tails.tsv``. The false-call
+fraction is an empirical estimate for the supplied null populations. A
+recipe fitted to fixture data is only a software check.
+
 vdjmatch update
 ---------------
 

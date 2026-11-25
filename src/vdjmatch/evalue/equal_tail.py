@@ -62,7 +62,7 @@ def _nearest(queries, target, chains, context, species, threads, exclude_exact):
 
 
 def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_exact=False,
-                      background_scope='all-hla', distance_geometry='native'):
+                      background_scope='all-hla', distance_geometry='native', _consume=None):
     """Score prepared query rows against one curated, species-specific reference.
 
     Queries carry query_id, species, full candidate pMHC and cdr3a/va and/or cdr3b/vb.
@@ -102,8 +102,15 @@ def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_ex
     q = q.with_row_index('_sid', offset=len(fixed)).join(
         ids, on=seq, validate='m:1', nulls_equal=True, maintain_order='left')
     ref = ref.join(fixed, on=identity, validate='m:1', nulls_equal=True)
-    groups = list(assayed_targets(q.select('_sid').rename({'_sid':'query_id'}),
-                                  q.select(pl.col('_sid').alias('query_id'), 'species', *PMHC), ref, species))
+    if _consume is None:
+        declared = q.select(pl.col('_sid').alias('query_id'), 'species', *PMHC)
+    else:
+        # Enumerate the complete species catalogue once, without expanding
+        # a query-by-target table. Each candidate uses the ordinary compatible union.
+        declared = (reference.filter(pl.col('gene').is_in(['TRA','TRB'])).select(PMHC).unique().drop_nulls()
+                    .filter(pl.all_horizontal(pl.col(*PMHC).str.strip_chars() != ''))
+                    .sort(PMHC).with_row_index('query_id').with_columns(pl.lit(species).alias('species')))
+    groups = list(assayed_targets(declared.select('query_id'), declared, ref, species))
     kernel_ok = _eligible(chains, 'allele', 8)
     query_names = ['cdr3a','cdr3b','_allelea','_alleleb','_v_keya','_v_keyb'] if paired else ['cdr3','_allele','_v_key']
     ref_names = ['alpha','beta','_allele_alpha','_allele_beta','_v_key_alpha','_v_key_beta'] if paired else query_names
@@ -132,7 +139,7 @@ def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_ex
                 stem_depth=4, stem_weight=1., matrix='blosum62', exclude_exact=exclude_exact,
             )
         for i, (task, part, target) in enumerate(tasks):
-            observed = q.join(part.select(pl.col('query_id').alias('_sid')), on='_sid', how='semi')
+            observed = q if _consume is not None else q.join(part.select(pl.col('query_id').alias('_sid')), on='_sid', how='semi')
             other = ref.filter(pl.col('epitope') != task['epitope'])
             if background_scope == 'compatible-hla':
                 other = other.filter((pl.col('mhc_class') == task['mhc_class'])
@@ -168,7 +175,12 @@ def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_ex
                             ('equal_tail_score', score)]:
                 result = result.with_columns(pl.Series(name, v) if n and m else
                                              pl.lit(None, dtype=pl.Float64 if name=='equal_tail_score' else pl.UInt64).alias(name))
-            rows.append(result)
+            if _consume is None:
+                rows.append(result)
+            else:
+                _consume(task, result)
+    if _consume is not None:
+        return
     if not rows:
         raise ValueError('no queries for the selected species and locus')
     return queries.join(pl.concat(rows, how='vertical_relaxed').drop('_sid'), on='query_id',
