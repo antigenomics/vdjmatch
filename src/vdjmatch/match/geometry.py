@@ -560,6 +560,15 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
         **_cdr3_options(threads,d,ctrim,v_loop_distances)),copy=True)
     cdr3//=2
     cdr3*=3
+    if allow_short and ctrim == 3:
+        # Overlapping terminal trims turn lengths five and six into the same
+        # empty core. Restore the one gap the native alignment cannot see.
+        short_q = np.array([len(seq) < 6 for seq in queries])
+        short_r = np.array([len(seq) < 6 for seq in references])
+        if short_q.any() or short_r.any():
+            gap_cost = 3 * distance_units(d)[0]
+            cdr3[np.ix_(short_q, ~short_r)] += gap_cost
+            cdr3[np.ix_(~short_q, short_r)] += gap_cost
     out=cdr3.copy() if return_cdr3 else cdr3
     loop_dist, indices = _v_loop_groups(genes, model, d, v_loop_distances)
     out+=v_loop_weight*loop_dist[indices[:len(queries),None],indices[None,len(queries):]]

@@ -14,6 +14,16 @@ def test_matrix_rescaling_includes_gaps_and_v_loops(monkeypatch):
     np.testing.assert_array_equal(geometry.distance_matrix(q,q,v,v,ctrim=3),2*baseline)
 
 
+def test_short_junction_gap_survives_overlapping_terminal_trims():
+    seqs = ['CAAAF', 'CAAAAF', 'CAAAAAF']
+    genes = ['TRBV19*01'] * len(seqs)
+    total, cdr3 = distance_matrix(seqs, seqs, genes, genes, ctrim=3,
+                                  allow_short=True, return_cdr3=True)
+    expected = [[0, 12, 24], [12, 0, 12], [24, 12, 0]]
+    np.testing.assert_array_equal(cdr3, expected)
+    np.testing.assert_array_equal(total, expected)
+
+
 def test_symmetric_end_trim_preserves_full_identity_and_v_evidence(tmp_path):
     import json
     import polars as pl
