@@ -65,6 +65,32 @@ with a compatible MHC restriction. The two measurements share reference data,
 so their product has no independent-tail probability interpretation. A cutoff
 for calling an epitope requires calibration of the complete selection procedure.
 
+The same formula applies to every candidate pMHC. Its reference distances
+and kernel supports are target-specific. A validation fraction from TCRvdb
+estimates how often selected constructs validate under that screening protocol.
+Converting a repertoire query score to posterior odds would require both a
+likelihood ratio for the intended prediction task and prior odds for that
+query population. Adding a constant target-specific log prior preserves the
+ranking within that target but can change which target wins for a query.
+
+If independent labeled data are available for the intended population, let
+:math:`Y_e=1` mean that a query recognizes pMHC :math:`e`. Let
+:math:`\pi_e=\Pr(Y_e=1)` in that population. For an observed score :math:`s`,
+let :math:`L_e(s)=f_e(s\mid Y_e=1)/f_e(s\mid Y_e=0)`, using probability
+masses for discrete scores. Bayes' rule gives
+
+.. math::
+
+   \Pr(Y_e=1\mid s)=\frac{\pi_e L_e(s)}{1-\pi_e+\pi_e L_e(s)}.
+
+The equal-tail command supplies the ranking score :math:`s`. Estimating the
+two conditional distributions and the deployment prior requires additional
+data. Repeated reports can be recorded as the number of distinct publications
+linking the same junction, locus, species and compatible pMHC (or the same
+linked pair). Audit shared samples and duplicate submissions before treating
+reports as independent. Preserve missing publication identifiers as unknown.
+For a calibrated search across the database, see :doc:`explanation`.
+
 Choosing a fuzzy-matching comparison
 ------------------------------------
 

@@ -18,7 +18,7 @@ Complete-score annotation
 
 With default ``--background vdjdb-other``, the control opts into the combined
 reference-weighted score and both on-demand tails. ``--mock-replicates`` defaults
-to 199; ``--seed`` defaults to zero. No fitted calibration file is required.
+to 200. ``--seed`` defaults to zero. No fitted calibration file is required.
 ``--fpr 0.01`` sets the any-call reporting threshold (default 1%); supply a
 different value explicitly when needed. The library equivalent is
 ``calibrate_combined(..., report_p=0.01)``. Compact output retains every supported
