@@ -88,3 +88,42 @@ def test_equal_tail_class_alias_and_unsupported_query(tmp_path):
     item = scores.row(2, named=True)
     assert item['status'] == 'no_evidence' and item['equal_tail_score'] == 0
     assert item['D_tail_n'] == item['K_tail_n'] == item['M'] + 1
+
+
+@pytest.mark.parametrize('scope', ['all-hla', 'compatible-hla'])
+def test_double_cdr12_ranks_queries_and_background_with_same_geometry(tmp_path, scope):
+    import numpy as np
+    from vdjmatch.match.geometry import distance_matrix
+
+    sample, ref = _files(tmp_path)
+    records = pl.read_csv(ref, separator='\t').filter(pl.col('gene') == 'TRB').with_columns(
+        pl.Series('v', ['TRBV19*01', 'TRBV7-9*01', 'TRBV19*01', 'TRBV7-9*01']))
+    records.write_csv(ref, separator='\t')
+    q = pl.read_csv(sample, separator='\t').filter(pl.col('query_id') == '0-TRB').with_columns(
+        pl.lit('TRBV7-9*01').alias('v_call'))
+    q = pl.concat([q, q.with_columns(pl.lit('short').alias('query_id'),
+                                      pl.lit('CASSF').alias('junction_aa')),
+                   q.with_columns(pl.lit('unknown').alias('query_id'), pl.lit('unknown').alias('v_call'))])
+    q.write_csv(sample, separator='\t')
+    cmd = ['equal-tail', str(sample), '--vdjdb', str(ref), '--locus', 'TRB', '--exclude-exact',
+           '--background-scope', scope, '--output-prefix', str(tmp_path/'rank')]
+    main(cmd)
+    baseline = pl.read_csv(tmp_path/'rank.scores.tsv', separator='\t')
+    main(cmd + ['--distance-geometry', 'blosum62-double-cdr12'])
+    new = pl.read_csv(tmp_path/'rank.scores.tsv', separator='\t')
+    assert new.select('N', 'M', 'K_tail_n', 'k', 'kernel_missing').equals(
+        baseline.select('N', 'M', 'K_tail_n', 'k', 'kernel_missing'))
+    assert new['d'][0] != baseline['d'][0]
+    assert new['distance_missing'].to_list() == [False, False, True]
+    target = records.head(2)
+    background = records.tail(2) if scope == 'all-hla' else records.slice(2, 1)
+    def minimum(junction, v):
+        hits = target.filter(pl.col('cdr3') != junction)
+        return distance_matrix([junction], hits['cdr3'].to_list(), [v], hits['v'].to_list(),
+                               matrix='blosum62', v_regions='double-cdr12', allow_short=True).min()
+    others = np.array([minimum(seq, v) for seq, v in background.select('cdr3', 'v').iter_rows()])
+    for i in range(2):
+        distance = minimum(q['junction_aa'][i], q['v_call'][i])
+        assert new['d'][i] == distance
+        assert new['D_tail_n'][i] == 1 + (others <= distance).sum()
+    assert new['D_tail_n'][2] == len(background) + 1

@@ -52,7 +52,8 @@ def _nearest(queries, target, chains, context, species, threads, exclude_exact):
         for part in queries.iter_slices(max(1, (32 * 1024**2) // (16 * len(ref)))):
             matrix = distance(*[part['cdr3' + c].to_list() for c in chains], *refseq,
                               *[part['native' + c].to_list() for c in chains], *refv,
-                              species=species, threads=threads, allow_short=True, v_loop_distances=context)
+                              species=species, threads=threads, allow_short=True,
+                              matrix=context['matrix'], v_loop_distances=context)
             if exclude_exact:
                 matrix[part['_junction'].to_numpy()[:, None] == refid[None, :]] = _NO_DISTANCE
             idx = part['_i'].to_numpy()
@@ -61,11 +62,14 @@ def _nearest(queries, target, chains, context, species, threads, exclude_exact):
 
 
 def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_exact=False,
-                      background_scope='all-hla'):
+                      background_scope='all-hla', distance_geometry='native'):
     """Score prepared query rows against one curated, species-specific reference.
 
     Queries carry query_id, species, full candidate pMHC and cdr3a/va and/or cdr3b/vb.
     Linked queries and references use the same pair in both native geometry terms.
+    The native distance uses clipped BLOSUM62. ``blosum62-double-cdr12`` uses full
+    BLOSUM62 and doubles CDR1/CDR2 in both query and background distances.
+    The kernel uses the same fixed geometry for either distance choice.
     Counts retain exact hits in the model. Missing distance/kernel support contributes
     a unit tail; an absent target or empty calibration population has no combined score.
     """
@@ -73,7 +77,12 @@ def equal_tail_scores(queries, reference, *, locus, species, threads, exclude_ex
         raise ValueError('unsupported equal-tail locus or background scope')
     chains = {'TRA': 'a', 'TRB': 'b', 'paired': 'ab'}[locus]
     paired = len(chains) == 2
-    dctx = precompute_v_loop_distances(species=species)
+    if distance_geometry == 'native':
+        dctx = precompute_v_loop_distances(species=species)
+    elif distance_geometry == 'blosum62-double-cdr12':
+        dctx = precompute_v_loop_distances(species=species, matrix='blosum62', v_regions='double-cdr12')
+    else:
+        raise ValueError('unsupported equal-tail distance geometry')
     kctx = precompute_v_loop_distances(species=species, matrix='blosum62')
     if paired:
         ref = build_paired_ref(reference).rename({'alpha': 'cdr3a', 'beta': 'cdr3b',

@@ -44,9 +44,12 @@ Target-specific distance and support ranks
 ------------------------------------------
 
 The experimental ``equal-tail`` command ranks a receptor against a specified
-peptide–MHC using the nearest native TCRdist3 distance :math:`D` and the stem4
-kernel support :math:`K`. A linked distance sums the
-two chain distances to the **same reference pair** before taking the minimum.
+peptide–MHC using the nearest reference distance :math:`D` and stem4 kernel
+support :math:`K`. The default distance uses clipped BLOSUM62. With
+``--distance-geometry blosum62-double-cdr12``, :math:`D` uses full BLOSUM62
+and gives aligned CDR1 and CDR2 twice the weight of aligned CDR2.5.
+Each query and background key uses the selected distance. A linked distance
+sums the two chain distances to the **same reference pair** before taking the minimum.
 
 Let :math:`B` be the set of distinct other-peptide reference keys for this
 species and receptor axis, and :math:`M=|B|`. Score each key against the same

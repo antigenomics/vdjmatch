@@ -24,6 +24,22 @@ Use ``--locus TRA`` or ``--locus TRB`` for single chains.
 population by MHC. For an exact-excluded benchmark, pass ``--exclude-exact``.
 See :doc:`scoring` for the score definition and units.
 
+To use full BLOSUM62 with twice the aligned CDR1 and CDR2 costs in the
+distance component, run::
+
+   vdjmatch equal-tail candidates.tsv --vdjdb reference.zip --species human \
+       --locus paired --distance-geometry blosum62-double-cdr12 \
+       --exclude-exact --background-scope all-hla --output-prefix results/paired-double
+
+The distance tail compares each query with other-peptide reference keys under
+the same geometry. Each chain contributes three times its trimmed junction
+distance, twice its CDR1 and CDR2 distances, and one CDR2.5 distance. Paired
+scoring minimizes the linked sum over observed reference pairs. Both distance
+presets use the same stem4 kernel. The Python API
+``vdjmatch.evalue.equal_tail.equal_tail_scores`` accepts
+``distance_geometry="blosum62-double-cdr12"``. Its default, ``"native"``, uses
+clipped BLOSUM62 and counts each aligned V region once.
+
 The output includes exact marginal counts ``D_tail_n`` and ``K_tail_n``.
 For exact ranking across candidates, use Python's ``fractions.Fraction``
 and sort by ``Fraction(int(product_numerator), int(tail_denominator)**2)``

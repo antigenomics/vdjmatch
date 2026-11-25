@@ -11,6 +11,8 @@ def register(subparsers):
     p.add_argument('--vdjdb', required=True, help='local raw VDJdb release, directory or table')
     p.add_argument('--locus', required=True, choices=['TRA', 'TRB', 'paired'])
     p.add_argument('--species', default='human', help='human or mouse')
+    p.add_argument('--distance-geometry', choices=['native', 'blosum62-double-cdr12'], default='native',
+                   help='nearest-distance geometry used for both query and calibration distances')
     p.add_argument('--background-scope', choices=['all-hla', 'compatible-hla'], default='all-hla',
                    help='other-peptide calibration keys from all restrictions or compatible pMHCs only')
     p.add_argument('--exclude-exact', action='store_true', help='exclude exact full-junction hits from both components')
@@ -85,7 +87,8 @@ def main(a):
         raise ValueError('no queries for the selected species and locus')
     ref = db.load(a.vdjdb,species={'human':'HomoSapiens','mouse':'MusMusculus'}[species]).filter('reference_valid')
     scores = equal_tail_scores(q, ref, locus=a.locus, species=species, threads=a.threads,
-                              exclude_exact=a.exclude_exact, background_scope=a.background_scope)
+                              exclude_exact=a.exclude_exact, background_scope=a.background_scope,
+                              distance_geometry=a.distance_geometry)
     prefix.parent.mkdir(parents=True,exist_ok=True)
     scores.write_csv(str(prefix)+'.scores.tsv',separator='\t')
     template = files('vdjmatch.resources')/'vloops'/(species+'_v_loops.tsv')
@@ -97,6 +100,9 @@ def main(a):
                   target_selection='declared compatible full pMHC', queries=len(scores),
                   status_counts=scores.group_by('status').len().to_dicts(),
                   score='negative log product of two plus-one empirical marginal tails',
-                  nearest='clipped BLOSUM62, resolved V, junction trim 3/2, minimum length 5',
+                  distance_geometry=a.distance_geometry,
+                  nearest=('clipped BLOSUM62' if a.distance_geometry == 'native' else
+                           'full BLOSUM62, 2*CDR1+2*CDR2+CDR2.5')
+                          + ', resolved V, junction trim 3/2, minimum length 5',
                   kernel='v-bounded BLOSUM62, trim 3/3, stem depth 4, minimum length 8')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(report,indent=2)+'\n')
