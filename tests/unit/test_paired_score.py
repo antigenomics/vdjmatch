@@ -50,7 +50,8 @@ def test_conditional_filter_requires_unique_winner_and_resolved_null_tail():
 
     native = sample().with_columns(
         *[pl.lit('A').alias(c) for c in ('selected_linked_epitope', 'selected_alpha_epitope', 'selected_beta_epitope')],
-        *[pl.lit(1).alias(c) for c in ('tied_peptides', 'alpha_tied_peptides', 'beta_tied_peptides')],
+        *[pl.lit('ranked_evidence').alias(c) for c in ('linked_selection_status', 'alpha_selection_status', 'beta_selection_status')],
+        pl.lit(1).alias('tied_peptides'),
     )
     null = native.head(1).drop('query_id').join(pl.DataFrame({'query_id': range(99)}), how='cross')
     null = null.with_columns(pl.lit('0.1').alias('kernel_score'))
@@ -59,3 +60,5 @@ def test_conditional_filter_requires_unique_winner_and_resolved_null_tail():
     assert result['p_null'][0] == .01 and result['E_null'][0] == 0
     for more in [null.head(98), null.with_columns(pl.lit('0.2').alias('kernel_score'))]:
         assert conditional_linked_calls(linked_first_scores(native), more)['call_status'][0] == 'no_supported_match'
+    conflicting = native.with_columns(pl.lit('ambiguous').alias('linked_selection_status'))
+    assert conditional_linked_calls(linked_first_scores(conflicting), null)['call_status'][0] == 'no_supported_match'

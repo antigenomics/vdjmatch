@@ -61,11 +61,11 @@ def conditional_linked_calls(scores, withheld):
             return pl.when(linked).then(ab).when(alpha >= beta).then(a).otherwise(b)
         ambiguous_fallback = (~linked & (alpha == beta) &
             (~pl.col('selected_alpha_epitope').eq_missing(pl.col('selected_beta_epitope')) |
-             (pl.col('beta_tied_peptides').cast(pl.Int64) != 1)))
+             (pl.col('beta_selection_status') != 'ranked_evidence')))
         return frame.with_columns(
             select(pl.lit('linked'), pl.lit('alpha'), pl.lit('beta')).alias('winning_axis'),
             select('selected_linked_epitope', 'selected_alpha_epitope', 'selected_beta_epitope').alias('winning_peptide'),
-            (select('tied_peptides', 'alpha_tied_peptides', 'beta_tied_peptides').cast(pl.Int64).eq(1)
+            (select('linked_selection_status', 'alpha_selection_status', 'beta_selection_status').eq('ranked_evidence')
              & ~ambiguous_fallback).alias('unique_winner'))
 
     keys = ['winning_axis', 'winning_peptide']
