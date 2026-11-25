@@ -1117,6 +1117,23 @@ The manifest records the selection mode and all CLI parameters. The resulting
 nearest distances are uncalibrated distances, suitable for separately defined
 comparator ranking; the command does not assign a specificity probability.
 
+For full BLOSUM62 with twice the aligned CDR1 and CDR2 costs, use::
+
+   vdjmatch neighbours queries.airr.tsv --vdjdb vdjdb.zip --locus paired \
+     --targets-from-sample --resolved-v-nearest --distance-matrix blosum62 \
+     --v-regions double-cdr12 --exclude-exact --output-prefix paired-nearest
+
+Each chain contributes three times the trimmed junction distance, twice the
+aligned CDR1 and CDR2 distances, and one aligned CDR2.5 distance. The linked
+score minimizes the sum across both chains of the same reference pair. For
+single chains, select ``--locus TRA`` or ``TRB``. The benchmark option
+``--exclude-exact`` removes identical full junctions from the hit list. The
+ordinary annotation default retains them. To reproduce a benchmark using the
+entire valid reference release, add ``--reference-population all-valid``.
+The Python functions ``vdjmatch.match.geometry.distance_matrix`` and
+``paired_distance_matrix`` accept ``matrix="blosum62", v_regions="double-cdr12"``;
+``allow_short=True`` enables the same five-residue minimum on resolved inputs.
+
 Shared original calculations across cohorts
 -------------------------------------------
 

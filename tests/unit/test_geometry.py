@@ -281,13 +281,23 @@ def test_geometry_unbounded_nearest_outside_ball_and_exact_only(tmp_path, capsys
     raw.with_columns(pl.lit('CASSLGF').alias('junction_aa')).write_csv(sample,separator='\t')
     ref.with_columns(pl.lit('CATSLVF').alias('cdr3')).write_csv(reference,separator='\t')
     assert main(args+['--resolved-v-nearest'])==0
-    native=pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t')
-    assert native['distance'].to_list()==([0] if locus=='paired' else [0,0])
+    candidates=pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t')
+    assert candidates['distance'].to_list()==([0] if locus=='paired' else [0,0])
     if locus=='TRB':
         unavailable=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t').filter(pl.col('query_id')=='unknown')
         assert unavailable['available'].to_list()==[False]
         assert unavailable['v_geometry_imputed'].to_list()==[False]
     raw.write_csv(sample,separator='\t')
+    # Only the beta V differs. The linked minimum uses this same observed pair.
+    alternate_ref = ref.with_columns(pl.when(pl.col('gene') == 'TRB').then(pl.lit('TRBV7-9*01'))
+                                     .otherwise(pl.col('v')).alias('v'))
+    alternate_ref.write_csv(reference, separator='\t')
+    assert main(args + ['--resolved-v-nearest', '--distance-matrix', 'blosum62',
+                        '--v-regions', 'double-cdr12']) == 0
+    term = native.distance_matrix([a], [b], ['TRBV19*01'], ['TRBV7-9*01'],
+                    matrix='blosum62', v_regions='double-cdr12').item()
+    result = pl.read_csv(str(prefix) + '.candidates.tsv', separator='\t')
+    assert result['distance'].to_list() == [term]
     # The only reference is now a full junction identity (a full pair in paired mode).
     ref.with_columns(pl.lit(a).alias('cdr3')).write_csv(reference,separator='\t')
     assert main(args+['--unbounded-nearest'])==0

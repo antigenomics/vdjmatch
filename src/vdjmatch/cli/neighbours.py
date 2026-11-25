@@ -69,8 +69,13 @@ def register(subparsers, name='neighbours'):
                    help='clipped BLOSUM62 geometry trims 3 N/2 C residues; trim3 tests 3 residues at both ends')
     p.add_argument('--v-loop-weight',type=int,choices=[0,1],default=1,
                    help='fixed experimental CDR3-only(0) versus CDR3+V(1); identical V eligibility')
-    p.add_argument('--v-regions',choices=['cdr12plus','cdr12'],default='cdr12plus',
-                   help='aligned V regions: CDR1/CDR2/CDR2.5 (default), or retained vcdr12 extra omitting CDR2.5')
+    v_regions = ['cdr12plus', 'cdr12']
+    if name == 'neighbours':
+        v_regions.append('double-cdr12')
+    p.add_argument('--v-regions',choices=v_regions,default='cdr12plus',
+                   help='aligned V regions: cdr12plus includes CDR2.5; cdr12 omits it'
+                        + ('; double-cdr12 doubles CDR1 and CDR2 while retaining CDR2.5'
+                           if name == 'neighbours' else ''))
     p.add_argument('--stem-depth',type=int,default=0,
                    help='joint V-J hairpin stem levels added to the junction distance. '
                         'The CDR3 loop pairs position i with position L-1-i; a level counts '
@@ -104,7 +109,7 @@ def register(subparsers, name='neighbours'):
                    help='opt-in evaluation/record-reliability mode; ordinary queries retain exact hits')
     if name == 'neighbours':
         p.add_argument('--resolved-v-nearest', action='store_true',
-                       help='unbounded clipped-BLOSUM62 nearest with resolved V alleles and canonical junctions of length >=5')
+                       help='unbounded nearest with resolved V alleles and canonical junctions of length >=5; defaults to clipped BLOSUM62')
     p.add_argument('--unbounded-nearest',action='store_true',help='exhaustive nearest reference for each sample-declared target; neighbour counts retain the radius')
     p.add_argument('--conditional-j',action='store_true',help='experimental J usage conditional on V and junction length; ranking only')
     p.add_argument('--epitope-rules',action='store_true',help='experimental joint V usage with V-conditioned CDR3/motif kernels; ranking only')
@@ -217,12 +222,16 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
     stream_evidence=getattr(a,'stream_evidence',False)
     resolved_v_nearest = getattr(a, 'resolved_v_nearest', False)
     minimum_length = 5 if resolved_v_nearest else 8
+    double_cdr12 = getattr(a, 'v_regions', 'cdr12plus') == 'double-cdr12'
+    if double_cdr12 and (not resolved_v_nearest or a.distance_matrix != 'blosum62'):
+        raise ValueError('double-cdr12 requires --resolved-v-nearest --distance-matrix blosum62')
     if resolved_v_nearest:
-        if (a.distance_matrix != 'clipped' or a.junction_ends != 'trim32' or a.stem_depth or
-                a.v_loop_weight != 1 or a.v_regions != 'cdr12plus' or a.alphabet != 'full' or
+        default_geometry = a.distance_matrix == 'clipped' and a.v_regions == 'cdr12plus'
+        if (not (default_geometry or double_cdr12) or a.junction_ends != 'trim32' or a.stem_depth or
+                a.v_loop_weight != 1 or a.alphabet != 'full' or
                 a.position_weighting != 'uniform' or a.background or a.shortlist_audit or
                 a.neighbour_weighting != 'ball'):
-            raise ValueError('--resolved-v-nearest requires the default neighbours geometry and nearest reducer')
+            raise ValueError('--resolved-v-nearest requires its clipped default or full BLOSUM62 with double-cdr12, and the uniform nearest reducer')
         a.unbounded_nearest = True
     matrix_path=Path(a.distance_matrix).expanduser()
     matrix_hash=sha256(matrix_path) if matrix_path.is_file() else None
@@ -1160,7 +1169,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
             'probability_interpretation':'none; radius selection does not transfer fixed-radius model calibration'}} if a.reference_radius else {}),
         'selection':('exhaustive nearest nonexcluded reference; n_neighbours counts only within radius'
                      if a.unbounded_nearest else 'radius ball'),
-        'distance':(('clipped BLOSUM62 geometry default' if ctrim==2 else 'experimental symmetric-trim')+
+        'distance':('full BLOSUM62 3*CDR3+2*CDR1+2*CDR2+CDR2.5' if double_cdr12 else ('clipped BLOSUM62 geometry default' if ctrim==2 else 'experimental symmetric-trim')+
                     (' 3*CDR3+CDR1+CDR2'+('+CDR2.5' if a.v_regions=='cdr12plus' else '')) if a.v_loop_weight else
                     'experimental CDR3-only:3*CDR3')+
                    (f'+joint stem depth {a.stem_depth}' if a.stem_depth else '')+'; '+

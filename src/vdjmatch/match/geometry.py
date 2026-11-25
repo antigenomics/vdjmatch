@@ -388,17 +388,22 @@ def precompute_v_loop_distances(*, species='human', alphabet='full', matrix='cli
     no sample predictions, process-global state or persisted cache are retained.
     TRA/TRB have separate tables because their aligned widths can differ.
     ``v_regions="cdr12"`` omits CDR2.5; the default ``cdr12plus`` retains it.
+    ``double-cdr12`` counts CDR1 and CDR2 twice and CDR2.5 once.
     """
-    if v_regions not in ('cdr12plus', 'cdr12'):
-        raise ValueError('v_regions must be cdr12plus or cdr12')
+    if v_regions not in ('cdr12plus', 'cdr12', 'double-cdr12'):
+        raise ValueError('v_regions must be cdr12plus, cdr12 or double-cdr12')
     model=load_v_loops(species)
-    selected_model = (model if v_regions == 'cdr12plus' else
-                      {v: dict(meta, cdr25='') for v, meta in model.items()})
+    if v_regions != 'cdr12plus':
+        cdr12_model = {v: dict(meta, cdr25='') for v, meta in model.items()}
+    selected_model = cdr12_model if v_regions == 'cdr12' else model
     costs=_substitution_costs(alphabet,matrix)
     tables={}
     for locus in ('TRA','TRB'):
         alleles=np.asarray(sorted(v for v in model if model[v]['locus']==locus))
         distances,_=_v_loop_groups(alleles.tolist(),selected_model,costs)
+        if v_regions == 'double-cdr12':
+            extra, _ = _v_loop_groups(alleles.tolist(), cdr12_model, costs)
+            distances += extra
         distances.setflags(write=False)
         alleles.setflags(write=False)
         tables[locus]=(alleles,distances)
@@ -418,8 +423,8 @@ def _v_region_context(v_regions, context, species, alphabet, matrix):
     """
     if v_regions is None:
         return context
-    if v_regions not in ('cdr12plus', 'cdr12'):
-        raise ValueError('v_regions must be cdr12plus or cdr12')
+    if v_regions not in ('cdr12plus', 'cdr12', 'double-cdr12'):
+        raise ValueError('v_regions must be cdr12plus, cdr12 or double-cdr12')
     if context is not None:
         if context.get('v_regions', 'cdr12plus') != v_regions:
             raise ValueError('precomputed V loops require matching V regions')
@@ -538,6 +543,7 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     ``v_loop_weight=0`` is the fixed CDR3-only ablation; eligibility stays identical.
     ``v_regions="cdr12"`` retains aligned CDR1/CDR2 only. None inherits a
     supplied prepared context, otherwise keeps CDR1/CDR2/CDR2.5.
+    ``v_regions="double-cdr12"`` doubles CDR1 and CDR2, retaining one CDR2.5 term.
     ``ctrim=3`` tests removal of three residues at both junction ends; the default
     remains the three-N/two-C trim. Full junction identity is handled by callers.
     ``stem_depth`` adds the joint V-J hairpin stem term of :func:`stem_penalty` on the
