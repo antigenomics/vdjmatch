@@ -2,9 +2,10 @@ Laptop runtime, RAM and thread budget
 =====================================
 
 The worked examples use four native threads as a practical explicit setting.
-Ordinary CLI commands and repertoire annotation default to the job CPU
-allocation (``--threads 0``). Use ``--threads 1`` for serial execution or an
-explicit smaller budget within that allocation. Samples run sequentially; native search batches the entire query
+Ordinary CLI commands and repertoire annotation default to the physical core
+count within the job CPU allocation (``--threads 0``). Use ``--threads 1`` for
+serial execution or pass an explicit thread count. Requests above the usable
+allocation are capped. Samples run sequentially; native search batches the entire query
 population, without an outer pool. Numerical helper pools are limited to one
 thread before imports in the notebooks. The measurements below retain their recorded explicit budgets and scorer.
 
