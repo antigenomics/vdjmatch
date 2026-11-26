@@ -2,8 +2,8 @@
   "source": "aligned germline V-region reference table; upstream identity in comparison-provenance.ipynb",
   "source_sha256": "1d7fcac37ad6d955b3a3f693526e36623186464aef2c528cf8e0322dc89706cd",
   "selection": "region V; chain A or B; first three aligned cdrs fields; exact allele key, last matching source row as RefGeneSet",
-  "alleles": 593,
-  "source_selected_rows": 991,
+  "alleles": 781,
+  "source_selected_rows": 1179,
   "species": {
     "human": {
       "alleles": 245,
@@ -12,6 +12,10 @@
     "mouse": {
       "alleles": 348,
       "source_selected_rows": 643
+    },
+    "rhesus": {
+      "alleles": 188,
+      "source_selected_rows": 188
     }
   }
 }

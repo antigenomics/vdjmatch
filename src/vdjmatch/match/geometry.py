@@ -1,4 +1,4 @@
-"""Human/mouse alpha/beta junction and V-loop distances using native gap-block scoring.
+"""Human, mouse and rhesus alpha/beta junction and V-loop distances using native gap-block scoring.
 
 Reproduces 3*CDR3 + aligned CDR1/CDR2/CDR2.5, using clipped
 BLOSUM matrix and restricted gap positions. This distance is not calibrated evidence.
@@ -175,8 +175,8 @@ def _full_gap_prior(i, gap, width):
 
 def load_v_loops(species='human'):
     """Bundled, source-pinned aligned loop templates keyed by exact allele."""
-    if species not in ('human','mouse'):
-        raise ValueError('species must be human or mouse')
+    if species not in ('human','mouse','rhesus'):
+        raise ValueError('species must be human, mouse or rhesus')
     path=resources.files('vdjmatch.resources')/'vloops'/f'{species}_v_loops.tsv'
     with path.open() as f:
         return {r['allele']:r for r in csv.DictReader(f,delimiter='\t')}

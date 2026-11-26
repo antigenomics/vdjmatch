@@ -962,6 +962,8 @@ def main(argv: list[str] | None = None) -> int:
     register_paired_score(sub)
     from .paired_order import register as register_paired_order
     register_paired_order(sub)
+    from .graph_noise import register as register_graph_noise
+    register_graph_noise(sub)
     from .radius import register as register_radius
     register_radius(sub)
     from .support import register as register_support
@@ -1005,6 +1007,7 @@ def main(argv: list[str] | None = None) -> int:
     evidence_commands = {"equal-tail", "motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     evidence_commands.add('paired-score')
     evidence_commands.add('repertoire-exact')
+    evidence_commands.add('graph-noise')
     evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment', 'repertoire-tcrnet'})
     if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
         evidence_commands.add('annotate')

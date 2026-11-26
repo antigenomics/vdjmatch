@@ -69,15 +69,23 @@ def conditional_linked_calls(scores, withheld):
              & ~ambiguous_fallback).alias('unique_winner'))
 
     keys = ['winning_axis', 'winning_peptide']
+    calibratable = pl.col('supported') & pl.col('unique_winner')
     observed = groups(scores)
-    nulls = groups(linked_first_scores(withheld)).select('query_id', 'score', *keys,
-        pl.lit('null').alias('outcome'), pl.lit('withheld').alias('null_source'))
+    # A tied selection may carry an alphabetical peptide placeholder. It is
+    # outside the unique-winner event on both sides of the comparison.
+    nulls = groups(linked_first_scores(withheld)).filter(calibratable).select(
+        'query_id', 'score', *keys, pl.lit('null').alias('outcome'), pl.lit('withheld').alias('null_source'))
     depths = nulls.group_by(keys).len(name='null_queries')
-    observed = observed.join(depths, on=keys, how='left', validate='m:1', maintain_order='left')
-    eligible = observed.filter(pl.col('supported') & pl.col('unique_winner') & pl.col('null_queries').is_not_null())
-    tails, _ = null_tail_probabilities(eligible, nulls, group_columns=keys)
-    return observed.join(tails.select('query_id', 'p_null', 'E_null'), on='query_id',
-        how='left', validate='1:1', maintain_order='left').with_columns(
+    observed = observed.join(depths, on=keys, how='left', validate='m:1', maintain_order='left').with_columns(
+        pl.when(calibratable).then(pl.col('null_queries')).alias('null_queries'))
+    eligible = observed.filter(pl.col('null_queries').is_not_null())
+    if eligible.height:
+        tails, _ = null_tail_probabilities(eligible, nulls, group_columns=keys)
+        observed = observed.join(tails.select('query_id', 'p_null', 'E_null'), on='query_id',
+            how='left', validate='1:1', maintain_order='left')
+    else:
+        observed = observed.with_columns(p_null=pl.lit(None, dtype=pl.Float64), E_null=pl.lit(None, dtype=pl.Float64))
+    return observed.with_columns(
         pl.when(pl.col('p_null') <= 0.01).then(pl.lit('accepted'))
           .otherwise(pl.lit('no_supported_match')).alias('call_status'))
 
@@ -106,6 +114,8 @@ def main(args):
     if any(manifest.get('parameters', {}).get(k) != v for k,v in required.items()):
         raise ValueError('native paired stem4 v-bounded VDJdb-other selection required')
     native = pl.read_csv(paths[0], separator='\t', infer_schema=False)
+    if ('query_pairs' in manifest or withheld_manifest is not None) and native.height != manifest.get('query_pairs'):
+        raise ValueError('paired score input row count disagrees with its manifest')
     scores = linked_first_scores(native)
     conditional = {}
     if withheld_manifest is not None:
@@ -115,11 +125,12 @@ def main(args):
                 or pipeline_binding(manifest) != pipeline_binding(null_manifest)):
             raise ValueError('a matching peptide-withheld reference-calls population is required')
         withheld = pl.read_csv(withheld_calls, separator='\t', infer_schema=False)
-        if withheld.height != null_manifest['query_pairs'] or native.height != manifest['query_pairs']:
-            raise ValueError('paired score input row count disagrees with its manifest')
+        if withheld.height != null_manifest.get('query_pairs'):
+            raise ValueError('withheld calls row count disagrees with its manifest')
         scores = conditional_linked_calls(scores, withheld)
         conditional = dict(calibration_status='experimental conditional ranks against peptide-withheld reference winners',
-            conditioning=['winning_axis','winning_peptide'], cutoff='inclusive p_null <= 0.01; unique supported winners only',
+            conditioning=['winning_axis','winning_peptide'], eligible_null='unique supported peptide winners only',
+            cutoff='inclusive p_null <= 0.01; unique supported winners only',
             p_null='(1+k)/(1+n)', E_null='k/n; empirical tail conditional on the winning peptide and axis')
     if before != {str(p): sha256(p) for p in paths}:
         raise ValueError('paired-score inputs changed during reduction')

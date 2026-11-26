@@ -67,5 +67,7 @@ def test_motif_depth_cli_counts_carriers_and_retains_unresolved_keys(tmp_path):
     assert result['junction_v_keys'].to_list() == [3]*3
     assert result['unresolved_v_keys'].to_list() == [1]*3
     assert result['observed_motifs'].to_list() == [2]*3
+    assert result['guaranteed_catalog_depth'].to_list() == [2]*3
+    assert result['expected_90pct_depth'].to_list() == [2]*3
     assert result['expected_observed_motifs'][:2].to_list() == pytest.approx([4/3, 2])
     assert result['expected_observed_motifs'][2] is None

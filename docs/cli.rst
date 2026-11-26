@@ -65,6 +65,13 @@ across axes and pMHCs determines the any-call event. An exact tie across
 distinct pMHCs retains the any-call score and leaves the assigned pMHC empty.
 A query without supported, calibrated candidates has a null score.
 
+For a candidate with :math:`M` background keys, each plus-one tail is at
+least :math:`1/(M+1)`. Its largest possible score is therefore
+:math:`2\log(M+1)`. If the fitted cutoff exceeds this bound, that candidate
+cannot trigger an any-call on that axis. Background size varies by candidate
+and axis. A caller using paired inputs should assess reachable candidates and
+observed recall alongside the pooled null false-call rate.
+
 Fit a calibration from the raw reference and an existing pinned generated-null
 receptor sample. For paired use, supply independently generated alpha and beta
 chains linked by their control pair IDs. This command treats the supplied
@@ -114,6 +121,16 @@ score in the supplied calibration populations. Each query contributes at most
 one any-call, including when the leading pMHCs tie. The event therefore
 measures whether the search made a call and does not assess whether it assigned
 the correct pMHC. Source-specific counts and tails are in ``.null-tails.tsv``.
+For :math:`Q` null queries from a represented population evaluated at a common
+cutoff, the corresponding empirical any-call rate times :math:`Q` estimates
+the expected false-call count. With known counts :math:`Q_b` from represented
+null populations, sum :math:`Q_b k_b/N_b` using each source's rate at the
+common cutoff. If only the total :math:`Q` is known, the largest source rate
+gives the worst-source estimate :math:`Q\max_b k_b/N_b` for that all-null
+batch. Use the rates at the selected cutoff for this calculation. A query's
+reported tail is evaluated at its own observed score. The fitted cutoff uses the empirical rate at
+the observed tied score levels. The per-query plus-one rank uses a different
+finite-sample rule and requires exchangeability with its null source.
 A recipe fitted to fixture data is only a software check.
 
 vdjmatch update
@@ -195,7 +212,15 @@ hypergeometric detection probabilities. Entries can overlap. An empty estimate
 marks a requested depth beyond the available keys. Catalog membership describes
 sequence patterns and does not establish specificity or enrichment.
 
-Add repeatable ``--motif-depth N`` to request the probability of observing
+The column ``expected_90pct_depth`` gives the smallest number of keys for which
+the expected number of different entries recovered reaches 90% of the catalog.
+Individual samples at that depth can recover fewer entries.
+The column ``guaranteed_catalog_depth`` gives the smallest sample containing
+every entry for every possible draw of that size. For a nonempty catalog this is
+the number of keys minus the carrier count of its rarest entry plus one.
+Both depths are zero for an empty catalog.
+
+For the selected motif in ``reference-profiles``, add repeatable ``--motif-depth N`` to request the probability of observing
 the selected V-conditioned motif in a uniform sample of N distinct
 junction/V keys without replacement. The additional ``.motif-discovery.tsv``
 table reports the carrier count, population size, motif identity and original
@@ -1457,21 +1482,24 @@ native paired selection, with no new search or fit:
 Positive linked evidence supplies ``score``; otherwise the existing any-axis
 score retains marginal support. No supported axis gives an explicit no-score
 row. All original identities, component values and metadata remain unchanged.
-The reducer validates the native any-axis maximum and records input/output
-hashes. Its ``.scores.tsv`` is continuous ranking evidence, unlike the decision
+The reducer validates the native any-axis maximum and the query-pair count
+when declared in the manifest. It records input/output hashes.
+Its ``.scores.tsv`` is continuous ranking evidence, unlike the decision
 indicators from ``paired-labels``. It changes no default or label assignment;
 the existing any-axis call calibration does not apply to this candidate.
 
-For experimental database-wide rejection, supply ``--withheld-manifest`` with
+For experimental winner-conditional filtering, supply ``--withheld-manifest`` with
 the paired ``reference-calls --leave-epitope-out`` manifest and its sibling
 ``.calls.tsv``. The reference, geometry and exact-hit policy must match the
-annotated population. Among withheld reference queries with the same winning
-peptide and axis, let *n* count all such queries and *k* count scores at least
-as large as the observed one. The output reports ``null_queries``,
+annotated population. Let *n* count withheld reference queries with a unique
+supported winner for the same peptide and axis. Let *k* count their scores at
+least as large as the observed one. The output reports ``null_queries``,
 ``E_null = k/n``, and the inclusive rank ``p_null = (k+1)/(n+1)``.
 A unique supported winner passes at ``p_null <= 0.01``. Missing groups and
-ambiguous winners abstain. This tests a selected peptide. A full HLA restriction
-requires separate evidence from the winning reference records.
+ambiguous winners abstain with empty null depth and tail fields. This tail
+conditions on the winning peptide and axis. The database-wide any-axis event
+has its own calibration, and full HLA restriction requires evidence from the
+winning reference records.
 
 The original scorer requires a matching raw ``--control`` repertoire for nonbundled
 species/loci. Its output
@@ -1486,11 +1514,13 @@ number of neighbours and is not the probability of a false winning-label call;
 it is not interchangeable with an E-value or a biological posterior.
 ``--calibration-score score`` exports the existing winning-label ranking score.
 ``calibrate-calls`` reports its empirical expected false calls per query as the
-largest observed null-source any-call tail at each cutoff. For a sample of Q
-queries evaluated at a common cutoff, multiply this value by Q to obtain the
-empirical expected number of false calls. This expectation requires no independence
-assumption, but transport to a new population remains unvalidated. It is distinct
-from the Poisson neighbour-count E-value and is not a confidence bound.
+largest observed null-source any-call tail at each cutoff. For an all-null batch
+of Q comparable queries at a common cutoff, Q times that rate gives the
+worst-source estimate among the represented populations. The per-source rates
+give a composition-specific estimate when the null population counts are known.
+Summing expectations requires no independence assumption. Transport to a new
+population requires validation. The any-call rate and Poisson neighbour-count
+E-value count different events.
 Neither this command nor ``calibrate-calls`` supplies a biological posterior or
 filters principal accuracy/ranking evaluations with a recommended cutoff.
 
@@ -2153,6 +2183,31 @@ background-adjusted germline enrichment or evidence of direct structural contact
 These are reference morphology features. The command fits no weights, makes no
 recognition claim and supplies no P-value. Its manifest records population policy,
 raw reference identity, feature definitions, source hashes and output hashes.
+
+vdjmatch graph-noise
+--------------------
+
+Rank an existing receptor graph by triangle support:
+
+.. code-block:: sh
+
+   vdjmatch graph-noise nodes.tsv --edges edges.tsv --output ranked.tsv
+
+The node table needs a unique ``node_id`` for every construct, including
+isolates. The edge table contains endpoint IDs in ``a`` and ``b``. Repeated or
+reversed copies count as one undirected edge. Self-edges contribute zero.
+The output preserves node order and columns and appends ``degree``,
+``triangle_degree`` and ``noise_rank``. Triangle degree counts incident edges
+whose endpoints share a third neighbor. The best rank is one. At zero triangle
+degree, connected constructs rank ahead of isolates. Remaining ties share a rank.
+
+Supply ``--retain N`` to append ``retention_weight`` for a caller-specified
+node budget. Ranks above the cutoff receive weight one, ranks below receive
+zero, and nodes tied at the cutoff share the remaining budget equally. Every
+row is retained in the output. The weights sum to the budget and describe
+expected inclusion under uniform selection within the cutoff tie. Graph
+support and retention are separate from pMHC assignment and probabilities of
+functional validation.
 
 vdjmatch database-evidence
 --------------------------

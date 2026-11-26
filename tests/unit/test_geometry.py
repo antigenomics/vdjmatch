@@ -438,3 +438,11 @@ def test_reference_loop_imputation_retains_known_templates_and_flags_missing():
     assert missing.to_list() == [False, True, True, False, False]
     assert calls.equals(before)
     assert impute_reference_v_alleles([None], model, locus='TRB')[0].null_count() == 0
+
+
+def test_rhesus_beta_distance_matches_external_landmark():
+    result = distance_matrix(
+        ['CAARITGEKLFF'], ['CASSLSRQSNRPQYF'],
+        ['TRBV6-1*01'], ['TRBV14*01'], species='rhesus',
+    )
+    assert result.tolist() == [[166]]

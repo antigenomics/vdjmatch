@@ -309,10 +309,22 @@ def main(a):
                 {'query_id': 'calibration_query_id'})
         epitopes = epitopes.join(base.select('calibration_query_id', 'sample_id'), on='calibration_query_id', validate='m:1')
     else:
+        # Keep the calibration columns readable even when no population was scored.
+        tail_schema = {
+            **{f'{direction}_{field}': pl.Int64 for field in ('exceedances', 'draws', 'hit_draws')
+               for direction in ('reference', 'query')},
+            **dict.fromkeys(('null_reference_match_rate', 'null_query_match_rate',
+                             'p_reference', 'p_query', 'p_both'), pl.Float64),
+            'test_scope': pl.String,
+        }
         database = base.with_columns(pl.lit(None, dtype=pl.Float64).alias('score'),
-            *[pl.lit(None, dtype=pl.Float64).alias(c) for c in ('p_reference', 'p_query', 'p_both')])
-        epitopes = pl.DataFrame(schema={**{c: pl.String for c in ['calibration_query_id', 'species', 'locus', *PMHC]},
-            'score': pl.Float64, 'call_score': pl.Float64})
+            *[pl.lit(None, dtype=dtype).alias(c) for c, dtype in tail_schema.items()])
+        epitopes = pl.DataFrame(schema={
+            **dict.fromkeys(('calibration_query_id', 'species', 'locus', *PMHC, 'sample_id'), pl.String),
+            'score': pl.Float64, 'call_score': pl.Float64, **tail_schema,
+            **({'declared_target': pl.Boolean, 'reported_specificity': pl.Boolean,
+                **dict.fromkeys(('p_reference_any', 'p_query_any', 'p_any'), pl.Float64)} if a.selection_only else {}),
+        })
     database = database.with_columns(pl.when(pl.col('calibration_status') == 'ready').then(
         pl.when(pl.col('score').is_not_null()).then(pl.lit('scored')).otherwise(pl.lit('no_support')))
         .otherwise(pl.col('calibration_status')).alias('calibration_status'))

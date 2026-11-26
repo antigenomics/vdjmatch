@@ -11,6 +11,7 @@ def register(subparsers):
 
 def catalog_depth(reference, depths):
     """Expected observed catalog size in a uniform subsample of junction/V keys."""
+    from bisect import bisect_left
     import numpy as np
     import polars as pl
     from scipy.stats import hypergeom
@@ -22,7 +23,7 @@ def catalog_depth(reference, depths):
     groups = ['species', 'gene', 'epitope']
     schema = {**dict.fromkeys(groups, pl.String),
         **dict.fromkeys(['source_records', 'junction_v_keys', 'unresolved_v_keys',
-                         'observed_motifs', 'sample_keys'], pl.Int64),
+                         'observed_motifs', 'guaranteed_catalog_depth', 'expected_90pct_depth', 'sample_keys'], pl.Int64),
         'expected_observed_motifs': pl.Float64}
     rows = []
     valid = reference.filter(pl.col('reference_valid') &
@@ -35,12 +36,19 @@ def catalog_depth(reference, depths):
         tokens = _tokens(keys.filter(pl.col('v0').is_not_null()), [0], 'exact3')
         carriers = tokens.group_by('v0', 't0').len()['len'].to_numpy()
         sizes, frequencies = np.unique(carriers, return_counts=True)
+        # A sample can omit the rarest motif while it contains only noncarriers.
+        guaranteed_depth = keys.height - int(sizes[0]) + 1 if sizes.size else 0
+        def expected_count(depth):
+            return float(np.dot(frequencies, hypergeom.sf(0, keys.height, sizes, depth)))
+
+        depth90 = bisect_left(range(guaranteed_depth + 1), 0.9 * len(carriers),
+                              key=expected_count) if sizes.size else 0
         for depth in sorted(set(depths)):
             expected = None
             if depth <= keys.height:
-                expected = float(np.dot(frequencies, hypergeom.sf(0, keys.height, sizes, depth)))
+                expected = expected_count(depth)
             rows.append((species, locus, epitope, group.height, keys.height,
-                keys['v0'].null_count(), len(carriers), depth, expected))
+                keys['v0'].null_count(), len(carriers), guaranteed_depth, depth90, depth, expected))
     return pl.DataFrame(rows, schema=schema, orient='row').sort(*groups, 'sample_keys')
 
 

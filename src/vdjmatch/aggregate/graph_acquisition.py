@@ -4,6 +4,28 @@ import polars as pl
 from scipy.special import gammaln
 
 
+def triangle_supported_degrees(vertex_count, endpoints):
+    """Raw degree and number of incident edges with a common third neighbor."""
+    from scipy.sparse import csr_matrix
+
+    edges = np.asarray(endpoints)
+    if (vertex_count < 0 or edges.ndim != 2 or edges.shape[1] != 2
+            or edges.dtype.kind not in 'iu' or (edges < 0).any() or (edges >= vertex_count).any()):
+        raise ValueError('graph endpoints must be integer node positions')
+    a, b = edges[edges[:, 0] != edges[:, 1]].T
+    graph = csr_matrix((np.ones(2 * len(a), dtype=bool), (np.r_[a, b], np.r_[b, a])),
+                       shape=(vertex_count, vertex_count))
+    degree = np.diff(graph.indptr)
+    triangle_degree = np.zeros_like(degree)
+    # Bound the number of possible two-hop entries in each intermediate.
+    block = min(512, max(1, 2**20 // max(1, vertex_count)))
+    for start in range(0, vertex_count, block):
+        rows = graph[start:start + block]
+        supported = rows.multiply(rows @ graph)
+        triangle_degree[start:start + block] = np.diff(supported.indptr)
+    return degree, triangle_degree
+
+
 def clonotype_graph_degrees(multiplicities, edges):
     """Expand a junction graph's degrees to its distinct junction/V/J clones.
 

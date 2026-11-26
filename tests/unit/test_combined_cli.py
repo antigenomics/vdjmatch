@@ -213,8 +213,13 @@ def test_invalid_queries_survive_and_missing_control_genes_are_imputed(tmp_path)
     assert main(args) == 0
     query = pl.read_csv(str(prefix) + '.queries.tsv', separator='\t')
     assert query.height == 4 and query['calibration_status'].to_list() == ['invalid_sequence'] * 4
-    assert pl.read_csv(str(prefix) + '.database.tsv', separator='\t')['p_both'].null_count() == 4
-    assert pl.read_csv(str(prefix) + '.epitopes.tsv', separator='\t').height == 0
+    database = pl.read_csv(str(prefix) + '.database.tsv', separator='\t')
+    assert database['p_both'].null_count() == 4
+    assert database['query_draws'].null_count() == 4
+    epitopes = pl.read_csv(str(prefix) + '.epitopes.tsv', separator='\t')
+    assert epitopes.height == 0
+    assert {'p_reference', 'p_query', 'p_both', 'p_reference_any', 'p_query_any', 'p_any',
+            'declared_target', 'reported_specificity'} <= set(epitopes.columns)
     pl.read_csv(control, separator='\t').drop('j_call').write_csv(control, separator='\t')
     assert main(args[:-1] + [str(tmp_path / 'missing-gene')]) == 0
     retained = pl.read_csv(str(tmp_path / 'missing-gene') + '.queries.tsv', separator='\t')

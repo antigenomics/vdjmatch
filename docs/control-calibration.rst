@@ -31,6 +31,24 @@ Reference epitope/MHC, ``--evidence-type`` and ``--min-score`` filters apply fir
 Ordinary annotation includes every valid selected reference observation; explicit
 ``--reference-population curated-benchmark`` retains benchmark curation.
 
+Choose the output that matches the question:
+
+* **Does this clonotype have database-wide evidence?** Read ``p_both`` in the
+  ``annotate --control`` output ``.database.tsv``. Its statistic is the
+  maximum supported call score across all labels and available chain axes.
+  For literal presence, use the exact-match fields from ``database-evidence``.
+* **Does it support a declared pMHC?** Read the fixed-target ``p_both`` in
+  ``.epitopes.tsv``. Both null tails hold that target fixed.
+* **Does a label still pass after searching all labels?** Read ``p_any``
+  and ``reported_specificity`` in the compact ``.epitopes.tsv``. The null
+  maxima account for the search across labels and axes. Several labels can
+  pass for one clonotype. A passing label has evidence against the search
+  null. Estimating the probability that the winning label is correct requires
+  validation against competing labels.
+
+A fixed-ball E-value is an expected count of background neighbours. The
+P-values above measure score extremeness under their specified nulls.
+
 ``--vdjdb`` also accepts your own epitope-labelled table. Long tables use
 ``junction_aa,locus,epitope`` and ``pair_id`` for paired chains; wide tables use
 ``junction_aa_alpha/beta,v_alpha/beta,j_alpha/beta,epitope``. Supplied MHC and
@@ -304,8 +322,13 @@ At the observed label score :math:`u_e=U_e(q,R)`, compact output reports
 These are ``p_reference_any``, ``p_query_any`` and ``p_any``. Each null
 score is the complete-label maximum, including labels omitted from output.
 Fixed-label ``p_reference``, ``p_query`` and ``p_both`` remain separate
-diagnostics. A strong undeclared rival can therefore prevent reporting even
-when a fixed-label P-value is small.
+diagnostics. Even a small fixed-label P-value can fail the reporting threshold
+when high scores are common among the complete-label null maxima. Several
+observed labels may pass because each is compared with those same null maxima.
+
+If no query can be scored, the compact epitope table is empty and retains
+its reporting and tail columns. The database table retains the query
+dispositions and leaves the tail and draw fields empty.
 
 The parameter :math:`\alpha` is ``--fpr`` (library ``report_p``), default
 :math:`0.01`. A supported label passes when :math:`p_{{\rm any},e}\le\alpha`;
@@ -318,6 +341,15 @@ label passes exactly when a supported winning label passes both directional
 complete-label tails. Under the respective conditional validity assumptions,
 this bounds the per-query any-call event by :math:`\alpha`. It does not provide
 a simultaneous error bound across a repertoire's queries.
+
+Assignment error concerns a different event. A query can support one pMHC
+while an incorrect label also receives a high score. A bound on reporting any
+label under the complete search null only extends to false labels in that
+setting if the calibration also bounds the maximum over the true null labels
+when other labels have signal. Measuring the fraction of wrong winners among
+called assay queries requires functional outcomes for the nominated pMHCs.
+See `Romano and Wolf <https://doi.org/10.1198/016214504000000539>`_ for
+familywise error control with a mixture of true and false null hypotheses.
 
 Compact execution scores the full test-query bank first. It retains observed
 rows with :math:`\widetilde p_{Q,e}\le\alpha`, plus all declarations, then computes
