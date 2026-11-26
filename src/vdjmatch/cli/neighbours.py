@@ -357,6 +357,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
             .then(pl.lit(a.locus)).otherwise(pl.col('locus')).alias('locus'))
         _,q=_prepare(data)
         metadata=raw
+    reference_provenance = db.provenance(a.vdjdb)
     reference_species={'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
     def reference_selection(**filters):
         if reference_loader is None:
@@ -613,7 +614,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
                 shared=shared.with_columns(pl.Series('_rank_control',mc))
             del mc
         else:
-            background_provenance={'kind':'vdjdb_other_epitopes','reference':db.provenance(a.vdjdb),
+            background_provenance={'kind':'vdjdb_other_epitopes','reference':reference_provenance,
                 'target_removal':'all records of target peptide, before key deduplication',
                 'shared_key_policy':'other epitope annotations retained; no arbitrary label selection',
                 'observation_unit':('distinct linked full alpha/beta junctions + resolved V alleles' if paired else
@@ -1116,7 +1117,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
                     'scorer_source_sha256':sha256(Path(distance_matrix.__code__.co_filename)),
                     **({'kernel_source_sha256':sha256(Path(kernel_ladder.__code__.co_filename))} if kernel else {}),
                     'cli_source_sha256':sha256(Path(__file__))},
-        'reference':db.provenance(a.vdjdb),'reference_population':a.reference_population,'ingestion':ingestion,'reference_observations':original,'withheld_reference_chain_records':withheld_records,
+        'reference':reference_provenance,'reference_population':a.reference_population,'ingestion':ingestion,'reference_observations':original,'withheld_reference_chain_records':withheld_records,
         'v_loop_model':{'sha256':sha256(Path(str(files('vdjmatch.resources')/'vloops'/f'{organism}_v_loops.tsv'))),
                         'precomputation':'one exact aligned-loop table per locus and invocation; reused across population batches',
                         'missing_v_policy':'unresolved V allele unavailable' if resolved_v_nearest else 'fixed first complete co-locus template; original raw calls retained with geometry imputation flags',
