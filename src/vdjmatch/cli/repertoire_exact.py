@@ -27,7 +27,7 @@ def register(sub):
     p.add_argument('--selection-profile',help='Opt-in length | vj-length | vdjtools calibration JSON')
     p.add_argument('--source',default=None,help='Model source; default isalgo (legacy human: olga-legacy)')
     p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
-    p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact joint Pgen; 1 inclusive Hamming-1 joint mass')
+    p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact junction probability; 1 inclusive Hamming-1 mass in the selected Pgen mode')
     p.add_argument('--allow-missing-model-genes',action='store_true',help='Retain absent model genes with zero joint mass and the existing add-one V/J-count smoothing; original calls are unchanged')
     p.add_argument('--matcher',choices=['exact','hamming','stem4','blosum62','positional-blosum62',*GRADED_FAMILIES],default='exact')
     p.add_argument('--min-score',type=float,help='Explicit dimensionless stem4 score threshold; fixed geometry')
