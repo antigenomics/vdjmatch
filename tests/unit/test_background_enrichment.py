@@ -191,3 +191,15 @@ def test_matrix_relative_radius_and_bins_preserve_evidence(monkeypatch,tmp_path,
     assert b['distance_scale']['radius']==2*a['distance_scale']['radius']
     assert b['distance_scale']['bin_width']==2*a['distance_scale']['bin_width']
     assert b['distance_scale']['gap_cost']==2*a['distance_scale']['gap_cost']
+
+
+def test_neighbours_rejects_output_inside_reference(tmp_path, capsys):
+    reference = tmp_path / "reference"
+    reference.mkdir()
+    sample = tmp_path / "query.tsv"
+    sample.write_text("junction_aa\tv_call\tlocus\nCASSLGQAYEQYF\tTRBV19\tTRB\n")
+    with pytest.raises(SystemExit):
+        main(["neighbours", str(sample), "--vdjdb", str(reference), "--locus", "TRB",
+              "--output-prefix", str(reference / "output")])
+    assert "output path conflicts" in capsys.readouterr().err
+    assert not list(reference.iterdir())

@@ -234,6 +234,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
             raise ValueError('--resolved-v-nearest requires its clipped default or full BLOSUM62 with double-cdr12, and the uniform nearest reducer')
         a.unbounded_nearest = True
     matrix_path=Path(a.distance_matrix).expanduser()
+    from ..runner.annotation import _validate_output_paths
+    _validate_output_paths(a.output_prefix, [a.vdjdb])
     matrix_hash=sha256(matrix_path) if matrix_path.is_file() else None
     streamed_rows=False
     streamed_selections=[]
