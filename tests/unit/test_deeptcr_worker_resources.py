@@ -81,14 +81,15 @@ def test_caller_validates_and_passes_allocation_before_subprocess(tmp_path, monk
     def run(command, **kwargs):
         received = json.loads(Path(command[-2]).read_text())
         calls.append(received)
-        assert received["threads"] == 1
+        assert received["threads"] == (1 if len(calls) == 1 else 2)
         assert received["allocated_cpu_budget"] == 2
         Path(command[-1]).write_text(json.dumps(dict(labels=[0])))
     monkeypatch.setattr(caller.subprocess, "run", run)
     payload = dict(beta=["placeholder"], allocated_cpu_budget=999)
     assert caller.run_deeptcr(payload) == [0]
     assert payload["allocated_cpu_budget"] == 999
-    for threads in (True, 0, -1, 1.5, 3):
+    assert caller.run_deeptcr(dict(payload, threads=3)) == [0]
+    for threads in (True, 0, -1, 1.5):
         with pytest.raises((ValueError, TypeError)):
             caller.run_deeptcr(dict(payload, threads=threads))
-    assert len(calls) == 1
+    assert len(calls) == 2

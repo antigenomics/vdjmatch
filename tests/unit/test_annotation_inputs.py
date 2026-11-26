@@ -222,7 +222,7 @@ import polars as pl
 assert pl.thread_pool_size() == 4
 from unittest.mock import patch
 from vdjmatch import annotate_repertoires
-with patch('vdjtools.cores.available_cores', return_value=4):
+with patch('vdjtools.cores.available_cores', return_value=4), patch('vdjtools.cores.physical_cores', return_value=4):
     result = annotate_repertoires(sys.argv[1], reference=sys.argv[2], output_prefix=sys.argv[3])
 assert result['queries'].height == 2
 assert result['manifest']['native_threads'] == 4
