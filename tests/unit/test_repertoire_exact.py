@@ -334,6 +334,28 @@ def test_raw_marginal_features_bypass_all_probability_corrections(tmp_path,monke
     assert args.func(args)==0
     assert pl.read_csv(tmp_path/'out.reference-bins.tsv',separator='\t')['pgen_bin'].to_list()==[-24]
     m=json.loads((tmp_path/'out.manifest.json').read_text());assert m['probability']=='raw marginal junction Pgen; no corrections'
+    fresh_calls=[]
+    def fresh_pgen(reference, control, **options):
+        fresh_calls.append(options)
+        assert options['mismatches']==args.pgen_mismatches
+        assert set(reference['junction_aa']) | set(control['junction_aa']) <= set(probabilities['junction_aa'])
+        return probabilities
+    monkeypatch.setattr(mock_reference,'compute_pgen',fresh_pgen)
+    original_prefix=args.output_prefix
+    args.pgen_features=None
+    args.marginal_pgen=True
+    args.selection_q=None
+    args.output_prefix=str(tmp_path/'fresh')
+    assert args.func(args)==0
+    assert len(fresh_calls)==1
+    for suffix in m['outputs']:
+        assert (tmp_path/suffix).read_bytes()==(tmp_path/suffix.replace('out.', 'fresh.', 1)).read_bytes()
+    fresh=json.loads((tmp_path/'fresh.manifest.json').read_text())
+    assert fresh['probability']==m['probability'] and fresh['prepared_pgen'] is None
+    args.pgen_features=str(tmp_path/'raw.features.parquet')
+    args.marginal_pgen=False
+    args.output_prefix=original_prefix
+
 
     c=pl.read_csv(tmp_path/'out.counts.tsv',separator='\t')
     assert c.filter(pl.col('replicate')==-1)['matched_chao1'].item()==1.

@@ -3063,10 +3063,12 @@ existing junction markup; known zero-mass genes are never re-called.
 ``.source-audit.tsv`` reports source/retained/excluded rows and reads.
 ``--model-vj-probabilities`` accepts exact ``v,j,p`` model probabilities instead
 of generated-model count tables.
-For raw marginal Pgen, ``--pgen-features PREFIX.features.parquet`` reuses a
-verified current-model feature input and its original control events. This
-path bins the probabilities directly; it applies no prior, V/J ratio, Q,
-AA-only maximum or selection correction. Correction options are rejected.
+For raw marginal Pgen, ``--marginal-pgen`` computes one fresh native batch
+over the reference and control junctions using the selected model and
+``--pgen-mismatches``. It retains the probabilities in memory. Alternatively,
+``--pgen-features PREFIX.features.parquet`` consumes a verified current-model
+feature input. Both modes bin the marginal probabilities directly and reject
+prior, V/J ratio, Q, AA-only maximum and selection corrections.
 ``--chao1`` additionally estimates matched source-clonotype richness using
 ``vdjtools.stats.inext.asymptotic_diversity(q=0,se=False)`` for the real panel
 and every mock panel. It exports flat abundance spectra, Chao1 estimates and

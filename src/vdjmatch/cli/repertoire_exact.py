@@ -12,7 +12,9 @@ def register(sub):
     p.add_argument('--control',required=True,help='Distinct junction_aa,v,j probe keys; optional joint_pgen column')
     p.add_argument('--abundance-metrics',action='store_true',help='Compare full-depth curve-average richness, Shannon and Simpson Hill diversity against reference mocks (includes Chao1)')
     p.add_argument('--chao1',action='store_true',help='Compare matched source-clonotype Chao1 from vdjtools against the same mock panels')
-    p.add_argument('--pgen-features',help='Verified marginal Pgen features; use raw probabilities and bins without corrections')
+    probability = p.add_mutually_exclusive_group()
+    probability.add_argument('--pgen-features',help='Verified marginal Pgen features; use raw probabilities and bins without corrections')
+    probability.add_argument('--marginal-pgen',action='store_true',help='Compute raw marginal junction Pgen in memory without model/selection corrections')
     p.add_argument('--model-vj-counts',help='Generated-model v,j,records counts from the selected source')
     p.add_argument('--model-vj-probabilities',help='Exact model v,j,p probabilities; alternative to generated V/J counts')
     p.add_argument('--include-nonfunctional',action='store_true',help='Retain nonfunctional/unsupported genes and zero-mass probes in the lowest Pgen bin; modern default filters them')
@@ -197,8 +199,12 @@ def main(a):
     if any(meta[c].null_count() or meta[c].str.strip_chars().eq('').any() for c in needed):raise ValueError('sample identities, paths and FDR groups cannot be missing')
     paths=[(meta_path.parent/Path(p).expanduser()).resolve() for p in meta['path']]
     if len(set(paths))!=len(paths):raise ValueError('sample paths must be unique')
-    marginal=getattr(a,'pgen_features',None)
-    if marginal and any([a.legacy,a.model_vj_counts,a.model_vj_probabilities,a.selection_profile,a.model_informed_prior,a.selection_q is not None,a.allow_missing_model_genes]):raise ValueError('--pgen-features uses raw marginal Pgen without model/selection corrections')
+    prepared_features = getattr(a, 'pgen_features', None)
+    fresh_marginal = getattr(a, 'marginal_pgen', False)
+    if prepared_features and fresh_marginal:
+        raise ValueError('select either prepared features or fresh marginal Pgen')
+    marginal = bool(prepared_features or fresh_marginal)
+    if marginal and any([a.legacy,a.model_vj_counts,a.model_vj_probabilities,a.selection_profile,a.model_informed_prior,a.selection_q is not None,a.allow_missing_model_genes]):raise ValueError('raw marginal Pgen does not support model/selection corrections')
     model_probabilities=getattr(a,'model_vj_probabilities',None)
     if model_probabilities and a.model_vj_counts:
         raise ValueError('supply model V/J counts or probabilities, not both')
@@ -215,8 +221,8 @@ def main(a):
         inputs.append(Path(model_probabilities).expanduser().resolve())
     if a.selection_profile and a.selection_profile not in {'length','vj-length'}:
         inputs.append(Path(a.selection_profile).expanduser().resolve())
-    if marginal:
-        feature_path=Path(marginal).expanduser().resolve();inputs.extend([feature_path,feature_path.with_name(feature_path.name.removesuffix('.features.parquet')+'.manifest.json')])
+    if prepared_features:
+        feature_path=Path(prepared_features).expanduser().resolve();inputs.extend([feature_path,feature_path.with_name(feature_path.name.removesuffix('.features.parquet')+'.manifest.json')])
     prefix=_validate_output_paths(a.output_prefix,[str(p) for p in inputs])
     suffixes=['v-repairs.tsv','source-audit.tsv','summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
     if a.allow_missing_model_genes or a.include_nonfunctional:suffixes.append('missing-model-genes.tsv')
@@ -297,11 +303,17 @@ def main(a):
     if 'joint_pgen' in probes.columns and a.pgen_mismatches:
         raise ValueError('neighbourhood Pgen requires fresh native probabilities')
     if marginal:
-        from ..evalue.mock_reference import load_pgen_features
-        model_identity=_pgen_model_identity(a.species,a.locus,source=a.source)
-        probabilities,feature_identity=load_pgen_features(marginal,reference,probes,species=a.species,locus=a.locus,mismatches=a.pgen_mismatches,source=a.source)
+        from ..evalue.mock_reference import compute_pgen, load_pgen_features
+        model_identity = _pgen_model_identity(a.species, a.locus, source=a.source)
+        options = dict(species=a.species, locus=a.locus, mismatches=a.pgen_mismatches, source=a.source)
+        if prepared_features:
+            probabilities, feature_identity = load_pgen_features(prepared_features, reference, probes, **options)
+            pgen_origin = 'verified raw marginal Pgen features'
+        else:
+            probabilities = compute_pgen(reference, probes, threads=a.threads, **options)
+            feature_identity = None
+            pgen_origin = 'fresh native marginal junction probability'
         probes=pl.concat([probes.select(keys),reference.select(keys)]).unique(maintain_order=True).join(probabilities,on='junction_aa',how='left',validate='m:1')
-        pgen_origin='verified raw marginal Pgen features'
     elif 'joint_pgen' in probes.columns:
         probes=probes.select(*keys,pl.col('joint_pgen').cast(pl.Float64).alias('pgen'))
         if reference.select(keys).join(probes.select(keys),on=keys,how='anti').height:raise ValueError('external joint_pgen probes must include every reference key')
