@@ -29,13 +29,15 @@ def test_cli_allocation_budget(arguments):
         options.func = lambda options: observed.append((options.threads, os.environ['POLARS_MAX_THREADS'])) or 0
         return options
 
-    with patch('vdjtools.cores.available_cores', return_value=3), patch.object(
+    with patch('vdjtools.cores.available_cores', return_value=3), patch(
+            'vdjtools.cores.physical_cores', return_value=2), patch.object(
             argparse.ArgumentParser, 'parse_args', parse), patch.dict(os.environ, POLARS_MAX_THREADS='1'):
         assert main(arguments) == 0
-        assert observed == [(3, '1')]
         assert main(arguments + ['--threads', '0']) == 0
+        assert main(arguments + ['--threads', '4']) == 0
+        assert observed == [(2, '1'), (2, '1'), (3, '1')]
         with pytest.raises(SystemExit) as error:
-            main(arguments + ['--threads', '4'])
+            main(arguments + ['--threads', '-1'])
         assert error.value.code == 2
         assert os.environ['POLARS_MAX_THREADS'] == '1'
 
@@ -52,7 +54,8 @@ def test_match_config_threads_and_initialized_pool(tmp_path):
         return options
 
     import polars as pl
-    with patch('vdjtools.cores.available_cores', return_value=3), patch.object(
+    with patch('vdjtools.cores.available_cores', return_value=3), patch(
+            'vdjtools.cores.physical_cores', return_value=2), patch.object(
             argparse.ArgumentParser, 'parse_args', parse), patch.dict(os.environ, POLARS_MAX_THREADS='1'):
         assert main(['match', '--config', str(config), 'sample.tsv']) == 0
         assert observed == [2]

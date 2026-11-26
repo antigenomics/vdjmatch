@@ -11,6 +11,8 @@ def register(subparsers):
     parser.add_argument('--reference-population', choices=['curated-benchmark', 'all-valid'], default='curated-benchmark')
     parser.add_argument('--shuffles', type=int, default=999, help='label-shuffle null replicates (default: 999)')
     parser.add_argument('--threads', type=cpu_budget, default="0")
+    parser.add_argument('--motif-depth', type=int, action='append',
+        help='sample this many distinct junction/V keys without replacement; repeat for multiple depths')
     parser.add_argument('--output-prefix', required=True)
     parser.set_defaults(func=main)
 
@@ -31,6 +33,8 @@ def main(a):
         raise ValueError('positive threads required')
     if a.shuffles < 200:
         raise ValueError('at least 200 label shuffles required for scientific profiles')
+    if a.motif_depth and min(a.motif_depth) < 1:
+        raise ValueError('motif depths must be positive integers')
     prefix = _validate_output_paths(a.output_prefix, [a.vdjdb])
     def freeze():
         paths = sorted(Path(__file__).resolve().parents[1].rglob('*.py'))+[Path(native.__file__)]
@@ -46,7 +50,11 @@ def main(a):
     joint = joint_reference_profiles(profiles)
     prefix.parent.mkdir(parents=True, exist_ok=True)
     outputs = {}
-    for suffix, frame in [('profiles', profiles), ('joint-profiles', joint)]:
+    tables = [('profiles', profiles), ('joint-profiles', joint)]
+    if a.motif_depth:
+        from ..aggregate.fast_profiles import motif_discovery
+        tables.append(('motif-discovery', motif_discovery(profiles, a.motif_depth)))
+    for suffix, frame in tables:
         path = Path(str(prefix)+'.'+suffix+'.tsv')
         frame.write_csv(path, separator='\t')
         outputs[path.name] = sha256(path)
@@ -54,7 +62,7 @@ def main(a):
     if identity != db.provenance(a.vdjdb) or sources != after:
         raise ValueError('reference or producing source/native changed during fresh profiling')
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(dict(reference=identity,
-        reference_population=a.reference_population, species=species, profile_recipe=PROFILE_RECIPE.replace('999-label-shuffles', f'{a.shuffles}-label-shuffles'), shuffles=a.shuffles,
+        reference_population=a.reference_population, species=species, profile_recipe=PROFILE_RECIPE.replace('999-label-shuffles', f'{a.shuffles}-label-shuffles'), shuffles=a.shuffles, motif_depths=sorted(set(a.motif_depth or [])),
         source_before=sources, source_after=after, source_frozen=True, reference_rows=reference.height,
         profile_rows=profiles.height, joint_rows=joint.height, threads=a.threads,
         calculation='fresh source observations, reference graphs and label shuffles; no saved diagnostic rows',

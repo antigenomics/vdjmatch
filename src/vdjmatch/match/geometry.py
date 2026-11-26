@@ -1,4 +1,4 @@
-"""Human/mouse alpha/beta junction and V-loop distances using native gap-block scoring.
+"""Human, mouse and rhesus alpha/beta junction and V-loop distances using native gap-block scoring.
 
 Reproduces 3*CDR3 + aligned CDR1/CDR2/CDR2.5, using clipped
 BLOSUM matrix and restricted gap positions. This distance is not calibrated evidence.
@@ -175,8 +175,8 @@ def _full_gap_prior(i, gap, width):
 
 def load_v_loops(species='human'):
     """Bundled, source-pinned aligned loop templates keyed by exact allele."""
-    if species not in ('human','mouse'):
-        raise ValueError('species must be human or mouse')
+    if species not in ('human','mouse','rhesus'):
+        raise ValueError('species must be human, mouse or rhesus')
     path=resources.files('vdjmatch.resources')/'vloops'/f'{species}_v_loops.tsv'
     with path.open() as f:
         return {r['allele']:r for r in csv.DictReader(f,delimiter='\t')}
@@ -206,7 +206,7 @@ def resolve_v_alleles(calls, model, *, locus=None):
 
 
 
-def impute_reference_v_alleles(calls, model, *, locus, cdr_loops=('cdr1', 'cdr2', 'cdr25')):
+def impute_reference_v_alleles(calls, model, *, locus, cdr_loops=('cdr1', 'cdr2', 'cdr25'), impute=True):
     """Fixed-population loop templates; preserve raw keys and flag every fallback.
 
     Use the first complete co-locus template in lexical order for unresolved
@@ -214,6 +214,9 @@ def impute_reference_v_alleles(calls, model, *, locus, cdr_loops=('cdr1', 'cdr2'
     No target labels enter.
     """
     import polars as pl
+    if not impute:
+        alleles = resolve_v_alleles(calls, model, locus=locus)
+        return alleles, pl.repeat(False, len(alleles), eager=True).alias('v_geometry_imputed')
     complete = {a: row for a, row in model.items() if row['locus'] == locus and all(
         row[loop].replace('.', '') and set(row[loop].replace('.', '')) <= set('ACDEFGHIKLMNPQRSTVWY')
         for loop in cdr_loops)}
@@ -352,7 +355,7 @@ def _cdr3_options(threads=1, costs=None, ctrim=2, v_loop_distances=None):
                 gap_prior=_gap_prior if ctrim==2 else _gap_prior_trim3,threads=threads)
 
 
-def _distance_inputs(queries, references, query_v, reference_v, species, threads, ctrim, *, dense=False, v_loop_distances=None):
+def _distance_inputs(queries, references, query_v, reference_v, species, threads, ctrim, *, dense=False, v_loop_distances=None, allow_short=False):
     """Shared junction/gene availability contract for dense distances and counts."""
     if isinstance(ctrim,bool) or not isinstance(ctrim,int) or ctrim not in (2,3):
         raise ValueError('ctrim must be 2 (clipped BLOSUM62 geometry) or 3 (symmetric trim)')
@@ -364,8 +367,9 @@ def _distance_inputs(queries, references, query_v, reference_v, species, threads
     if dense and 4*len(queries)*len(references)>64*1024**2:
         raise ValueError('distance output exceeds64MiB; use contiguous query batches')
     canonical=set('ACDEFGHIKLMNPQRSTVWY')
-    if any(not isinstance(s,str) or len(s)<8 or not set(s)<=canonical for s in queries+references):
-        raise ValueError('junctions require canonical amino acids and length>=8')
+    minimum_length = 5 if allow_short else 8
+    if any(not isinstance(s,str) or len(s)<minimum_length or not set(s)<=canonical for s in queries+references):
+        raise ValueError(f'junctions require canonical amino acids and length>={minimum_length}')
     if v_loop_distances is not None and v_loop_distances.get('species') != species:
         raise ValueError('precomputed V loops require matching species')
     model=load_v_loops(species) if v_loop_distances is None else v_loop_distances['model']
@@ -384,17 +388,22 @@ def precompute_v_loop_distances(*, species='human', alphabet='full', matrix='cli
     no sample predictions, process-global state or persisted cache are retained.
     TRA/TRB have separate tables because their aligned widths can differ.
     ``v_regions="cdr12"`` omits CDR2.5; the default ``cdr12plus`` retains it.
+    ``double-cdr12`` counts CDR1 and CDR2 twice and CDR2.5 once.
     """
-    if v_regions not in ('cdr12plus', 'cdr12'):
-        raise ValueError('v_regions must be cdr12plus or cdr12')
+    if v_regions not in ('cdr12plus', 'cdr12', 'double-cdr12'):
+        raise ValueError('v_regions must be cdr12plus, cdr12 or double-cdr12')
     model=load_v_loops(species)
-    selected_model = (model if v_regions == 'cdr12plus' else
-                      {v: dict(meta, cdr25='') for v, meta in model.items()})
+    if v_regions != 'cdr12plus':
+        cdr12_model = {v: dict(meta, cdr25='') for v, meta in model.items()}
+    selected_model = cdr12_model if v_regions == 'cdr12' else model
     costs=_substitution_costs(alphabet,matrix)
     tables={}
     for locus in ('TRA','TRB'):
         alleles=np.asarray(sorted(v for v in model if model[v]['locus']==locus))
         distances,_=_v_loop_groups(alleles.tolist(),selected_model,costs)
+        if v_regions == 'double-cdr12':
+            extra, _ = _v_loop_groups(alleles.tolist(), cdr12_model, costs)
+            distances += extra
         distances.setflags(write=False)
         alleles.setflags(write=False)
         tables[locus]=(alleles,distances)
@@ -414,8 +423,8 @@ def _v_region_context(v_regions, context, species, alphabet, matrix):
     """
     if v_regions is None:
         return context
-    if v_regions not in ('cdr12plus', 'cdr12'):
-        raise ValueError('v_regions must be cdr12plus or cdr12')
+    if v_regions not in ('cdr12plus', 'cdr12', 'double-cdr12'):
+        raise ValueError('v_regions must be cdr12plus, cdr12 or double-cdr12')
     if context is not None:
         if context.get('v_regions', 'cdr12plus') != v_regions:
             raise ValueError('precomputed V loops require matching V regions')
@@ -521,7 +530,7 @@ def stem_penalty(queries, references, *, depth=STEM_DEPTH_DEFAULT, weight=1.0, c
     return result.astype(np.int32)
 
 
-def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2, v_loop_weight=1, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='clipped', v_loop_distances=None, v_regions=None):
+def distance_matrix(queries, references, query_v, reference_v, *, species='human', threads=1, return_cdr3=False, ctrim=2, v_loop_weight=1, alphabet='full', stem_depth=0, stem_weight=1.0, matrix='clipped', v_loop_distances=None, v_regions=None, allow_short=False):
     """Junction and V-loop distances in a bounded native batch, maximum64MiB output.
 
     Exact alleles are used; a missing allele suffix explicitly means *01, as in the
@@ -534,6 +543,7 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     ``v_loop_weight=0`` is the fixed CDR3-only ablation; eligibility stays identical.
     ``v_regions="cdr12"`` retains aligned CDR1/CDR2 only. None inherits a
     supplied prepared context, otherwise keeps CDR1/CDR2/CDR2.5.
+    ``v_regions="double-cdr12"`` doubles CDR1 and CDR2, retaining one CDR2.5 term.
     ``ctrim=3`` tests removal of three residues at both junction ends; the default
     remains the three-N/two-C trim. Full junction identity is handled by callers.
     ``stem_depth`` adds the joint V-J hairpin stem term of :func:`stem_penalty` on the
@@ -545,7 +555,7 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
     if type(v_loop_weight) is not int or v_loop_weight not in (0,1):
         raise ValueError("v_loop_weight must be integer0 or1")
     queries, references, model, genes = _distance_inputs(
-        queries, references, query_v, reference_v, species, threads, ctrim, dense=True, v_loop_distances=v_loop_distances)
+        queries, references, query_v, reference_v, species, threads, ctrim, dense=True, v_loop_distances=v_loop_distances, allow_short=allow_short)
     d=_prepared_costs(alphabet,matrix,v_loop_distances)
     stem_penalty([],[],depth=stem_depth,weight=stem_weight,costs=d)
     if not queries or not references:
@@ -556,6 +566,15 @@ def distance_matrix(queries, references, query_v, reference_v, *, species='human
         **_cdr3_options(threads,d,ctrim,v_loop_distances)),copy=True)
     cdr3//=2
     cdr3*=3
+    if allow_short and ctrim == 3:
+        # Overlapping terminal trims turn lengths five and six into the same
+        # empty core. Restore the one gap the native alignment cannot see.
+        short_q = np.array([len(seq) < 6 for seq in queries])
+        short_r = np.array([len(seq) < 6 for seq in references])
+        if short_q.any() or short_r.any():
+            gap_cost = 3 * distance_units(d)[0]
+            cdr3[np.ix_(short_q, ~short_r)] += gap_cost
+            cdr3[np.ix_(~short_q, short_r)] += gap_cost
     out=cdr3.copy() if return_cdr3 else cdr3
     loop_dist, indices = _v_loop_groups(genes, model, d, v_loop_distances)
     out+=v_loop_weight*loop_dist[indices[:len(queries),None],indices[None,len(queries):]]
@@ -1039,7 +1058,7 @@ def grouped_total_distance_count_batch(queries, references, thresholds, *, paire
 def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_beta,
                            query_v_alpha, query_v_beta, reference_v_alpha, reference_v_beta,
                            *, species='human', threads=1, ctrim=2, v_loop_weight=1, alphabet='full',
-                           stem_depth=0, stem_weight=1.0, matrix='clipped',v_loop_distances=None, v_regions=None):
+                           stem_depth=0, stem_weight=1.0, matrix='clipped',v_loop_distances=None, v_regions=None, allow_short=False):
     """Sum alpha/beta distances against the same ordered reference pairs.
 
     Each position identifies one linked receptor pair; independent marginal nearest
@@ -1064,7 +1083,7 @@ def paired_distance_matrix(query_alpha, query_beta, reference_alpha, reference_b
     if any(v is None for v in qva+rva+qvb+rvb):
         raise ValueError('linked pair V calls must resolve uniquely to their declared alpha/beta locus')
     shared=dict(species=species,threads=threads,ctrim=ctrim,v_loop_weight=v_loop_weight,
-                alphabet=alphabet,stem_depth=stem_depth,stem_weight=stem_weight,matrix=matrix,v_loop_distances=v_loop_distances)
+                alphabet=alphabet,stem_depth=stem_depth,stem_weight=stem_weight,matrix=matrix,v_loop_distances=v_loop_distances,allow_short=allow_short)
     out=distance_matrix(qa,ra,qva,rva,**shared)
     out+=distance_matrix(qb,rb,qvb,rvb,**shared)
     return out

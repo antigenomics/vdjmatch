@@ -940,6 +940,8 @@ def main(argv: list[str] | None = None) -> int:
             annotation._optionals._group_actions.remove(action)
             advanced._group_actions.append(action)
     annotation.set_defaults(func=_cmd_annotate, selection_only=True)
+    from .equal_tail import register as register_equal_tail
+    register_equal_tail(sub)
     from .pgen import register as register_pgen
     register_pgen(sub)
     from .calibration import register as register_calibration
@@ -950,6 +952,8 @@ def main(argv: list[str] | None = None) -> int:
     register_reference_confusion(sub)
     from .reference_profiles import register as register_reference_profiles
     register_reference_profiles(sub)
+    from .motif_depth import register as register_motif_depth
+    register_motif_depth(sub)
     from .reference_rule_scores import register as register_reference_rule_scores
     register_reference_rule_scores(sub)
     from .paired_labels import register as register_paired_labels
@@ -958,6 +962,8 @@ def main(argv: list[str] | None = None) -> int:
     register_paired_score(sub)
     from .paired_order import register as register_paired_order
     register_paired_order(sub)
+    from .graph_noise import register as register_graph_noise
+    register_graph_noise(sub)
     from .radius import register as register_radius
     register_radius(sub)
     from .support import register as register_support
@@ -998,9 +1004,10 @@ def main(argv: list[str] | None = None) -> int:
     original_kernels = {key: os.environ.get(key) for key in kernel_env}
     a = p.parse_args(argv)
     native_threads = None
-    evidence_commands = {"motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
+    evidence_commands = {"equal-tail", "motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     evidence_commands.add('paired-score')
     evidence_commands.add('repertoire-exact')
+    evidence_commands.add('graph-noise')
     evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment', 'repertoire-tcrnet'})
     if a.cmd == 'annotate' and a.control and a.background == 'vdjdb-other':
         evidence_commands.add('annotate')

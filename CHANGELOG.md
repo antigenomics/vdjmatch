@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Report exact, finite-population rediscovery probabilities for V-conditioned
+  motifs at user-specified TCR sampling depths in `reference-profiles`.
+  Use `motif-depth` to calculate the expected breadth of the observed V/core
+  motif catalog at the same sampling depths without fitting parameters.
+
 ## 1.2.3
 
 - Read compressed legacy and AIRR tables from role-specific VDJdb release ZIPs,

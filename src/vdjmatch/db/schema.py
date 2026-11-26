@@ -27,6 +27,11 @@ _VDJDB_MAP = {
 CANONICAL = tuple(_VDJDB_MAP)
 
 
+def normalize_mhc_class(expr: pl.Expr) -> pl.Expr:
+    """Canonicalize the two class aliases accepted in VDJdb reference files."""
+    return expr.replace({"MHC-I": "MHCI", "MHC-II": "MHCII"})
+
+
 def mhc_compatible(column: str, value: str) -> pl.Expr:
     """Match intersecting MHC restrictions at their declared field resolution.
 
@@ -177,7 +182,7 @@ def normalize(df: pl.DataFrame, *, source_curation: bool = True) -> pl.DataFrame
         pl.col("reference_exclusion_reason").is_null().alias("reference_valid")
     )
     df = df.with_columns(
-        pl.col("mhc_class").replace({"MHC-I": "MHCI", "MHC-II": "MHCII"})
+        normalize_mhc_class(pl.col("mhc_class"))
     )
     # Declared pair links outrank inferred observation links. Record IDs may be
     # independent chain identities, particularly after VdjdbIndex expansion.

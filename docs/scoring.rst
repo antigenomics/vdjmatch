@@ -40,6 +40,60 @@ document retained historical and experimental statistics; they do not redefine
 the annotation default.
 
 
+Target-specific distance and support ranks
+------------------------------------------
+
+The experimental ``equal-tail`` command ranks a receptor against a specified
+peptide–MHC using the nearest reference distance :math:`D` and stem4 kernel
+support :math:`K`. The default distance uses clipped BLOSUM62. With
+``--distance-geometry blosum62-double-cdr12``, :math:`D` uses full BLOSUM62
+and gives aligned CDR1 and CDR2 twice the weight of aligned CDR2.5.
+Each query and background key uses the selected distance. A linked distance
+sums the two chain distances to the **same reference pair** before taking the minimum.
+
+Let :math:`B` be the set of distinct other-peptide reference keys for this
+species and receptor axis, and :math:`M=|B|`. Score each key against the same
+target as the query. For :math:`M>0`, the ranking score in nats is
+
+.. math::
+
+   p_D = \frac{1+\#\{b\in B:D_b\leq D\}}{M+1},\qquad
+   p_K = \frac{1+\#\{b\in B:K_b\geq K\}}{M+1},\qquad
+   S = -\log p_D-\log p_K .
+
+Both tails include ties. A missing distance or zero kernel support contributes
+zero nats from that component. An empty background leaves the score undefined.
+The compatible-HLA option restricts the calibration keys to other peptides
+with a compatible MHC restriction. The two measurements share reference data,
+so their product has no independent-tail probability interpretation. A cutoff
+for calling an epitope requires calibration of the complete selection procedure.
+
+The same formula applies to every candidate pMHC. Its reference distances
+and kernel supports are target-specific. A validation fraction from TCRvdb
+estimates how often selected constructs validate under that screening protocol.
+Converting a repertoire query score to posterior odds would require both a
+likelihood ratio for the intended prediction task and prior odds for that
+query population. Adding a constant target-specific log prior preserves the
+ranking within that target but can change which target wins for a query.
+
+If independent labeled data are available for the intended population, let
+:math:`Y_e=1` mean that a query recognizes pMHC :math:`e`. Let
+:math:`\pi_e=\Pr(Y_e=1)` in that population. For an observed score :math:`s`,
+let :math:`L_e(s)=f_e(s\mid Y_e=1)/f_e(s\mid Y_e=0)`, using probability
+masses for discrete scores. Bayes' rule gives
+
+.. math::
+
+   \Pr(Y_e=1\mid s)=\frac{\pi_e L_e(s)}{1-\pi_e+\pi_e L_e(s)}.
+
+The equal-tail command supplies the ranking score :math:`s`. Estimating the
+two conditional distributions and the deployment prior requires additional
+data. Repeated reports can be recorded as the number of distinct publications
+linking the same junction, locus, species and compatible pMHC (or the same
+linked pair). Audit shared samples and duplicate submissions before treating
+reports as independent. Preserve missing publication identifiers as unknown.
+For a calibrated search across the database, see :doc:`explanation`.
+
 Choosing a fuzzy-matching comparison
 ------------------------------------
 

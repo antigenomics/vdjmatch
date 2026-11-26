@@ -8,7 +8,7 @@ _STREAM_TOKEN_ROWS = 1_048_576
 _STREAM_OUTPUT_ROWS = 65536
 
 
-def masked_motif_scores(queries, reference, *, exclude_exact=False, target_reference=None, _consume=None):
+def masked_motif_scores(queries, reference, *, exclude_exact=False, target_reference=None, core_only=False, _consume=None):
     """Return supported V+masked-4-mer scores per query/full pMHC.
 
     Inputs use full junction ``cdr3`` and ``v``; queries have unique query_id,
@@ -19,6 +19,8 @@ def masked_motif_scores(queries, reference, *, exclude_exact=False, target_refer
     frequencies remain fixed. Benchmark exclusion masks exact-junction target/V
     contributions only in the hit numerator, without refitting the model.
     Missing/unsupported motifs emit no row, never a prior-only specificity.
+    With core_only=True, motif windows omit the first and last three residues.
+    Full junctions still determine identity, length strata and score normalization.
     Optional target_reference defines compatible-restriction unions labelled with
     each query's declared PMHC; global motif frequencies still use reference.
     Reference records lacking a nonblank V are ineligible for this V-conditioned
@@ -46,7 +48,7 @@ def masked_motif_scores(queries, reference, *, exclude_exact=False, target_refer
     q=queries.select('query_id','cdr3','v',*(PMHC if target_reference is not None else [])).rename({'cdr3':'seq0','v':'v0'}).with_row_index('_id')
     q=q.with_columns(pl.col('v0').str.replace(r'\*.*$',''))
     def tokens(frame):
-        return _tokens(frame,[0],'imgt_wild4',full_junction=True,wildcard_positions=(0,1,2,3))
+        return _tokens(frame,[0],'imgt_wild4',full_junction=not core_only,wildcard_positions=(0,1,2,3))
     rt=tokens(ref).join(ref.drop('v0'),on='_id',validate='m:1')
     target_rt=rt
     if target_reference is not None:
@@ -73,8 +75,9 @@ def masked_motif_scores(queries, reference, *, exclude_exact=False, target_refer
                 (pl.col('hit_x_va').cast(pl.Int64)-pl.col('_removed').fill_null(0)).alias('hit_x_va')).drop('_removed')
         hits=hits.filter(pl.col('hit_x_va')>0).with_columns(
             (pl.col('hit_x_va')/pl.col('x')*(pl.col('X')/pl.col('x')).log()).alias('_mfikf'))
+        # Identical token contributions must produce identical empirical-tail ties.
         return (hits.group_by('query_id',*PMHC,'t0').agg(pl.col('_mfikf').max(),pl.col('seq0').first())
-            .group_by('query_id',*PMHC).agg((pl.col('_mfikf').sum()/pl.col('seq0').first().str.len_chars()).alias('motif_score'),
+            .group_by('query_id',*PMHC).agg((pl.col('_mfikf').sort().sum()/pl.col('seq0').first().str.len_chars()).alias('motif_score'),
                 pl.len().alias('supported_motifs')))
 
     if _consume is None:

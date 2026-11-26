@@ -14,6 +14,16 @@ def test_matrix_rescaling_includes_gaps_and_v_loops(monkeypatch):
     np.testing.assert_array_equal(geometry.distance_matrix(q,q,v,v,ctrim=3),2*baseline)
 
 
+def test_short_junction_gap_survives_overlapping_terminal_trims():
+    seqs = ['CAAAF', 'CAAAAF', 'CAAAAAF']
+    genes = ['TRBV19*01'] * len(seqs)
+    total, cdr3 = distance_matrix(seqs, seqs, genes, genes, ctrim=3,
+                                  allow_short=True, return_cdr3=True)
+    expected = [[0, 12, 24], [12, 0, 12], [24, 12, 0]]
+    np.testing.assert_array_equal(cdr3, expected)
+    np.testing.assert_array_equal(total, expected)
+
+
 def test_symmetric_end_trim_preserves_full_identity_and_v_evidence(tmp_path):
     import json
     import polars as pl
@@ -267,6 +277,27 @@ def test_geometry_unbounded_nearest_outside_ball_and_exact_only(tmp_path, capsys
     else:
         assert status['query_id'].to_list()==['hit','unknown','invalid','other']
         assert status['status'].to_list()==['matched','matched','invalid_query_or_gene','unselected_species']
+    # Short canonical junctions enter the opt-in nearest mode, unknown V alleles do not.
+    raw.with_columns(pl.lit('CASSLGF').alias('junction_aa')).write_csv(sample,separator='\t')
+    ref.with_columns(pl.lit('CATSLVF').alias('cdr3')).write_csv(reference,separator='\t')
+    assert main(args+['--resolved-v-nearest'])==0
+    candidates=pl.read_csv(str(prefix)+'.candidates.tsv',separator='\t')
+    assert candidates['distance'].to_list()==([0] if locus=='paired' else [0,0])
+    if locus=='TRB':
+        unavailable=pl.read_csv(str(prefix)+'.queries.tsv',separator='\t').filter(pl.col('query_id')=='unknown')
+        assert unavailable['available'].to_list()==[False]
+        assert unavailable['v_geometry_imputed'].to_list()==[False]
+    raw.write_csv(sample,separator='\t')
+    # Only the beta V differs. The linked minimum uses this same observed pair.
+    alternate_ref = ref.with_columns(pl.when(pl.col('gene') == 'TRB').then(pl.lit('TRBV7-9*01'))
+                                     .otherwise(pl.col('v')).alias('v'))
+    alternate_ref.write_csv(reference, separator='\t')
+    assert main(args + ['--resolved-v-nearest', '--distance-matrix', 'blosum62',
+                        '--v-regions', 'double-cdr12']) == 0
+    term = native.distance_matrix([a], [b], ['TRBV19*01'], ['TRBV7-9*01'],
+                    matrix='blosum62', v_regions='double-cdr12').item()
+    result = pl.read_csv(str(prefix) + '.candidates.tsv', separator='\t')
+    assert result['distance'].to_list() == [term]
     # The only reference is now a full junction identity (a full pair in paired mode).
     ref.with_columns(pl.lit(a).alias('cdr3')).write_csv(reference,separator='\t')
     assert main(args+['--unbounded-nearest'])==0
@@ -407,3 +438,11 @@ def test_reference_loop_imputation_retains_known_templates_and_flags_missing():
     assert missing.to_list() == [False, True, True, False, False]
     assert calls.equals(before)
     assert impute_reference_v_alleles([None], model, locus='TRB')[0].null_count() == 0
+
+
+def test_rhesus_beta_distance_matches_external_landmark():
+    result = distance_matrix(
+        ['CAARITGEKLFF'], ['CASSLSRQSNRPQYF'],
+        ['TRBV6-1*01'], ['TRBV14*01'], species='rhesus',
+    )
+    assert result.tolist() == [[166]]

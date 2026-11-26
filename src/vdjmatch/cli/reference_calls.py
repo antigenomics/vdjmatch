@@ -11,6 +11,7 @@ def register(subparsers):
     p.add_argument('--locus', choices=['TRA', 'TRB', 'paired'], required=True)
     p.add_argument('--scorer', choices=['original', 'stem4'], default='original')
     p.add_argument('--reference-population', choices=['all-valid', 'curated-benchmark'], default='curated-benchmark')
+    p.add_argument('--kernel-scorer', choices=['v-bounded', 'count-enrichment'], default='v-bounded')
     p.add_argument('--control', help='matching raw repertoire; human TRB has a bundled input')
     p.add_argument('--scope', default='1,0,0,1')
     p.add_argument('--threads', type=cpu_budget, default="0")
@@ -43,6 +44,8 @@ def main(args):
         raise ValueError('threads must be positive')
     if args.min_target_records < 1:
         raise ValueError('min-target-records must be positive')
+    if args.scorer != 'stem4' and args.kernel_scorer != 'v-bounded':
+        raise ValueError('--kernel-scorer requires --scorer stem4')
     if args.scorer == 'stem4' and args.calibration_score != 'score':
         raise ValueError('stem4 calibration uses only its final kernel_score; E and p_enrichment are incompatible')
     if args.scorer == 'stem4':
@@ -167,7 +170,7 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
         v_regions='cdr12plus', position_weighting='uniform')
     state, hit_ids = grouped_kernel_selection(q, r, groups, query_keys=query_keys,
         search_keys=search_keys, paired=False, cutoffs=ladder_cutoffs(matrix_scale),
-        radius=radius, kernel_scale=radius, scorer='v-bounded', withheld_column=withheld,
+        radius=radius, kernel_scale=radius, scorer=args.kernel_scorer, withheld_column=withheld,
         v_loop_distances=context, **geometry)
     selection = finish_kernel_selection(q.select('query_id'), state)
     calls = raw.join(selection, on='query_id', how='left', validate='1:1', maintain_order='left').with_columns(
@@ -216,7 +219,7 @@ def _stem4(args, reference, valid, support, eligible, benchmark, raw, keys, star
         eligible_benchmark_records=benchmark.height, ineligible_benchmark_records=valid.height-benchmark.height,
         eligible_benchmark_peptides=eligible.height, all_reference_peptides=support.height, queries=raw.height,
         available_queries=q.height, geometry=geometry | {'radius':radius, 'kernel_scale':radius, 'cutoffs':ladder_cutoffs(matrix_scale),
-            'cross_v':.25, 'floor':.01, 'scorer':'v-bounded', 'matrix_scale':matrix_scale},
+            'cross_v':None if args.kernel_scorer=='count-enrichment' else .25, 'floor':.01, 'scorer':args.kernel_scorer, 'matrix_scale':matrix_scale},
         v_geometry_imputed_reference_keys=int(r['v_geometry_imputed'].sum()),
         missing_v_policy='fixed first complete co-locus template; original V keys retained with geometry imputation flags',
         selection='maximum restriction per peptide, then maximum peptide; exact score ties remain ambiguous',
@@ -277,7 +280,7 @@ def _stem4_paired(args,reference,valid,started):
         groups=[(dict(zip(PMHC,task)),q,part) for task,part in r.group_by(PMHC,maintain_order=True)]
         state,hits=grouped_kernel_selection(q,r,groups,query_keys=query_keys+['_withheld_epitope'],
             search_keys=search_keys,paired=paired,cutoffs=ladder_cutoffs(matrix_scale),radius=radius,kernel_scale=radius,
-            scorer='v-bounded',withheld_column='_withheld_epitope',v_loop_distances=context,**geometry)
+            scorer=args.kernel_scorer,withheld_column='_withheld_epitope',v_loop_distances=context,**geometry)
         selected=finish_kernel_selection(q.select('query_id'),state)
         result=raw.select('query_id').join(selected,on='query_id',how='left',validate='1:1',maintain_order='left')
         empty=[]
@@ -329,7 +332,9 @@ def _stem4_paired(args,reference,valid,started):
     sources={name:hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
         for name,module in [('kernel',kernel),('geometry',geometry_module),('seqtree_python',wrapper),('seqtree_native',native)]}
     provenance=db.provenance(args.vdjdb)
-    manifest=dict(reference=provenance,reference_sha256=provenance.get('input_sha256'),
+    from ..db.cache import sha256
+    manifest=dict(calls_sha256=sha256(Path(str(prefix)+'.calls.tsv')),
+        reference=provenance,reference_sha256=provenance.get('input_sha256'),
         software={name:importlib.metadata.version(name) for name in ['vdjmatch','seqtree','vdjtools']},
         source_sha256=sources,paired_source_sha256=paired_pipeline_sources(),paired_call_event=paired_call_event(),
         model_sha256=hashlib.sha256(json.dumps(model,sort_keys=True,default=str).encode()).hexdigest(),
@@ -338,8 +343,8 @@ def _stem4_paired(args,reference,valid,started):
         eligible_benchmark_peptides=eligible.height,genuine_reference_pairs=pairs.height,
         native_population_batches=sum(x['reference_keys']>0 and x['available_queries']>0 for x in axis_counts.values()),
         missing_v_policy='fixed first complete co-locus template; original V keys retained with geometry imputation flags',
-        geometry=geometry|dict(radius=radius,kernel_scale=radius,cutoffs=ladder_cutoffs(matrix_scale),cross_v=.25,floor=.01,
-            scorer='v-bounded',matrix_scale=matrix_scale),reference_population=args.reference_population,
+        geometry=geometry|dict(radius=radius,kernel_scale=radius,cutoffs=ladder_cutoffs(matrix_scale),cross_v=None if args.kernel_scorer=='count-enrichment' else .25,floor=.01,
+            scorer=args.kernel_scorer,matrix_scale=matrix_scale),reference_population=args.reference_population,
         selection='maximum restriction per peptide, then maximum peptide; exact score ties remain ambiguous',
         calibration_statistic=PAIRED_STATISTIC,
         target_support_rule='source records per species/chain/peptide before exclusion; either chain >= minimum; MHC pooled only for eligibility',

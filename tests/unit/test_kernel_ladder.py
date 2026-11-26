@@ -185,3 +185,16 @@ def test_kernel_threshold_is_invariant_to_distance_unit_conversion():
     original=kernel_ladder(*counts,[0,10,20],kernel_scale=15,extras=False)
     rescaled=kernel_ladder(*counts,[0,1000,2000],kernel_scale=1500,extras=False)
     np.testing.assert_allclose(original['kernel_score'],rescaled['kernel_score'],rtol=0,atol=1e-15)
+
+
+def test_count_enrichment_uses_fixed_ball_exposures_and_direction():
+    from scipy.stats import chi2_contingency
+
+    hits = [[2, 3], [1, 4], [0, 0], [0, 0]]
+    others = [[1, 4], [4, 5], [0, 0], [1, 2]]
+    for extras in (False, True):
+        result = kernel_ladder(hits, hits, others, [4, 5, 0, 4], [10]*4, [1, 3],
+                               kernel_scale=1, scorer='count-enrichment', extras=extras)
+        expected = chi2_contingency([[2, 2], [1, 9]], correction=False,
+                                    lambda_='log-likelihood').statistic / (2*np.log(2))
+        np.testing.assert_allclose(result['kernel_score'], [expected, 0, np.nan, 0])

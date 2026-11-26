@@ -102,3 +102,21 @@ def test_motif_cli_compatible_union_and_repeated_queries(tmp_path,monkeypatch,di
     invalid=out.filter(pl.col('query_id').is_in(['missing','invalid']))
     assert invalid['status'].to_list()==['invalid_query','invalid_query']
     assert invalid['motif_score'].null_count()==2
+
+
+def test_core_motif_trims_windows_and_keeps_full_junction_exact_mask():
+    seqs = ['CASAAAA' + residue + 'TF' for residue in 'AILVD']
+    ref = pl.DataFrame({
+        'cdr3': [*seqs, 'CASGGGGDTF'], 'epitope': ['NLV'] * 5 + ['TTD'],
+        'v': ['TRBV1'] * 6, 'mhc_a': ['A'] * 6, 'mhc_b': ['B'] * 6, 'mhc_class': ['I'] * 6,
+    })
+    q = pl.DataFrame({'query_id': [0, 1, 2], 'cdr3': [seqs[0], 'CATAAAAETF', 'CASAAADTF'],
+                      'v': ['TRBV1'] * 3})
+    core = masked_motif_scores(q, ref, core_only=True, exclude_exact=True).sort('query_id')
+    assert core['query_id'].to_list() == [0, 1]
+    assert core['supported_motifs'].to_list() == [4, 4]
+    # Both four-residue cores coincide, but only the first full junction is exact.
+    expected = 4 * math.log(6 / 5) / len(seqs[0])
+    assert core['motif_score'].to_list() == pytest.approx([4 / 5 * expected, expected])
+    full = masked_motif_scores(q, ref, exclude_exact=True)
+    assert full.filter(pl.col('query_id') == 2).height > 0

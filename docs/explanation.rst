@@ -134,13 +134,37 @@ query. Ties count against the query:
 This is a conservative rank P-value when query and null scores are exchangeable
 under the same complete procedure. With several null sources, the output takes
 the largest tail probability. ``E_null = k/N`` is the empirical false-call rate
-per query at that score, not an upper confidence bound. Unsupported queries
+per query at that score. With several null sources, the reported rate is the largest source-specific rate. Unsupported queries
 receive ``p_null = 1`` and no accepted call.
 
 A small P-value means the selected evidence is unusual under the declared null.
 It does not establish experimental binding or resolve an exact tie between
 peptides. The configured cutoff controls the measured any-call rate in the
 supplied calibration populations; an arbitrary score cutoff has no such meaning.
+
+How many chance calls should I expect?
+--------------------------------------
+
+Choose the counting unit first. For detection anywhere in VDJdb, count a
+query once if any label passes. At a fixed score cutoff :math:`t`, let
+:math:`M_i^*` be the maximum over all eligible labels and chain axes for null
+query :math:`i`, using the same search and support rules as the observed query.
+For a batch of :math:`Q` null queries, the expected number of detected queries is
+
+.. math::
+
+   E_{\mathrm{batch}}(t)=\sum_{i=1}^{Q}\Pr_0(M_i^*\ge t).
+
+Linearity of expectation allows dependent queries. If they share a null
+distribution, estimate this count by :math:`Qk/N`, where :math:`k` of
+:math:`N` null searches reach the cutoff. For example, 5 exceedances in
+1,000 null searches give an estimated 10 chance detections in 2,000 comparable
+null queries. This example uses one common cutoff. For matched strata, sum
+the stratum-specific counts. The frozen-score output reports the per-query
+rate in ``E_null``; the batch expectation above is a downstream calculation.
+For a decision based on two directional tails, estimate the rate by applying
+the complete decision to null queries. A sum of observed query P-values
+does not estimate the number of false calls.
 
 Single-chain and paired decisions
 ---------------------------------

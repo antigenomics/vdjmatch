@@ -345,6 +345,8 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         **({'mixed_chain_union':True,'service_batches':service_batches} if mixed_union else {}),
         **({'population_table_columns':detail_columns} if detail_columns else {}),
         "wall_seconds": time.perf_counter() - started}
+    if "selection_sha256" in manifest:
+        manifest["selection_sha256"] = sha256(Path(outputs["selection"]))
     manifest_path = Path(str(prefix) + ".manifest.json")
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     result.update(manifest=manifest, manifest_path=str(manifest_path), output_paths=outputs)

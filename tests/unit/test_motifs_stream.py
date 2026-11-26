@@ -1,10 +1,36 @@
 """The MF×IKF consumer retains fixed model gates and the materialized score law."""
+import random
+
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
 from vdjmatch.aggregate.candidates import PMHC
 from vdjmatch.match import motifs
+
+
+def test_motif_score_preserves_exact_ties_across_input_permutations():
+    junction = 'CADFGHIKLMNPQRSTVWYF'
+    rng = random.Random(904)
+    rows = []
+    for i in range(150):
+        residues = list(junction)
+        for pos in rng.sample(range(1, len(junction) - 1), 4):
+            residues[pos] = rng.choice('ACDEFGHIKLMNPQRSTVWY')
+        rows.append((''.join(residues), 'V', str(i % 3)))
+    reference = pl.DataFrame(rows, schema=['cdr3', 'v', 'epitope'], orient='row').with_columns(
+        pl.lit('a').alias('mhc_a'), pl.lit('b').alias('mhc_b'), pl.lit('I').alias('mhc_class'))
+    size = 750
+    queries = pl.DataFrame({'query_id': range(size), 'cdr3': [junction] * size, 'v': ['V'] * size})
+    results = []
+    for seed in range(5):
+        scores = motifs.masked_motif_scores(
+            queries.sample(fraction=1, shuffle=True, seed=seed),
+            reference.sample(fraction=1, shuffle=True, seed=2 * seed), exclude_exact=True)
+        results.append(scores)
+    combined = pl.concat(results)
+    assert combined.height == len(results) * size * 3
+    assert combined.group_by('epitope').agg(pl.col('motif_score').n_unique())['motif_score'].max() == 1
 
 
 @pytest.mark.parametrize('exclude', [False, True])

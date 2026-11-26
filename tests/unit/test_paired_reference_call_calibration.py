@@ -118,6 +118,22 @@ def test_native_paired_annotation_binding_and_linked_score_rejection(tmp_path):
     assert output['kernel_any_axis_score'][0]==max(output[c][0] or 0 for c in ['kernel_score','kernel_alpha_score','kernel_beta_score'])
     manifest=json.loads((tmp_path/'out.manifest.json').read_text())
     generated=json.loads((tmp_path/'generated.manifest.json').read_text())
+    from vdjmatch.cli import paired_score
+    from vdjmatch.db.cache import sha256
+
+    selection_path = tmp_path/'generated.selection.tsv'
+    calls_path = tmp_path/'out.calls.tsv'
+    assert generated['selection_sha256'] == sha256(selection_path)
+    assert manifest['calls_sha256'] == sha256(calls_path)
+    reducer = argparse.Namespace(selection=selection_path, input_manifest=tmp_path/'generated.manifest.json',
+        withheld_manifest=tmp_path/'out.manifest.json', output_prefix=tmp_path/'reduced')
+    assert paired_score.main(reducer) == 0
+    reducer.output_prefix = tmp_path/'tampered'
+    with calls_path.open('ab') as stream:
+        stream.write(b'\n')
+    with pytest.raises(ValueError, match='withheld calls file differs'):
+        paired_score.main(reducer)
+    assert not list(tmp_path.glob('tampered.*'))
     binding=calibration.pipeline_binding(manifest)
     assert calibration.pipeline_binding(generated)==binding
     recipe=dict(pipeline_binding=binding,comparison='>=',action='apply_cutoff',cutoff=0.,score_column='kernel_any_axis_score')

@@ -1,6 +1,13 @@
 Release notes
 =============
 
+1.2.4
+-----
+
+Equal-tail calibration pins the VDJdb loader. Paired score reduction verifies
+that the selection and optional peptide-withheld calls tables match their
+producer manifests. See :doc:`selection-information` for migration guidance.
+
 1.2.0
 -----
 

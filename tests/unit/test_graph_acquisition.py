@@ -7,6 +7,38 @@ import pytest
 from vdjmatch.aggregate.graph_acquisition import graph_acquisition, degree_diversity, clonotype_graph_degrees
 
 
+def test_graph_noise_ranks_triangle_support_and_keeps_connected_zero_ties(tmp_path):
+    import polars as pl
+    from vdjmatch.cli.__main__ import main
+
+    nodes, edges, output = (tmp_path / name for name in ('nodes.tsv', 'edges.tsv', 'out.tsv'))
+    nodes.write_text('node_id\tmetadata\n005\torphan\n001\ta\n002\tb\n003\tc\n004\tleaf\n')
+    edges.write_text('a\tb\n001\t002\n001\t003\n002\t003\n003\t004\n002\t001\n004\t004\n')
+    args = ['graph-noise', str(nodes), '--edges', str(edges), '--output', str(output)]
+    assert main(args) == 0
+    result = pl.read_csv(output, separator='\t', schema_overrides={'node_id': pl.String})
+    assert result['node_id'].to_list() == ['005', '001', '002', '003', '004']
+    assert result['degree'].to_list() == [0, 2, 2, 3, 1]
+    assert result['triangle_degree'].to_list() == [0, 2, 2, 2, 0]
+    assert result['noise_rank'].to_list() == [5, 1, 1, 1, 4]
+    for budget, expected in [(0, [0.] * 5), (2, [0., 2/3, 2/3, 2/3, 0.]),
+                             (4, [0., 1., 1., 1., 1.]), (5, [1.] * 5)]:
+        retained = tmp_path / f'retained-{budget}.tsv'
+        assert main(args[:-1] + [str(retained), '--retain', str(budget)]) == 0
+        weighted = pl.read_csv(retained, separator='\t', schema_overrides={'node_id': pl.String})
+        assert weighted.drop('retention_weight').equals(result)
+        assert weighted['retention_weight'].to_list() == pytest.approx(expected)
+    for budget in (-1, 6):
+        with pytest.raises(SystemExit):
+            main(args[:-1] + [str(tmp_path / 'invalid-budget.tsv'), '--retain', str(budget)])
+    assert not (tmp_path / 'invalid-budget.tsv').exists()
+    edges.write_text('a\tb\n')
+    assert main(args[:-1] + [str(tmp_path / 'no-edges.tsv')]) == 0
+    edges.write_text('a\tb\n001\t006\n')
+    with pytest.raises(SystemExit):
+        main(args[:-1] + [str(tmp_path / 'invalid.tsv')])
+
+
 def test_graph_acquisition_matches_every_induced_subgraph():
     # Triangle, pendant vertex and orphan; includes degree one and degree zero.
     edges = {(0, 1), (0, 2), (1, 2), (2, 3)}

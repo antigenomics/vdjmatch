@@ -55,3 +55,24 @@ def test_cli_v_increment_exports_same_population_and_explicit_geometry(tmp_path)
     assert frames[0]['n_reference'].to_list()==[1,1] and frames[1]['n_reference'].to_list()==[0,0]
     assert frames[0]['reference_population'].to_list()==frames[1]['reference_population'].to_list()
     assert frames[0]['control_population'].to_list()==frames[1]['control_population'].to_list()
+
+
+def test_double_cdr12_uses_full_cost_plus_one_cdr12_table():
+    from vdjmatch.match.geometry import precompute_v_loop_distances
+
+    full, cdr12, doubled = [
+        precompute_v_loop_distances(matrix='blosum62', v_regions=regions)
+        for regions in ('cdr12plus', 'cdr12', 'double-cdr12')
+    ]
+    for locus in ('TRA', 'TRB'):
+        alleles, expected = full['tables'][locus]
+        assert np.array_equal(alleles, doubled['tables'][locus][0])
+        assert np.array_equal(doubled['tables'][locus][1], expected + cdr12['tables'][locus][1])
+        assert not doubled['tables'][locus][1].flags.writeable
+
+    inputs = (['CASSLGQAYEQYF'], ['CASSAGQAYEQYF'], ['TRBV19*01'], ['TRBV7-9*01'])
+    original = distance_matrix(*inputs, matrix='blosum62')
+    regional, junction = distance_matrix(*inputs, matrix='blosum62', v_regions='cdr12', return_cdr3=True)
+    new = distance_matrix(*inputs, matrix='blosum62', v_regions='double-cdr12')
+    assert (regional > junction).all()
+    np.testing.assert_array_equal(new, original + regional - junction)

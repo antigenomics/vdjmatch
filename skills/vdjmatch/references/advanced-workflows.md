@@ -545,3 +545,11 @@ This explicit raw-feature route differs from repertoire-exact's Q/composition
 default and `--legacy` reproduction. Flexible reference-null inference requires
 explicit `--model-source isalgo` for current-model comparisons; omission retains
 its documented historical source. Preserve all earlier producing settings.
+
+## Paired score and calibration provenance
+
+New paired producer manifests record the SHA-256 of their selection or calls
+TSV. Use each table with the manifest emitted in the same run. Regenerate older
+outputs with the original inputs and options before reducing them with paired-
+score. Equal-tail any-call recipes now pin the VDJdb loader. Refit older recipes
+using the original reference, null inputs and options before applying them.

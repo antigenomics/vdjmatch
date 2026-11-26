@@ -4,6 +4,135 @@ Command-line interface
 The console script provides reference management, annotation and benchmark commands. Use
 ``vdjmatch match -h`` for the installed version's complete options.
 
+vdjmatch equal-tail
+-------------------
+
+Rank a single-chain or linked receptor against one or more candidate pMHCs.
+Supply ``epitope``, ``mhc_a``, ``mhc_b`` and ``mhc_class`` on each query row,
+alongside the anchored junction, locus and V call. For linked receptors, give
+the TRA and TRB rows the same pair ID. To test a second candidate, repeat the
+receptor with that candidate's pMHC and a distinct pair ID.
+
+.. code-block:: bash
+
+   vdjmatch equal-tail candidates.tsv --vdjdb reference.zip --species human \
+       --locus paired --output-prefix results/paired
+
+The command writes ``results/paired.scores.tsv`` and a provenance manifest.
+Use ``--locus TRA`` or ``--locus TRB`` for single chains.
+``--background-scope compatible-hla`` restricts the other-peptide calibration
+population by MHC. For an exact-excluded benchmark, pass ``--exclude-exact``.
+See :doc:`scoring` for the score definition and units.
+
+The ``native`` geometry reproduced the comparison workflow's nearest distances
+for all 2,636 paired queries in the November benchmark, using the same target
+references and exact-hit exclusion. This equivalence applies to the distance
+component. The equal-tail command combines it with kernel evidence.
+
+To use full BLOSUM62 with twice the aligned CDR1 and CDR2 costs in the
+distance component, run::
+
+   vdjmatch equal-tail candidates.tsv --vdjdb reference.zip --species human \
+       --locus paired --distance-geometry blosum62-double-cdr12 \
+       --exclude-exact --background-scope all-hla --output-prefix results/paired-double
+
+The distance tail compares each query with other-peptide reference keys under
+the same geometry. Each chain contributes three times its trimmed junction
+distance, twice its CDR1 and CDR2 distances, and one CDR2.5 distance. Paired
+scoring minimizes the linked sum over observed reference pairs. Both distance
+presets use the same stem4 kernel. The Python API
+``vdjmatch.evalue.equal_tail.equal_tail_scores`` accepts
+``distance_geometry="blosum62-double-cdr12"``. Its default, ``"native"``, uses
+clipped BLOSUM62 and counts each aligned V region once.
+
+The output includes exact marginal counts ``D_tail_n`` and ``K_tail_n``.
+For exact ranking across candidates, use Python's ``fractions.Fraction``
+and sort by ``Fraction(int(product_numerator), int(tail_denominator)**2)``
+in ascending order. Equal fractions tie. The CLI exports the counts for this
+comparison. ``calibration_available`` requires both target and background
+keys. Otherwise, the score and tail counts are null. When calibration is
+available, a query with missing distance and zero kernel has a continuous
+score of zero, ``has_evidence=false`` and ``status=no_evidence``.
+
+Database-wide equal-tail calls
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``--all-targets`` to search the reference's complete human or mouse pMHC
+catalogue. Supply ordinary receptor input without a candidate pMHC. The result
+has one row per query. Paired queries search three axes: the genuine linked
+pair and the full TRA and TRB reference populations. The best supported score
+across axes and pMHCs determines the any-call event. An exact tie across
+distinct pMHCs retains the any-call score and leaves the assigned pMHC empty.
+A query without supported, calibrated candidates has a null score.
+
+For a candidate with :math:`M` background keys, each plus-one tail is at
+least :math:`1/(M+1)`. Its largest possible score is therefore
+:math:`2\log(M+1)`. If the fitted cutoff exceeds this bound, that candidate
+cannot trigger an any-call on that axis. Background size varies by candidate
+and axis. A caller using paired inputs should assess reachable candidates and
+observed recall alongside the pooled null false-call rate.
+
+Fit a calibration from the raw reference and an existing pinned generated-null
+receptor sample. For paired use, supply independently generated alpha and beta
+chains linked by their control pair IDs. This command treats the supplied
+sample as generated controls; its provenance must establish that sampling
+design. It does not generate controls. A second null source uses distinct
+reference junction/V/J/peptide observations. For each such query, its annotated
+peptide is withheld from winner selection at every restriction on every axis.
+The complete reference remains fixed for geometry, kernel counts and component
+tails. The default minimum of 30 source records defines which peptides supply
+withheld queries; eligibility on either locus suffices for genuine pairs.
+
+.. code-block:: bash
+
+   vdjmatch equal-tail generated-pairs.tsv --vdjdb reference.zip --species human \
+       --locus paired --all-targets --distance-geometry blosum62-double-cdr12 \
+       --background-scope all-hla --fit-any-call 0.01 --output-prefix results/nulls
+   vdjmatch equal-tail sample.airr.tsv --vdjdb reference.zip --species human \
+       --locus paired --all-targets --distance-geometry blosum62-double-cdr12 \
+       --background-scope all-hla --apply-any-call results/nulls.calibration.json \
+       --output-prefix results/queries
+
+The optional ``--kernel-score-budget-bytes`` controls how many target columns
+share a full kernel traversal. It applies to declared scoring, database-wide
+selection, fitting and application. The default is 134217728 bytes (128 MiB).
+One target column requires eight bytes per combined reference and query row;
+at least one target is processed per batch. The native count buffer and
+other working arrays require additional memory. Use a larger budget when
+sufficient RAM is available, for example ``--kernel-score-budget-bytes
+9663676416`` for 9 GiB. The budget is recorded as execution provenance and
+may differ between fit and application. The Python keyword is
+``kernel_score_budget_bytes``.
+
+Keep the recipe and its sibling ``.null-cases.tsv`` together. Fitting writes
+the cutoff and per-source operating points. Application verifies the recipe's
+reference, model, scoring code, locus, exact-hit policy, HLA scope and selection
+event. For an exact-excluded benchmark, include ``--exclude-exact`` in both
+commands. For ordinary annotation, retain exact hits in both commands.
+For a supported query, let :math:`k_b` count null queries from source :math:`b`
+with a score at least as high as the selected score, and let :math:`N_b` be
+the total number of null queries in that source, including those without
+support. The selection table reports ``E_null`` as :math:`\max_b k_b/N_b`
+and ``p_null`` as :math:`\max_b (1+k_b)/(1+N_b)`. A query without support
+has ``E_null=0`` and ``p_null=1`` and receives no call.
+
+``E_null`` estimates the number of false any-calls per null query at that
+score in the supplied calibration populations. Each query contributes at most
+one any-call, including when the leading pMHCs tie. The event therefore
+measures whether the search made a call and does not assess whether it assigned
+the correct pMHC. Source-specific counts and tails are in ``.null-tails.tsv``.
+For :math:`Q` null queries from a represented population evaluated at a common
+cutoff, the corresponding empirical any-call rate times :math:`Q` estimates
+the expected false-call count. With known counts :math:`Q_b` from represented
+null populations, sum :math:`Q_b k_b/N_b` using each source's rate at the
+common cutoff. If only the total :math:`Q` is known, the largest source rate
+gives the worst-source estimate :math:`Q\max_b k_b/N_b` for that all-null
+batch. Use the rates at the selected cutoff for this calculation. A query's
+reported tail is evaluated at its own observed score. The fitted cutoff uses the empirical rate at
+the observed tied score levels. The per-query plus-one rank uses a different
+finite-sample rule and requires exchangeability with its null source.
+A recipe fitted to fixture data is only a software check.
+
 vdjmatch update
 ---------------
 
@@ -67,6 +196,39 @@ Use ``reference-profiles`` for a fresh scientific classification rebuild:
 .. code-block:: bash
 
    vdjmatch reference-profiles --vdjdb reference.zip --threads 4 --output-prefix fresh
+
+For the breadth of the entire observed motif catalog, use the standalone command:
+
+.. code-block:: bash
+
+   vdjmatch motif-depth --vdjdb reference.zip --depth 100 --depth 10000 --output-prefix depth
+
+For each species, locus and peptide, the sample consists of distinct junction/V-gene
+keys from curated observations. A catalog entry is a resolved V gene and one exact
+three-residue motif in the junction core after trimming three residues from each
+end. Repeated windows count once per key. Unresolved V calls remain in the sample
+denominator. The expected number of catalog entries encountered is the sum of their
+hypergeometric detection probabilities. Entries can overlap. An empty estimate
+marks a requested depth beyond the available keys. Catalog membership describes
+sequence patterns and does not establish specificity or enrichment.
+
+The column ``expected_90pct_depth`` gives the smallest number of keys for which
+the expected number of different entries recovered reaches 90% of the catalog.
+Individual samples at that depth can recover fewer entries.
+The column ``guaranteed_catalog_depth`` gives the smallest sample containing
+every entry for every possible draw of that size. For a nonempty catalog this is
+the number of keys minus the carrier count of its rarest entry plus one.
+Both depths are zero for an empty catalog.
+
+For the selected motif in ``reference-profiles``, add repeatable ``--motif-depth N`` to request the probability of observing
+the selected V-conditioned motif in a uniform sample of N distinct
+junction/V keys without replacement. The additional ``.motif-discovery.tsv``
+table reports the carrier count, population size, motif identity and original
+support status for both motif catalogs. An unavailable motif or depth larger
+than the observed population gives an empty probability. The calculation
+conditions on the selected motif and estimates its rediscovery within that
+collection. It does not estimate discovery power or the unseen repertoire.
+
 
 It reloads raw observations and rebuilds graphs and label-shuffle diagnostics
 on every invocation, without reopening saved profile/index bundles. Outputs are
@@ -1046,11 +1208,39 @@ unselected species and missing partners retain their query rows and existing
 statuses. Without this flag, the original radius-ball candidate output is
 unchanged. The new flag requires ``--targets-from-sample``.
 
+For nearest-reference ranking with resolved V alleles, use
+``neighbours --targets-from-sample --resolved-v-nearest``. This selects an
+unbounded minimum with the full alphabet, clipped BLOSUM62, three N-terminal
+and two C-terminal residues trimmed, and unit weight for the three aligned V
+loops. Query and reference junctions must be canonical and at least five
+residues long. Unresolved V alleles are unavailable. The bundled allele
+resolver accepts model-supported aliases and interprets a missing allele suffix
+as ``*01``, so equivalence on another database depends on its allele mapping.
+Add ``--exclude-exact`` to reproduce the benchmark hit-list filter. Rank by
+ascending ``distance`` or equivalently by descending negative distance.
+
 This mode reduces each existing bounded native distance-matrix batch to query
 minima and radius counts; it does not materialize all query/reference hit pairs.
 The manifest records the selection mode and all CLI parameters. The resulting
 nearest distances are uncalibrated distances, suitable for separately defined
 comparator ranking; the command does not assign a specificity probability.
+
+For full BLOSUM62 with twice the aligned CDR1 and CDR2 costs, use::
+
+   vdjmatch neighbours queries.airr.tsv --vdjdb vdjdb.zip --locus paired \
+     --targets-from-sample --resolved-v-nearest --distance-matrix blosum62 \
+     --v-regions double-cdr12 --exclude-exact --output-prefix paired-nearest
+
+Each chain contributes three times the trimmed junction distance, twice the
+aligned CDR1 and CDR2 distances, and one aligned CDR2.5 distance. The linked
+score minimizes the sum across both chains of the same reference pair. For
+single chains, select ``--locus TRA`` or ``TRB``. The benchmark option
+``--exclude-exact`` removes identical full junctions from the hit list. The
+ordinary annotation default retains them. To reproduce a benchmark using the
+entire valid reference release, add ``--reference-population all-valid``.
+The Python functions ``vdjmatch.match.geometry.distance_matrix`` and
+``paired_distance_matrix`` accept ``matrix="blosum62", v_regions="double-cdr12"``;
+``allow_short=True`` enables the same five-residue minimum on resolved inputs.
 
 Shared original calculations across cohorts
 -------------------------------------------
@@ -1292,10 +1482,24 @@ native paired selection, with no new search or fit:
 Positive linked evidence supplies ``score``; otherwise the existing any-axis
 score retains marginal support. No supported axis gives an explicit no-score
 row. All original identities, component values and metadata remain unchanged.
-The reducer validates the native any-axis maximum and records input/output
-hashes. Its ``.scores.tsv`` is continuous ranking evidence, unlike the decision
+The reducer validates the native any-axis maximum and the query-pair count
+when declared in the manifest. It records input/output hashes.
+Its ``.scores.tsv`` is continuous ranking evidence, unlike the decision
 indicators from ``paired-labels``. It changes no default or label assignment;
 the existing any-axis call calibration does not apply to this candidate.
+
+For experimental winner-conditional filtering, supply ``--withheld-manifest`` with
+the paired ``reference-calls --leave-epitope-out`` manifest and its sibling
+``.calls.tsv``. The reference, geometry and exact-hit policy must match the
+annotated population. Let *n* count withheld reference queries with a unique
+supported winner for the same peptide and axis. Let *k* count their scores at
+least as large as the observed one. The output reports ``null_queries``,
+``E_null = k/n``, and the inclusive rank ``p_null = (k+1)/(n+1)``.
+A unique supported winner passes at ``p_null <= 0.01``. Missing groups and
+ambiguous winners abstain with empty null depth and tail fields. This tail
+conditions on the winning peptide and axis. The database-wide any-axis event
+has its own calibration, and full HLA restriction requires evidence from the
+winning reference records.
 
 The original scorer requires a matching raw ``--control`` repertoire for nonbundled
 species/loci. Its output
@@ -1310,11 +1514,13 @@ number of neighbours and is not the probability of a false winning-label call;
 it is not interchangeable with an E-value or a biological posterior.
 ``--calibration-score score`` exports the existing winning-label ranking score.
 ``calibrate-calls`` reports its empirical expected false calls per query as the
-largest observed null-source any-call tail at each cutoff. For a sample of Q
-queries evaluated at a common cutoff, multiply this value by Q to obtain the
-empirical expected number of false calls. This expectation requires no independence
-assumption, but transport to a new population remains unvalidated. It is distinct
-from the Poisson neighbour-count E-value and is not a confidence bound.
+largest observed null-source any-call tail at each cutoff. For an all-null batch
+of Q comparable queries at a common cutoff, Q times that rate gives the
+worst-source estimate among the represented populations. The per-source rates
+give a composition-specific estimate when the null population counts are known.
+Summing expectations requires no independence assumption. Transport to a new
+population requires validation. The any-call rate and Poisson neighbour-count
+E-value count different events.
 Neither this command nor ``calibrate-calls`` supplies a biological posterior or
 filters principal accuracy/ranking evaluations with a recommended cutoff.
 
@@ -1977,6 +2183,31 @@ background-adjusted germline enrichment or evidence of direct structural contact
 These are reference morphology features. The command fits no weights, makes no
 recognition claim and supplies no P-value. Its manifest records population policy,
 raw reference identity, feature definitions, source hashes and output hashes.
+
+vdjmatch graph-noise
+--------------------
+
+Rank an existing receptor graph by triangle support:
+
+.. code-block:: sh
+
+   vdjmatch graph-noise nodes.tsv --edges edges.tsv --output ranked.tsv
+
+The node table needs a unique ``node_id`` for every construct, including
+isolates. The edge table contains endpoint IDs in ``a`` and ``b``. Repeated or
+reversed copies count as one undirected edge. Self-edges contribute zero.
+The output preserves node order and columns and appends ``degree``,
+``triangle_degree`` and ``noise_rank``. Triangle degree counts incident edges
+whose endpoints share a third neighbor. The best rank is one. At zero triangle
+degree, connected constructs rank ahead of isolates. Remaining ties share a rank.
+
+Supply ``--retain N`` to append ``retention_weight`` for a caller-specified
+node budget. Ranks above the cutoff receive weight one, ranks below receive
+zero, and nodes tied at the cutoff share the remaining budget equally. Every
+row is retained in the output. The weights sum to the budget and describe
+expected inclusion under uniform selection within the cutoff tie. Graph
+support and retention are separate from pMHC assignment and probabilities of
+functional validation.
 
 vdjmatch database-evidence
 --------------------------

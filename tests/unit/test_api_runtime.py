@@ -39,9 +39,10 @@ def test_unique_search_resolves_outer_worker_budget_and_keeps_one_batch():
     with serial_kernels():
         assert _search_unique_junctions(Index(), ['CASSF', 'CASSF', 'CAVW'], None, 0) == [
             ['CASSF'], ['CASSF'], ['CAVW']]
+        assert _search_unique_junctions(Index(), ['CASSF'], None, 2) == [['CASSF']]
         with pytest.raises(ValueError, match='threads'):
-            _search_unique_junctions(Index(), ['CASSF'], None, 2)
-    assert calls == [(['CASSF', 'CAVW'], 1)]
+            _search_unique_junctions(Index(), ['CASSF'], None, -1)
+    assert calls == [(['CASSF', 'CAVW'], 1), (['CASSF'], 1)]
 
 
 def test_public_default_uses_allocation_and_preserves_serial_calls(monkeypatch):

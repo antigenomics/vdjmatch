@@ -29,7 +29,7 @@ def kernel_ladder(reference_counts, same_v_counts, control_counts, reference_siz
     exclusions mask hits without changing reference/control model sizes. Scores are relative evidence,
     not probabilities, E-values or calibrated specificity confidence.
     """
-    if scorer not in KERNEL_SCORERS:
+    if scorer not in (*KERNEL_SCORERS, 'count-enrichment'):
         raise ValueError('unknown kernel scorer')
     n, same, m = (np.asarray(x,dtype=np.float64,order='C')
                   for x in (reference_counts,same_v_counts,control_counts))
@@ -54,6 +54,28 @@ def kernel_ladder(reference_counts, same_v_counts, control_counts, reference_siz
 
 def _kernel_scores(shells,same_shells,m,N,M,t,kernel_scale,cross_v,floor,scorer,extras, *, _reuse_buffers=False):
     """Shared arithmetic after the public or native counter's validation."""
+    if scorer == 'count-enrichment':
+        from scipy.special import rel_entr
+
+        # Use the established inner ball. Distances outside it add no hits.
+        stop = np.searchsorted(t, round(kernel_scale), side='right')
+        hits = shells[:, :stop].sum(axis=1)
+        others = m[:, stop - 1] if stop else np.zeros_like(hits)
+        score = np.zeros(len(N))
+        valid = (N > 0) & (M > 0)
+        enriched = valid & (hits * M > others * N)
+        target, background = N[enriched], M[enriched]
+        x, y = hits[enriched], others[enriched]
+        pooled = (x + y) / (target + background)
+        expected_target, expected_other = target * pooled, background * pooled
+        score[enriched] = (rel_entr(x, expected_target) + rel_entr(y, expected_other)
+            + rel_entr(target - x, target * (1 - pooled))
+            + rel_entr(background - y, background * (1 - pooled))) / np.log(2.)
+        score[~valid] = np.nan
+        out = (_kernel_scores(shells, same_shells, m, N, M, t, kernel_scale,
+                              cross_v, floor, 'v-bounded', True) if extras else {})
+        out.update(kernel_count_enrichment=score, kernel_score=score)
+        return out
     kernel=np.exp(-t/kernel_scale)
     usable=(N>0)&(M>0)
     if _reuse_buffers and not extras:
@@ -136,7 +158,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
     """
     import polars as pl
     from ..match.geometry import grouped_total_distance_count_batch, distance_cutoff
-    if scorer not in KERNEL_SCORERS:
+    if scorer not in (*KERNEL_SCORERS, 'count-enrichment'):
         raise ValueError('unknown kernel scorer')
     if _scores_only and not _detailed:
         raise ValueError('score projection requires detailed kernel mode')
@@ -153,6 +175,8 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
         print(f'Kernel batch: {unique.height} unique query keys, {whole.height} reference keys; '
               f'{unique.height*whole.height} reference-key visits',file=sys.stderr,flush=True)
     normalise=geometry_preset in ('norm','jnorm')
+    if (normalise or _allow_empty_background) and scorer == 'count-enrichment':
+        raise ValueError('count enrichment requires unweighted target populations')
     same_v_totals=None
     if normalise:
         # Same-V mass and all population denominators belong to the fixed model.
@@ -177,6 +201,7 @@ def grouped_kernel_selection(queries, references, groups, *, query_keys, search_
              'reference_weight','reference_population','expected_count','enrichment_status',
              'enrichment','zero_control_hits','zero_control_weight','exact_reference_count',
              *['kernel_'+w+'_'+d for w in ('all','v','vonly') for d in ('bounded','rare')],
+             *(['kernel_count_enrichment'] if scorer == 'count-enrichment' else []),
              'kernel_score','kernel_status',*PMHC])
     peptides=targets.select('epitope').unique(maintain_order=True).with_row_index('_peptide')
     target_peptides=targets.join(peptides,on='epitope',nulls_equal=True,maintain_order='left')['_peptide'].to_numpy()

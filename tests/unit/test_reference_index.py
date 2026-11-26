@@ -33,6 +33,7 @@ def test_index_defaults_resolve_allocation(tmp_path, monkeypatch, allocation, en
     import vdjtools.cores as cores
 
     monkeypatch.setattr(cores, 'available_cores', lambda: allocation)
+    monkeypatch.setattr(cores, 'physical_cores', lambda: allocation)
     resolved, resolver = [], cores.kernel_threads
     def observed(threads=0):
         result = resolver(threads)
@@ -43,8 +44,10 @@ def test_index_defaults_resolve_allocation(tmp_path, monkeypatch, allocation, en
     source = reference_file(tmp_path/'reference.tsv')
     load(source)
     assert resolved[0] == (0, allocation)
+    load(source, threads=allocation + 1)
+    assert (allocation + 1, allocation) in resolved
     with pytest.raises(ValueError, match='threads'):
-        load(source, threads=allocation + 1)
+        load(source, threads=-1)
 
 
 def test_saved_native_roundtrip_preserves_keys_observations_and_skips_producers(tmp_path, monkeypatch):
