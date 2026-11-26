@@ -126,3 +126,11 @@ Sample workers keep their inner numerical kernels serial.
 ## License
 
 ISALGO LAB Academic and Non-Commercial Research License v1.0. See [LICENSE](LICENSE).
+
+## Paired score and calibration provenance
+
+New paired producer manifests record the SHA-256 of their selection or calls
+TSV. Use each table with the manifest emitted in the same run. Regenerate older
+outputs with the original inputs and options before reducing them with paired-
+score. Equal-tail any-call recipes now pin the VDJdb loader. Refit older recipes
+using the original reference, null inputs and options before applying them.

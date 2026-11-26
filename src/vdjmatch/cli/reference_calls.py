@@ -332,7 +332,9 @@ def _stem4_paired(args,reference,valid,started):
     sources={name:hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
         for name,module in [('kernel',kernel),('geometry',geometry_module),('seqtree_python',wrapper),('seqtree_native',native)]}
     provenance=db.provenance(args.vdjdb)
-    manifest=dict(reference=provenance,reference_sha256=provenance.get('input_sha256'),
+    from ..db.cache import sha256
+    manifest=dict(calls_sha256=sha256(Path(str(prefix)+'.calls.tsv')),
+        reference=provenance,reference_sha256=provenance.get('input_sha256'),
         software={name:importlib.metadata.version(name) for name in ['vdjmatch','seqtree','vdjtools']},
         source_sha256=sources,paired_source_sha256=paired_pipeline_sources(),paired_call_event=paired_call_event(),
         model_sha256=hashlib.sha256(json.dumps(model,sort_keys=True,default=str).encode()).hexdigest(),

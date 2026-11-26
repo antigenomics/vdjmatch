@@ -150,3 +150,6 @@ queries, selections = result["queries"], result["selection"]
 ## Further reading
 
 Read [advanced workflows and contracts](references/advanced-workflows.md) for calibration, reference diagnostics, scope evidence and repertoire inference.
+
+For paired-score producer digests and equal-tail recipe compatibility, see
+[advanced workflows](references/advanced-workflows.md).

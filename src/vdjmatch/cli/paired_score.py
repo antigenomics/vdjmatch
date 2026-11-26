@@ -116,6 +116,8 @@ def main(args):
     native = pl.read_csv(paths[0], separator='\t', infer_schema=False)
     if ('query_pairs' in manifest or withheld_manifest is not None) and native.height != manifest.get('query_pairs'):
         raise ValueError('paired score input row count disagrees with its manifest')
+    if manifest.get('selection_sha256') != before[str(paths[0])]:
+        raise ValueError('selection file differs from its producer manifest or has no recorded digest')
     scores = linked_first_scores(native)
     conditional = {}
     if withheld_manifest is not None:
@@ -124,6 +126,8 @@ def main(args):
         if (not null_manifest.get('options', {}).get('leave_epitope_out')
                 or pipeline_binding(manifest) != pipeline_binding(null_manifest)):
             raise ValueError('a matching peptide-withheld reference-calls population is required')
+        if null_manifest.get('calls_sha256') != before[str(withheld_calls)]:
+            raise ValueError('withheld calls file differs from its producer manifest or has no recorded digest')
         withheld = pl.read_csv(withheld_calls, separator='\t', infer_schema=False)
         if withheld.height != null_manifest.get('query_pairs'):
             raise ValueError('withheld calls row count disagrees with its manifest')

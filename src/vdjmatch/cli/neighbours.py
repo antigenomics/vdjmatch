@@ -1097,7 +1097,8 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
         **({'evidence_compression':{'codec':'gzip','level':1,
             'tables':['enrichment']+(['paired-evidence'] if paired and not stream_evidence else [])}} if gzip_evidence else {}),
         **({'rules_only':True,'status_derivation':'preserve ingestion/target precedence; matched iff fixed reference population exceeds excluded exact hits; availability unchanged'} if rules_only else {}),
-        **({'paired_call_event':paired_call_event(),'paired_source_sha256':paired_pipeline_sources()} if paired and kernel else {}),
+        **({'paired_call_event':paired_call_event(),'paired_source_sha256':paired_pipeline_sources(),
+            'selection_sha256':sha256(Path(str(prefix)+'.selection.tsv'))} if paired and kernel else {}),
         **({'geometry_extra':geometry_extra,
             'geometry_extra_status':'advanced retained diagnostic',
             'normalization':('fixed V-weighted reference population'

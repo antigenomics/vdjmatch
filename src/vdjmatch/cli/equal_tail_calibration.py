@@ -25,10 +25,10 @@ def _binding(args, species):
     from ..evalue import directional, equal_tail, equal_tail_selection as selection, kernel, paired
     from ..match import geometry
     from ..aggregate import candidates
-    from ..db import schema
+    from ..db import schema, vdjdb
     from ..io import airr
     from . import calibration, historical, equal_tail as input_owner
-    modules = [equal_tail, selection, kernel, geometry, paired, candidates, schema, historical, input_owner, airr, calibration, directional, gapblock, _core]
+    modules = [equal_tail, selection, kernel, geometry, paired, candidates, schema, vdjdb, historical, input_owner, airr, calibration, directional, gapblock, _core]
     return dict(event='maximum supported equal-tail score over the complete species TRA/TRB compatible-pMHC catalogue',
                 axes=['paired','TRA','TRB'] if args.locus=='paired' else [args.locus],
                 paired='same-reference linked pair; full marginal references, including unlinked observations',

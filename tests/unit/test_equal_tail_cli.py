@@ -146,7 +146,8 @@ def test_database_any_call_fit_apply_and_binding(tmp_path, locus):
     from vdjmatch.evalue import directional
     from pathlib import Path
     pins = json.loads(recipe.read_text())['equal_tail_binding']['source_sha256']
-    for owner in (calibration, directional):
+    from vdjmatch.db import vdjdb
+    for owner in (calibration, directional, vdjdb):
         assert pins[owner.__name__] == sha256(Path(owner.__file__))
     cases = pl.read_csv(prefix.with_suffix('.null-cases.tsv'),separator='\t')
     assert cases.group_by('null_source').len().sort('null_source')['len'].to_list() == [4,4]
@@ -252,17 +253,12 @@ def test_kernel_score_slab_budget_preserves_declared_and_null_ranks(tmp_path):
 
 def test_previous_fixed_budget_binding_requires_the_verified_sources_and_event():
     from vdjmatch.cli.equal_tail_compatibility import _BUDGET_REVISION, compatible_binding
-    from vdjmatch.db.cache import sha256
-    from vdjmatch.cli import equal_tail as cli, equal_tail_calibration
-    from vdjmatch.evalue import equal_tail, equal_tail_selection
-    from pathlib import Path
-    files={m.__name__:Path(m.__file__) for m in [cli,equal_tail,equal_tail_selection]}
-    files['calibration']=Path(equal_tail_calibration.__file__)
     old={name:ids[0] for name,ids in _BUDGET_REVISION.items()}
-    live={name:sha256(path) for name,path in files.items()}
+    live={name:ids[1] for name,ids in _BUDGET_REVISION.items()}
     frozen=dict(source_sha256=old|{'geometry':'same'},locus='TRB')
     current=dict(source_sha256=live|{'geometry':'same'},locus='TRB')
     assert compatible_binding(frozen,current)
+    assert not compatible_binding(frozen,current|{'source_sha256':live|{'vdjmatch.db.vdjdb':'loader'}})
     assert not compatible_binding(frozen,current|{'locus':'TRA'})
     assert not compatible_binding(frozen,current|{'source_sha256':live|{'geometry':'different'}})
     assert not compatible_binding(frozen,current|{'source_sha256':current['source_sha256']|{'calibration':'unknown'}})

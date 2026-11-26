@@ -27,10 +27,11 @@ def test_candidate_preserves_native_values_and_missing_linked_rescue():
 
 def test_cli_reducer_is_fresh_and_calibration_remains_unbound(tmp_path, capsys):
     from vdjmatch.cli.__main__ import main
+    from vdjmatch.db.cache import sha256
     selection,manifest=tmp_path/'selection.tsv',tmp_path/'native.json'
     sample().write_csv(selection,separator='\t')
     options=dict(locus='paired',background='vdjdb-other',neighbour_weighting='kernel',stem_depth=4,kernel_scorer='v-bounded',all_targets=False,targets_from_sample=True)
-    manifest.write_text(json.dumps(dict(parameters=options, query_pairs=5)))
+    manifest.write_text(json.dumps(dict(parameters=options, query_pairs=5, selection_sha256=sha256(selection))))
     args=['paired-score',str(selection),'--input-manifest',str(manifest),'--output-prefix',str(tmp_path/'candidate')]
     with pytest.raises(SystemExit):main(args+['--threads','-1'])
     assert main(args)==0
@@ -40,6 +41,11 @@ def test_cli_reducer_is_fresh_and_calibration_remains_unbound(tmp_path, capsys):
     report=json.loads((tmp_path/'candidate.manifest.json').read_text())
     assert report['calibration_transfer']=='none' and report['default_changed'] is False and report['query_rows']==5
     with pytest.raises(FileExistsError):main(args)
+    sample().with_columns(pl.col('query_id').reverse()).write_csv(selection, separator='\t')
+    with pytest.raises(SystemExit):
+        main(args[:-1] + [str(tmp_path/'permuted')])
+    assert 'selection file differs from its producer manifest' in capsys.readouterr().err
+    assert not list(tmp_path.glob('permuted.*'))
     sample().head(4).write_csv(selection, separator='\t')
     truncated = tmp_path / 'truncated'
     with pytest.raises(SystemExit) as exc:
