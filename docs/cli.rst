@@ -2038,9 +2038,10 @@ Joint junction/V/J event slots are sampled without replacement; V/J and length
 are not matching constraints. An absent mock token/stratum contributes zero.
 These are matched-control envelopes, not confidence intervals for selection
 bits or final specificity probabilities. Replicates default to zero (off),
-and otherwise must be at least two. By default one fresh native vdjtools exact
-junction-Pgen batch covers the selected reference/control union. Per-target
-seeds are stable under target ordering.
+and otherwise must be at least two. Without a supplied feature file, one
+fresh native vdjtools batch computes inclusive Hamming-1 junction probability
+mass for the reference/control union. Per-target seeds are stable under target
+ordering.
 
 ``reference-structure``, ``reference-coverage`` and ``reference-diagnostics``
 also accept ``--pgen-features PREFIX.features.parquet`` with ``--control`` and
