@@ -140,8 +140,11 @@ Motif rows now include global-control document frequency, `idf` and `tfidf`:
 documents are distinct junction/V-gene keys, IDF is `1+ln((M+1)/(df+1))`, and TF
 is row-stratum motif presence divided by all target keys (no vector norm).
 `--mock-replicates 50 --seed 0` adds matched-control TF-IDF mean/95% envelopes.
-Fresh vdjtools Pgen feeds the existing joint-event sampler; record counts are
-matched before key deduplication, with no V/J/length matching. Keep the fixed
+Fresh vdjtools batches compute inclusive Hamming-1 junction probability mass
+for the joint-event sampler. Record counts are matched before key deduplication,
+with no V/J/length matching. For historical reproduction, check the exact model
+files and vdjtools producer identity in the manifests. A shared model family
+name does not establish identical probabilities. Keep the fixed
 IDF, absent mock features as zero, and these descriptive envelopes distinct
 from uncertainty on selection bits or final specificity probabilities.
 
