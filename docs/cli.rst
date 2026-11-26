@@ -2324,8 +2324,11 @@ unseen-type fraction and entropy) and ``.rarefaction.tsv`` (richness and coverag
 against occurrence effort, with uncertainty). The latter also supplies richness
 against coverage without an additional calculation. See :doc:`selection-information`
 for the estimators. The manifest records inputs, model/source/native identities,
-geometry, partition parameters, seeds and versions. Missing V/J calls remain
-explicit in the exact key; full SW with germline loops requires resolvable V.
+geometry, partition parameters, seeds and versions. To reproduce seeded
+coverage interval endpoints, use the recorded NumPy version as well as the
+seed. Different NumPy versions can produce different finite bootstrap draws.
+Missing V/J calls remain explicit in the exact key; full SW with germline
+loops requires resolvable V.
 
 Add ``--control RAW_CONTROL --mock-replicates 200`` for Pgen-matched reference-size
 control populations, using the same event-slot law as the motif diagnostic.
