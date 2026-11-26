@@ -58,6 +58,10 @@ def test_union_equals_separate_fresh_services_and_searches_three_populations(tmp
     pieces={}
     for path in paths:
         out=annotate_repertoires(path,output_prefix=tmp_path/('separate-'+path.stem),**options)
+        if path.stem == 'paired':
+            from vdjmatch.db.cache import sha256
+            from pathlib import Path
+            assert out['manifest']['selection_sha256'] == sha256(Path(out['output_paths']['selection']))
         for kind in out['output_paths']:pieces.setdefault(kind,[]).append(out[kind])
     from vdjmatch.match import geometry
     original=geometry.grouped_total_distance_count_batch;calls=[]
