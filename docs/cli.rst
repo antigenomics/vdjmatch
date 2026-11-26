@@ -24,7 +24,7 @@ Use ``--locus TRA`` or ``--locus TRB`` for single chains.
 population by MHC. For an exact-excluded benchmark, pass ``--exclude-exact``.
 See :doc:`scoring` for the score definition and units.
 
-The ``native`` geometry reproduced the external TCRdist3 nearest distances
+The ``native`` geometry reproduced the comparison workflow's nearest distances
 for all 2,636 paired queries in the November benchmark, using the same target
 references and exact-hit exclusion. This equivalence applies to the distance
 component. The equal-tail command combines it with kernel evidence.
