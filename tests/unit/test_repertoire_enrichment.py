@@ -211,21 +211,20 @@ def test_reference_mock_enrichment_counts_receptors_once_and_retains_no_hits():
 @pytest.mark.parametrize("chain_mode", ["union", "all"])
 @pytest.mark.parametrize("batch", [False, True])
 def test_reference_mode_cli_and_significance_options(tmp_path,supported,chain_mode,batch):
-    import subprocess,sys,json
-    from pathlib import Path
+    import json
+    from vdjmatch.cli.__main__ import main
     sample=tmp_path/'sample.tsv'
     sample.write_text('junction_aa\tv_call\tj_call\tlocus\tduplicate_count\nCASSIIDAYEQYF\tTRBV2\tTRBJ1-1\tTRB\t7\n')
     (tmp_path/'metadata.tsv').write_text('sample_id\tpath\nS\tsample.tsv\n')
     (tmp_path/'reference.tsv').write_text('cdr3\tgene\tv\tj\tspecies\tepitope\tmhc_a\tmhc_b\tmhc_class\nCASSIIDAYEQYF\tTRB\tTRBV2\tTRBJ1-1\tHomoSapiens\tSYNTHETIC\tHLA-A*02:01\tB2M\tMHCI\n')
     (tmp_path/'control.tsv').write_text('junction_aa\tv\tj\toccurrences\nCASSIIDAYEQYF\t'+('TRBV3' if supported else 'TRBV2')+'\tTRBJ1-1\t100\n')
-    command=[sys.executable,'-m','vdjmatch.cli','repertoire-enrichment',str(tmp_path/'metadata.tsv'),
+    command=['repertoire-enrichment',str(tmp_path/'metadata.tsv'),
         '--null','reference','--vdjdb',str(tmp_path/'reference.tsv'),'--control',str(tmp_path/'control.tsv'),
         '--pgen-mismatches','0','--threads','1','--significance','both','--chain-mode',chain_mode,'--output-prefix',str(tmp_path/'result')]
     if chain_mode=='all':command.extend(['--model-source','isalgo'])
     if batch:command.append('--batch-samples')
     if batch and chain_mode=='all':command.extend(['--trb-matcher','stem4','--trb-min-score','0.50'])
-    result=subprocess.run(command,capture_output=True,text=True,timeout=30)
-    assert result.returncode==0,result.stdout+result.stderr
+    assert main(command)==0
     summary=pl.read_csv(tmp_path/'result.summary.tsv',separator='\t')
     if chain_mode=='all':
         assert summary.height==4

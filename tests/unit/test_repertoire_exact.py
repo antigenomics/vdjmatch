@@ -38,16 +38,18 @@ def test_reference_panel_cli_preserves_rows_reads_zero_panels_and_fdr_groups(tmp
     assert len(manifest['sample_timings'])==1 and manifest['sample_timings'][0]['records']==3
     assert manifest['fdr_family']==['group_id','family']
     assert manifest['legacy'] and manifest['selection_q'] == 1.
+    from vdjmatch.cli.__main__ import main
+
+    # The default run verifies interpreter startup. Reuse the same CLI
+    # entry point in process for the matcher matrix.
     for mode in ['blosum62','positional-blosum62','unit','v-unit','weighted','v-weighted']:
         weighted=command+['--matcher',mode,'--radius-factor','0.10' if 'blosum62' in mode else '0']
         weighted[weighted.index('--output-prefix')+1]=str(tmp_path/mode)
-        run=subprocess.run(weighted,capture_output=True,text=True,timeout=30)
-        assert run.returncode==0,run.stderr+run.stdout
+        assert main(weighted[3:])==0
         assert pl.read_csv(str(tmp_path/mode)+'.counts.tsv',separator='\t').sort('sample_id','group_id','replicate').equals(counts.sort('sample_id','group_id','replicate'))
     fuzzy=command+['--matcher','hamming','--mismatches','1']
     fuzzy[fuzzy.index('--output-prefix')+1]=str(tmp_path/'fuzzy')
-    run=subprocess.run(fuzzy,capture_output=True,text=True,timeout=30)
-    assert run.returncode==0,run.stderr+run.stdout
+    assert main(fuzzy[3:])==0
     fuzzy_counts=pl.read_csv(tmp_path/'fuzzy.counts.tsv',separator='\t')
     assert fuzzy_counts.filter(pl.col('replicate')==-1).select('matched_records','matched_reads').row(0)==(3,15)
     assert fuzzy_counts.height==201
