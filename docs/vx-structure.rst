@@ -327,3 +327,18 @@ shared with mouse class I. Across both mouse classes there are 37
 distinct positive V pairs.
 Estimate the weights separately by species. The human paired benchmarks
 test the human template only.
+
+The human benchmarked extension adds :math:`C_{\alpha\beta}/32` to each
+linked target distance. The two target hits are reordered after the
+correction. The competitor still uses the frozen native geometry. Of 16
+tested amplitudes, :math:`1/32` alone improved TCRvdb ranking while
+preserving all matched matrix and reference-depth endpoints. It retained
+the 78 strict M1 wins over native TCRdist3.
+
+The generated paired null retained the same cutoff and all 1,000
+receptor–target calls among 100,000 queries. Five tie flags and one unique
+winner changed outside the called set. The COVID replay retained the same
+1,661 whole-catalogue and 314 approved-target receptor calls, with
+identical visit and depth probabilities. The false-positive rate is
+measured on the generated bank used to fit the cutoff. This extension
+applies to the paired research score.

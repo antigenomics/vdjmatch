@@ -71,7 +71,9 @@ on the same cases before carrying a geometry through the remaining benchmarks.
 When testing a coupled TRA–TRB term, estimate edge weights on structures
 that resolve both sites. Normalize the weighted product of the two clipped
 site costs by the edge-weight sum and the maximum single-site cost.
-Add the result to each linked reference distance before ordering hits.
+For the benchmarked human research extension, add one thirty-second of
+that result to each linked target distance before ordering hits. Keep
+the native competitor distances and frozen fallback for missing templates.
 Use the species-specific observed pair weights. The class-I atlas supports
 54 human and 31 mouse V-domain pairs, including 29 shared pairs. The
 paired performance checks use the human weights and human queries.
