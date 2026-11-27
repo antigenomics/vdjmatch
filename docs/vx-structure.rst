@@ -1,0 +1,240 @@
+.. _vx-structure:
+
+Junction matching and repertoire structure
+==========================================
+
+Junction membership
+-------------------
+
+Use the full amino-acid junction, including the conserved anchors. For
+junctions :math:`x` and :math:`y`, define
+
+.. math::
+
+   H(x,y)=
+   \begin{cases}
+   \sum_{i=1}^{|x|}\mathbf{1}\{x_i\ne y_i\},& |x|=|y|,\\
+   +\infty,& |x|\ne|y|.
+   \end{cases}
+
+The inclusive rule :math:`H\le h` counts substitutions. Radius :math:`h=0` tests
+exact junction equality, and :math:`h=1` adds single substitutions. Eligibility
+can also require the same species and chain, a compatible peptide–MHC
+target, and matching normalized V or V and J gene calls. A hard gene
+mask removes ineligible comparisons before matching. Handling of
+unresolved calls belongs to that mask, and gene-level agreement pools
+alleles.
+
+A linked-pair rule requires both chains of a genuine query pair to match
+the two chains of one linked reference receptor for the target. A
+target-level chain intersection requires a TRA match and a TRB match
+for the same query receptor and target, allowing the reference chains
+to come from different receptors. The linked-pair rule implies the
+intersection when its linked chains are included in the respective
+single-chain pools and the chain predicates agree.
+
+When a cutoff reproduces membership
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Fix a finite set of query–target opportunities, the reference catalogues
+and all eligibility rules. Let :math:`P` be the opportunities called by a
+Hamming rule and :math:`Q` those eligible for a call with a finite score :math:`S`.
+If assignment is part of the rule, eligibility includes the winning-label
+and tie policy. An inclusive score cutoff :math:`\tau` gives the same calls
+exactly when
+
+.. math::
+
+   P\subseteq Q,\qquad
+   \max_{u\in Q\setminus P} S(u) < \tau \le \min_{u\in P} S(u).
+
+Every positive must reach the cutoff and every eligible negative must
+fall strictly below it. These conditions suffice because opportunities
+outside :math:`Q` cannot be called. Use :math:`\max\varnothing=-\infty` and
+:math:`\min\varnothing=+\infty` to cover empty sets. A tie across the boundary
+prevents separation by one cutoff. Apply the extrema across all
+opportunities for a shared cutoff, or within each target for
+target-specific cutoffs. For an inclusive distance cutoff :math:`D\le r`,
+require :math:`P\subseteq Q` and
+:math:`\max_{u\in P}D(u)\le r<\min_{u\in Q\setminus P}D(u)`.
+
+Exact and Hamming matching are recovered in an idealized geometry with
+full junctions, no indels, a constant positive cost :math:`\lambda` per
+substitution and the same hard gene and target masks. On eligible
+comparisons, :math:`D(x,y)=\lambda H(x,y)`, so :math:`D\le\lambda h` is exactly
+:math:`H\le h`. Taking the minimum distance over eligible references preserves
+this equivalence for target membership, with an empty reference set
+giving infinite distance. For a linked pair with the same radius on both
+chains, take the maximum of the two chain distances before minimizing
+over linked references. Summing the chain distances bounds the total
+substitution count. A two-substitution total admits two differences on
+one chain, which the per-chain radius-one rule excludes.
+
+In the :doc:`vX research score <vx-formalism>` distance and score terms
+can change the ordering through trimming, unequal substitution costs, gap
+costs, V-loop costs, source support, the background margin and the second
+hit. Its cutoff must meet the separation condition on the stated cohort
+to reproduce Hamming membership. Keep exact matches eligible when
+comparing against ordinary exact matching.
+
+Per-target degree distributions
+-------------------------------
+
+Within one reference target, let :math:`X` be the distinct valid full
+junctions. Join distinct junctions at Hamming distance one. For each
+:math:`x\in X`, its degree is
+
+.. math::
+
+   d(x)=\sum_{y\in X\setminus\{x\}}\mathbf{1}\{H(x,y)=1\}.
+
+For a nonempty graph, the empirical degree probability mass at integer
+:math:`j\ge0` is :math:`|\{x\in X:d(x)=j\}|/|X|`. The mass at zero is the orphan
+fraction. Inclusive degree :math:`d(x)+1` counts the vertex itself once.
+On distinct junctions, a radius-zero graph has no edges.
+
+The structure command also reports the graph on distinct
+``(junction, V gene, J gene)`` clonotypes. Let :math:`m_x` be the
+number of these vertices sharing junction :math:`x`. The command pools alleles
+to genes and retains unresolved calls as explicit categories. Edge
+membership depends on junction distance. Exact-junction vertices form
+a clique, and each one-substitution junction edge expands to a complete
+bipartite set of clonotype edges. Each of the :math:`m_x` clonotypes has degree
+
+.. math::
+
+   d_{\mathrm{clone}}(x) = (m_x-1) +
+      \sum_{y\in X\setminus\{x\}} m_y\,\mathbf{1}\{H(x,y)=1\}.
+
+The clonotype degree distribution counts this value :math:`m_x` times and
+divides by :math:`\sum_{x\in X}m_x`. At radius zero only the clique term
+remains. For a hypothetical V or V/J edge mask, count the multiplicities
+within the allowed gene stratum. The structure command uses the
+junction-only edge rule, includes valid junctions with unresolved V
+calls and reports the distribution counts and denominators. An empty
+graph has no degree distribution. The implementation batches the
+junction search and expands degrees without materializing clonotype edges.
+
+For vX, a threshold defines a bipartite query–target graph. Its adjacency
+:math:`B_{qe}(t)` equals one for a finite score at least :math:`t`
+under the chosen call policy, and zero otherwise. The target degree
+:math:`\sum_q B_{qe}(t)` counts called query opportunities for :math:`e`;
+query degree :math:`\sum_e B_{qe}(t)` counts supported targets and is at
+most one under unique-winner selection. Specify whether a vertex is a
+source record or a distinct receptor key before interpreting either
+degree. The fixed competitor and target panels are part of this graph.
+
+Read rarefaction and graph acquisition
+--------------------------------------
+
+For a library with :math:`N>0` eligible reads, let :math:`M` be the set of matched
+source clonotypes and let :math:`a_i` be the read abundance of source
+clonotype :math:`i\in M`. Hold match membership fixed and sample reads
+uniformly without replacement at whole-library depth :math:`m\in\{0,\dots,N\}`.
+The expected number of matched source clonotypes found is
+
+.. math::
+
+   R(m)=\sum_{i\in M}
+   \left[1-\frac{\binom{N-a_i}{m}}{\binom{N}{m}}\right].
+
+The ratio counts samples that avoid all :math:`a_i` reads. Take
+:math:`\binom{n}{m}=0` for :math:`m>n\ge0`. Linearity of expectation gives the sum
+even when discovery events depend on each other. The subset-hit
+probability is the same identity used in Eq. 3 of
+`Nipperess and Matsen, §4.1 <https://arxiv.org/html/1208.6552#S4.SS1>`_.
+The vdjtools subset rarefaction API pools unmatched reads into one
+category for the richness calculation and subtracts the expected
+presence of that category. The denominator is the original eligible
+library depth. Distinct source clonotypes keep their own read counts
+even when they share a matching key. At depth zero the expected
+richness is zero, and at depth :math:`N` it is :math:`|M|`.
+
+For uniform sampling of distinct receptor IDs, each ID has unit
+abundance. With :math:`B` called IDs among :math:`N` IDs, the expected number
+retained is :math:`mB/N`, and the probability of retaining any called ID is
+:math:`1-\binom{N-B}{m}/\binom{N}{m}`. Depth here is measured in receptor IDs.
+
+Graph acquisition samples :math:`m\in\{1,\ldots,N\}` distinct vertices
+uniformly without replacement from a fixed undirected graph of :math:`N>0`
+observed vertices. Retain edges whose endpoints both occur in the
+sample. Write :math:`E` for the edge set and :math:`d_i` for the degree of vertex
+:math:`i` in the full graph. For :math:`N>1`, both endpoints of an edge are
+sampled with probability :math:`m(m-1)/(N(N-1))`. The expected edge count
+is :math:`|E|` times this probability, or zero for :math:`N=1`. Conditional on
+retaining vertex :math:`i`, it is an orphan when none of its neighbors occur
+among the other :math:`m-1` vertices. The expected sampled orphan count is
+
+.. math::
+
+   O(m)=\frac{m}{N}\sum_{i=1}^{N}
+   \frac{\binom{N-1-d_i}{m-1}}{\binom{N-1}{m-1}}.
+
+The expected number of sampled vertices with a neighbor is :math:`m-O(m)`,
+and their expected fraction is :math:`1-O(m)/m`. A one-vertex sample is
+always orphaned. At full depth the formulas return the original edge
+and orphan counts. The structure command reduces these expressions
+over the full-graph degree histogram. Varying reference depth for
+prediction changes target keys and re-evaluates scores on the same
+assay queries.
+
+Multi-epitope reciprocal nearest neighbors
+------------------------------------------
+
+The vX research benchmark builds one joint graph per species and chain.
+A vertex is a distinct full junction of at least five canonical residues
+with its resolved V allele. The benchmark deduplicates full source rows
+and caps groups by species, chain and peptide. Once the cohort is fixed, labels enter the
+evaluation after graph construction and clustering. Every pair of
+vertices with equal full junctions is ineligible as a neighbor, even if
+their V alleles differ.
+
+The runner uses the weighted pair geometry from the :doc:`vX score
+description <vx-formalism>` in integer units of 1/256 of a base
+distance unit. For base distance :math:`D_0(i,j)`, component loop costs
+:math:`D_\ell(i,j)` and configured weights :math:`w_\ell`, it computes
+
+.. math::
+
+   D_{ij}=256D_0(i,j)+\sum_{\ell\in\{1,2,2.5\}}
+       \bigl(\operatorname{int}(256w_\ell)-256\bigr)D_\ell(i,j).
+
+The pair geometry omits source support, the background margin and the
+second-hit score. With :math:`n` placed vertices, set :math:`k=\lceil\log n\rceil`,
+using the natural logarithm. Every row in the benchmark has at least
+:math:`k` eligible comparisons. Let :math:`r_i` be the :math:`k`-th smallest distance
+in the eligible part of row :math:`i`. Keep an arc :math:`i\to j` when :math:`j` is
+eligible and :math:`D_{ij}\le r_i`. A vertex can have more than :math:`k`
+outgoing arcs because all ties at the boundary are kept. For background
+on directed nearest-neighbor graphs, see
+`Baron and Darling <https://arxiv.org/abs/1908.07645>`_.
+The benchmark evaluates exact row distances in batches.
+
+The undirected graph keeps an edge precisely when both arcs occur.
+Symmetric pair distances can give different ranks in the two rows.
+For symmetric distances an edge requires
+:math:`D_{ij}\le\min(r_i,r_j)` after applying the neighbor mask.
+A global cutoff can reproduce those edges only if the largest distance
+of a retained edge is strictly below the smallest distance of an
+eligible omitted edge. The benchmark uses
+unweighted Louvain clustering with resolution 1 and seed 0, then maps
+communities back to source rows by junction and resolved V allele.
+Each unplaced source row receives its own singleton label for evaluation.
+
+The sensitivity analyses can use :math:`k=\lceil s\log n\rceil` with a positive
+scale :math:`s` and can vary Louvain resolution. One optional edge weight
+uses the distance and the two endpoint radii
+
+.. math::
+
+   w_{ij}^{\mathrm{local}}=
+   \begin{cases}
+     \exp(-D_{ij}^2/(r_i r_j)), & r_i r_j>0,\\
+     1, & r_i r_j\le0.
+   \end{cases}
+
+Another optional weight multiplies each edge's current weight by
+:math:`1+\eta|\Gamma_i\cap\Gamma_j|/|\Gamma_i\cup\Gamma_j|`, where
+:math:`\Gamma_i` is the neighbor set in the reciprocal graph and :math:`\eta\ge0`.
+The base weight is one when local weighting is off. Both options
+use the reciprocal edge set.

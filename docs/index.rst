@@ -118,6 +118,8 @@ ingestion uses `vdjtools <https://github.com/antigenomics/vdjtools>`_.
    Two control directions <control-calibration>
    Algorithm diagrams <algorithms>
    Score derivation <scoring>
+   Frozen vX formalism <vx-formalism>
+   Junction matching and repertoire structure <vx-structure>
    Rearrangement-origin models <rearrangement-origin>
    Historical scoring comparisons <historical-comparisons>
    Selection and information <selection-information>

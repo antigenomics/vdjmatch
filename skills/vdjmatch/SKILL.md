@@ -28,6 +28,39 @@ comparator; neither is a reason to introduce a chemistry-driven replacement.
 Reuse `match.regions.significance_weights/significance_pssm` and the existing
 historical matcher. Mode availability is not evidence of improved accuracy.
 
+For the frozen **vX research score**, see the
+[score and decision equations](https://docs.isalgo.dev/vdjmatch/vx-formalism.html).
+Order target hits by the weighted vX distance, with the fixed TRB
+reference-ID discount applied before ordering. With first and second hits
+`d1,d2`, native competitor distance `c`, and `L` chains, use
+`X=max(d1+L*m-c,0)`, `G=min(24*L,max((d1+d2)/2-d1,0))`, and
+`S=-d1-gamma*X+b*G`. Evaluate the midpoint before subtraction. The fixed cap bounds the second-hit effect. For linked pairs, sum the two chain distances within each reference pair before ranking hits. Repeat
+a singleton hit, use zero penalty for an infinite background, and give
+unsupported targets negative infinity. Apply benchmark exact exclusion to
+hit lists with the model held fixed.
+
+For vX classification, require a unique finite winner. The score-only assay
+diagnostic adds `0.002832*log1p(N)` using fixed target-key counts. The coefficient is the rounded midpoint of the original three-class recall plateau.
+The separate within-assay diagnostic uses
+`H=-log(pK)+(S-median_assay(S))/40+0.95*log(assay_class_fraction)`.
+The fixed size offset cancels when centering by target. Here `pK` is the
+inclusive add-one kernel tail. The generated
+null evaluates raw `S` after selection. Count all null queries in the FPR
+denominator. At a common cutoff, `Q*FPR` is the empirical expected number
+of false calls for `Q` query opportunities under that null. Sample
+enrichment uses the same endpoint in observed and Pgen-matched mock panels.
+The accepted yellow-fever curve-mean decision uses its positive-hit mock
+tail and donor/day correction.
+
+For epitope structure, define the vertices, radius and gene gates before
+computing a degree histogram. Use the existing graph acquisition and
+vdjtools subset-rarefaction APIs. The vX clustering benchmark uses reciprocal
+k-NN on weighted pairwise distances with all boundary ties retained. The vX
+target score instead uses the fixed target and competitor panels. A common
+vX cutoff reproduces exact or Hamming calls only when the score ordering
+strictly separates the two membership sets. See the
+[structure and rarefaction equations](https://docs.isalgo.dev/vdjmatch/vx-structure.html).
+
 Matrix derivation is research-only. Use the companion analysis repository’s
 `scripts/vdjam/derive_matrices.py` and `matrix_models.py`, pinned to vdjtools>=5.9.0
 for mixed-origin work. Read the

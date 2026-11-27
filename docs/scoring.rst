@@ -40,6 +40,10 @@ document retained historical and experimental statistics; they do not redefine
 the annotation default.
 
 
+See :doc:`vx-formalism` for the frozen vX research score and its
+assignment and null-calibration equations.
+
+
 Target-specific distance and support ranks
 ------------------------------------------
 
