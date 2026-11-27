@@ -16,8 +16,19 @@ substitution sum. For junctions of different lengths, the native alignment
 places one contiguous gap block and charges four units per gap residue.
 The junction's weight of three makes the maximum cost of one core
 substitution and the cost of one gap residue both 12 native distance units.
-Let :math:`D_J` be the junction alignment cost before multiplying by three,
-and let :math:`D_1,D_2,D_{2.5}` be the aligned V-loop costs. The frozen per-chain
+Let :math:`d` be the full junction length difference and
+:math:`\Pi(q,r)` the permitted alignments of their retained residues.
+At equal lengths there is one ungapped alignment. With unequal lengths,
+the native routine tries internal positions for the length difference as
+one block, with the position window adjusted for short junctions. For
+the aligned index pairs :math:`(i,j)\in\pi`, the junction cost is
+
+.. math::
+
+   D_J(q,r)=4d+\min_{\pi\in\Pi(q,r)}
+      \sum_{(i,j)\in\pi}\delta(q_i,r_j).
+
+Let :math:`D_1,D_2,D_{2.5}` be the aligned V-loop costs. The frozen per-chain
 geometry is
 
 .. math::
@@ -100,8 +111,13 @@ hits. The original support-gap sweep fixed the cap across its variants;
 its value remains a design choice. Binary64 evaluation forms the midpoint
 before subtracting :math:`d_1`.
 
-An infinite :math:`c` gives :math:`X=0`; a target with no finite hit has
-:math:`S=-\infty`. The settings below were fixed by the matched tuning study.
+An infinite :math:`c` gives :math:`X=0`, and a target with no finite hit has
+:math:`S=-\infty`. The nonnegative competitor penalty and capped midpoint
+gap give the exact all-target search bound
+:math:`S\le -d_1+g_\star\max(b,0)`. A target can be skipped once its bound
+is strictly below the best score already found. Equality still needs to
+be checked for an exact tie. The settings below were fixed by the matched
+tuning study.
 
 .. list-table::
    :header-rows: 1
