@@ -216,7 +216,7 @@ def main(a):
         kernel_v_geometry=('production V geometry imputation; raw V keys retained' if any(m in {'stem4','gapblock'} for m in [a.tra_matcher,a.trb_matcher]) else None),
         pgen_definition=f'marginal full-junction Hamming<={a.pgen_mismatches}; rounded log2(Pgen+2**-60)',
         control_law=('pre-binned control event slots sampled with replacement; reference Pgen below control minimum uses minimum bin; no target-key exclusion' if a.mock_policy=='pgen' else
-            'uniform unique junction/V/J keys, without replacement per target/bin; source event/read weights are not sampling weights' if a.mock_policy=='pgen-distinct' else
+            'uniform distinct junction/V/J keys in the exact requested bin, without replacement and excluding the target keys; source event/read weights are not sampling weights' if a.mock_policy=='pgen-distinct' else
             'legacy conditional distinct-key sampling without replacement'),
         archive_differences='marginal model Pgen without cohort-fitted VJ factor; complete zero-hit rows; explicit matching and conditional mock options; independent locus streams',
         significance_family=a.fdr_family,significance=a.significance,unavailable_null='null-valued inference; retained as nonrejectable hypotheses in BH family',stages=stages,seconds=time.monotonic()-started,outputs=outputs),indent=2)+'\n')

@@ -402,6 +402,20 @@ def test_epitope_mock_policies_preserve_bins_and_exclude_reference_keys():
         list(m.iter_epitope_mocks(reference,control.with_columns(pl.lit(-11).alias('pgen_bin')),replicates=1))
 
 
+def test_distinct_mocks_report_unavailable_exact_bins_without_borrowing_keys():
+    from vdjmatch.evalue.mock_reference import iter_epitope_mocks
+
+    reference = pl.DataFrame(dict(group_id=['X', 'Y'], junction_aa=['CASSF', 'CATTF'],
+                                 v=['V1'] * 2, j=['J1'] * 2, pgen_bin=[-10, -9]))
+    control = pl.DataFrame(dict(junction_aa=['CASSF', 'CARFF', 'CASRF'],
+                               v=['V1'] * 3, j=['J1'] * 3, pgen_bin=[-10, -9, -9]))
+    unavailable = []
+    draws = list(iter_epitope_mocks(reference, control, replicates=2, policy='pgen-distinct',
+                                     unavailable=unavailable))
+    assert [row['group_id'] for row in unavailable] == ['X']
+    assert [draw.select('group_id', 'pgen_bin').rows() for draw in draws] == [[('Y', -9)]] * 2
+
+
 def test_mock_sampler_keeps_pool_index_dtype(monkeypatch):
     """Mixed signed/unsigned search keys copy the entire large control stratum."""
     import numpy as np
