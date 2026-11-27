@@ -72,6 +72,9 @@ When testing a coupled TRA–TRB term, estimate edge weights on structures
 that resolve both sites. Normalize the weighted product of the two clipped
 site costs by the edge-weight sum and the maximum single-site cost.
 Add the result to each linked reference distance before ordering hits.
+Use the species-specific observed pair weights. The class-I atlas supports
+54 human and 31 mouse V-domain pairs, including 29 shared pairs. The
+paired performance checks use the human weights and human queries.
 
 Matrix derivation is research-only. Use the companion analysis repository’s
 `scripts/vdjam/derive_matrices.py` and `matrix_models.py`, pinned to vdjtools>=5.9.0

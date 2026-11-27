@@ -314,3 +314,13 @@ the same units and range as one site. It supplements the two chain
 distances before the shared linked hit list is ordered. This research
 term uses only verified canonical V-domain sites. Give missing
 templates the frozen target geometry and retain the hit-list exclusions.
+
+The class-I human derivation used 163 complexes and 54 observed V-domain
+pairs across 16 sites per chain. TRA44–TRB44 contacted in 160 of 163
+jointly resolved complexes and contributes 9.6% of the total pair weight.
+The mouse class-I cohort yielded 31 pairs across ten TRA sites and eleven
+TRB sites in 30 complexes. Twenty-nine pairs were observed in both sets.
+The other 25 human pairs were jointly resolved in mouse, with zero observed
+contacts. Two mouse pairs had zero contacts in the human derivation.
+Estimate the weights separately by species. The human paired benchmarks
+test the human template only.
