@@ -352,6 +352,17 @@ def test_raw_marginal_features_bypass_all_probability_corrections(tmp_path,monke
         assert (tmp_path/suffix).read_bytes()==(tmp_path/suffix.replace('out.', 'fresh.', 1)).read_bytes()
     fresh=json.loads((tmp_path/'fresh.manifest.json').read_text())
     assert fresh['probability']==m['probability'] and fresh['prepared_pgen'] is None
+    discovery_args=argparse.Namespace(**(vars(args) | dict(
+        abundance_metrics=False,discovery_curve=True,selection_q=None,
+        output_prefix=str(tmp_path/'discovery'))))
+    assert discovery_args.func(discovery_args)==0
+    discovery=json.loads((tmp_path/'discovery.manifest.json').read_text())
+    assert 'hill_rarefaction' not in discovery['abundance_metrics']
+    comparable={name:digest for name,digest in m['outputs'].items()
+                if name!='out.hill-rarefaction.tsv'}
+    assert discovery['outputs']=={name.replace('out.', 'discovery.', 1):digest
+                                  for name,digest in comparable.items()}
+    assert not (tmp_path/'discovery.hill-rarefaction.tsv').exists()
     args.pgen_features=str(tmp_path/'raw.features.parquet')
     args.marginal_pgen=False
     args.output_prefix=original_prefix

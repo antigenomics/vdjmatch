@@ -11,6 +11,7 @@ def register(sub):
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--control',required=True,help='Distinct junction_aa,v,j probe keys; optional joint_pgen column')
     p.add_argument('--abundance-metrics',action='store_true',help='Compare full-depth curve-average richness, Shannon and Simpson Hill diversity against reference mocks (includes Chao1)')
+    p.add_argument('--discovery-curve',action='store_true',help='Compute whole-library discovery and abundance summaries without per-depth Hill curves')
     p.add_argument('--chao1',action='store_true',help='Compare matched source-clonotype Chao1 from vdjtools against the same mock panels')
     probability = p.add_mutually_exclusive_group()
     probability.add_argument('--pgen-features',help='Verified marginal Pgen features; use raw probabilities and bins without corrections')
@@ -175,7 +176,8 @@ def main(a):
     from ..runner.annotation import _validate_output_paths
     from vdjtools.cores import kernel_threads
     a.threads = kernel_threads(a.threads)
-    abundance_metrics=getattr(a,'abundance_metrics',False)
+    hill_rarefaction=getattr(a,'abundance_metrics',False)
+    abundance_metrics=hill_rarefaction or getattr(a,'discovery_curve',False)
     chao1=getattr(a,'chao1',False) or abundance_metrics
     if chao1 and a.matcher=='stem4':raise ValueError('--chao1 requires a membership-count matcher')
     if a.mock_replicates<2 or a.seed<0 or a.threads<1:raise ValueError('at least two mocks, nonnegative seed and positive threads required')
@@ -227,7 +229,8 @@ def main(a):
     suffixes=['v-repairs.tsv','source-audit.tsv','summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
     if a.allow_missing_model_genes or a.include_nonfunctional:suffixes.append('missing-model-genes.tsv')
     if chao1:suffixes.append('abundance-spectra.tsv')
-    if abundance_metrics:suffixes.extend(['discovery-curves.tsv','hill-rarefaction.tsv'])
+    if abundance_metrics:suffixes.append('discovery-curves.tsv')
+    if hill_rarefaction:suffixes.append('hill-rarefaction.tsv')
     if any(Path(str(prefix)+'.'+s).exists() for s in suffixes):raise FileExistsError('fresh output prefix required')
     before={str(p):sha256(p) for p in inputs}
     import seqtree._core as search_native
@@ -240,8 +243,11 @@ def main(a):
         from vdjtools.stats.inext import asymptotic_diversity
         source_files.append(Path(asymptotic_diversity.__code__.co_filename))
     if abundance_metrics:
-        from vdjtools.stats import subset_rarefaction_batch,shannon_wiener,inverse_simpson,inext_batch
-        source_files.extend(Path(f.__code__.co_filename) for f in [subset_rarefaction_batch,shannon_wiener,inverse_simpson,inext_batch])
+        from vdjtools.stats import subset_rarefaction_batch,shannon_wiener,inverse_simpson
+        source_files.extend(Path(f.__code__.co_filename) for f in [subset_rarefaction_batch,shannon_wiener,inverse_simpson])
+    if hill_rarefaction:
+        from vdjtools.stats import inext_batch
+        source_files.append(Path(inext_batch.__code__.co_filename))
     source_before={str(p):sha256(p) for p in source_files}
     now=time.monotonic();stages['input_validation_and_freeze']=now-mark;mark=now
     reference=db.load(inputs[1],species={'human':'HomoSapiens','mouse':'MusMusculus'}[a.species]).filter(pl.col('gene')==a.locus)
@@ -416,6 +422,8 @@ def main(a):
             pl.col('qD').filter(pl.col('replicate')>=0).mean().alias('mock_mean_richness'),
             pl.col('qD').filter(pl.col('replicate')>=0).std().alias('mock_sd_richness')).sort('sample_id','group_id','m')
         del curves,matrix
+        counts=counts.with_columns(pl.when(pl.col('matched_simpson')>0).then(1-1/pl.col('matched_simpson')).otherwise(0.).alias('gini_simpson'))
+    if hill_rarefaction:
         limits=counts.group_by('sample_id','group_id').agg(pl.col('matched_reads').min().alias('hill_max_depth'))
         hill_keys=counts.with_row_index('sample').select('sample','sample_id','group_id','replicate','matched_records','matched_reads').join(limits,on=['sample_id','group_id'],validate='m:1',maintain_order='left').filter(pl.col('hill_max_depth')>0)
         if hill_keys.height:
@@ -434,14 +442,14 @@ def main(a):
         hill_summary=(pl.concat(hill_parts).join(limits,on=['sample_id','group_id'],validate='m:1') if hill_parts else limits.clear().with_columns(pl.lit(None,dtype=pl.Int64).alias('matched_read_depth')))
         unavailable=limits.filter(pl.col('hill_max_depth')==0).with_columns(pl.lit(None,dtype=pl.Int64).alias('matched_read_depth'))
         hill_summary=pl.concat([hill_summary,unavailable],how='diagonal_relaxed').sort('sample_id','group_id','matched_read_depth')
-        counts=counts.with_columns(pl.when(pl.col('matched_simpson')>0).then(1-1/pl.col('matched_simpson')).otherwise(0.).alias('gini_simpson'))
     now=time.monotonic();stages['cohort_kernel_and_count_assembly']=now-mark;mark=now
     summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
     summary=_adjust_summary(summary,['records','reads']+(['chao1'] if chao1 else [])+(['curve_mean','shannon','simpson'] if abundance_metrics else []),a.fdr_group).join(inventory,on='group_id',validate='m:1')
     now=time.monotonic();stages['statistics_and_fdr']=now-mark;mark=now
     outputs={'source-audit.tsv':pl.DataFrame(source_audit),'summary.tsv':summary,'counts.tsv':counts,'vj-audit.tsv':audit,'reference-bins.tsv':reference.group_by('group_id','pgen_bin').len(name='reference_keys')}
     if chao1:outputs['abundance-spectra.tsv']=spectra
-    if abundance_metrics:outputs.update({'discovery-curves.tsv':curve_summary,'hill-rarefaction.tsv':hill_summary})
+    if abundance_metrics:outputs['discovery-curves.tsv']=curve_summary
+    if hill_rarefaction:outputs['hill-rarefaction.tsv']=hill_summary
     if v_repairs:outputs['v-repairs.tsv']=pl.concat(v_repairs)
     if 'pgen_model_supported' in probes.columns:
         outputs['missing-model-genes.tsv']=probes.filter(~pl.col('pgen_model_supported'))
@@ -478,5 +486,9 @@ def main(a):
     if shape is not None:
         manifest['selection_profile_kind']=shape['kind']
         manifest['probability']='global Q times AA-max selected joint mass times residual within-V J usage ratio; floor2^-80'
+    if abundance_metrics and not hill_rarefaction:
+        manifest['abundance_metrics'].pop('hill_rarefaction')
+        for metric in ('hill0','hill1','hill2'):
+            manifest['abundance_metrics']['tails'].pop(metric)
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     return 0
