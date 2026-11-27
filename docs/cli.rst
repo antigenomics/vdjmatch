@@ -4,6 +4,11 @@ Command-line interface
 The console script provides reference management, annotation and benchmark commands. Use
 ``vdjmatch match -h`` for the installed version's complete options.
 
+For ``annotate`` and ``neighbours``, choose an output prefix whose generated files
+are separate from the inputs. For example, keep ``queries.tsv`` as the input and use
+``--output-prefix results/sample``. The command rejects a collision such as an
+input at ``results/sample.queries.tsv`` with that prefix.
+
 vdjmatch equal-tail
 -------------------
 

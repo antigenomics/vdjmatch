@@ -235,7 +235,15 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
         a.unbounded_nearest = True
     matrix_path=Path(a.distance_matrix).expanduser()
     from ..runner.annotation import _validate_output_paths
-    _validate_output_paths(a.output_prefix, [a.vdjdb])
+    protected = [path for path in (a.sample, a.vdjdb, a.control) if path]
+    if matrix_path.is_file():
+        protected.append(matrix_path)
+    suffixes = {'.queries.tsv', '.selection.tsv', '.manifest.json', '.boundaries.tsv',
+                '.radii.tsv', '.candidates.tsv', '.shortlist.tsv', '.enrichment.tsv',
+                '.enrichment.tsv.gz', '.paired-evidence.tsv', '.paired-evidence.tsv.gz'}
+    if a.locus == 'paired':
+        suffixes |= {f'.{chain}{suffix}' for chain in ('TRA', 'TRB') for suffix in suffixes}
+    _validate_output_paths(a.output_prefix, protected, suffixes=suffixes)
     matrix_hash=sha256(matrix_path) if matrix_path.is_file() else None
     streamed_rows=False
     streamed_selections=[]

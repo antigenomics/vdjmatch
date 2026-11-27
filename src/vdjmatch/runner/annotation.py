@@ -65,7 +65,7 @@ def _input_rows(inputs, metadata):
     return checked
 
 
-def _validate_output_paths(prefix, protected):
+def _validate_output_paths(prefix, protected, *, suffixes=None):
     """Reject raw files in the output namespace, including existing symlinks."""
     prefix = Path(prefix).expanduser()
     if prefix.name in {"", ".."}:
@@ -73,13 +73,18 @@ def _validate_output_paths(prefix, protected):
     # Writers append suffixes to the basename, not to a prefix symlink's target.
     prefix = prefix.parent.resolve() / prefix.name
     protected = {Path(path).resolve() for path in protected}
+    def is_output(name):
+        if suffixes is not None:
+            return name.removeprefix(prefix.name) in suffixes and name.startswith(prefix.name)
+        return name.startswith(prefix.name + ".") and name.endswith((".tsv", ".json", ".parquet", ".pq"))
+
     for path in protected:
         if (path.is_dir() and prefix.parent.is_relative_to(path)) or (
-                path.parent == prefix.parent and path.name.startswith(prefix.name + ".") and path.name.endswith((".tsv", ".json", ".parquet", ".pq"))):
+                path.parent == prefix.parent and is_output(path.name)):
             raise ValueError("annotation output path conflicts with an input/reference/metadata file")
     if prefix.parent.exists():
         for output in prefix.parent.iterdir():
-            if (output.name.startswith(prefix.name + ".") and output.name.endswith((".tsv", ".json", ".parquet", ".pq"))
+            if (is_output(output.name)
                     and any(output.resolve() == path or (path.is_dir() and output.resolve().is_relative_to(path)) or
                             (output.exists() and path.is_file() and output.samefile(path)) for path in protected)):
                 raise ValueError("annotation output path conflicts with an input/reference/metadata file")
