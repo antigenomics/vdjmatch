@@ -322,5 +322,8 @@ The mouse class-I cohort yielded 31 pairs across ten TRA sites and eleven
 TRB sites in 30 complexes. Twenty-nine pairs were observed in both sets.
 The other 25 human pairs were jointly resolved in mouse, with zero observed
 contacts. Two mouse pairs had zero contacts in the human derivation.
+The 26 mouse class-II complexes supplied 25 positive V pairs, 19 of them
+shared with mouse class I. Across both mouse classes there are 37
+distinct positive V pairs.
 Estimate the weights separately by species. The human paired benchmarks
 test the human template only.
