@@ -376,7 +376,7 @@ def test_epitope_mock_policies_preserve_bins_and_exclude_reference_keys():
     control = pl.DataFrame(dict(junction_aa=['CASSF','CASRF','CAVRF','CARRF','CAARF','CAGRF'],
                                v=['TRBV2','TRBV2','TRBV3','TRBV3','TRBV4','TRBV4'],
                                j=['TRBJ1-1']*6,pgen_bin=[-10]*6))
-    for policy in ['pgen','pgen-vj','pgen-different-v']:
+    for policy in ['pgen','pgen-distinct','pgen-vj','pgen-different-v']:
         draws=list(m.iter_epitope_mocks(reference,control,replicates=3,seed=7,policy=policy))
         assert all(x.height==2 and x['pgen_bin'].to_list()==[-10,-10] for x in draws)
         if policy!='pgen':
@@ -393,7 +393,8 @@ def test_epitope_mock_policies_preserve_bins_and_exclude_reference_keys():
             assert all(x['v'].to_list()==reference['v'].to_list() for x in draws)
         if policy=='pgen-different-v':
             assert all((x['v']!=reference['v']).all() for x in draws)
-        again=list(m.iter_epitope_mocks(reference,control,replicates=3,seed=7,policy=policy))
+        replay_control = control.with_columns(pl.int_range(1, 7).alias('event_weight')) if policy=='pgen-distinct' else control
+        again=list(m.iter_epitope_mocks(reference,replay_control,replicates=3,seed=7,policy=policy))
         assert all(a.equals(b) for a,b in zip(draws,again))
     with pytest.raises(ValueError,match='insufficient'):
         list(m.iter_epitope_mocks(reference,control.head(1),replicates=1,policy='pgen-vj'))

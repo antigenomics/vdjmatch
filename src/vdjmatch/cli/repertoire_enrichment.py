@@ -42,7 +42,7 @@ def register(subparsers):
     p.add_argument('--mock-replicates',type=int,default=200);p.add_argument('--seed',type=int,default=0)
     p.add_argument('--threads',type=cpu_budget, default="0");p.add_argument('--output-prefix',required=True)
     p.add_argument('--null', choices=['repertoire','reference'], default='repertoire')
-    p.add_argument('--mock-policy', choices=['pgen','pgen-vj','pgen-different-v'], default='pgen')
+    p.add_argument('--mock-policy', choices=['pgen','pgen-distinct','pgen-vj','pgen-different-v'], default='pgen')
     p.add_argument('--control-tra', help='TRA control for paired reference-null mode; --control supplies TRB')
     p.add_argument('--pgen-features-tra', help='validated TRA Pgen bank for paired mode')
     p.add_argument('--epitope', action='append', help='reported target peptide(s); full reference model and mock panels retained, reference-null only')

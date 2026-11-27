@@ -715,7 +715,9 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
     represent distinct receptor keys, not reads or weighted recombination events.
     ``pgen`` draws with replacement from pre-binned controls, retaining event
     multiplicity and mapping reference mass below the control minimum to that
-    minimum bin. It does not exclude target keys. ``pgen-vj`` preserves V/J;
+    minimum bin. It does not exclude target keys. ``pgen-distinct`` draws
+    distinct keys without replacement within target/bin and excludes target keys.
+    ``pgen-vj`` preserves V/J;
     ``pgen-different-v`` excludes every target junction and changes each source V.
     The latter samples source-V strata in fresh random order without replacement
     within a target/bin; it is a sequential conditional law, not a uniform draw
@@ -728,7 +730,7 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
     """
     import hashlib
 
-    if policy not in {'pgen', 'pgen-vj', 'pgen-different-v'}:
+    if policy not in {'pgen', 'pgen-distinct', 'pgen-vj', 'pgen-different-v'}:
         raise ValueError('unknown mock reference policy')
     if type(replicates) is not int or replicates < 1 or type(seed) is not int or seed < 0:
         raise ValueError('positive replicates and nonnegative seed required')
@@ -772,7 +774,7 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
     # Partition raw key indices once, rather than scanning the full pool per target.
     bin_pools=partitions(pool,['pgen_bin'])
     strata=['pgen_bin','v','j'] if policy=='pgen-vj' else ['pgen_bin','v']
-    conditional=partitions(pool,strata) if policy!='pgen' else {}
+    conditional=partitions(pool,strata) if policy!='pgen-distinct' else {}
     empty_indices=np.empty(0,dtype=np.uint32)
     if policy=='pgen-different-v':
         conditional={role:np.setdiff1d(bin_pools.get((role[0],),empty_indices),
@@ -797,7 +799,7 @@ def iter_epitope_mocks(reference: pl.DataFrame, control: pl.DataFrame, *,
             roles=[]
             strata=['v','j'] if policy=='pgen-vj' else ['v'] if policy=='pgen-different-v' else ['pgen_bin']
             for role,members in part.partition_by(strata,as_dict=True).items():
-                eligible=candidates if policy=='pgen' else conditional.get((bin_id,*role),empty_indices)
+                eligible=candidates if policy=='pgen-distinct' else conditional.get((bin_id,*role),empty_indices)
                 blocked_positions=excluded_positions(eligible,blocked)
                 available=len(eligible)-len(blocked_positions)
                 if available<members.height:

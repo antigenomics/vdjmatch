@@ -2872,6 +2872,9 @@ Three reference mock laws are available:
 * ``pgen`` draws from pre-binned control event slots with replacement. Reference
   Pgen below the smallest control bin uses that smallest bin. Repeated
   clonotypes and incidental target-key matches remain eligible.
+* ``pgen-distinct`` reproduces the historical exact-bin law. It draws distinct
+  junction/V/J keys without replacement, excludes target keys and gives each
+  eligible key equal weight.
 * ``pgen-vj`` additionally retains the source V/J composition in each bin.
 * ``pgen-different-v`` changes each source V and excludes every junction in that
   target. Source-V strata are visited in fresh random order; eligible keys are
