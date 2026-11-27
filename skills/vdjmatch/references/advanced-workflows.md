@@ -464,6 +464,11 @@ For cohorts that fit in memory, reference-null ``repertoire-enrichment --batch-s
 shares each seeded mock draw and native search across samples. It preserves
 per-sample receptor identities, counts, null statistics and the selected BH family.
 The default still loads and processes one sample at a time.
+For historical exact-bin replay, select `--mock-policy pgen-distinct`.
+It draws equal-weight distinct junction/V/J keys without replacement from the
+requested bin and excludes target keys. The default `pgen` law instead
+resamples control event slots with replacement. Keep the recorded null law
+when reproducing enrichment P and q values.
 
 
 ## Repertoire interpretation and manuscript operating points
@@ -524,9 +529,12 @@ proposal API. --legacy preserves historical input handling and add-one smoothing
 
 ### Current full-depth bulk abundance workflow
 
-Use `repertoire-exact --pgen-features FEATURES --abundance-metrics` for the
-raw-marginal workflow. Reuse verified completed junction-only native Pgen
-inputs and the observed control repertoire. Bin raw probabilities directly;
+Use `repertoire-exact --marginal-pgen --discovery-curve` for a fresh
+raw-marginal discovery run. Use `--pgen-features FEATURES` in place of
+`--marginal-pgen` for a verified prepared input. Select
+`--abundance-metrics` in place of `--discovery-curve` when per-depth Hill
+curves are required. Both modes keep the primary discovery and abundance
+summaries. Use the observed control repertoire and bin raw probabilities directly;
 no Q, V/J correction, AA-max, model prior or mass reconstruction. Do not create
 Pgen banks or replace observed controls with generated recombination controls.
 Retain original source-row clonotypes and producer read counts, even when
