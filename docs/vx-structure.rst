@@ -252,3 +252,65 @@ Another optional weight multiplies each edge's current weight by
 :math:`\Gamma_i` is the neighbor set in the reciprocal graph and :math:`\eta\ge0`.
 The base weight is one when local weighting is off. Both options
 use the reciprocal edge set.
+
+Contact windows on an IMGT alignment
+------------------------------------
+
+For a structural contact profile, let :math:`f_j` be the observed contact
+frequency at aligned column :math:`j`, with :math:`n_j` resolved strata.
+Report peptide and MHC contacts separately, and count a site once in their
+union. A support-weighted Gaussian with width :math:`h` in alignment columns
+gives
+
+.. math::
+
+   \widetilde f_j(h)=
+       \frac{\sum_k n_k f_k\exp[-(j-k)^2/(2h^2)]}
+            {\sum_k n_k\exp[-(j-k)^2/(2h^2)]}.
+
+Observed zeros contribute to the denominator. Unobserved columns have
+:math:`n_k=0`. A value there is an interpolation.
+Use valleys between stable peaks to locate contiguous windows. Retain
+all observed positive scoring sites in their windows.
+
+For the positive sites :math:`j\in R` in one window and clipped substitution
+costs :math:`\delta_j`, define
+
+.. math::
+
+   A_R=\sum_{j\in R} f_j\delta_j,\qquad
+   M_R=\sum_{j\in R}f_j,\qquad
+   K_R=\frac{M_R^2}{\sum_{j\in R}f_j^2}.
+
+The mean cost :math:`A_R/M_R` has the same mismatch scale for every window.
+The contact mass :math:`A_R` also reflects the number and recurrence of
+contacting sites. The effective-width cost :math:`K_RA_R/M_R` has the
+units of a substitution sum. Equal site weights make :math:`K_R` the
+number of sites. A concentrated profile has a smaller effective width.
+Compute the window totals before scoring allele pairs, so their scale
+does not depend on gaps in a particular comparison. Report score and
+template-coverage checks on the same reference and benchmark populations
+for each proposed substitution of a frozen loop term.
+
+Paired receptor contacts
+------------------------
+
+For TRA site :math:`i` and TRB site :math:`j`, estimate :math:`p_{ij}`
+from structures that resolve both positions. Use one interchain
+contact observation per structure and apply the same grouping weights
+used for the receptor contact profiles. If :math:`\delta_{\alpha i}`
+and :math:`\delta_{\beta j}` are clipped mismatch costs between the query
+and one linked reference, the coupled contact cost is
+
+.. math::
+
+   C_{\alpha\beta}=
+       \frac{\sum_{i,j}p_{ij}\delta_{\alpha i}\delta_{\beta j}}
+            {4\sum_{i,j}p_{ij}}.
+
+The product is zero when either endpoint is unchanged. The divisor
+four is the maximum clipped single-site cost, so the coupled term has
+the same units and range as one site. It supplements the two chain
+distances before the shared linked hit list is ordered. This research
+term uses only verified canonical V-domain sites. Give missing
+templates the frozen target geometry and retain the hit-list exclusions.

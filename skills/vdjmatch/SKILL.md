@@ -61,6 +61,18 @@ vX cutoff reproduces exact or Hamming calls only when the score ordering
 strictly separates the two membership sets. See the
 [structure and rarefaction equations](https://docs.isalgo.dev/vdjmatch/vx-structure.html).
 
+For contact-derived geometry research, align native structural positions in
+IMGT order and smooth frequencies using resolved-stratum counts. Use the
+valleys to define windows and retain measured positive sites. For weights
+`f` and clipped site costs `delta`, compare the fixed-denominator mean
+`sum(f*delta)/sum(f)` with the effective-width sum using
+`sum(f)^2/sum(f^2)` as the width. Check native wins and every frozen endpoint
+on the same cases before carrying a geometry through the remaining benchmarks.
+When testing a coupled TRA–TRB term, estimate edge weights on structures
+that resolve both sites. Normalize the weighted product of the two clipped
+site costs by the edge-weight sum and the maximum single-site cost.
+Add the result to each linked reference distance before ordering hits.
+
 Matrix derivation is research-only. Use the companion analysis repository’s
 `scripts/vdjam/derive_matrices.py` and `matrix_models.py`, pinned to vdjtools>=5.9.0
 for mixed-origin work. Read the
