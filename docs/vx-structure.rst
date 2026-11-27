@@ -118,8 +118,8 @@ junction search and expands degrees without materializing clonotype edges.
 For vX, a threshold defines a bipartite query–target graph. Its adjacency
 :math:`B_{qe}(t)` equals one for a finite score at least :math:`t`
 under the chosen call policy, and zero otherwise. The target degree
-:math:`\sum_q B_{qe}(t)` counts called query opportunities for :math:`e`;
-query degree :math:`\sum_e B_{qe}(t)` counts supported targets and is at
+:math:`\sum_q B_{qe}(t)` counts called query opportunities for :math:`e`.
+The query degree :math:`\sum_e B_{qe}(t)` counts supported targets and is at
 most one under unique-winner selection. Specify whether a vertex is a
 source record or a distinct receptor key before interpreting either
 degree. The fixed competitor and target panels are part of this graph.
@@ -174,9 +174,23 @@ The expected number of sampled vertices with a neighbor is :math:`m-O(m)`,
 and their expected fraction is :math:`1-O(m)/m`. A one-vertex sample is
 always orphaned. At full depth the formulas return the original edge
 and orphan counts. The structure command reduces these expressions
-over the full-graph degree histogram. Varying reference depth for
-prediction changes target keys and re-evaluates scores on the same
-assay queries.
+over the full-graph degree histogram.
+
+For a fixed exact or Hamming rule, one can also rarefy reference keys.
+Let :math:`K_e(q)` of the :math:`N_e` target keys be eligible neighbors of
+query :math:`q`. A uniform sample of :math:`m` keys contains a hit with
+probability
+
+.. math::
+
+   1-\frac{\binom{N_e-K_e(q)}{m}}{\binom{N_e}{m}}.
+
+Use linked pairs as the sampling units for a linked rule. The expectation
+of the number of recovered queries sums the probabilities over fixed
+query opportunities. Under vX, dropping a target key can change both the
+nearest and second-nearest evidence. Its reference-depth experiment
+re-evaluates the full target score on each sampled target set, with the
+other-peptide background fixed.
 
 Multi-epitope reciprocal nearest neighbors
 ------------------------------------------

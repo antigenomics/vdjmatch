@@ -4,7 +4,7 @@ Frozen vX research score
 This research candidate uses a fixed receptor catalogue. Let :math:`q` be a
 TRA receptor, a TRB receptor, or a linked TRA–TRB pair and let :math:`e` be a
 candidate peptide–MHC. A chain is represented by its anchor-inclusive amino
-acid junction and mapped V allele. Search keys are distinct encodings; one
+acid junction and mapped V allele. Search keys are distinct encodings. A
 key can have several source observations. Paired keys represent observed
 links and both chain distances are evaluated against the same key.
 
@@ -61,7 +61,7 @@ When both chain corrections are available, for a pair :math:`q=(q_\alpha,q_\beta
 
    d(q,r;e)=D_w(q_\alpha,r_\alpha)+D_w(q_\beta,r_\beta).
 
-Order these joint distances across linked keys for the same target; compute
+Order these joint distances across linked keys for the same target. Compute
 the native competitor distances by summing the two native distances to each
 linked competitor. A missing correction on either chain leaves the native
 pair distance in the replay. Apply the pair margin and gap adjustment once, after
@@ -105,10 +105,19 @@ is half the separation :math:`d_2-d_1`, so saturation begins at
 per chain in distance units. It is a scale comparison. For example, an
 equal-length junction of length :math:`\ell` can contribute up to
 :math:`12[\ell-5]_+` before V-loop terms, and other terms or unequal lengths
-change the range further. Neither the substitution matrix nor a typical
-junction length determines the separation between the two best reference
-hits. The original support-gap sweep fixed the cap across its variants;
-its value remains a design choice. Binary64 evaluation forms the midpoint
+change the range further. In the matched catalogue ranking queries
+(2,636 records per axis), median full junction lengths were 13 for TRA
+and 14 for TRB. Their median core lengths of eight and nine give loose
+substitution-only midpoint scales of 48 and 54 units. A length-based cap
+would set :math:`g_\star(q)=6\sum_i[\ell_i-5]_+`. Here :math:`\ell_i`
+is the full junction length of observed chain :math:`i`. Neither this
+capacity nor the cost matrix determines how far apart the two best
+reference hits are in a real panel. The original support-gap sweep fixed the
+cap across its variants.
+Its value remains a design choice. In a matched 78-endpoint ranking replay,
+halving the cap reduced 32 endpoints. Doubling it or using the query-core
+capacity each reduced six. The frozen cap preserved all 78 endpoints.
+Binary64 evaluation forms the midpoint
 before subtracting :math:`d_1`.
 
 An infinite :math:`c` gives :math:`X=0`, and a target with no finite hit has
@@ -253,7 +262,7 @@ library with no matched source rows. A call requires a positive standardized
 excess and a BH-adjusted value below 0.10 within the declared target,
 donor, day and endpoint family. Observed-control mock draws use the
 declared Pgen strata. Apply the sample rule at the declared query depth
-and target breadth. A per-receptor threshold defines membership; the mock
+and target breadth. A per-receptor threshold defines membership. The mock
 distribution calibrates the sample statistic.
 
 See :doc:`vx-structure` for structural degree, rarefaction and reciprocal k-NN.
