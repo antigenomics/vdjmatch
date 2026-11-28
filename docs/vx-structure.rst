@@ -479,6 +479,16 @@ pair recall in all four lanes. Comparisons against native geometry
 using the same graph rule showed a mix of gains and losses. These are
 clustering comparisons using the historical peptide labels.
 
+The graph can combine reciprocal adjacency :math:`R` with fractional
+radius weights :math:`F` through :math:`W_\theta=(1-\theta)R+\theta F`.
+Both graphs have undirected weight :math:`B`, so the blend has that
+same total. The radius contribution is equal for all boundary ties.
+An edge's reciprocal membership can change its final weight. All
+three tested fractions :math:`\theta\in\{1/4,1/2,3/4\}` increased
+same-label pair recall relative to fractional radius alone across all
+four frozen vX lanes. Every blend lowered at least one adjusted Rand
+or V-measure endpoint relative to the original native reciprocal graph.
+
 Contact windows on an IMGT alignment
 ------------------------------------
 
