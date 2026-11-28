@@ -106,6 +106,11 @@ def test_paired_motif_refinement_leaves_top_ties_and_unsupported_cells():
                                          support_weight=1, conflict_weight=1/8)
     cap = np.nextafter(-1., -np.inf)
     np.testing.assert_array_equal(actual, [[-1, -1, cap, -np.inf], [-1, -2.25, cap, -4]])
+    alternative = [[0, 0, -10, 4], [4, -np.inf, -6, -2]]
+    refined = paired_motif_ranking_scores(frozen, tra, trb, [9, 8, 7, 2],
+                                          support_weight=1, conflict_weight=1/8,
+                                          lower_tier_base=alternative)
+    np.testing.assert_array_equal(refined, [[-1, -1, -7, -np.inf], [-1, -2.25, -3, -2]])
     with pytest.raises(ValueError, match="finite score range"):
         paired_motif_ranking_scores([[0, -1]], [[0, -2]], [[0, -2]], [3, 3],
                                     support_weight=0, conflict_weight=1e308)

@@ -104,11 +104,13 @@ def paired_main(a):
         raise ValueError("query and target identifiers must each be unique")
     with np.load(a.scores, allow_pickle=False) as arrays:
         base, tra, trb, counts = (arrays[key] for key in ("base", "tra", "trb", "target_key_counts"))
+        lower = arrays["lower_tier_base"] if "lower_tier_base" in arrays else None
     if base.shape != (len(queries), len(targets)):
         raise ValueError("score axes must match the query and target identifiers")
     scores = paired_motif_ranking_scores(base, tra, trb, counts,
                                          support_weight=a.support_weight,
-                                         conflict_weight=a.conflict_weight)
+                                         conflict_weight=a.conflict_weight,
+                                         lower_tier_base=lower)
     table = pl.DataFrame({
         "query_id": np.repeat(queries.to_numpy(), len(targets)),
         "target": np.tile(targets.to_numpy(), len(queries)),

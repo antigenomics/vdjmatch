@@ -292,6 +292,19 @@ context. The TSV columns ``query_id`` and ``target`` identify the
 matrix rows and columns. Use one species and one MHC class per
 benchmark run. Select reporting targets after refinement.
 
+Optionally include a ``lower_tier_base`` matrix in the archive.
+It supplies the baseline for the lower ranks only. A missing entry
+falls back to the corresponding ``base`` score, and original no-hits
+are preserved. Use the direct addition of the motif adjustment to
+this matrix. Reconstructing the same value as a difference from
+``base`` can alter floating-point ties.
+
+Using the unweighted nearest-hit matrix and conflict weight four
+improved all 117 TRB and all 57 paired-chain human MHC-II endpoints
+in the full, capped and common-support scopes. This was a separate
+benchmark-selected setting. It did not pass the human MHC-II TRA
+or the capped mouse paired comparison.
+
 Ranking reactivity within an annotated assay
 --------------------------------------------
 
