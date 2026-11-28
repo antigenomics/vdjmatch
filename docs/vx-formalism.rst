@@ -9,8 +9,11 @@ key can have several source observations. Paired keys represent observed
 links and both chain distances are evaluated against the same key.
 
 For one chain, let :math:`B(a,b)` be the BLOSUM62 substitution score.
-The native comparison charges :math:`\delta(a,b)=\min(4,[4-B(a,b)]_+)`
-for canonical residues, with :math:`[x]_+=\max(0,x)`. It discards three
+The native comparison charges zero for identical residues. For distinct
+canonical residues it charges :math:`\delta(a,b)=\min(4,[4-B(a,b)]_+)`,
+with :math:`[x]_+=\max(0,x)`. This is a clipped cost derived from BLOSUM62
+with a four-unit ceiling, which is also the unweighted cost of one gap
+residue. It discards three
 junction residues at the N terminus and two at the C terminus from the
 substitution sum. For junctions of different lengths, the native alignment
 places one contiguous gap block and charges four units per gap residue.
@@ -28,16 +31,16 @@ the aligned index pairs :math:`(i,j)\in\pi`, the junction cost is
    D_J(q,r)=4d+\min_{\pi\in\Pi(q,r)}
       \sum_{(i,j)\in\pi}\delta(q_i,r_j).
 
-Let :math:`D_1,D_2,D_{2.5}` be the aligned V-loop costs. The frozen per-chain
-geometry is
+Let :math:`D_1,D_2,D_{\rm FR3}` be the aligned costs for CDR1, CDR2 and
+the short FR3 segment historically indexed as CDR2.5. The frozen
+per-chain geometry is
 
 .. math::
 
-   D_w = 3D_J + D_1 + \frac34 D_2 + \frac32 D_{2.5}
-             + \frac{D_1+D_2+D_{2.5}}{256}.
+   D_w = 3D_J + D_1 + \frac34 D_2 + \frac32 D_{\rm FR3}
+             + \frac{D_1+D_2+D_{\rm FR3}}{256}.
 
-CDR2.5 is the selected
-short segment within FR3, and full FR1–3 contributions are absent. In
+The frozen distance scores the selected FR3 segment and the two CDR loops. In
 code the native distance has unit loop weights, and vX adds the three
 weight differences to that native distance in the original order.
 The fractions encode the selected geometry exactly. The simpler base weights
@@ -78,26 +81,55 @@ TRA–TRB contact joins positions on two chains and is evaluated as a
 pair of sites under the interface term. It does not define a continuous
 sequence segment for alignment.
 
-The human FR3 research candidate replaces one part in 512 of the
-existing weighted FR3 cost with the local-alignment dissimilarity.
-For chain :math:`i`, let :math:`D_{{\rm FR3},i}` be the frozen
-aligned segment cost and :math:`D_{H,i}` the local dissimilarity for
-the same segment. The distance becomes
+The human FR3 research candidate blends two costs for the same short
+germline segment. With :math:`w_{\rm FR3}=3/2+1/256` and
+:math:`\eta=1/512`, replace this segment's contribution by
 
 .. math::
 
-   D'_w = D_w +
-     \frac{3/2+1/256}{512}
-     \sum_i \bigl(D_{H,i}-D_{{\rm FR3},i}\bigr).
+   w_{\rm FR3}\bigl[(1-\eta)D_{\rm FR3}+\eta D_{\rm SW}\bigr].
 
-The sum ranges over the observed chains, using the native fallback
-when the frozen correction is unavailable. On the matched human
-priority cohorts, the candidate improved five organizer-protocol
-and four fixed-reference TCRvdb endpoints with zero endpoint losses.
-The six measured NLV endpoints and all three LLL–LLW–ELA correct
-counts were preserved. It is available as an explicit research
-component. Fresh whole-search calibration and broader benchmark
-verification are pending.
+Here :math:`D_{\rm SW}` uses the self-normalized Smith–Waterman
+dissimilarity above with raw BLOSUM62 and gap opening and extension
+parameters both set to two. The compiled correction uses the equivalent
+residual :math:`\eta w_{\rm FR3}(D_{\rm SW}-D_{\rm FR3})` for each chain.
+The replacement covers the existing FR3 segment only. CDR1, CDR2,
+the 3-N/2-C trimmed one-gap junction score, and any separately
+configured paired interface term retain their baseline definitions.
+The same native fallback applies when the frozen correction is
+unavailable. Full-junction global and local alternatives and the
+separate 3-N/4-C flank split caused regressions in the organizer
+replay.
+
+The fraction :math:`1/512` was selected by matched benchmark replay.
+At :math:`1/256` the local variant lowered two fixed-reference paired
+TCRvdb endpoints. The smaller local fraction improved five organizer
+and four fixed-reference endpoints with zero losses, keeping all six
+measured NLV endpoints and all three LLL–LLW–ELA correct counts.
+This is an explicit human research component. Whole-search
+calibration and broader verification remain pending.
+
+Substitution matrix choice
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+With the same target keys, exact-hit mask, loop weights and reducer,
+the matched matrix replay replaced only the target distance. For
+the unclipped BLOSUM62 arm, the residue cost was
+:math:`B(a,a)+B(b,b)-2B(a,b)`. Each alternative distance was scaled
+so that its largest substitution cost was four. The native
+other-peptide comparison stayed clipped. This is a comparison of
+costs in the same single-gap geometry. The Smith–Waterman FR3
+comparison above uses a separate alignment objective.
+
+Clipped costs beat native TCRdist3 on all 78 matched human ranking
+endpoints, compared with 65 for VDJAM, 63 for unclipped BLOSUM62, 53
+for PAM250 and 47 for MJ. In a direct comparison on those 78
+endpoints, clipped won 33, tied 2 and lost 43 against unclipped
+BLOSUM62. The unclipped arm lowered 30 of the 72 TCRvdb endpoints
+relative to frozen vX and lowered measured NLV TRB average precision
+by 0.02108. Clipped costs remain the reference-ranked choice under
+the priority nonregression requirement. The direct endpoint tally
+supports a trade-off between gains and losses across tasks.
 
 For target key :math:`r`, order hits by
 :math:`d(q,r;e)=D_w(q,r)-a\log_2\max(1,n_{er})`, where :math:`n_{er}` counts
@@ -291,8 +323,8 @@ their anchors. The output retains all query–target scores and flags
 unique winners and tied maxima.
 Add ``--motif-length 4`` to replay the four-residue setting.
 
-Paired-chain motif refinement
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Paired-chain re-ranking by motif conflict
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For each target, let :math:`S_e` be the base score and
 :math:`M_{\alpha e}, M_{\beta e}` the fixed reference motif enrichment
@@ -310,7 +342,9 @@ Here :math:`\operatorname{pred}(S_*)` is the greatest representable
 floating-point value below :math:`S_*`. The same cap applies with a
 zero motif adjustment to lower scores with at most two keys.
 Every maximal score and every unsupported target retains its base value.
-The weight four was selected on the mouse catalogue benchmark. On the
+The penalty weight four was selected on the mouse catalogue benchmark.
+The two-key gate applies the penalty only to targets with more than two
+reference keys. On the
 matched class-I and class-II mouse paired catalogue it improved all 39
 ranking endpoints versus both frozen vX and native TCRdist3.
 
