@@ -186,7 +186,8 @@ Fixed-catalogue motif assignment
 For a TRB junction, trim the same three N-terminal and two C-terminal
 positions used by vX. Read up to four overlapping windows of
 three consecutive amino acids from each end. The optional replay uses
-four consecutive amino acids per window. For example, the retained
+four consecutive amino acids per window. These sequence windows are
+called 3-mers and 4-mers, respectively. For example, the retained
 sequence ``RSAGT`` has three-residue windows ``RSA``, ``SAG`` and
 ``AGT``, and four-residue windows ``RSAG`` and ``SAGT``.
 Each token :math:`t` records the window sequence, the end from which
