@@ -1,22 +1,24 @@
-The frozen vX annotation score
-==============================
+The VDJmatch annotation score
+=============================
 
-Ordinary annotation in VDJmatch 1.3 uses the frozen vX score and a fixed
-receptor catalogue. A query :math:`q` represents TRA, TRB or a genuine
+Ordinary annotation uses the VDJmatch score introduced in version 1.3.0
+and a fixed receptor catalogue. The implementation identifier ``vx``
+appears in CLI options and in records that bind calibration to this score.
+A query :math:`q` represents TRA, TRB or a genuine
 TRA–TRB pair. A target :math:`e` comprises the peptide, its recorded MHC
 restriction and its MHC class. Each chain contributes its anchor-inclusive
 amino-acid junction and mapped V allele. Distinct search keys can carry
 multiple source observations. A paired-chain key records two chains observed
 in the same reference receptor.
 
-The vX contribution is the receptor-to-database evidence score defined
+The VDJmatch contribution is the receptor-to-database evidence score defined
 here. It combines a weighted receptor distance with a target's first
 two eligible hits and an explicit comparison against HLA-compatible
 other-peptide references. The same construction applies to single
 chains and genuine paired-chain keys, with chain-specific settings.
 The published comparator supplies the native distance baseline. Fixed-site gaps, movable
 single-block gaps and Smith–Waterman are existing alignment choices.
-The novel vX contribution is how distance and reference evidence
+The contribution is how distance and reference evidence
 are combined into a target score. The sections below also record the
 separately evaluated motif, structural and neighborhood extensions.
 
@@ -1182,3 +1184,29 @@ statistic. A receptor-level threshold defines the membership rule
 used for both observed and mock panels.
 
 See :doc:`vx-structure` for structural degree, rarefaction and reciprocal k-NN.
+
+Fixed-target and mock-panel replays
+-----------------------------------
+
+Use ``vx-fixed-target RECTANGLE.npz --locus TRA|TRB|paired --output-prefix OUT``
+to rank one declared target from native comparator distances. The NPZ stores
+``native`` on the ``query_id`` by ``reference_key`` axes, and the aligned
+``query_junction``, ``reference_junction``, ``query_v`` and ``reference_v``
+arrays as Unicode strings with one column per chain (TRA then TRB for pairs).
+Supply one pre-reduced native ``background`` distance per query and one
+``source_log2`` value per reference key. A reference key's source value is
+the base-two logarithm of its distinct reference IDs, with a minimum count
+of one. Use zero for keys without source adjustment. The command computes the
+frozen region correction from the receptor arrays and retains native-only
+distance on unsupported geometry coordinates. With ``--exclude-exact``,
+matching junctions are masked on the hit list while the background stays fixed.
+
+Use ``repertoire-exact --matcher vx`` with one pooled human TRB epitope and
+``--discovery-curve`` to replay frozen vX on observed and mock panels.
+Supply the fixed competing VDJdb archive with ``--vx-competitors``, the
+competitor restriction with ``--vx-competitor-mhc MHC_A MHC_B CLASS``, and
+the frozen full human TRB operating point with ``--vx-cutoff-summary``.
+The competitor pool includes compatible other-peptide keys. Each observed
+panel key uses its distinct source IDs and each mock key has unit support.
+The null bank cutoff sets receptor membership. The existing repertoire
+procedure uses matched mock panels to test library-level enrichment.
