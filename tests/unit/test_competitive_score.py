@@ -116,6 +116,51 @@ def test_research_score_cli_keeps_output_identity(tmp_path):
     assert output.read_text() == "query_id\ttarget\tscore\n01\tA\t-1.0\n01\tB\t-11.0\n02\tA\t-1.0\n02\tB\t-1.0\n"
 
 
+def test_paired_motif_cli_rebuilds_fixed_class_memberships(tmp_path):
+    import polars as pl
+
+    from vdjmatch.cli.__main__ import main
+
+    path = {stem: tmp_path / (stem + ".tsv") for stem in ("queries", "targets", "reference", "output")}
+    junctions = ("junction_aa_alpha", "junction_aa_beta")
+    queries = pl.DataFrame({"query_id": ["01", "02"], junctions[0]: ["CASAAAFF", "CASRRRFF"],
+                            junctions[1]: ["CASRRRFF", "CAS"]})
+    targets = pl.DataFrame({"target": ["B", "C", "A"], "mhc_class": ["MHCI", "MHCII", "MHCI"]})
+    members = pl.DataFrame([
+        ("p1", "A", "CASAAAFF", "CASRRRFF"),
+        ("p1", "B", "CASAAAFF", "CASRRRFF"),
+        ("p2", "A", "CASAAAFF", "CASAAAFF"),
+        ("p3", "A", "CASAAAFF", "CASAAAFF"),
+        ("p1", "C", "CASAAAFF", "CASRRRFF"),
+        ("p5", "C", "CASAAAFF", "CASAAAFF"),
+        ("p6", "C", "CASAAAFF", "CASAAAFF"),
+    ], schema=["reference_key", "target", *junctions], orient="row")
+    for name, frame in (
+        ("queries", queries), ("targets", targets),
+        ("reference", pl.concat([members, members.head(1)])),
+    ):
+        frame.write_csv(path[name], separator="\t")
+    base = np.array([[-1, -3, -2], [-1, -1, -2]])
+    archive = tmp_path / "base.npz"
+    np.savez(archive, base=base)
+    assert main(["paired-motif-rank", "--scores", str(archive), "--queries", str(path["queries"]),
+                 "--targets", str(path["targets"]), "--reference", str(path["reference"]),
+                 "--support-weight", "0", "--conflict-weight", "4", "--output", str(path["output"])]) == 0
+    expected = []
+    for chain in junctions:
+        pairs = list(members.select("target", chain).iter_rows())
+        class_i = anchored_motif_scores([pair for pair in pairs if pair[0] != "C"], queries[chain], ["B", "A"])
+        class_ii = anchored_motif_scores([pair for pair in pairs if pair[0] == "C"], queries[chain], ["C"])
+        expected.append(np.column_stack((class_i[:, 0], class_ii[:, 0], class_i[:, 1])))
+    scores = paired_motif_ranking_scores(base, *expected, [1, 3, 3], support_weight=0, conflict_weight=4)
+    actual = pl.read_csv(path["output"], separator="\t", schema_overrides={"query_id": pl.String})
+    assert actual.select("query_id", "target").rows() == [
+        (query, target) for query in queries["query_id"] for target in targets["target"]
+    ]
+    assert np.any(scores != base)
+    np.testing.assert_array_equal(actual["score"].to_numpy().reshape(base.shape), scores)
+
+
 def test_paired_motif_refinement_leaves_top_ties_and_unsupported_cells():
     frozen = [[-1, -1, -2, -np.inf], [-1, -2, -3, -4]]
     tra = [[4, -4, 5, 3], [0, -2, 4, 7]]

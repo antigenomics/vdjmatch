@@ -647,12 +647,12 @@ keys, the refined score is
 
 .. math::
 
-   S'_e = \min\{S_e+4\min(M_e,0),\,\operatorname{pred}(S_*)\}.
+   S'_e = S_e+4\min(0,M_{\alpha e}, M_{\beta e}).
 
-Here :math:`\operatorname{pred}(S_*)` is the greatest representable
-floating-point value below :math:`S_*`. The same cap applies with a
-zero motif adjustment to lower scores with at most two keys.
-Every maximal score and every unsupported target retains its base value.
+Every other target keeps its base value. The general reducer caps
+changed lower-tier scores at the greatest representable value below
+:math:`S_*`. The conflict-only correction can only lower a score,
+so that cap is already satisfied by the displayed rule.
 The motif score is independent of gap placement and is applied after
 pairwise distances have been reduced to target scores. The mouse
 ranking rule does not add a k-mer term to the pairwise distance.
@@ -672,8 +672,27 @@ to the base geometry or any downstream decision based on lower ranks
 requires its own calibration check.
 
 Replay with ``vdjmatch paired-motif-rank`` using the complete target
-axis, aligned base and chain motif matrices, target key counts, and
-``--support-weight 0 --conflict-weight 4``.
+axis and ``--support-weight 0 --conflict-weight 4``. The command accepts
+either aligned base and chain motif matrices with target key counts,
+or an archive with the base plane and a prepared fixed reference:
+
+.. code-block:: bash
+
+   vdjmatch paired-motif-rank --scores base.npz --queries queries.tsv \
+     --targets targets.tsv --reference memberships.tsv \
+     --support-weight 0 --conflict-weight 4 --output ranks.tsv
+
+In fixed-reference mode, the archive contains ``base`` in the supplied
+query and target order. The query TSV contains ``query_id``,
+``junction_aa_alpha`` and ``junction_aa_beta``. The target TSV contains
+``target`` and ``mhc_class`` (``MHCI`` or ``MHCII``). Each reference row
+contains ``reference_key``, ``target``, and both full junctions. Use the
+same key for a physical pair across its target memberships and distinct
+keys for distinct reference pairs even when their junctions coincide.
+The motif fit pools memberships separately by MHC class; a shared key
+contributes once per target membership. The command constructs both
+motif planes and derives the target key counts. The supplied base
+plane must already reflect the chosen hit-list policy.
 
 Competitive score diagnostics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

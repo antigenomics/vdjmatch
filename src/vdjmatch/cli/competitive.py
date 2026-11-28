@@ -22,9 +22,11 @@ def register(subparsers):
 
     paired = subparsers.add_parser("paired-motif-rank", help="Refine paired ranks within a fixed target context")
     paired.add_argument("--scores", type=Path, required=True,
-                        help="NumPy .npz with base, tra, trb and target_key_counts arrays")
+                        help="NumPy .npz with base and, without --reference, tra, trb and target_key_counts")
     paired.add_argument("--queries", type=Path, required=True, help="TSV with query_id in matrix row order")
     paired.add_argument("--targets", type=Path, required=True, help="TSV with full target ID in matrix column order")
+    paired.add_argument("--reference", type=Path,
+                        help="Fixed paired reference memberships for scoring motifs separately by MHC class")
     paired.add_argument("--support-weight", type=float, required=True)
     paired.add_argument("--conflict-weight", type=float, required=True)
     paired.add_argument("--output", type=Path, required=True)
@@ -95,20 +97,65 @@ def assay_main(a):
     return _output(a, inputs, pl.DataFrame({"query_id": ids, "score": scores}))
 
 
+def _motifs_from_paired_reference(reference_path, queries, targets):
+    """Calculate motif planes and distinct key counts in the supplied axis order."""
+    import numpy as np
+    import polars as pl
+    from ..evalue.competitive import anchored_motif_scores
+
+    chains = ("junction_aa_alpha", "junction_aa_beta")
+    memberships = _read(reference_path, ("reference_key", "target", *chains)).unique()
+    for frame in (memberships, queries):
+        if not frame.select(pl.all_horizontal(
+            pl.col(chain).str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$") for chain in chains
+        ).all()).item():
+            raise ValueError("paired junctions must contain canonical amino acids")
+    if memberships.select("reference_key", *chains).unique().height != memberships["reference_key"].n_unique():
+        raise ValueError("each reference key must identify one paired junction")
+    if set(memberships["target"]) != set(targets["target"]):
+        raise ValueError("reference memberships must cover exactly the target axis")
+    if not targets["mhc_class"].is_in(["MHCI", "MHCII"]).all():
+        raise ValueError("mhc_class must be MHCI or MHCII")
+
+    counts_by_target = dict(memberships.group_by("target").len().iter_rows())
+    counts = np.array([counts_by_target[target] for target in targets["target"]])
+    planes = [np.empty((queries.height, targets.height)) for _ in chains]
+    for mhc_class in targets["mhc_class"].unique(maintain_order=True):
+        columns = np.flatnonzero((targets["mhc_class"] == mhc_class).to_numpy())
+        labels = targets["target"][columns].to_list()
+        pool = memberships.filter(pl.col("target").is_in(labels))
+        for chain, plane in zip(chains, planes, strict=True):
+            junctions, inverse = np.unique(queries[chain].to_numpy(), return_inverse=True)
+            motif = anchored_motif_scores(pool.select("target", chain).iter_rows(), junctions, labels)
+            plane[:, columns] = motif[inverse]
+    return planes[0], planes[1], counts
+
+
 def paired_main(a):
     import numpy as np
     import polars as pl
     from ..evalue.competitive import paired_motif_ranking_scores
 
-    queries = _read(a.queries, ("query_id",))["query_id"]
-    targets = _read(a.targets, ("target",))["target"]
+    reference = getattr(a, "reference", None)
+    query_table = _read(a.queries, ("query_id", "junction_aa_alpha", "junction_aa_beta")
+                        if reference else ("query_id",))
+    target_table = _read(a.targets, ("target", "mhc_class") if reference else ("target",))
+    queries, targets = query_table["query_id"], target_table["target"]
     if queries.n_unique() != len(queries) or targets.n_unique() != len(targets):
         raise ValueError("query and target identifiers must each be unique")
     with np.load(a.scores, allow_pickle=False) as arrays:
-        base, tra, trb, counts = (arrays[key] for key in ("base", "tra", "trb", "target_key_counts"))
+        base = arrays["base"]
+        motif_keys = ("tra", "trb", "target_key_counts")
+        if reference:
+            if any(key in arrays for key in motif_keys):
+                raise ValueError("--reference requires a score archive without precomputed motifs or key counts")
+        else:
+            tra, trb, counts = (arrays[key] for key in motif_keys)
         lower = arrays["lower_tier_base"] if "lower_tier_base" in arrays else None
     if base.shape != (len(queries), len(targets)):
         raise ValueError("score axes must match the query and target identifiers")
+    if reference:
+        tra, trb, counts = _motifs_from_paired_reference(reference, query_table, target_table)
     scores = paired_motif_ranking_scores(base, tra, trb, counts,
                                          support_weight=a.support_weight,
                                          conflict_weight=a.conflict_weight,
@@ -118,4 +165,4 @@ def paired_main(a):
         "target": np.tile(targets.to_numpy(), len(queries)),
         "score": scores.ravel(),
     })
-    return _output(a, [a.scores, a.queries, a.targets], table)
+    return _output(a, [a.scores, a.queries, a.targets] + ([reference] if reference else []), table)
