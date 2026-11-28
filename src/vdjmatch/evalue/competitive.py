@@ -74,13 +74,17 @@ def _anchored_trimers(junction):
     )
 
 
-def anchored_motif_scores(reference_keys, junctions, targets):
+def anchored_motif_scores(reference_keys, junctions, targets, *,
+                          reference_pool=None, sibling_references=None):
     """Return fixed-catalogue TRB motif enrichment in the requested target order.
 
     Each reference item is a (target, full junction) observation. Callers
     deduplicate their declared reference keys before passing the retained
     items. Distinct keys may carry the same junction. Targets with no
     reference observations are unsupported. The score uses no query labels.
+    An explicit pool can use physical keys counted once. Optional sibling
+    junctions come from compatible same-peptide targets, with shared
+    reference keys removed by the caller.
     """
     targets = tuple(targets)
     if not targets or len(set(targets)) != len(targets):
@@ -95,20 +99,37 @@ def anchored_motif_scores(reference_keys, junctions, targets):
         pooled.update(tokens)
         sizes[target] += 1
     denominator = 2 + sizes.total()
+    if reference_pool is not None:
+        pooled.clear()
+        denominator = 2
+        for junction in reference_pool:
+            pooled.update(_anchored_trimers(junction))
+            denominator += 1
     queries = [_anchored_trimers(junction) for junction in junctions]
     scores = np.full((len(queries), len(targets)), -np.inf)
     for column, target in enumerate(targets):
         if not sizes[target]:
             continue
         counts = target_counts[target]
+        siblings = tuple(sibling_references.get(target, ())) if sibling_references is not None else ()
+        sibling_counts = Counter(token for junction in siblings for token in _anchored_trimers(junction))
+        borrowing = len(siblings) / (len(siblings) + 2)
         for row, tokens in enumerate(queries):
             if not tokens:
                 continue
             prior = np.asarray([(1 + pooled[token]) / denominator for token in tokens])
+            if siblings:
+                sibling_prior = np.asarray([(1 + sibling_counts[token]) / (len(siblings) + 2)
+                                            for token in tokens])
+                prior = (1 - borrowing) * prior + borrowing * sibling_prior
             observed = np.asarray([counts[token] for token in tokens])
-            scores[row, column] = np.log(
+            enrichment = np.log(
                 (observed + 2 * prior) / ((sizes[target] + 2) * prior)
-            ).mean()
+            )
+            if reference_pool is None and sibling_references is None:
+                scores[row, column] = enrichment.mean()
+            else:
+                scores[row, column] = np.add.accumulate(enrichment)[-1] / len(tokens)
     return scores
 
 

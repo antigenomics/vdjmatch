@@ -271,6 +271,28 @@ Use ``vdjmatch.evalue.competitive.paired_motif_ranking_scores`` for
 retrospective ranking; benchmarking reuses the complete fixed motif
 model, including exact junctions in model counts.
 
+For a single observed chain, use its motif enrichment directly.
+The optional compatible-sibling prior uses the same peptide under
+compatible alternative recorded MHC restrictions. Keep distinct
+physical keys and remove keys shared with the focal target from its
+sibling pool. For motif token :math:`t` and target :math:`e`, use
+
+.. math::
+
+   p_{et} = \frac{2}{N_s+2}\frac{1+c_t}{2+N}
+          + \frac{N_s}{N_s+2}\frac{1+c_{st}}{2+N_s}.
+
+Here :math:`N` and :math:`N_s` count keys in the fixed global and
+sibling pools, and :math:`c_t` and :math:`c_{st}` count keys carrying
+the token in each. The one success and one failure define the
+uniform Beta prior, and two global pseudocounts shrink sparse sibling
+estimates. The enrichment for a token is
+:math:`\log[(c_{et}+2p_{et})/((N_e+2)p_{et})]`, where :math:`N_e`
+counts focal reference keys and :math:`c_{et}` counts those carrying
+the token. Average over the query's available anchored tokens. With
+zero sibling keys the prior reduces to the global estimate. This
+borrowing preserves distinct peptide--MHC labels.
+
 On the capped mouse paired-chain cohorts, separately fitting the
 two MHC-class motif models and setting support weight to zero and
 conflict weight to four improved all 39 AP, AUROC and standardized

@@ -67,6 +67,17 @@ def test_anchored_motif_scores_counts_distinct_reference_observations():
     assert np.isneginf(result[:, 2]).all()
 
 
+def test_anchored_motif_scores_borrow_from_compatible_siblings():
+    refs = [("a", "CASAAAFF"), ("b", "CASRRRFF")]
+    result = anchored_motif_scores(
+        refs, ["CASAAAFF"], ["a", "b"],
+        reference_pool=["CASAAAFF", "CASRRRFF"],
+        sibling_references={"a": ["CASAAAFA"]},
+    )
+    prior = (2 / 3) * (1 / 2) + (1 / 3) * (2 / 3)
+    np.testing.assert_allclose(result[0], np.log([(1 + 2 * prior) / (3 * prior), 2 / 3]))
+
+
 def test_research_score_cli_keeps_output_identity(tmp_path):
     from vdjmatch.cli.__main__ import main
 
