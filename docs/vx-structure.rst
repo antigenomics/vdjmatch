@@ -198,9 +198,10 @@ Epitope assignment by neighbor counts
 Let :math:`\mathcal R(q)` be the eligible distinct reference keys with finite distance after
 applying the chain, gene and benchmark hit-list rules. Let :math:`E(r)`
 be the set of peptide–MHC labels on key :math:`r`, and let :math:`D(q,r)`
-be the chosen receptor distance, with smaller values closer. At a fixed
+be a label-independent receptor distance, with smaller values closer.
+For vX geometry, use the distance before the target-specific TRB discount. At a fixed
 radius :math:`t`, use :math:`\mathcal N_t(q)=\{r\in\mathcal R(q):D(q,r)\le t\}`.
-For k-NN, let :math:`t_k(q)` be the distance to the
+For positive integer :math:`k`, let :math:`t_k(q)` be the distance to the
 :math:`\min(k,|\mathcal R(q)|)`-th eligible finite hit and use
 :math:`\mathcal N_{t_k(q)}(q)`, including every hit tied at the boundary.
 When there are no finite hits, the neighborhood is empty.
