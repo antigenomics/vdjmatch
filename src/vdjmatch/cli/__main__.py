@@ -978,6 +978,8 @@ def main(argv: list[str] | None = None) -> int:
     register_control_model(sub)
     from .motif_position import register as register_motif_position
     register_motif_position(sub)
+    from .competitive import register as register_competitive
+    register_competitive(sub)
     from .reference_pairing import register as register_reference_pairing
     register_reference_pairing(sub)
     from .score_policy import register as register_score_policy

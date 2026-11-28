@@ -48,9 +48,12 @@ def paired_assay_local_score(distances, *, exact_hits=None):
     exact hits without changing the neighborhood width or the assay population.
     The width and rank power were selected on the TCRvdb panel.
     """
-    group = np.array(distances, dtype=float, copy=True)
-    if group.ndim != 2 or group.shape[0] != group.shape[1] or not group.shape[0]:
+    values = np.asarray(distances)
+    if values.ndim != 2 or values.shape[0] != values.shape[1] or not values.shape[0]:
         raise ValueError("expected a nonempty square same-target distance matrix")
+    if values.dtype.kind not in "iuf" or np.isnan(values).any() or np.any(values < 0):
+        raise ValueError("distances must be real and nonnegative, or positive infinity")
+    group = values.astype(float, copy=True)
     if exact_hits is not None:
         mask = np.asarray(exact_hits)
         if mask.shape != group.shape or mask.dtype != np.bool_:

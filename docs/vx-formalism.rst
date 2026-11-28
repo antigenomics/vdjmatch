@@ -208,6 +208,19 @@ motif catalogue includes the assay junctions, and the parameters
 were selected on this panel. The score is available for fixed-catalogue
 assignment diagnostics. It has no calibrated open-set cutoff.
 
+To replay from a prepared model, run:
+
+.. code-block:: bash
+
+   vdjmatch anchored-motif-score --reference reference.tsv --queries queries.tsv --output scores.tsv
+
+The reference columns are ``target``, ``junction_aa``, ``v_call`` and
+``j_call``. The command deduplicates this four-column key. Encode the
+full peptide–MHC identity in ``target``. The query columns are
+``query_id`` and ``junction_aa``; IDs are unique and junctions include
+their anchors. The output retains all query–target scores and flags
+unique winners and tied maxima.
+
 Competitive score diagnostics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

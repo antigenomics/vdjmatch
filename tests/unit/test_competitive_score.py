@@ -1,6 +1,8 @@
 """Protect the frozen midpoint arithmetic and target/background boundary cases."""
 
 import numpy as np
+import polars as pl
+import pytest
 
 from vdjmatch.evalue.competitive import (
     anchored_motif_scores, assay_local_score, assignment_score, paired_assay_local_score,
@@ -51,6 +53,9 @@ def test_paired_assay_local_score_preserves_membership_and_input():
     np.testing.assert_array_equal(paired_assay_local_score(distances, exact_hits=exact_hits), [-3, -2, -2])
     np.testing.assert_array_equal(distances.diagonal(), [0, 0, 0])
     assert paired_assay_local_score([[0]]).item() == -np.inf
+    for invalid in (np.nan, -np.inf, -1, 1j):
+        with pytest.raises(ValueError, match="real and nonnegative"):
+            paired_assay_local_score([[0, invalid], [invalid, 0]])
 
 
 def test_anchored_motif_scores_counts_distinct_reference_observations():
@@ -60,3 +65,25 @@ def test_anchored_motif_scores_counts_distinct_reference_observations():
     np.testing.assert_allclose(result[0, :2], np.log([(2 + 2 * prior) / (4 * prior), 2 / 3]))
     assert np.isneginf(result[1]).all()
     assert np.isneginf(result[:, 2]).all()
+
+
+def test_research_score_cli_keeps_output_identity(tmp_path):
+    from vdjmatch.cli.__main__ import main
+
+    queries = tmp_path / "queries.tsv"
+    queries.write_text("query_id\tjunction_aa\n01\tCASAAAFF\n02\tCASRRRFF\n")
+    reference = tmp_path / "reference.tsv"
+    reference.write_text(
+        "target\tjunction_aa\tv_call\tj_call\nA\tCASAAAFF\tV1\tJ1\n"
+        "A\tCASAAAFF\tV1\tJ1\nB\tCASRRRFF\tV1\tJ1\n"
+    )
+    output = tmp_path / "scores.tsv"
+    assert main(["anchored-motif-score", "--reference", str(reference), "--queries",
+                 str(queries), "--output", str(output)]) == 0
+    calls = pl.read_csv(output, separator="\t", schema_overrides={"query_id": pl.String})
+    assert calls.filter(pl.col("winner")).select("query_id", "target").rows() == [("01", "A"), ("02", "B")]
+    distances = tmp_path / "distances.npy"
+    np.save(distances, [[0, 3], [3, 0]])
+    assert main(["paired-assay-score", "--distances", str(distances), "--queries",
+                 str(queries), "--output", str(output)]) == 0
+    assert output.read_text() == "query_id\tscore\n01\t-3.0\n02\t-3.0\n"

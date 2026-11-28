@@ -240,6 +240,19 @@ exclusion. The setting was selected on the evaluation panel.
 It requires the annotated assay group at scoring time and has
 no fixed-reference specificity cutoff.
 
+To reduce a prepared matrix, run:
+
+.. code-block:: bash
+
+   vdjmatch paired-assay-score --distances distances.npy --queries queries.tsv --output scores.tsv
+
+Provide one annotated assay group per matrix with the query IDs in the
+matrix row and column order. The ``queries.tsv`` file uses the
+``query_id`` column. Supply ``--exact-hits exact.npy`` for an
+aligned boolean paired-junction mask. The output gives ``query_id`` and
+``score`` in input order. Insufficient finite neighbors yield
+:math:`-\infty`.
+
 Multi-epitope reciprocal nearest neighbors
 ------------------------------------------
 
