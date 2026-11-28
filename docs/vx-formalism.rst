@@ -73,6 +73,45 @@ weight differences to that native distance in the original order.
 The fractions encode the selected geometry exactly. The simpler base weights
 :math:`(1,3/4,3/2)` lowered 23 of the 72 frozen ranking endpoints on the matched comparison.
 
+Evidence scores, dissimilarities and metrics
+--------------------------------------------
+
+The competitive score :math:`S(q,e)` ranks a query against a fixed
+peptide–MHC catalogue. It depends on other receptors and their labels,
+so it is evidence rather than a distance between two receptors.
+The underlying weighted pairwise geometry :math:`D_w` is a symmetric
+dissimilarity on the frozen resolved inputs. It fails two metric axioms.
+
+* Different full junctions can have zero dissimilarity when they differ
+  only in the trimmed residues and use the same V allele.
+* The triangle inequality can fail even with the same V allele. The
+  frozen implementation gives distances 12, 12 and 72 for the
+  consecutive pairs and endpoints of
+  ``CASAAAACACACAAAFF``, ``CASAAAACACACAAAAFF`` and
+  ``CASAAACACACAAAAFF``. Each adjacent pair aligns with one gap.
+  The two endpoints have equal length and use substitutions.
+  The residue table itself also violates the inequality:
+  :math:`\delta(F,H)=4>\delta(F,Y)+\delta(Y,H)=1+2`.
+
+Exact and Hamming neighborhoods use full junction identities. Hamming
+distance is a metric within an equal-length stratum. For unequal lengths,
+global Levenshtein distance on complete junctions is a metric because
+any two edit paths can be concatenated. A weighted counterpart can
+retain the canonical residue preferences using shortest-path closure
+of the substitution table and unrestricted global edits. On the 20
+canonical residues the closure changes only the symmetric F–H entry
+from four to three. For an identity defined by junction and resolved V
+allele, add a positive cost for different V alleles. Summing these
+chain metrics with positive weights gives a metric on complete pairs
+with fixed chain roles. Any additional fields that define identity must
+also receive a positive cost when they differ. This metric construction
+is separate from the frozen vX ranking and calibration.
+
+An exhaustive radius or k-nearest-neighbor search can use the frozen
+dissimilarity directly. A search that prunes by the triangle inequality
+requires a metric or a separately proven bound. Ward linkage additionally
+requires Euclidean geometry.
+
 The frozen geometry minimizes a sum of substitution and gap costs.
 The clipped BLOSUM62 cost :math:`\delta` is defined above. A native
 kernel that accepts similarities can represent this cost as
