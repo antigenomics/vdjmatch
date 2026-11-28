@@ -184,6 +184,18 @@ def test_frozen_paired_base_masks_hits_in_both_lists_and_preserves_unsupported_r
         np.testing.assert_array_equal(actual[1], [-np.inf, -np.inf])
 
 
+def test_frozen_paired_maxima_exports_only_unique_winners_as_callable_scores():
+    from vdjmatch.cli.paired_vx_base import _maxima_table
+
+    scores = np.array([[0, -1], [2, 2], [-np.inf, -np.inf]])
+    expected = [("01", "A", 0., 0., False), ("02", None, 2., None, True),
+                ("03", None, None, None, False)]
+    table = _maxima_table(["01", "02", "03"], scores, ["A", "B"], None)
+    assert table.rows() == expected
+    nulls = _maxima_table(["01", "02", "03"], scores, ["A", "B"], "generated")
+    assert nulls.rows() == [(*row, "null", "generated") for row in expected]
+
+
 def test_paired_motif_refinement_leaves_top_ties_and_unsupported_cells():
     frozen = [[-1, -1, -2, -np.inf], [-1, -2, -3, -4]]
     tra = [[4, -4, 5, 3], [0, -2, 4, 7]]

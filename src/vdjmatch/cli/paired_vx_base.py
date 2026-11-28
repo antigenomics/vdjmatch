@@ -15,6 +15,7 @@ def register(subparsers):
     parser.add_argument("--vdjdb", type=Path, required=True, help="Local VDJdb release ZIP")
     parser.add_argument("--exclude-exact", action="store_true",
                         help="Benchmark only: exclude matching paired junctions from the hit lists")
+    parser.add_argument("--null-source", help="Declare all input queries as one named calibration null")
     parser.add_argument("--threads", type=cpu_budget, default="0")
     parser.add_argument("--output-dir", type=Path, required=True, help="Fresh directory for paired motif rank inputs")
     parser.set_defaults(func=main)
@@ -111,6 +112,28 @@ def _base_scores(queries, fixed, groups, backgrounds, context, *, threads, exclu
     return result
 
 
+def _maxima_table(query_ids, base, labels, null_source):
+    import numpy as np
+    import polars as pl
+
+    maximum = base.max(axis=1)
+    finite = np.isfinite(maximum)
+    tied = finite & (np.count_nonzero(base == maximum[:, None], axis=1) > 1)
+    unique = finite & ~tied
+    target = np.asarray(labels, dtype=object)[base.argmax(axis=1)]
+    table = pl.DataFrame({
+        "query_id": query_ids,
+        "target": pl.Series(np.where(unique, target, None).tolist(), dtype=pl.String),
+        "maximum": pl.Series(np.where(finite, maximum, np.nan)).fill_nan(None),
+        "score": pl.Series(np.where(unique, maximum, np.nan)).fill_nan(None),
+        "tied": tied,
+    })
+    if null_source is not None:
+        table = table.with_columns(pl.lit("null").alias("outcome"),
+                                   pl.lit(null_source).alias("null_source"))
+    return table
+
+
 def main(args):
     import json
     from importlib.metadata import version
@@ -129,6 +152,9 @@ def main(args):
         raise ValueError("paired-vx-base requires a fresh output directory")
     if not args.vdjdb.is_file() or args.vdjdb.suffix != ".zip":
         raise ValueError("paired-vx-base requires a local VDJdb release ZIP")
+    null_source = args.null_source.strip() if args.null_source is not None else None
+    if null_source == "":
+        raise ValueError("--null-source must name a nonempty null population")
     inputs = {"reference": args.vdjdb, "queries": args.queries}
     digests = {name: sha256(path) for name, path in inputs.items()}
     context = precompute_v_loop_distances(species="mouse")
@@ -143,6 +169,7 @@ def main(args):
     base = _base_scores(queries, fixed, groups, backgrounds, context,
                         threads=args.threads, exclude_exact=args.exclude_exact)
     labels = [json.dumps(target, separators=(",", ":")) for target in targets.iter_rows()]
+    maxima = _maxima_table(queries["query_id"], base, labels, null_source)
     member_rows = pl.DataFrame({
         "reference_key": np.concatenate(groups),
         "target": np.repeat(labels, [len(group) for group in groups]),
@@ -158,10 +185,12 @@ def main(args):
     pl.DataFrame({"target": labels, "mhc_class": targets["mhc_class"]}).write_csv(
         out / "targets.tsv", separator="\t")
     member_rows.write_csv(out / "memberships.tsv", separator="\t")
+    maxima.write_csv(out / "maxima.tsv", separator="\t")
     (out / "manifest.json").write_text(json.dumps({
         "inputs_sha256": digests, "species": "mouse", "exact_hits_excluded": args.exclude_exact,
         "queries": queries.height, "targets": targets.height, "reference_keys": fixed.height,
-        "supported_queries": int(np.isfinite(base).any(axis=1).sum()),
+        "supported_queries": maxima["maximum"].count(), "unique_winners": maxima["score"].count(),
+        "top_ties": int(maxima["tied"].sum()), "null_source": null_source,
         "motif_reference_keys": member_rows["reference_key"].n_unique(),
         "threads": args.threads,
         "software": {package: version(package) for package in ("vdjmatch", "seqtree", "vdjtools")},

@@ -710,6 +710,24 @@ junctions and applies only to the target and background hit lists.
 Omit ``--exclude-exact`` for ordinary exact-retained replay. This
 command uses the verified mouse frozen base before motif re-ranking.
 
+The output also includes ``maxima.tsv`` with one row for every query.
+The ``maximum`` column retains finite tied maxima for audit, whereas
+``score`` and ``target`` require a unique winning pMHC. Unsupported and
+tied queries stay in the input denominator. For a declared calibration
+null, label the input with ``--null-source`` and pass this file directly
+to the ordered calibration command:
+
+.. code-block:: bash
+
+   vdjmatch paired-vx-base null-queries.tsv --vdjdb reference.zip \
+     --null-source generated --output-dir mouse-null
+   vdjmatch calibrate-ordered-calls mouse-null/maxima.tsv \
+     --target-fpr 0.01 --confidence 0.95 --output mouse-calibration.json
+
+Use the same reference and exact-hit policy when scoring the queries
+to which the recipe will be applied. The mouse motif correction
+preserves this maximum-based calling rule.
+
 Competitive score diagnostics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
