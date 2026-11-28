@@ -16,6 +16,8 @@ def test_family_compatibility_preserves_restriction_and_rejects_siblings(tmp_pat
     assert family["mhc_a"].to_list() == ["HLA-A*02", "HLA-A*02:01", "HLA-A*02:01:48", "HLA-A*02:06"]
     allele = db.load(path, mhc_a="A*02:01", mhc_match="compatible")
     assert allele["mhc_a"].to_list() == ["HLA-A*02", "HLA-A*02:01", "HLA-A*02:01:48"]
+    subtype = db.load(path, mhc_a=" hla-a*02:01:48 ", mhc_match="compatible")
+    assert subtype["mhc_a"].to_list() == allele["mhc_a"].to_list()
     assert db.load(path, mhc_a="HLA-A*02:01")["mhc_a"].to_list() == ["HLA-A*02:01"]
     assert db.load(path, mhc_a=[], mhc_match="compatible").is_empty()
 

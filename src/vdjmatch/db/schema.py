@@ -43,11 +43,8 @@ def mhc_compatible(column: str, value: str) -> pl.Expr:
         raise ValueError("MHC compatibility requires a nonempty restriction")
     selected = value.strip().upper().removeprefix("HLA-")
     source = pl.col(column).str.strip_chars().str.to_uppercase().str.replace(r"^HLA-", "")
-    return (
-        (source == selected)
-        | source.str.starts_with(selected + ":")
-        | pl.lit(selected).str.starts_with(source + ":")
-    ).fill_null(False)
+    ancestors = [selected[:i] for i, character in enumerate(selected) if character == ":"]
+    return (source.is_in([selected, *ancestors]) | source.str.starts_with(selected + ":")).fill_null(False)
 _PAIRED = {
     "TRA": {"cdr3": "cdr3.alpha", "v": "v.alpha", "j": "j.alpha"},
     "TRB": {"cdr3": "cdr3.beta", "v": "v.beta", "j": "j.beta"},

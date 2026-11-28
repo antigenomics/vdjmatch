@@ -158,6 +158,12 @@ def test_combined_diagnostics_loads_control_and_pgen_once(tmp_path, monkeypatch,
     assert set(motifs['motif_mode']) == {'exact3', 'wild4', 'imgt3', 'imgt_wild4'}
     manifest = json.loads((tmp_path/'out.levenshtein.manifest.json').read_text())
     assert manifest['shared_invocation_inputs'] is True
+    timings = manifest['stage_seconds']
+    assert set(timings) == {'graph_preparation', 'edge_sort_and_io', 'community_partition',
+                            'rarefaction_and_export', 'other_table_exports', 'table_hashing'}
+    assert timings['graph_preparation'] == manifest['graph_preparation_seconds']
+    assert all(elapsed >= 0 for elapsed in timings.values())
+    assert sum(timings.values()) <= manifest['seconds']
 
 
 def test_sw_knee_keeps_raw_keys_and_imputes_missing_loop_templates(monkeypatch):

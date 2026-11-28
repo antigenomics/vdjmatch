@@ -1,7 +1,28 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
+- Add vX paired-chain scoring from a fixed mouse reference ZIP, with
+  exact-hit retention, peptide-withheld replay, and explicit abstention at
+  tied target maxima.
+- Fit strict ordered-null cutoffs and report the equivalent empirical
+  E-value threshold. Bind paired vX E-value annotation to matching scores,
+  reference, model, and exact-hit policy.
+- Add fixed-catalogue motif ranking and paired assay scoring commands for
+  reproducible research comparisons.
+- Default ordinary human and mouse annotation to vX for single TRA,
+  single TRB, paired-chain and mixed inputs. Use `--score-model kernel`
+  for the previous scorer.
+- To report calibrated calls, E-values and null-tail counts, supply a
+  matching `--vx-null-dir` for every active primary locus. With no bank,
+  vX reports ranked evidence.
+- Report separate TRA and TRB evidence for paired queries, including
+  unlinked reference chains. The paired result determines the primary call.
+- Reduce catalogue preparation time by grouping reference rows before
+  checking peptide–MHC compatibility.
+- Document vX from input preparation through ranking and matched null
+  calibration. Provide worked offline examples for ordinary annotation,
+  custom references and benchmark exact-hit exclusion.
 - Report exact, finite-population rediscovery probabilities for V-conditioned
   motifs at user-specified TCR sampling depths in `reference-profiles`.
   Use `motif-depth` to calculate the expected breadth of the observed V/core

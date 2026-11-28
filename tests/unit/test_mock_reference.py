@@ -376,7 +376,7 @@ def test_epitope_mock_policies_preserve_bins_and_exclude_reference_keys():
     control = pl.DataFrame(dict(junction_aa=['CASSF','CASRF','CAVRF','CARRF','CAARF','CAGRF'],
                                v=['TRBV2','TRBV2','TRBV3','TRBV3','TRBV4','TRBV4'],
                                j=['TRBJ1-1']*6,pgen_bin=[-10]*6))
-    for policy in ['pgen','pgen-vj','pgen-different-v']:
+    for policy in ['pgen','pgen-distinct','pgen-vj','pgen-different-v']:
         draws=list(m.iter_epitope_mocks(reference,control,replicates=3,seed=7,policy=policy))
         assert all(x.height==2 and x['pgen_bin'].to_list()==[-10,-10] for x in draws)
         if policy!='pgen':
@@ -393,12 +393,27 @@ def test_epitope_mock_policies_preserve_bins_and_exclude_reference_keys():
             assert all(x['v'].to_list()==reference['v'].to_list() for x in draws)
         if policy=='pgen-different-v':
             assert all((x['v']!=reference['v']).all() for x in draws)
-        again=list(m.iter_epitope_mocks(reference,control,replicates=3,seed=7,policy=policy))
+        replay_control = control.with_columns(pl.int_range(1, 7).alias('event_weight')) if policy=='pgen-distinct' else control
+        again=list(m.iter_epitope_mocks(reference,replay_control,replicates=3,seed=7,policy=policy))
         assert all(a.equals(b) for a,b in zip(draws,again))
     with pytest.raises(ValueError,match='insufficient'):
         list(m.iter_epitope_mocks(reference,control.head(1),replicates=1,policy='pgen-vj'))
     with pytest.raises(ValueError,match='bin'):
         list(m.iter_epitope_mocks(reference,control.with_columns(pl.lit(-11).alias('pgen_bin')),replicates=1))
+
+
+def test_distinct_mocks_report_unavailable_exact_bins_without_borrowing_keys():
+    from vdjmatch.evalue.mock_reference import iter_epitope_mocks
+
+    reference = pl.DataFrame(dict(group_id=['X', 'Y'], junction_aa=['CASSF', 'CATTF'],
+                                 v=['V1'] * 2, j=['J1'] * 2, pgen_bin=[-10, -9]))
+    control = pl.DataFrame(dict(junction_aa=['CASSF', 'CARFF', 'CASRF'],
+                               v=['V1'] * 3, j=['J1'] * 3, pgen_bin=[-10, -9, -9]))
+    unavailable = []
+    draws = list(iter_epitope_mocks(reference, control, replicates=2, policy='pgen-distinct',
+                                     unavailable=unavailable))
+    assert [row['group_id'] for row in unavailable] == ['X']
+    assert [draw.select('group_id', 'pgen_bin').rows() for draw in draws] == [[('Y', -9)]] * 2
 
 
 def test_mock_sampler_keeps_pool_index_dtype(monkeypatch):

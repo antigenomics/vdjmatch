@@ -32,6 +32,16 @@ def _annotation_main(args):
     return a.func(a)
 
 
+def test_annotation_rejects_query_status_output_as_input(tmp_path):
+    sample = tmp_path / 'result.queries.tsv'
+    contents = b'query_id\tjunction_aa\nq1\tCASSLGQETQYF\n'
+    sample.write_bytes(contents)
+    with pytest.raises(ValueError, match='output path conflicts'):
+        _annotation_main(['annotate', str(sample), '--vdjdb', str(tmp_path / 'reference.tsv'),
+                          '--locus', 'TRB', '--output-prefix', str(tmp_path / 'result')])
+    assert sample.read_bytes() == contents
+
+
 def _single_inputs(tmp_path):
     sample,reference=tmp_path/'q.tsv',tmp_path/'r.tsv'
     pl.DataFrame({'sequence_id':['x','dup','invalid','far'],'junction_aa':[

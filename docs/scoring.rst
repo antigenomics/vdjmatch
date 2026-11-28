@@ -1,18 +1,21 @@
 Score definitions
 =================
 
+The default annotation score, assignment rule and whole-query calibration
+are defined in :doc:`vx-formalism`. This page describes retained alternative
+scorers and diagnostic statistics.
+
 See :doc:`selection-information` for selection factors, likelihood ratios,
 information in bits, masked-four-mer weighting, geometry and comparable tails.
-Benchmark exact exclusion filters hit contributions only: model populations,
-priors, motifs and graphs stay fixed. Historical population-puncturing recipes
-below do not define the current selection procedure.
+The vX benchmark exact-hit policy keeps model populations, priors, motifs and
+graphs fixed. Historical diagnostics below specify their own exclusion rules.
 
-Current VDJmatch kernel
------------------------
+Stem4 kernel
+------------
 
-The default ``annotate`` model uses the stem4 geometry and the ``v-bounded``
-kernel reducer. All quantities below are computed after the declared exact-match
-policy. Let :math:`N` be the number of eligible target reference keys,
+``annotate --score-model kernel`` uses the stem4 geometry and the ``v-bounded``
+kernel reducer. Let :math:`N` be the size of the eligible target reference population
+before any exact-hit filtering,
 :math:`t_j` the ordered distance cutoffs, :math:`n_j` and :math:`v_j` the target
 and same-V target counts in shell :math:`j`, and :math:`m_j` the cumulative
 other-peptide background count through that cutoff. The score is
@@ -31,13 +34,10 @@ relative target support; the score is not a P-value.
 
 The ``all-bounded`` reducer weights every reference equally; ``vonly-bounded``
 uses only same-V shell mass. The retained ``rare`` variants replace
-:math:`1+m_j` with :math:`\max(m_j,0.01)`. These are explicit alternatives,
-not a per-query selection of whichever score performs best.
+:math:`1+m_j` with :math:`\max(m_j,0.01)`. Select one reducer for the run.
 
 See :doc:`algorithms` for the computation and paired axes, and
-:doc:`explanation` for complete-score calibration. The remaining sections
-document retained historical and experimental statistics; they do not redefine
-the annotation default.
+:doc:`explanation` for complete-score calibration.
 
 
 Target-specific distance and support ranks
@@ -196,7 +196,7 @@ reference pair and other-peptide linked pairs as its joint population. It does
 not multiply independently selected chain matches. Real/generated joint controls
 and paired confidence calibration remain undefined.
 
-An additive clipped BLOSUM62 geometry-like geometry uses clipped BLOSUM costs, explicit
+The additive clipped BLOSUM62 geometry uses clipped substitution costs, explicit
 positional weights, a linear gap charge and aligned V loops:
 
 .. math::
@@ -210,7 +210,7 @@ positional weights, a linear gap charge and aligned V loops:
 Here :math:`s` is BLOSUM62, :math:`q,r` are full junctions,
 :math:`d_V` sums aligned CDR1/CDR2/CDR2.5 costs, :math:`A` is an allowed
 single-block alignment, :math:`h` is the length difference, :math:`L`
-the longer length and :math:`w` the positional weight. clipped BLOSUM62 geometry uses unit
+the longer length and :math:`w` the positional weight. The standard clipped geometry uses unit
 interior weights with three N-terminal and two C-terminal residues excluded.
 The CLI's opt-in ``neighbours --junction-ends trim3`` excludes
 three residues at each end. Exact exclusion still compares full junctions.
@@ -248,19 +248,15 @@ ball counts :math:`n_z,m_z`, a coherent unsmoothed factorisation is
    \frac{N_z/N}{M_z/M}\frac{n_z/N_z}{m_z/M_z}
    =\frac{n_z/N}{m_z/M}.
 
-Read the :download:`revised derivation source <../appendix/score-derivation.tex>`
+Read the :download:`derivation source <../appendix/score-derivation.tex>`
 for gap schemes, historical correspondence, symbols and limiting cases.
-The document editor compiles its current preview; the older repository PDF
-has not been re-exported for this revision.
 
 Implemented historical and matched-kernel experiments
 -----------------------------------------------------
 
-The experimental ``matched-pssm`` score uses one positional distance for both
-reference neighbours and control counts. It is a background-normalised ranking
-statistic. It has not replaced the default annotation scorer or acquired a
-calibrated P-value. These equations describe the implemented single-chain score;
-paired joint scoring remains a separate contract.
+The experimental single-chain ``matched-pssm`` score uses one positional
+distance for both reference neighbours and control counts. Its output is a
+background-normalised ranking statistic.
 
 Populations and geometry
 ------------------------
@@ -299,7 +295,7 @@ therefore length differences above four cannot enter this score.
 Define the historical V factor :math:`a(q,r)` as one for identical
 allele-stripped V genes and :math:`0.25\,\mathrm{vsim}(V_q,V_r)` otherwise.
 It is separate from the distance and is not a calibrated V-loop likelihood.
-This experimental mode does not add clipped BLOSUM62 geometry CDR1/CDR2/CDR2.5 distances.
+The sequence term in this mode uses the junction only.
 
 One kernel and one background predicate
 ---------------------------------------
@@ -483,7 +479,6 @@ unique reference keys, repertoire selection and database ascertainment do not
 automatically support exchangeability. ``rank_model_status`` and the manifest
 retain this restriction; deployment priors cannot be inferred from VDJdb or
 custom benchmark fractions. Target/route selection is not calibrated here.
-This retained experiment does not replace the current kernel default.
 
 The general expectation-one and conservative conversion are discussed by
 `Vovk and Wang <https://arxiv.org/abs/1912.06116>`_. The particular reciprocal-rank
@@ -509,8 +504,8 @@ nearest search. Fixed-radius outputs and the averaged rank score are preserved.
 
 This is a conditional exchangeable-label statistic, not biological confidence,
 an E-value, a selected-label calibration or a replacement deployment cutoff.
-Paired generated/real backgrounds remain undefined. This retained experiment does not replace the current kernel default; promotion
-requires all-task and full-reference nonregression.
+Paired generated/real backgrounds remain undefined. Promotion requires
+all-task and full-reference nonregression.
 
 Nearest-conditioned censored rank (experimental)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -534,20 +529,23 @@ The optional radius uses the sorted nonexact nearest-reference distances
 :math:`d_i`, with query identity defined by the unchanged full junction
 (both junctions together for a linked pair). Define
 :math:`x_i=i/(n-1)` and :math:`y_i=(d_i-d_0)/(d_{n-1}-d_0)` for zero-based
-indices. For this increasing convex curve, Kneedle considers local maxima of
-:math:`x_i-y_i` and confirms a candidate when the difference drops by more
-than :math:`1/(n-1)` before the following local minimum. Sensitivity is fixed
+indices. The rising-convex orientation uses local maxima of
+:math:`x_i-y_i`. Confirm a candidate when the difference drops by more
+than :math:`1/(n-1)` at or before the following local minimum, or by
+the last point if there is no following minimum. Sensitivity is fixed
 at one; the observed monotone curve is used without smoothing. Endpoints,
 flat curves and curves shorter than three observations supply no knee.
 Among confirmed candidates, the largest normalized difference wins; a minor
 leading bump cannot override a stronger later bend. Ties select the earlier bend.
 See `Kneedle, section III <https://raghavan.usc.edu/papers/kneedle-simplex11.pdf>`_.
 
-A zero or near-zero knee is floored at half the median positive knee within
-one species/chain geometry. With no positive knees, positive nearest distances
-provide that scale. Raw and adjusted knees are retained. Multiplying all
-distances by a positive constant multiplies both the raw radius and its floor
-by that constant; changing substitution weights requires recomputing the curve.
+A present knee :math:`r` is adjusted to :math:`\max(r,\rho/2)`
+by default, where :math:`\rho` is the median positive knee within
+one species/chain geometry. With no positive knees, use the median
+positive nearest distance. A missing knee remains missing. Raw and
+adjusted knees are retained. In real arithmetic, multiplying all
+distances by a positive constant scales both the raw radius and its floor
+by that constant. Changing substitution weights requires recomputing the curve.
 Single-chain and linked-sum geometries are never pooled for this floor.
 Reference-selected radii do not inherit fixed-radius probability guarantees.
 

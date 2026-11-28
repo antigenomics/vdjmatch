@@ -1,8 +1,14 @@
 Command-line interface
 ======================
 
-The console script provides reference management, annotation and benchmark commands. Use
-``vdjmatch match -h`` for the installed version's complete options.
+Use ``vdjmatch annotate --help`` for ordinary vX annotation and
+``vdjmatch COMMAND --help`` for options specific to another command.
+Start with :ref:`cli-annotate` for the query and reference input contract.
+
+For ``annotate`` and ``neighbours``, choose an output prefix whose generated files
+are separate from the inputs. For example, keep ``queries.tsv`` as the input and use
+``--output-prefix results/sample``. The command rejects a collision such as an
+input at ``results/sample.queries.tsv`` with that prefix.
 
 vdjmatch equal-tail
 -------------------
@@ -264,7 +270,7 @@ using a fixed seed0 stream independent of epitope labels. Original calls, key
 identities and unresolved-key counts/fractions are retained; imputation never
 merges original keys. A wholly unresolved population uses one neutral missing
 category, providing no invented V-usage signal. Missing V does not veto classes.
-Insufficient source records, fewer than two distinct keys or missing
+Insufficient source records, fewer than two distinct junctions and missing
 other-peptide background remain explicit.
 The selected motif's observed counts, raw/excess bits, null mean/maximum and
 Monte Carlo tail are included alongside each decision. V concentration and
@@ -306,30 +312,45 @@ not fit assay labels, select a scoring default or supply binding probabilities.
 Pooled modal MHC annotations are distinct from actual full-pMHC profiles;
 unlinked chains do not create a paired-receptor class.
 
+.. _cli-annotate:
+
 vdjmatch annotate
 -----------------
 
-The targeted annotation default is the stem4 kernel-ladder scorer:
-
-Aligned CDR1/CDR2/CDR2.5 V-loop costs are precomputed once per annotation
-invocation and reused across target populations. Different V genes retain their
-loop-similarity contribution; the same-V shell is an additional kernel component.
-The legacy ``match`` command retains edit ``--scope`` and optional ``--match-v``.
+Ordinary annotation uses vX for human and mouse TRA, TRB and paired-chain
+queries. It writes ``.queries.tsv`` with input identities and dispositions,
+``.selection.tsv`` with ranked evidence and ``.manifest.json`` with run and
+reference provenance. Supply a matching null bank to add calibrated calls.
+See :doc:`vx-formalism` for the score definition.
 
 .. code-block:: bash
 
    vdjmatch annotate sample.tsv --threads 4 -o annotation
    vdjmatch annotate airr_directory/ --threads 4 -o cohort
-   vdjmatch annotate --metadata samples.tsv --vdjdb reference.zip --threads 4 -o cohort
+   vdjmatch annotate --metadata samples.tsv --vdjdb reference.zip --threads 4 -o metadata_cohort
+   vdjmatch annotate mouse_pairs.tsv --species mouse --locus paired --threads 4 -o mouse_pairs
 
 The reference is fetched automatically unless ``--vdjdb`` supplies an offline
-table/archive. Metadata has ``path`` and optional ``sample_id``; relative paths
-resolve beside the metadata TSV. Directory discovery accepts TSV, CSV, text,
-gzip and Parquet repertoire tables with unique sample names.
+table or archive. Use the primary or legacy VDJdb asset when the AIRR asset
+lacks receptor species metadata. Metadata has ``path`` and optional
+``sample_id``. Relative paths resolve beside the metadata TSV. Directory
+discovery accepts TSV, CSV, text, gzip and Parquet repertoire tables with
+unique sample names.
 
-A custom reference can contain ``junction_aa,locus,epitope`` with ``pair_id``
-linking paired chain rows, or wide ``junction_aa_alpha/beta,v_alpha/beta,j_alpha/beta``
-and ``epitope`` columns. Reference pairing and source metadata survive normalization.
+For a custom vX reference, provide species, junctions, resolvable V calls,
+and complete ``epitope``, ``mhc_a``, ``mhc_b`` and ``mhc_class`` fields.
+Provide paired references as wide rows or link long TRA and TRB rows with
+``pair_id``. Paired vX also reports single-chain evidence for observed
+TRA and TRB chains. Use ``--score-model kernel`` with peptide-only
+references or to reproduce the previous kernel outputs.
+
+The example files include a synthetic reference and query table. From a
+source checkout, run:
+
+.. code-block:: bash
+
+   vdjmatch annotate examples/inputs/cohort/sample_a.tsv \
+       --vdjdb examples/inputs/reference.tsv --locus TRB --threads 1 -o results/custom
 
 Input uses anchor-inclusive ``junction_aa`` with AIRR ``v_call`` or simple ``v``
 and optional ``j`` fields. Wide pairs use ``junction_aa_alpha/beta`` and
@@ -341,16 +362,36 @@ The command retains exact evidence in ordinary annotation. ``--exclude-exact``
 filters exact hits for benchmarking; model populations, priors and graph weights stay fixed. Combine it
 with the default ``--reference-population curated-benchmark`` for the manuscript
 primary reference view. Use ``--reference-population all-valid`` to reproduce the
-accepted all-valid baseline; the stem4 formula is unchanged.
+all-valid reference population. Select the historical score explicitly when
+reproducing a kernel result.
 
-One-control complete-score mode
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Calibrated vX calls
+~~~~~~~~~~~~~~~~~~~
+
+Repeat ``--vx-null-dir`` once for every primary locus in the run (TRA, TRB or
+paired). Use the same VDJdb release ZIP, species, reference population and
+exact-hit policy as the null score run. The paired tie policy defaults to the
+bank's policy when a bank is supplied, and to abstention otherwise.
+Set the target FPR with ``--fpr`` (default ``0.01``). Null runs retain
+unsupported queries and calibrate the complete selection event for their locus.
+Paired inputs also report separate uncalibrated ``.TRA.selection.tsv`` and
+``.TRB.selection.tsv`` evidence for the observed chains.
+See :doc:`vx-formalism` for the commands to build and apply a null bank.
+
+Alternative scoring and control calibration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``--score-model kernel`` for the retained stem4 scorer or add
+``--details`` for its per-target evidence export. With the default
+``--score-model auto``, legacy-only options such as ``--details`` select
+their corresponding scorer. Use ``--score-model vx`` to require vX and
+reject options specific to the older workflows.
 
 With the default ``--background vdjdb-other``, ``--control RAW_TABLE`` opts into
-combined-score calibration. The control supplies full junction/V/J events;
-productive and amino-acid eligibility are reported separately. Use
-``--mock-replicates N`` (default200), ``--seed N`` (default0), repeatable
-``--evidence-type TYPE`` and ``--min-score N`` (default0). Reference filters apply
+the retained combined-score calibration. The control supplies full junction/V/J
+events. Productive and amino-acid eligibility are reported separately. Use
+``--mock-replicates N`` (default 200), ``--seed N`` (default 0), repeatable
+``--evidence-type TYPE`` and ``--min-score N`` (default 0). Reference filters apply
 before the null populations are created. Query and control must be different
 inputs. Unsupported nondefault geometry/selection options raise an error.
 
@@ -363,8 +404,8 @@ rows retain components, weights, directional tails and separate null match rates
 See :doc:`control-calibration` for the conditional laws and candidate prior policy.
 ``--background real``/``generative`` retain their existing control behavior.
 
-Default stem4 score
-~~~~~~~~~~~~~~~~~~~
+Stem4 kernel score
+~~~~~~~~~~~~~~~~~~
 
 The geometry combines threefold 3/3-trimmed junction distance, aligned V loops,
 and the rounded mean of four hairpin-level costs on untrimmed junctions. All
@@ -383,7 +424,7 @@ Explicit peptide/MHC selectors restrict targets while retaining the full
 other-peptide reference background. By default every full peptide–MHC target
 is scored; query assay labels are ignored.
 
-Default output includes query dispositions, selection TSVs and a manifest.
+Compact kernel output includes query dispositions, selection TSVs and a manifest.
 Every eligible target is scored; restrictions of each peptide are reduced before
 retaining the winner, strongest competing peptide, score ties and exact-label
 ambiguity. Tables retained in memory grow with query count rather than the
@@ -415,7 +456,7 @@ The original PSSM-density scorer remains available as ``historical-density``. Ex
 advanced alternatives remain in ``historical-density`` and ``neighbours``;
 see their installed ``--help`` for options. Enrichment exports all/V-weighted/
 same-V-only ladder scores with bounded and rare-control denominators. These
-alternatives retain their own identities and are not calibrated by the default.
+alternatives need calibration of their complete selection procedures.
 ``--kernel-scorer`` selects ``v-bounded`` (default), ``all-bounded``,
 ``vonly-bounded``, ``v-rare``, ``all-rare`` or ``vonly-rare`` for selection.
 Historical V-similarity ratios are also precomputed per invocation, preserving
@@ -449,8 +490,7 @@ suffixes; length recipes use full-junction length. Local/global alignment uses
 the native affine implementation. Frame recipes retain their historical
 callback ordering. The historical ``norm``/``jnorm`` denominator includes the
 pre-exclusion same-V target count; exact-excluded runs therefore reproduce that
-diagnostic rather than a completely punctured model. Calibration cannot transfer
-from the targeted default to these alternatives.
+diagnostic with the fixed model population. Calibrate each geometry separately.
 
 vdjmatch match
 --------------
@@ -560,12 +600,13 @@ repertoire mass can see an epitope. Needs the optional extra::
 
 .. note::
 
-   **Where the method is described.** This page documents the tool. The estimator, its benchmarks
-   and the paper live in separate repositories:
+   **Where the method is described.** The estimator, benchmarks and paper are
+   available in separate repositories:
    `repseq/2026-precursor-freq <https://github.com/repseq/2026-precursor-freq>`_ (benchmarks, result
-   tables, the 16-study literature compendium of measured naive precursor frequencies) and
+   tables and measured naive precursor frequencies) and
    `repseq/2026-precursor-freq-ms <https://github.com/repseq/2026-precursor-freq-ms>`_ (the
-   manuscript).
+   manuscript). The :doc:`compendium` lists 147 published rows from 14 source
+   publications tracing to 31 originating laboratories.
 
 .. note::
 
@@ -1291,8 +1332,8 @@ Input label columns, if present, remain metadata or candidate evidence; they are
 not accepted predictions when ``call_status`` is ``no_supported_match``.
 
 Add ``--null-cases calibration-input.tsv`` to report per-query ``p_null`` and
-``E_null`` from the frozen null scores. This must be the original combined
-``calibrate-calls`` input: its SHA-256 must match the saved recipe. Only rows
+``E_null`` from the frozen null scores. Supply the original input to
+``calibrate-calls`` or ``calibrate-ordered-calls`` so its SHA-256 matches the recipe. Only rows
 with ``outcome=null`` define tails. For each source, let N be all null queries
 (including no-hits), and k the number whose selected scores are at least as
 extreme as the query score (including ties). Then P=(k+1)/(N+1) and E=k/N.
@@ -1361,15 +1402,17 @@ any-call rate. If none is usable, it reports ``abstain_all`` with a null cutoff.
 It writes ``.operating_points.tsv`` and ``.calibration.json`` with separate
 null counts/rates, labelled-query correct-call recall and call precision.
 Generated nulls do not enter the labelled-query precision denominator.
-Labelled queries are optional. A null-only input fits the same cutoff and
-source rates, with recall and precision left unavailable.
+Labelled queries are optional. A null-only input selects from the observed
+null scores and leaves recall and precision unavailable. Including labelled
+queries adds their scores to the candidate cutoff grid. It can change the
+numeric cutoff while preserving the selected null calls.
 
 This command computes an empirical recommendation candidate. The input hash
 is recorded; callers must also pin the producing scorer, geometry, reference,
 model/seed, identity exclusion and query populations before recommending it.
 Calibration data must match the actual winning-label sample annotation path.
-A target of 1% measured null calls is not a guarantee of 1% biological error.
-No reference-specific recommended numeric cutoff is shipped yet.
+A target of 1% measured null calls describes the declared null population.
+For ordinary vX annotation, use the matched null bank in :ref:`cli-annotate`.
 
 Recommended P-value/probability cutoffs are optional sample-query guidance.
 Principal benchmark evaluations use all eligible values: ROC/AP use continuous
@@ -1387,6 +1430,38 @@ exact VDJdb hits; recommendations for nonexact extrapolated matches should not
 screen out that direct evidence. Exact sequence identity is certain. A shared
 single-chain sequence with multiple specificity labels still requires an
 ambiguous disposition rather than a unique antigen call from identity alone.
+
+vdjmatch calibrate-ordered-calls
+--------------------------------
+
+Fit a cutoff for a predeclared population any-call cap from one IID null
+sample. Supply one row per query, all with ``outcome=null`` and the same
+nonempty ``null_source``. The input score represents the final decision
+after label selection. Use a null score for an abstention or unsupported
+query, and keep those rows in the sample.
+
+.. code-block:: bash
+
+   vdjmatch calibrate-ordered-calls nulls.tsv --target-fpr 0.01 --confidence 0.95 --output calibration.json
+   vdjmatch apply-call-calibration queries.tsv --calibration calibration.json --output calls.tsv
+
+For 100,000 null queries this selects order-statistic allowance 948. The
+recipe records the strict score boundary and an equivalent inclusive
+cutoff at the adjacent binary64 value. Every tie at the boundary is
+rejected. An ``abstain_all`` recipe rejects every query if no allowance
+qualifies or no representable score clears the boundary. The recipe
+records the binomial bound separately from the observed call rate.
+It also records ``empirical_E_cutoff``, the allowance divided by the
+null sample size. When this cutoff exists, ``--null-cases`` reports
+``E_null`` and the accepted rows are exactly the supported queries
+whose ``E_null`` is at or below the cutoff.
+By default, higher scores pass. An unbound recipe can
+instead use ``--lower-is-better``. Use ``--input-manifest`` for supported
+producer binding. See :doc:`vx-formalism` for the order-statistic argument.
+The guarantee requires independent draws from the declared null
+population and the complete scorer, reference and decision rule frozen
+before examining the null. Keep the recipe for these assumptions and
+the bound, which the generic apply command does not evaluate.
 
 vdjmatch reference-calls
 ------------------------
@@ -1462,7 +1537,7 @@ remain available to the two marginal axes.
 
 The paired statistic is ``kernel_any_axis_score``, the maximum of the final
 selected linked, alpha and beta scores. This defines an any-axis call event and
-introduces no combined label. Paired ``annotate`` outputs preserve the linked
+introduces no combined label. Paired ``annotate --score-model kernel`` outputs preserve the linked
 ``kernel_score`` and existing labels, and add ``kernel_alpha_score``,
 ``kernel_beta_score`` and ``kernel_any_axis_score`` with marginal ties.
 Fit/apply a matching recipe with ``--score-column kernel_any_axis_score``, or
@@ -1588,9 +1663,10 @@ radii from different matrices are not interchangeable. ``pam250``, ``mj`` and
 ``vdjam`` are also supported by the existing distance backend.
 
 ``neighbours --reference-radius`` applies this selection to each
-sample-declared compatible reference union. It requires uniform geometry,
-V loops, ``--nearest-rank --unbounded-nearest --targets-from-sample``,
-``--neighbour-weighting local-rank --background vdjdb-other``. Its additional
+compatible reference union in the chosen target set. It requires uniform geometry,
+V loops, ``--nearest-rank --unbounded-nearest``,
+``--neighbour-weighting local-rank --background vdjdb-other``, and
+either ``--targets-from-sample`` or ``--all-targets``. Its additional
 ``.radii.tsv`` records the raw knee, selected integer radius and disposition;
 ``selected_radius`` accompanies each enrichment row. The exhaustive nearest
 search remains uncensored.
@@ -1599,8 +1675,11 @@ Both commands use ``--knee-floor-factor 0.5`` times the median positive knee
 within the same species, locus and geometry. If there are no positive knees,
 the floor uses the median positive nonexact nearest distance. Missing knees
 remain missing in ``reference-radius``; the scoring command explicitly falls
-back to its positive ``--radius``. No positive scale means no inferred radius.
-Rounding upward to an integer preserves the selected distance boundary.
+back to its positive fixed radius. The default fallback is 22.5 times
+the largest substitution cost, which is 90 for the clipped matrix.
+No positive scale means no inferred radius.
+The scoring command rounds either selection upward to a multiple of
+the matrix distance quantum, which can admit an additional boundary.
 These are experimental ranking radii, without transferred probability calibration.
 
 Cohort-relative paired evidence ordering
@@ -2038,9 +2117,10 @@ Joint junction/V/J event slots are sampled without replacement; V/J and length
 are not matching constraints. An absent mock token/stratum contributes zero.
 These are matched-control envelopes, not confidence intervals for selection
 bits or final specificity probabilities. Replicates default to zero (off),
-and otherwise must be at least two. By default one fresh native vdjtools exact
-junction-Pgen batch covers the selected reference/control union. Per-target
-seeds are stable under target ordering.
+and otherwise must be at least two. Without a supplied feature file, one
+fresh native vdjtools batch computes inclusive Hamming-1 junction probability
+mass for the reference/control union. Per-target seeds are stable under target
+ordering.
 
 ``reference-structure``, ``reference-coverage`` and ``reference-diagnostics``
 also accept ``--pgen-features PREFIX.features.parquet`` with ``--control`` and
@@ -2323,8 +2403,11 @@ unseen-type fraction and entropy) and ``.rarefaction.tsv`` (richness and coverag
 against occurrence effort, with uncertainty). The latter also supplies richness
 against coverage without an additional calculation. See :doc:`selection-information`
 for the estimators. The manifest records inputs, model/source/native identities,
-geometry, partition parameters, seeds and versions. Missing V/J calls remain
-explicit in the exact key; full SW with germline loops requires resolvable V.
+geometry, partition parameters, seeds and versions. To reproduce seeded
+coverage interval endpoints, use the recorded NumPy version as well as the
+seed. Different NumPy versions can produce different finite bootstrap draws.
+Missing V/J calls remain explicit in the exact key; full SW with germline
+loops requires resolvable V.
 
 Add ``--control RAW_CONTROL --mock-replicates 200`` for Pgen-matched reference-size
 control populations, using the same event-slot law as the motif diagnostic.
@@ -2863,11 +2946,14 @@ V genes always match after allele pooling and ``--match-j`` also requires J.
 ``--epitope PEPTIDE`` can be repeated to declare a target panel before scoring;
 full MHC context remains separate. Exact annotation hits remain included.
 
-Three reference mock laws are available:
+Four reference mock laws are available:
 
 * ``pgen`` draws from pre-binned control event slots with replacement. Reference
   Pgen below the smallest control bin uses that smallest bin. Repeated
   clonotypes and incidental target-key matches remain eligible.
+* ``pgen-distinct`` reproduces the historical exact-bin law. It draws distinct
+  junction/V/J keys without replacement, excludes target keys and gives each
+  eligible key equal weight.
 * ``pgen-vj`` additionally retains the source V/J composition in each bin.
 * ``pgen-different-v`` changes each source V and excludes every junction in that
   target. Source-V strata are visited in fresh random order; eligible keys are
@@ -3062,10 +3148,12 @@ existing junction markup; known zero-mass genes are never re-called.
 ``.source-audit.tsv`` reports source/retained/excluded rows and reads.
 ``--model-vj-probabilities`` accepts exact ``v,j,p`` model probabilities instead
 of generated-model count tables.
-For raw marginal Pgen, ``--pgen-features PREFIX.features.parquet`` reuses a
-verified current-model feature input and its original control events. This
-path bins the probabilities directly; it applies no prior, V/J ratio, Q,
-AA-only maximum or selection correction. Correction options are rejected.
+For raw marginal Pgen, ``--marginal-pgen`` computes one fresh native batch
+over the reference and control junctions using the selected model and
+``--pgen-mismatches``. It retains the probabilities in memory. Alternatively,
+``--pgen-features PREFIX.features.parquet`` consumes a verified current-model
+feature input. Both modes bin the marginal probabilities directly and reject
+prior, V/J ratio, Q, AA-only maximum and selection corrections.
 ``--chao1`` additionally estimates matched source-clonotype richness using
 ``vdjtools.stats.inext.asymptotic_diversity(q=0,se=False)`` for the real panel
 and every mock panel. It exports flat abundance spectra, Chao1 estimates and
@@ -3181,8 +3269,8 @@ performed separately for each rule within the selected target or cohort family.
 
 Reference-null repertoire enrichment accepts ``--model-source isalgo`` or
 ``--model-source olga-legacy``. Fresh probabilities, model identity checks and
-prepared feature validation use that same family. Omission retains historical
-model selection until the calibrated-default release is finalized.
+prepared feature validation use that same family. Set the option explicitly
+when reproducing a specific model family.
 
 Prepared Pgen banks require matching vdjtools versions, model assets, probability
 options and Python preprocessing/bridge hashes, plus a recorded producer native
@@ -3203,12 +3291,13 @@ shares each seeded mock draw and native search across samples. It preserves
 per-sample receptor identities, counts, null statistics and the selected BH family.
 The default still loads and processes one sample at a time.
 
-``repertoire-exact --abundance-metrics`` includes Chao1 and adds matched-source
+``repertoire-exact --discovery-curve`` includes Chao1 and adds matched-source
 Shannon effective diversity (lower-tail concentration), inverse Simpson diversity
 (lower-tail concentration), and mean whole-library rarefied richness (upper tail). The latter
 uses the minimum eligible cohort read depth and a fixed 513-point integer grid;
 outputs retain the coarse-grid numerical delta and observed/mock discovery curves.
-The additional q=0,1,2 iNEXT table compares lower-tail diversity at each
+Use ``--abundance-metrics`` when the analysis also needs the q=0,1,2 iNEXT
+table, which compares lower-tail diversity at each
 integer matched-read depth supported by all real/mock panels within a library.
 It also exports Gini–Simpson (1-1/q2); extrapolated values are excluded.
 All endpoints use the same reference mocks and existing FDR families; no-match

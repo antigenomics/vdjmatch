@@ -159,6 +159,8 @@ def _main(a, *, inputs, scratch):
         gap_open=a.gap_open, gap_extend=a.gap_extend, pair_budget=a.pair_budget,
         cdr_loops=loops, edge_sink=edge_sink)
     graph_seconds = time.monotonic()-start
+    stage_seconds = dict(graph_preparation=graph_seconds, edge_sort_and_io=0.0,
+        community_partition=0.0, rarefaction_and_export=0.0)
     print(f'reference-coverage {a.geometry} graph prepared: {graph_seconds:.3f}s', flush=True)
     del records, reference
     metadata = pl.DataFrame(populations, infer_schema_length=None)
@@ -167,7 +169,9 @@ def _main(a, *, inputs, scratch):
     curve_path = Path(str(prefix)+'.rarefaction.tsv')
     written = False
     edges_path = Path(str(prefix)+'.edges.tsv')
+    phase = time.monotonic()
     edges.write_csv(edges_path, separator='\t')
+    stage_seconds['edge_sort_and_io'] += time.monotonic()-phase
     if not nodes['group_id'].is_sorted():
         raise ValueError('coverage graph nodes must be sorted by group_id')
     group_ids = nodes['group_id'].to_numpy()
@@ -183,17 +187,21 @@ def _main(a, *, inputs, scratch):
         modeled = selected.filter(pl.col('geometry_available'))
         unavailable = selected.filter(~pl.col('geometry_available')).with_columns(pl.lit(None, dtype=pl.Int64).alias('community'))
         edge_path = scratch/f"{context['group_id']}.tsv"
+        phase = time.monotonic()
         local_edges = (pl.read_csv(edge_path, separator='\t', schema=dict(edges.schema)).sort('a', 'b')
             if edge_path.exists() else edges)
         with edges_path.open('ab') as stream:
             local_edges.write_csv(stream, separator='\t', include_header=False)
         if edge_path.exists():
             edge_path.unlink()
+        stage_seconds['edge_sort_and_io'] += time.monotonic()-phase
+        phase = time.monotonic()
         membership = leiden_taxa(modeled, local_edges, resolution=a.leiden_resolution,
             seed=stable_seed(identity, 'leiden'))
         del local_edges
         memberships.append(pl.concat([membership, unavailable]))
         community_counts = membership.group_by('community').agg(pl.col('occurrences').sum()).sort('community')['occurrences']
+        stage_seconds['community_partition'] += time.monotonic()-phase
         availability = dict(geometry_available_records=int(modeled['occurrences'].sum()),
             geometry_unavailable_records=int(unavailable['occurrences'].sum()),
             geometry_available_clonotypes=modeled.height, geometry_unavailable_clonotypes=unavailable.height)
@@ -201,6 +209,7 @@ def _main(a, *, inputs, scratch):
             if not len(counts):
                 summaries.append(context | availability | dict(taxon_resolution=label, coverage_status='geometry_unavailable'))
                 continue
+            phase = time.monotonic()
             summary, curve = abundance_coverage(counts.to_numpy(), nboot=a.nboot,
                 seed=stable_seed(identity, label), threads=a.threads)
             summaries.append(context | availability | dict(taxon_resolution=label, **summary))
@@ -209,6 +218,8 @@ def _main(a, *, inputs, scratch):
             with curve_path.open('ab' if written else 'wb') as stream:
                 curve.write_csv(stream, separator='\t', include_header=not written)
             written = True
+            stage_seconds['rarefaction_and_export'] += time.monotonic()-phase
+    phase = time.monotonic()
     from .epitope import write_tables
     tables = [curve_path, edges_path, *write_tables(prefix, epitope_info)]
     if knee_curve is not None:
@@ -220,10 +231,14 @@ def _main(a, *, inputs, scratch):
         path = Path(str(prefix)+suffix)
         table.write_csv(path, separator='\t')
         tables.append(path)
+    stage_seconds['other_table_exports'] = time.monotonic()-phase
     from vdjtools.stats import rarefaction_batch
     import vdjtools._core as stats_native
     import seqtree._core as search_native
     from ..match.geometry import load_v_loops
+    phase = time.monotonic()
+    table_digests = {path.name:sha256(path) for path in tables}
+    stage_seconds['table_hashing'] = time.monotonic()-phase
     manifest = dict(reference=db.provenance(a.vdjdb), reference_population=a.reference_population, epitope=a.epitope,
         **epitope_info,
         shared_invocation_inputs=inputs is not None,
@@ -251,7 +266,8 @@ def _main(a, *, inputs, scratch):
         stats_native_sha256=sha256(Path(stats_native.__file__)), search_native_sha256=sha256(Path(search_native.__file__)),
         software={name:version(name) for name in ('vdjmatch','seqtree','vdjtools','polars','numpy','igraph','leidenalg')},
         edge_storage='bounded native chunks; temporary per-population files; one population loaded for Leiden; final edges sorted by node IDs',
-        graph_preparation_seconds=graph_seconds, tables={path.name:sha256(path) for path in tables}, seconds=time.monotonic()-start)
+        graph_preparation_seconds=graph_seconds, stage_seconds=stage_seconds,
+        tables=table_digests, seconds=time.monotonic()-start)
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
     return 0
 

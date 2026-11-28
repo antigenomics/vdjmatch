@@ -2,11 +2,13 @@ API reference
 =============
 
 See :doc:`tutorial` for a runnable example, :doc:`how-to` for source conventions
-and offline inputs, and :doc:`explanation` for score definitions.
+and offline inputs, and :doc:`vx-formalism` for the default batch score.
 
-The public API is re-exported from the top-level :mod:`vdjmatch` package —
-:class:`vdjmatch.api.Annotator` and the module-level :func:`vdjmatch.annotate` shortcut. The
-submodules below expose the building blocks (VDJdb access, the search index, E-values, I/O).
+Use :func:`vdjmatch.annotate_repertoires` for the same vX batch workflow as
+``vdjmatch annotate``. :class:`vdjmatch.api.Annotator` and its module-level
+:func:`vdjmatch.annotate` shortcut expose the retained in-memory fixed-scope
+matching API. The submodules below cover reference access, sequence search,
+calibration and table input/output.
 
 CPU budgets
 -----------
@@ -34,10 +36,16 @@ See :doc:`cli` for the descriptive decision rules and the ``vdjmatch index`` com
 Batch repertoire annotation
 ---------------------------
 
-``annotate_repertoires`` accepts a table path, directory or list of paths. The separate
-``metadata`` argument accepts a TSV path or DataFrame with ``path`` and optional ``sample_id``. It preserves sample/source identities
-and batches single or linked populations. Compact kernel selection is the default;
-``selection_only=False`` also exports full candidate/per-target evidence.
+``annotate_repertoires`` accepts a table path, directory or list of paths.
+Alternatively pass ``metadata`` as a TSV path or a DataFrame with a
+``path`` column and optional ``sample_id``. The runner preserves sample
+and source identities and batches single or paired-chain populations. The
+default compact output reports vX ranks. Pass one matching null directory per
+primary locus through ``vx_null_dir`` for calibrated calls with the matching
+VDJdb release ZIP. ``vx_target_fpr`` defaults to ``0.01``. With paired input,
+``TRA.selection`` and ``TRB.selection`` report uncalibrated rankings for the
+observed chains. ``score_model="kernel"`` selects the previous score and
+``selection_only=False`` requests its full candidate and target evidence.
 ``threads`` also bounds the Polars pool. Set ``POLARS_MAX_THREADS`` before importing
 Polars if that library has already initialized its pool; a larger existing pool
 raises an error before input loading. Generated-field collisions retain input
@@ -45,12 +53,12 @@ metadata under ``input_`` prefixes.
 
 .. autofunction:: vdjmatch.annotate_repertoires
 
-On-demand control calibration
------------------------------
+Directional control calibration
+-------------------------------
 
-See :doc:`control-calibration` for the two null hypotheses, event units and
-complete-score selection requirements. These helpers use transient tables;
-the user supplies one raw repertoire, with no calibration-file lifecycle.
+The retained directional helpers use one raw control repertoire. See
+:doc:`control-calibration` for their two null hypotheses and event units, and
+:doc:`vx-formalism` for matched-null calibration of vX.
 
 .. automodule:: vdjmatch.evalue.mock_reference
    :members:
@@ -82,9 +90,8 @@ and raises an explicit error when it is absent. Requests that retain full hit
 tables continue to use the existing batch API.
 
 Released-dependency CI verifies the native single/paired consumers, empty-axis
-support and hit-list-only exact exclusion in the installed environment.
-The bounded candidate remains an explicit experimental scoring path; the
-dependency release does not promote it to the default.
+support and hit-list-only exact exclusion in the installed environment. These
+checks concern the candidate API.
 
 Detailed paired output
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -296,7 +303,7 @@ Exact bulk reference-panel primitives
 -------------------------------------
 
 The ``repertoire-exact`` CLI uses checked model-specific selection
-factors from vdjtools by default; ``--legacy`` preserves the compiled
+factors from vdjtools by default. ``--legacy`` preserves the compiled
 uncalibrated convention. It composes these normalized-table primitives:
 
 :func:`vdjmatch.evalue.mock_reference.compiled_reference_strata` constructs the probability strata and V/J audit.
@@ -315,7 +322,7 @@ legacy reproduction is explicit.
 Candidate reduction batches
 ---------------------------
 
-Candidate-only annotation reuses one native population search per locus. Native
+Fixed-scope candidate reduction reuses one native population search per locus. Native
 and duplicate-query expansion blocks contain at most 32 query identities. Their
 expanded tables coalesce before scoring, up to 256 complete query identities or
 64 MiB of queued payload. A larger complete frame is consumed directly; no query
@@ -325,6 +332,10 @@ populations retain their existing semantics.
 
 User-owned labeled references
 -----------------------------
+
+Use the batch API for fully annotated custom vX reference files, following
+the field requirements in :ref:`cli-annotate`. The fixed-scope label API
+below also supports arbitrary labels when pMHC metadata is unavailable.
 
 ``Annotator.latest()`` loads the official vdjdb-db release;
 ``Annotator.from_path(path)`` accepts a custom VDJdb-format reference.

@@ -38,16 +38,18 @@ def test_reference_panel_cli_preserves_rows_reads_zero_panels_and_fdr_groups(tmp
     assert len(manifest['sample_timings'])==1 and manifest['sample_timings'][0]['records']==3
     assert manifest['fdr_family']==['group_id','family']
     assert manifest['legacy'] and manifest['selection_q'] == 1.
+    from vdjmatch.cli.__main__ import main
+
+    # The default run verifies interpreter startup. Reuse the same CLI
+    # entry point in process for the matcher matrix.
     for mode in ['blosum62','positional-blosum62','unit','v-unit','weighted','v-weighted']:
         weighted=command+['--matcher',mode,'--radius-factor','0.10' if 'blosum62' in mode else '0']
         weighted[weighted.index('--output-prefix')+1]=str(tmp_path/mode)
-        run=subprocess.run(weighted,capture_output=True,text=True,timeout=30)
-        assert run.returncode==0,run.stderr+run.stdout
+        assert main(weighted[3:])==0
         assert pl.read_csv(str(tmp_path/mode)+'.counts.tsv',separator='\t').sort('sample_id','group_id','replicate').equals(counts.sort('sample_id','group_id','replicate'))
     fuzzy=command+['--matcher','hamming','--mismatches','1']
     fuzzy[fuzzy.index('--output-prefix')+1]=str(tmp_path/'fuzzy')
-    run=subprocess.run(fuzzy,capture_output=True,text=True,timeout=30)
-    assert run.returncode==0,run.stderr+run.stdout
+    assert main(fuzzy[3:])==0
     fuzzy_counts=pl.read_csv(tmp_path/'fuzzy.counts.tsv',separator='\t')
     assert fuzzy_counts.filter(pl.col('replicate')==-1).select('matched_records','matched_reads').row(0)==(3,15)
     assert fuzzy_counts.height==201
@@ -334,6 +336,39 @@ def test_raw_marginal_features_bypass_all_probability_corrections(tmp_path,monke
     assert args.func(args)==0
     assert pl.read_csv(tmp_path/'out.reference-bins.tsv',separator='\t')['pgen_bin'].to_list()==[-24]
     m=json.loads((tmp_path/'out.manifest.json').read_text());assert m['probability']=='raw marginal junction Pgen; no corrections'
+    fresh_calls=[]
+    def fresh_pgen(reference, control, **options):
+        fresh_calls.append(options)
+        assert options['mismatches']==args.pgen_mismatches
+        assert set(reference['junction_aa']) | set(control['junction_aa']) <= set(probabilities['junction_aa'])
+        return probabilities
+    monkeypatch.setattr(mock_reference,'compute_pgen',fresh_pgen)
+    original_prefix=args.output_prefix
+    args.pgen_features=None
+    args.marginal_pgen=True
+    args.selection_q=None
+    args.output_prefix=str(tmp_path/'fresh')
+    assert args.func(args)==0
+    assert len(fresh_calls)==1
+    for suffix in m['outputs']:
+        assert (tmp_path/suffix).read_bytes()==(tmp_path/suffix.replace('out.', 'fresh.', 1)).read_bytes()
+    fresh=json.loads((tmp_path/'fresh.manifest.json').read_text())
+    assert fresh['probability']==m['probability'] and fresh['prepared_pgen'] is None
+    discovery_args=argparse.Namespace(**(vars(args) | dict(
+        abundance_metrics=False,discovery_curve=True,selection_q=None,
+        output_prefix=str(tmp_path/'discovery'))))
+    assert discovery_args.func(discovery_args)==0
+    discovery=json.loads((tmp_path/'discovery.manifest.json').read_text())
+    assert 'hill_rarefaction' not in discovery['abundance_metrics']
+    comparable={name:digest for name,digest in m['outputs'].items()
+                if name!='out.hill-rarefaction.tsv'}
+    assert discovery['outputs']=={name.replace('out.', 'discovery.', 1):digest
+                                  for name,digest in comparable.items()}
+    assert not (tmp_path/'discovery.hill-rarefaction.tsv').exists()
+    args.pgen_features=str(tmp_path/'raw.features.parquet')
+    args.marginal_pgen=False
+    args.output_prefix=original_prefix
+
 
     c=pl.read_csv(tmp_path/'out.counts.tsv',separator='\t')
     assert c.filter(pl.col('replicate')==-1)['matched_chao1'].item()==1.

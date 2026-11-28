@@ -1,13 +1,19 @@
 ---
 name: vdjmatch
-description: Annotate single or paired TCR repertoires against VDJdb with the vdjmatch library or CLI, including AIRR directories and sample-path metadata.
+description: Rank peptide–MHC evidence for human and mouse TCRs using vX, VDJdb or custom references, with optional matched null calibration.
 ---
 
 # VDJmatch repertoire annotation
 
 ## Choose the reference
 
-Use `Annotator.latest()` for official vdjdb-db, `from_path(path)` for custom
+Start with `vdjmatch annotate` or `annotate_repertoires` for vX. Omit the reference
+to fetch VDJdb, supply a pinned ZIP for reproducibility, or pass a VDJdb-format
+custom table with species, V genes and peptide–MHC labels for ranked evidence.
+Match the score policy, selection policy and reference ZIP to the null bank
+when reporting calibrated calls.
+
+For fixed-scope matching, use `Annotator.latest()` for official vdjdb-db, `from_path(path)` for custom
 VDJdb-format data, and `from_labels(rows_or_table, locus="TRA"/"TRB")` for simple
 `junction_aa,label` references. Three-value rows or wide alpha/beta junction
 columns define real pairs. `match --reference PATH --reference-format labels`
@@ -27,6 +33,80 @@ BLOSUM62. VDJAMr means genetic-code substitution accessibility, a different
 comparator; neither is a reason to introduce a chemistry-driven replacement.
 Reuse `match.regions.significance_weights/significance_pssm` and the existing
 historical matcher. Mode availability is not evidence of improved accuracy.
+
+For the frozen **vX default score**, see the
+[score and decision equations](https://docs.isalgo.dev/vdjmatch/vx-formalism.html).
+Keep TCRvdb, measured NLV, and ELA–LLW–LLL as separate benchmark cohorts.
+TCRvdb was compiled without those two experimental series. Their records
+may be present in VDJdb, so verify reference and model exposure separately.
+Order target hits by the weighted vX distance, with the fixed TRB
+reference-ID discount applied before ordering. With first and second hits
+`d1,d2`, native competitor distance `c`, `L` observed chains and
+maximum weighted junction edit cost `C=12`, use
+`X=max(d1+L*m-c,0)`, `G=min(2*L*C,max((d1+d2)/2-d1,0))`, and
+`S=-d1-gamma*X+b*G`. Evaluate the midpoint before subtraction. The fixed cap bounds the second-hit effect. For paired-chain receptors, sum the two chain distances within each reference pair before ranking hits. Repeat
+a singleton hit, use zero penalty for an infinite background, and give
+unsupported targets negative infinity. Apply benchmark exact exclusion to
+hit lists with the model held fixed.
+
+For vX classification, require a unique finite winner. The score-only assay
+diagnostic adds `log1p(N_e)/400`, where `N_e` counts fixed target keys.
+The coefficient lies inside the verified three-class assignment plateau.
+The separate within-assay diagnostic uses
+`H=-log(pK)+(S-median_assay(S))/40+0.95*log(assay_class_fraction)`.
+The fixed size offset cancels when centering by target. Here `pK` is the
+inclusive add-one kernel tail. For ordinary vX, calibrate the final
+decision-eligible score with a matching bank. At a finite threshold `z`,
+count null scores at least `z` and divide by all null queries, including
+abstentions. This is the empirical E-value and the empirical FPR at
+that threshold. The ordered cutoff excludes its boundary tie.
+No-score rows always abstain, even when their placeholder E is zero.
+See the [ordered calibration formalism](https://docs.isalgo.dev/vdjmatch/vx-formalism.html#calibration-from-an-ordered-null-sample).
+At a common cutoff, `Q*FPR` estimates expected false calls for `Q`
+opportunities from the same null source. Sample enrichment uses the
+same endpoint in observed and Pgen-matched mock panels.
+The accepted yellow-fever curve-mean decision uses its positive-hit mock
+tail and donor/day correction.
+
+For motif diagnostics, retain the fixed target counts and two prior
+observations for either motif length. When refining paired motif ranks,
+replace missing chain evidence by zero before taking the minimum.
+Keep the original winning tier and no-hit cells. For organizer-assay
+ranking, use the packaged width and exponent on the supplied
+same-target groups.
+
+For epitope structure, define the vertices, radius and gene gates before
+computing a degree histogram. Use the existing graph acquisition and
+vdjtools subset-rarefaction APIs. Keep library reads, reference keys and
+graph vertices as separate sampling units. A matched-subset read curve
+uses the original eligible library depth. The vX clustering benchmark
+uses reciprocal k-NN on weighted pairwise distances with all boundary ties
+retained. The vX
+target score instead uses the fixed target and competitor panels. A common
+vX cutoff reproduces exact or Hamming calls only when the score ordering
+strictly separates the two membership sets. Full ungapped junctions,
+uniform mismatch costs and disabled loop and evidence terms recover
+per-target Hamming membership. For a chain-specific radius on an
+observed pair use the maximum of its two chain distances before
+minimizing over paired-chain reference keys. See the
+[structure and rarefaction equations](https://docs.isalgo.dev/vdjmatch/vx-structure.html).
+
+For contact-derived geometry research, align native structural positions in
+IMGT order and smooth frequencies using resolved-stratum counts. Use the
+valleys to define windows and retain measured positive sites. For weights
+`f` and clipped site costs `delta`, compare the fixed-denominator mean
+`sum(f*delta)/sum(f)` with the effective-width sum using
+`sum(f)^2/sum(f^2)` as the width. Check native wins and every frozen endpoint
+on the same cases before carrying a geometry through the remaining benchmarks.
+When testing a coupled TRA–TRB term, estimate edge weights on structures
+that resolve both sites. Normalize the weighted product of the two clipped
+site costs by the edge-weight sum and the maximum single-site cost.
+For the benchmarked human research extension, add one thirty-second of
+that result to each paired-chain target distance before ordering hits. Keep
+the native competitor distances and frozen fallback for missing templates.
+Use the species-specific observed pair weights. The class-I atlas supports
+54 human and 31 mouse V-domain pairs, including 29 shared pairs. The
+paired performance checks use the human weights and human queries.
 
 Matrix derivation is research-only. Use the companion analysis repository’s
 `scripts/vdjam/derive_matrices.py` and `matrix_models.py`, pinned to vdjtools>=5.9.0
@@ -80,13 +160,10 @@ Permutation/matched-control envelopes are not Efron bootstrap CIs.
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](https://docs.isalgo.dev/vdjmatch/cli.html)
 for advanced scorers. Run `vdjmatch annotate --help` to verify installed options.
-Use released `seqtree>=1.3.2` and `vdjtools>=5.7.0` for native search, ingestion and abundance statistics.
-Version 0.6.0 defaults to `--reference-population curated-benchmark`, the manuscript
-primary population. Preserve `--reference-population all-valid` for the accepted
-all-valid baseline. Curation excludes KLGGALQAK and PMID 40498839 source records;
-exact hits remain included unless benchmark exclusion is explicitly requested.
-The stem4 scoring formula is unchanged; neither the resolved-first repair nor
-paired-score diagnostic is promoted by this reference-population change.
+Use released `seqtree>=1.3.2` and `vdjtools>=5.9.2` for native search, ingestion and abundance statistics.
+The ordinary `curated-benchmark` population excludes KLGGALQAK and PMID 40498839
+source records. Use `--reference-population all-valid` to reproduce the retained
+uncurated reference baseline.
 
 ```sh
 vdjmatch annotate airr_directory/ --threads 4 -o annotation
@@ -117,14 +194,18 @@ queries, selections = result["queries"], result["selection"]
   when the intended population cannot be inferred, including incomplete pair cohorts.
 - Keep `sample_id` and source identities when joining outputs. Retain no-support,
   invalid and missing-chain dispositions; these are not experimentally negative labels.
-- Default stem4 kernel scores and support shares are relative evidence, not binding
-  probabilities, E-values or calibrated false-call rates. Linked and unlinked marginal
-  paired evidence remain separate; absence of linked references cannot veto marginals.
+- Ordinary human and mouse annotation defaults to vX. Use one matching
+  `--vx-null-dir` per primary locus for calibrated calls. Without a bank,
+  `score` ranks evidence and `selection_status` marks ambiguous or unsupported
+  queries. Paired inputs report marginal TRA/TRB evidence in separate ranking
+  tables. Apply null cutoffs only to the primary selection. Use
+  `--score-model kernel` to reproduce stem4 scores.
 - Ordinary annotation retains exact hits and conflicting-label ambiguity.
   `--exclude-exact` is the explicit benchmark option.
-- Compact output is the default. `--details` exports continuous evidence per target
-  and candidates; its memory grows with queries × targets. `--epitope` restricts
-  requested targets. `--kernel-scorer` selects retained advanced kernel variants;
+- Compact output is the default. `--details` selects the kernel workflow and
+  exports per-target evidence and candidates. Its memory grows with queries ×
+  targets. `--epitope` restricts requested targets in the kernel workflow.
+  `--kernel-scorer` selects retained advanced kernel variants;
   see the CLI documentation for recorded geometry recipes. Calibration does not
   transfer between scorers, geometries or selection procedures. Preserve the
   original `historical-density` route and its explicitly supplied model assets.

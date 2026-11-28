@@ -1,0 +1,1184 @@
+The frozen vX annotation score
+==============================
+
+Ordinary annotation in VDJmatch 1.3 uses the frozen vX score and a fixed
+receptor catalogue. A query :math:`q` represents TRA, TRB or a genuine
+TRA–TRB pair. A target :math:`e` comprises the peptide, its recorded MHC
+restriction and its MHC class. Each chain contributes its anchor-inclusive
+amino-acid junction and mapped V allele. Distinct search keys can carry
+multiple source observations. A paired-chain key records two chains observed
+in the same reference receptor.
+
+The vX contribution is the receptor-to-database evidence score defined
+here. It combines a weighted receptor distance with a target's first
+two eligible hits and an explicit comparison against HLA-compatible
+other-peptide references. The same construction applies to single
+chains and genuine paired-chain keys, with chain-specific settings.
+The published comparator supplies the native distance baseline. Fixed-site gaps, movable
+single-block gaps and Smith–Waterman are existing alignment choices.
+The novel vX contribution is how distance and reference evidence
+are combined into a target score. The sections below also record the
+separately evaluated motif, structural and neighborhood extensions.
+
+Benchmark provenance
+--------------------
+
+The measured NLV and ELA–LLW–LLL experiments are separate query
+cohorts. TCRvdb was compiled without those two experimental series.
+An NLV- or LLW-labelled target in TCRvdb denotes a target in that
+cohort. VDJdb is the reference catalogue and may contain records
+from the separate experiments. Cohort provenance and exposure to the
+reference or a rival's training data are separate checks. Benchmark
+exact-hit exclusion masks hits and leaves the reference model fixed.
+
+Receptor distance
+-----------------
+
+For one chain, let :math:`B(a,b)` be the BLOSUM62 substitution score.
+The native comparison charges zero for identical residues. For distinct
+canonical residues it charges :math:`\delta(a,b)=\min(4,[4-B(a,b)]_+)`,
+with :math:`[x]_+=\max(0,x)`. This is a clipped cost derived from BLOSUM62
+with a four-unit ceiling, which is also the unweighted cost of one gap
+residue. It discards three
+junction residues at the N terminus and two at the C terminus from the
+substitution sum. For junctions of different lengths, the native alignment
+places one contiguous gap block and charges four units per gap residue.
+The junction's weight of three makes the maximum cost of one core
+substitution and the cost of one gap residue both 12 native distance units.
+Let :math:`d=|\ell_q-\ell_r|` be the length difference of the full
+junctions, with lengths :math:`\ell_q` and :math:`\ell_r`, and
+:math:`\Pi(q,r)` the permitted alignments of their retained residues.
+The accepted vX geometry reproduces the comparator's default junction
+cost on supported canonical inputs. At equal lengths there is one
+ungapped alignment. For unequal lengths, the block spans the whole
+length difference. Let :math:`s` be the shorter full junction length
+and :math:`j` the number of its residues before the gap.
+The legal placements are the integer boundaries satisfying
+
+.. math::
+
+   h=\min\{5,\lfloor s/2\rfloor\},\qquad
+   \max(3,h)\leq j\leq\min(s-2,s-h).
+
+The first interval :math:`[h,s-h]` is the result of symmetrically
+widening :math:`[5,s-5]` until it is nonempty. The second interval
+:math:`[3,s-2]` limits placements to the trimmed core and its ends.
+For example, :math:`s=13` gives four placements, after residues 5
+through 8. At the minimum supported frozen length :math:`s=5`,
+the trimmed core is empty and only boundary 3 is legal.
+A 3-N/3-C research variant trims one more C-terminal residue.
+
+The native comparator also allows a fixed position for the single gap and permits
+custom metrics including Smith–Waterman local alignment. The
+native-default comparator uses the movable gap. The vX local and
+global alignment experiments are separate alternatives to that default.
+See the `native methods chapter <https://pmc.ncbi.nlm.nih.gov/articles/PMC9719034/>`_
+and :download:`comparison provenance notebook <../examples/comparison-provenance.ipynb>`. For
+the aligned index pairs :math:`(i,j)\in\pi`, the junction cost is
+
+.. math::
+
+   D_J(q,r)=4d+\min_{\pi\in\Pi(q,r)}
+      \sum_{(i,j)\in\pi}\delta(q_i,r_j).
+
+Let :math:`D_1,D_2,D_{\rm FR3}` be the costs for CDR1, CDR2 and
+the short FR3 segment historically indexed as CDR2.5. Each sums
+:math:`\delta` over corresponding columns in the bundled, aligned
+V-allele templates for that species and locus. A column contributes
+zero if either template lacks a canonical amino acid there.
+The native distance is :math:`D_0=3D_J+D_1+D_2+D_{\rm FR3}`.
+The frozen per-chain geometry is
+
+.. math::
+
+   D_w = 3D_J + D_1 + \frac34 D_2 + \frac32 D_{\rm FR3}
+             + \frac{D_1+D_2+D_{\rm FR3}}{256}.
+
+The implementation starts from :math:`D_0` and adds the three loop
+weight corrections in the frozen binary64 order.
+The fractions encode the selected geometry exactly. The simpler base weights
+:math:`(1,3/4,3/2)` lowered 23 of the 72 frozen ranking endpoints on the matched comparison.
+
+Evidence scores, dissimilarities and metrics
+--------------------------------------------
+
+The competitive score :math:`S(q,e)` ranks a query against a fixed
+peptide–MHC catalogue. It depends on other receptors and their labels,
+so it is evidence rather than a distance between two receptors.
+The underlying weighted pairwise geometry :math:`D_w` is nonnegative,
+symmetric, and zero for identical resolved keys. It fails two metric axioms.
+
+* Different full junctions can have zero dissimilarity when they differ
+  only in the trimmed residues and use the same V allele.
+* The triangle inequality can fail even with the same V allele. The
+  frozen implementation gives distances 12, 12 and 72 for the
+  consecutive pairs and endpoints of
+  ``CASAAAACACACAAAFF``, ``CASAAAACACACAAAAFF`` and
+  ``CASAAACACACAAAAFF``. Each adjacent pair aligns with one gap.
+  The two endpoints have equal length and use substitutions.
+  The residue table itself also violates the inequality:
+  :math:`\delta(F,H)=4>\delta(F,Y)+\delta(Y,H)=1+2`.
+
+When zero must identify a full receptor key, a simple companion
+dissimilarity is :math:`D_w(q,r)+\mathbf{1}\{\operatorname{key}(q)\ne
+\operatorname{key}(r)\}`. For example, define the key by the full
+junction and resolved V allele on each chain. The extra unit preserves
+relative order among nonidentical keys. The triangle counterexample
+still gives :math:`73>13+13`.
+
+Exact and Hamming neighborhoods use full junction identities. Hamming
+distance is a metric within an equal-length stratum. For unequal lengths,
+global Levenshtein distance on complete junctions is a metric because
+any two edit paths can be concatenated. A weighted counterpart can
+retain the canonical residue preferences using shortest-path closure
+of the substitution table and unrestricted global edits. On the 20
+canonical residues the closure changes only the symmetric F–H entry
+from four to three. For an identity defined by junction and resolved V
+allele, add a positive cost for different V alleles. Summing these
+chain metrics with positive weights gives a metric on complete pairs
+with fixed chain roles. Any additional fields that define identity must
+also receive a positive cost when they differ. This metric construction
+is separate from the frozen vX ranking and calibration.
+
+An exhaustive radius or k-nearest-neighbor search can use the frozen
+dissimilarity directly. A search that prunes by the triangle inequality
+requires a metric or a separately proven bound. Ward linkage additionally
+requires Euclidean geometry.
+
+The frozen geometry minimizes a sum of substitution and gap costs.
+The clipped BLOSUM62 cost :math:`\delta` is defined above. A native
+kernel that accepts similarities can represent this cost as
+:math:`s(a,b)=-\delta(a,b)`. Its diagonal is zero, so the kernel's
+conversion :math:`s(a,a)+s(b,b)-2s(a,b)` yields :math:`2\delta(a,b)`.
+The frozen junction code divides out that factor before applying the
+junction weight of three. Gap costs must follow the same unit conversion.
+Unconstrained local alignment on nonpositive similarities can always
+choose the empty alignment at score zero. Use raw similarities for the
+local arm, or require residue coverage in a cost-minimizing alignment.
+
+The experimental Smith–Waterman and Needleman–Wunsch arms instead
+align using raw BLOSUM62 similarities and affine gap penalties. Let
+:math:`H(x,y)` be the resulting optimal similarity for a segment,
+using the same mode and penalties for self-alignment and cross-alignment.
+Convert it once to distance units through
+
+.. math::
+
+   D_H(x,y)=\frac{H(x,x)+H(y,y)-2H(x,y)}{2}.
+
+The native alignment replay returns the numerator. The two self-scores
+set the similarity scale for the two sequences. For a fixed query and
+reference, they are constant across candidate alignments. Therefore
+maximizing :math:`H(x,y)` minimizes :math:`D_H(x,y)` for that pair.
+Applying a clipped residue cost before alignment defines a different
+objective and can select different alignments. Local and global modes also
+optimize different alignment sets. Treat the resulting distance as a
+dissimilarity unless its metric properties are established for the
+chosen mode. Apply segment weights after the conversion to distance.
+Align each contiguous framework segment independently. An isolated
+TRA–TRB contact joins positions on two chains and is evaluated as a
+pair of sites under the interface term. It does not define a continuous
+sequence segment for alignment.
+
+The human FR3 research candidate blends two costs for the same short
+germline segment. With :math:`w_{\rm FR3}=3/2+1/256` and
+:math:`\eta=1/512`, replace this segment's contribution by
+
+.. math::
+
+   w_{\rm FR3}\bigl[(1-\eta)D_{\rm FR3}+\eta D_{\rm SW}\bigr].
+
+Here :math:`D_{\rm SW}` uses the self-normalized Smith–Waterman
+dissimilarity above with raw BLOSUM62 and gap opening and extension
+parameters both set to two. The compiled correction uses the equivalent
+residual :math:`\eta w_{\rm FR3}(D_{\rm SW}-D_{\rm FR3})` for each chain.
+The replacement covers the existing FR3 segment only. CDR1, CDR2,
+the 3-N/2-C trimmed one-gap junction score, and any separately
+configured paired interface term retain their baseline definitions.
+The same native fallback applies when the frozen correction is
+unavailable. Full-junction global and local alternatives and the
+separate 3-N/4-C flank split caused regressions in the organizer
+replay.
+
+The fraction :math:`1/512` was selected by matched benchmark replay.
+At :math:`1/256` the local variant lowered two paired fixed-reference
+human endpoints. The smaller local fraction improved five organizer
+and four fixed-reference endpoints with zero losses, keeping all six
+measured NLV endpoints and all three LLL–LLW–ELA correct counts.
+This is an explicit human research component. Whole-search
+calibration and broader verification remain pending.
+
+Expanded gap placement candidate
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The vX candidate expands the set of legal gap placements by one
+boundary at each end and keeps the gap length fixed at the
+difference in junction lengths. For a shorter junction of length 13,
+the native boundaries follow residues 5--8 and the expanded boundaries
+follow residues 4--9. Both sets are limited to legal boundaries in the
+trimmed core. Equal-length junctions retain their ungapped distance.
+
+Let :math:`D_J` be the native-window cost and :math:`D_J^+` the cost
+minimized over the expanded window, using the same residue and gap
+costs. The proposed CDR3 contribution per chain is
+
+.. math::
+
+   3\,\frac{511D_J+D_J^+}{512}.
+
+The expanded alignment can lower the cost only when a newly eligible
+placement scores better. The small fraction was selected on the
+exact-masked human paired organizer panel. It improved all three
+TTDPSFLGRY endpoints, with the other 21 unchanged. Transfer to the
+fixed-reference priority panels is required before using the change
+in the accepted scorer.
+
+Substitution matrix choice
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+With the same target keys, exact-hit mask, loop weights and reducer,
+the matched matrix replay replaced only the target distance. For
+the unclipped BLOSUM62 arm, the residue cost was
+:math:`B(a,a)+B(b,b)-2B(a,b)`. Each alternative distance was scaled
+so that its largest substitution cost was four. The native
+other-peptide comparison stayed clipped. This is a comparison of
+costs in the same single-gap geometry. The Smith–Waterman FR3
+comparison above uses a separate alignment objective.
+
+Clipped costs beat the native comparator on all 78 matched human ranking
+endpoints, compared with 65 for VDJAM, 63 for unclipped BLOSUM62, 53
+for PAM250 and 47 for MJ. In a direct comparison on those 78
+endpoints, clipped won 33, tied 2 and lost 43 against unclipped
+BLOSUM62. The unclipped arm lowered 30 of the 72 fixed-reference human endpoints
+relative to frozen vX and lowered measured NLV TRB average precision
+by 0.02108. Clipped costs remain the reference-ranked choice under
+the priority nonregression requirement. The direct endpoint tally
+supports a trade-off between gains and losses across tasks.
+
+For target key :math:`r`, order hits by
+:math:`d(q,r;e)=D_w(q,r)-a\log_2\max(1,n_{er})`, where :math:`n_{er}` counts
+distinct reference IDs supporting that target key. Only TRB uses a nonzero
+:math:`a`, a discount of :math:`9/32` units per doubling of support. The
+discount is zero for zero or one source ID. Its logarithm gives each
+doubling the same effect. A reference ID identifies recorded support.
+The archived benchmark takes the maximum distinct-ID count among
+compatible raw keys mapping to a native key. Ordinary annotation and
+its generated null count distinct IDs across the compatible rows for
+a native key. The archived replay falls back to the native distance
+when its loop correction is unavailable. The installed vX scorer
+requires a resolved, modeled V allele on each observed chain.
+
+When both chain corrections are available, for a pair :math:`q=(q_\alpha,q_\beta)` and a paired-chain key
+:math:`r=(r_\alpha,r_\beta)`, use
+
+.. math::
+
+   d(q,r;e)=D_w(q_\alpha,r_\alpha)+D_w(q_\beta,r_\beta).
+
+Order these joint distances across paired-chain keys for the same target. Compute
+the native competitor distances by summing the two native distances to each
+paired-chain competitor. A missing correction on either chain leaves the native
+pair distance in the replay. Apply the pair margin and gap adjustment once, after
+ordering. For example, two paired-chain keys with chain distances :math:`(2,14)`
+and :math:`(9,3)` give joint hit distances 12 and 16. Taking the minimum of
+each chain separately would give 5, a distance to neither paired-chain key.
+
+
+Let :math:`d_1\le d_2` be the two smallest finite target hit distances,
+including equal distances from distinct keys. If only one hit is finite,
+repeat :math:`d_1`.
+Let :math:`c` be the :math:`k`-th smallest **native** distance in the pooled
+background of other-peptide keys with compatible MHC-A, MHC-B and
+MHC class. Count each distinct key in that union once. Use the last position if the
+fixed background has fewer than :math:`k` keys, and :math:`+\infty` for an
+empty background. Under benchmark exact exclusion, read masked hit distances
+as :math:`+\infty` without changing model counts or rank positions. The exact
+mask compares anchored junctions, requiring equality on both chains for a
+pair, and applies to target and background hits. The generated-null run
+retains exact hits.
+
+For peptide-withheld evaluation, remove each held-out peptide at every
+restriction before building the catalogue for that fold. Each retained
+target keeps its original target keys. Its competing background uses
+the remaining compatible other-peptide memberships, so a physical key
+with another retained compatible label can still supply a competitor.
+The paired background rank is one. Withholding competitors can
+therefore only increase :math:`c` for a retained target and can only
+raise its competitive score. Recompute the query winner and its ties
+over the retained targets. Keep this withheld-source call rate separate
+from the generated-bank rate.
+
+Let :math:`L` count observed chains and let :math:`C=3\cdot4=12`
+be the maximum weighted junction cost of a single substitution or
+gap residue. Limit the total difference between the first and second
+hit distances to :math:`4LC`, the same cost as four maximum-cost
+junction edits per observed chain. This sets the scale of the cap
+and allows the hit distances to include loop costs. The midpoint cap
+is :math:`g_\star=2LC`. The implemented score is
+
+.. math::
+
+   \begin{aligned}
+   X &= [d_1+Lm-c]_+,\\
+   G &= \min\{g_\star,[(d_1+d_2)/2-d_1]_+\},\\
+   S(q,e) &= -d_1-\gamma X+bG.
+   \end{aligned}
+
+The leading term :math:`-d_1` rewards the best hit. The per-chain margin
+:math:`m` sets its desired lead over the background, and :math:`\gamma`
+sets the cost of falling short. The order :math:`k` sets the background
+comparison rank. The gap weight :math:`b` penalizes separation for TRA and
+paired-chain receptors and rewards it slightly for TRB. All distance terms have native
+distance units. The weights :math:`\gamma,b` are dimensionless.
+The original BLOSUM62 entries are scaled substitution log odds. The
+clipped costs, the reference competition and the second-hit term
+define an evidence score in distance units without a likelihood-ratio
+interpretation. Displaying :math:`-S` as a lower-is-better evidence cost
+reverses the cutoff inequality. Its zero does not identify a receptor,
+and TRB source and gap terms can make that cost negative.
+
+The gap contribution is in :math:`[-2.4,0]` for TRA, :math:`[0,0.15]` for
+TRB and :math:`[-4.8,0]` for paired-chain receptors. An equal-length
+junction of length :math:`\ell` can contribute up to
+:math:`12[\ell-5]_+` before V-loop terms, and other terms or unequal lengths
+change the range further. In the matched fixed-reference human ranking queries
+(2,636 records per axis), median full junction lengths were 13 for TRA
+and 14 for TRB. Their median core lengths of eight and nine give loose
+substitution-only midpoint scales of 48 and 54 units. A tested length-based
+cap used :math:`g_\star(q)=6\sum_i[\ell_i-5]_+`. Here :math:`\ell_i`
+is the full junction length of observed chain :math:`i`. Neither this
+capacity nor the cost matrix determines how far apart the two best
+reference hits are in a real panel. The original support-gap sweep fixed the
+cap across its variants.
+Its value remains a design choice. In the matched ranking replay,
+the midpoint gap exceeded the frozen cap in 69 of 8,295 finite
+query–target scores across fixed-reference human and measured NLV. Halving the cap
+changed 374 scores and lowered 32 of 78 endpoints.
+Doubling it or using the query-core capacity each changed 69 scores and
+lowered six endpoints. All cap options beat the native comparator on the 78
+endpoints. The frozen cap also preserved all frozen vX endpoints.
+In real arithmetic :math:`G=\min\{d_2-d_1,4LC\}/2`.
+Binary64 evaluation forms the midpoint before subtracting :math:`d_1`
+to preserve the frozen scores.
+
+An infinite :math:`c` gives :math:`X=0`, and a target with no finite hit has
+:math:`S=-\infty`. A target with one finite hit and an infinite competitor
+distance gives :math:`S=-d_1`. For TRA and pairs, the nonnegative distance
+and two penalties imply :math:`S\leq 0`. For TRB, the source discount
+can make :math:`d_1` negative. The nonnegative competitor penalty and capped midpoint
+gap give the exact all-target search bound
+:math:`S\le -d_1+g_\star\max(b,0)`. A target can be skipped once its bound
+is strictly below the best score already found. Equality still needs to
+be checked for an exact tie. The settings below are the frozen choices
+from the matched tuning study.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Receptor
+     - :math:`k`
+     - :math:`\gamma`
+     - :math:`m`
+     - :math:`b`
+     - :math:`a`
+   * - TRA
+     - 8
+     - :math:`1/10`
+     - 12
+     - :math:`-1/10`
+     - 0
+   * - TRB
+     - 1
+     - :math:`1/4`
+     - :math:`17/4`
+     - :math:`1/160`
+     - :math:`9/32`
+   * - Paired-chain
+     - 1
+     - :math:`1/40`
+     - 6
+     - :math:`-1/10`
+     - 0
+
+The TRA margin is one maximum-cost junction edit per chain
+(:math:`m=C`). For pairs it is half that cost per chain
+(:math:`m=C/2`), so the two settings have the same total margin
+:math:`Lm=12`. The TRB margin :math:`17/4`, the background ranks,
+and the penalty and support weights are empirical settings.
+A unit of margin shortfall costs :math:`\gamma` score units. A unit
+of midpoint gap below the cap changes the score by :math:`b` units.
+These interpretations do not require fitting a new parameter.
+
+The sensitivity audit varied the V-loop weights, margins, penalties,
+midpoint-gap weights and TRB source discount by 5% and 10% in both
+directions. It kept the cap and background ranks fixed. Fifty of 52
+perturbations lowered at least one frozen TCRvdb ranking endpoint.
+The two increases to the TRB midpoint-gap weight left those
+ranking metrics unchanged.
+The common :math:`1/256` increment on the three V-loop weights is
+also empirical. Removing it lowered 23 of 72 frozen TCRvdb endpoints.
+
+Single-chain scores
+-------------------
+
+Set :math:`g=\min(24,[(d_1+d_2)/2-d_1]_+)` for the two ordered hits
+from one chain. Use the target-hit distances for the appropriate locus
+and the native competitor distance :math:`c_k` at order :math:`k`.
+Then
+
+.. math::
+
+   \begin{aligned}
+   S_{\mathrm{TRA}} &= -d_1-\tfrac1{10}[d_1+12-c_8]_+-\tfrac1{10}g,\\
+   S_{\mathrm{TRB}} &= -d_1-\tfrac14[d_1+\tfrac{17}{4}-c_1]_++\tfrac1{160}g.
+   \end{aligned}
+
+The TRB support discount is already included in the ordered hit distances.
+For example, if a TRB target has only one hit, the repeated distance gives
+zero gap contribution. With an empty competitor panel, its score is
+then simply :math:`-d_1`.
+
+Paired-chain score and neighborhood decisions
+------------------------------------------------
+
+For a genuine paired-chain reference, first add the two chain distances.
+Let :math:`d_1,d_2` be the first two ordered distances to the same target
+and :math:`c_1` the nearest compatible native other-peptide distance.
+The paired score applies the competitive terms once to those joint
+distances:
+
+.. math::
+
+   S_{\alpha\beta}=-d_1-\frac{[d_1+12-c_1]_+}{40}
+     -\frac{\min\{48,[(d_1+d_2)/2-d_1]_+\}}{10}.
+
+The margin 12 is twice the selected six units per chain. The cap 48
+is twice the single-chain cap. Separate best hits on the two chains
+cannot supply :math:`d_1`.
+
+On the paired organizer panel, the vX replay evaluates within-target
+neighborhood density.
+For a group of :math:`n` constructs, mask the query itself and any
+additional exact paired-junction hits specified by the protocol. Order
+the remaining distances :math:`d_{(1)}\leq\cdots\leq d_{(k)}` and use
+
+.. math::
+
+   S_{\text{assay}}=-\frac{\sum_{j=1}^k (k-j+1)^{7/3}d_{(j)}}
+                              {\sum_{j=1}^k(k-j+1)^{7/3}},\qquad
+   k=\max\{1,\lfloor 31(n-1)/250\rfloor\}.
+
+The decreasing rank weights emphasize the closest neighbors. The
+weights are normalized to sum to one. For rank exponent
+:math:`p`, their real-arithmetic form is proportional to
+:math:`\exp\{p\log[(k-j+1)/k]\}`. At :math:`p=0` the
+score is the negative mean of the first :math:`k` distances, and as
+:math:`p\to\infty` it approaches the negative nearest distance
+for a supported row. At :math:`k=1` it is the negative nearest
+distance for any exponent. The replay retains the original power and
+reduction order in binary64.
+
+The vX replay selected the fraction and exponent on the supplied
+organizer panel. All eight observed
+neighbor counts stay fixed for fractions in
+:math:`[15/121,16/129)`. The endpoints have cross-product difference
+one, so their mediant :math:`31/250` has the smallest denominator among
+fractions strictly between them. It equals 12.4%. One eighth would add
+one neighbor in four groups. At the selected width, a square rank
+weight lost four organizer endpoints and lowered 18 relative to
+the selected exponent. If fewer than :math:`k` distances are
+finite, the case is unscored. Rounding the exponent to 2.33
+retained the organizer wins but lowered two accepted assay-local
+endpoints. Equal distances
+at the boundary have equal effect on this distance average. This score
+operates within an already specified target group.
+
+For cross-target classification, a count-based neighborhood can instead
+use the same receptor distances with a radius :math:`r`. For the finite
+eligible reference set :math:`H(q)` and the labels :math:`L(h)` of reference
+key :math:`h`, define
+
+.. math::
+
+   V_e(q;r)=\sum_{h\in H(q)}
+     \mathbf{1}\{D(q,h)\leq r\}\mathbf{1}\{e\in L(h)\}.
+
+One fixed-radius rule chooses a unique maximum positive vote, subject to
+a declared minimum support. A kNN version sets :math:`r` to the
+:math:`k`-th finite distance, using the last distance if fewer than
+:math:`k` eligible hits exist. It includes all ties at the boundary.
+Count each distinct physical key once per supported label and
+abstain for no eligible hit, insufficient support, or tied target votes.
+This is a classification rule for evaluation. The accepted organizer
+density score and the fixed-reference evidence score above retain
+their respective definitions and cutoff scopes.
+
+Epitope enrichment across a reference catalogue
+------------------------------------------------
+
+In the fixed-reference vX score, :math:`d_1,d_2` are taken separately
+for each candidate pMHC. A nearer key for a different peptide can
+influence the background comparison, and another candidate can win.
+For a cross-target neighborhood, count each distinct physical key
+once. If it supports several pMHC labels, count it once for each
+supported label while keeping one key in the neighborhood denominator.
+
+Let :math:`N` be the size of the fixed catalogue, :math:`N_e` the
+number of keys supporting target :math:`e`, :math:`m` the number
+of finite neighbors including ties, and :math:`x_e` the number of
+those neighbors supporting :math:`e`. The local fraction, background
+fraction and observed enrichment ratio are
+
+.. math::
+
+   f_e=x_e/m,\qquad \pi_e=N_e/N,\qquad R_e=f_e/\pi_e.
+
+Apply this rule to represented targets with :math:`N_e>0`. With
+:math:`m=0` the local fraction and enrichment are undefined, so the
+rule abstains. At :math:`m=N`, every represented target has
+:math:`x_e=N_e` and :math:`R_e=1`.
+
+For a neighborhood defined by distance alone, a finite-catalogue
+reference model draws :math:`m` keys without replacement under
+exchangeable target membership. Rank target support using the upper
+hypergeometric tail
+
+.. math::
+
+   p_e = \Pr\{X_e\geq x_e\},\qquad
+   X_e\sim\operatorname{Hypergeom}(N,N_e,m).
+
+At full catalogue depth :math:`p_e=1` for every represented target.
+Enrichment distinguishes labels through their local representation.
+
+A binomial with parameters :math:`m,\pi_e` approximates this tail
+when the neighborhood is small relative to the catalogue. Exact-hit
+exclusion only changes the benchmark hit list. The fixed reference
+fractions remain unchanged. A target can be ranked by :math:`-\log p_e`
+when :math:`x_e>0`, with abstention at a tied maximum or without support.
+
+This uses the observed-versus-expected neighborhood principle of
+`TCRNET <https://pmc.ncbi.nlm.nih.gov/articles/PMC6156623/>`_ for a
+different question. TCRNET tests within-sample neighborhood degree
+against a control repertoire. The native comparator offers neighborhood tests
+for covariates, including a documented chi-squared example with
+epitope as the category. It can also choose radii that control
+neighbor discovery in a background repertoire. The vX design
+combines label enrichment from a fixed multi-label catalogue with
+its receptor distance and a query-level open-set decision. The
+one-sided hypergeometric tail is the Fisher exact enrichment test
+for one label inside versus outside the neighborhood. It remains
+defined for sparse counts.
+The :download:`comparison provenance notebook <../examples/comparison-provenance.ipynb>`
+identifies the native enrichment and radius workflows.
+
+The exchangeability model supplies a ranking reference, including after
+benchmark exact-hit masking. Study composition,
+HLA restriction and repeated biological observations can give targets
+different exposure to the same kinds of receptors. A stronger call
+procedure prespecifies the compatible catalogue and neighborhood
+rule. If the search requires a V match, use the same fixed V stratum
+in both the neighborhood and the reference fractions. Then calibrate
+the maximum target evidence on held-out null
+queries after rerunning the entire label search. If the rule searches
+several neighborhood sizes, the null replay repeats that search.
+Test generated and withheld-specificity nulls separately. The resulting
+empirical any-call rate applies to that decision and null population.
+This label-selection procedure is a proposed design. The ordered
+final-call calibration below is available through the CLI.
+
+Peptide and restriction ambiguity
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Keep all labels attaining the exact maximum when auditing an abstention.
+If several winning pMHC labels share one peptide, the peptide is resolved
+at the score maximum and the MHC restriction remains ambiguous.
+If the maxima span distinct peptides, peptide assignment also abstains.
+
+A peptide-level reduction pools restriction labels and changes the
+reported outcome. Evaluate peptide and full pMHC calls separately
+against their respective truth criteria.
+
+Sample-level neighborhood association
+--------------------------------------
+
+Fix the vX distance, neighborhood centers and radii before testing
+sample covariates. In sample :math:`i`, let :math:`X_i(q,r)` be the
+number of distinct eligible receptor keys within radius :math:`r`
+of center :math:`q`, and let :math:`N_i` be the total eligible keys
+in the corresponding sample or prespecified stratum. For
+:math:`N_i>0`, the sample-level neighborhood fraction is
+
+.. math::
+
+   Y_i(q,r)=X_i(q,r)/N_i.
+
+Handle zero-exposure samples by the prespecified design and retain
+their counts in cohort accounting. A paired comparison with
+:math:`n` donors uses the mean within-donor change,
+
+.. math::
+
+   T(q,r)=\frac{1}{n}\sum_{i=1}^n
+          [Y_{i,1}(q,r)-Y_{i,0}(q,r)].
+
+The two indices denote the paired conditions. One donor contributes
+one contrast. For a randomized paired design, swap the condition
+labels within each donor only as allowed by the randomization. The
+exact null is that assignment has no effect on any donor's outcome.
+An observational design requires joint swap invariance under its
+conditional null. Use the same swaps for all overlapping
+neighborhoods. For a global test of any association, use the maximum
+absolute statistic across the tested centers and radii. Let
+:math:`M_{\rm obs}` be that maximum with the observed labels and
+:math:`M_\sigma` its value under an allowed rearrangement
+:math:`\sigma\in\mathcal G`, including the identity. The exact
+global tail for equally likely assignments is
+
+.. math::
+
+   p_{\rm global} =
+     \frac{\#\{\sigma\in\mathcal G:M_\sigma\geq M_{\rm obs}\}}{|\mathcal G|}.
+
+Repeat any label-dependent selection inside each rearrangement.
+This formulation targets sample association. It does not turn
+receptor keys from the same donor into independent replicates.
+
+Background-controlled radius selection
+--------------------------------------
+
+Let :math:`A_r(x)` indicate that the entire annotation rule calls
+background query :math:`x` at radius :math:`r`, including target
+selection and abstention. Choose the radius using a training
+background and freeze the decision before evaluation. On an
+independent evaluation null of :math:`B>0` queries, count
+:math:`C=\sum_{j=1}^B A_r(x_j)` calls. The observed any-call rate is
+:math:`C/B`. For independent queries with a common false-call
+probability, a one-sided exact upper confidence limit at confidence
+:math:`1-\delta` is
+
+.. math::
+
+   U=\operatorname{Beta}^{-1}(1-\delta;\,C+1,B-C),\qquad 0\leq C<B.
+
+Here :math:`\operatorname{Beta}^{-1}` denotes the beta quantile.
+Use :math:`U=1` if :math:`C=B`. A bound for a fixed rule does
+not justify selecting a radius on the same evaluation queries.
+For clustered queries, use an interval that respects the sampling
+design. The expected number of background calls across :math:`Q`
+query opportunities at the same marginal rate is estimated by
+:math:`QC/B`. Reference-hit counts inside a ball are a separate
+quantity.
+
+These are proposed vX procedures and specify a matched comparison
+with the native neighborhood tests and empirical background-radius
+workflow. Compare the same samples, truth criteria and background
+sources. Measure power or correct-call recall at matched
+false-call control before claiming a performance advantage.
+
+Calibration from an ordered null sample
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Let :math:`Z(q)` be the score of the winning label after the fixed
+selection policy, or :math:`-\infty` when no label is eligible for
+a call. The default policy abstains on a tied maximum. A manifest-bound
+tie policy can instead resolve a tie before thresholding.
+For a bank :math:`\mathcal B_s` of :math:`B` draws from null source
+:math:`s`, the call indicator and bank rate at finite cutoff
+:math:`t` are
+
+.. math::
+
+   C_t(q)=\mathbf 1\{Z(q)\geq t\},
+   \qquad
+   \widehat f_s(t)=\frac{1}{B}\sum_{q\in\mathcal B_s}C_t(q).
+
+The bank retains all draws, including abstentions and repeated
+receptor sequences. For a finite score :math:`z`, the output
+uses the inclusive tail count :math:`j_s(z)` and reports
+
+.. math::
+
+   j_s(z)=\sum_{q\in\mathcal B_s}C_z(q),\qquad
+   E_s(z)=\frac{j_s(z)}{B}=\widehat f_s(z),\qquad
+   P_s(z)=\frac{j_s(z)+1}{B+1}.
+
+Here :math:`E_s` estimates false calls per query at threshold
+:math:`z`. The add-one tail :math:`P_s` is a rank P-value
+under exchangeability with the same complete score and selection
+pipeline. Rows without an eligible score report :math:`(E,P)=(0,1)`
+as placeholders and always abstain. A finite score above every null
+score has :math:`E_s=0` and :math:`P_s=1/(B+1)`.
+
+Ordered calibration uses one declared source and chooses its allowed
+count :math:`k<B` before examining the null scores. For independent
+draws from that source, put the boundary at
+:math:`z_\star=Z_{(B-k)}`, the ascending order statistic of the calibration
+scores. Call only when :math:`Z(q)>z_\star`, excluding the entire boundary
+tie. If :math:`f` is the resulting population any-call probability
+and :math:`\alpha` its intended cap,
+
+.. math::
+
+   \Pr(f>\alpha)\leq\Pr\{\operatorname{Binomial}(B,\alpha)\leq k\}.
+
+The probability on the left is over calibration samples. The one-sided
+upper bound at confidence :math:`1-\delta` is the beta quantile with
+shape parameters :math:`k+1` and :math:`B-k`. Exceeding the cap
+requires the boundary score to fall below the null
+:math:`(1-\alpha)` quantile. In that case at most :math:`k` calibration
+scores reach a quantile whose upper tail has mass at least
+:math:`\alpha`. The binomial bound is tight for a continuous score
+and conservative with ties. See `Tong, Feng and Li, Proposition 1
+<https://arxiv.org/abs/1608.03109>`_.
+
+Choose the largest :math:`k` whose binomial tail is at most :math:`\delta`.
+For 100,000 nulls, a 1% cap and 95% confidence give :math:`k=948`.
+Allowing 1,000 calls instead gives an upper bound of 1.0533%. Use an
+abstain-all rule when no count qualifies. Freeze the catalogue, score,
+and label decision independently of this sample. A radius family uses
+the same argument when its call sets are nested and admit one scalar
+score. A family in which adding neighbors can create an abstention
+uses an independent evaluation background after radius selection.
+
+Use ``vdjmatch calibrate-ordered-calls`` to fit this boundary and
+``vdjmatch apply-call-calibration`` to apply the saved recipe.
+When :math:`k` exists and :math:`z=Z(q)` is finite,
+:math:`j_s(z)\leq k` exactly when :math:`z>z_\star`. At or below
+:math:`z_\star`, at least :math:`k+1` calibration scores count in the
+inclusive tail. Above it at most :math:`k` count. Thus the
+100,000-query example uses :math:`E_s\leq 0.00948` for eligible scores.
+The CLI represents a finite strict boundary by the next larger
+binary64 value with an inclusive comparison. When the order
+statistic is an abstention, all finite eligible scores pass.
+When no count qualifies, or no finite score can exceed the boundary,
+the recipe abstains everywhere. Ordinary calibration retains exact
+hits in both scoring pipelines. The score replay can also compare
+matching exact-excluded banks and queries for diagnostics.
+
+Assignment and complete-query calibration
+-----------------------------------------
+
+Fixed-catalogue motif assignment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For a TRB junction, trim the same three N-terminal and two C-terminal
+positions used by vX. Read up to four overlapping windows of
+three consecutive amino acids from each end. The optional replay uses
+four consecutive amino acids per window. These sequence windows are
+called 3-mers and 4-mers, respectively. For example, the retained
+sequence ``RSAGT`` has three-residue windows ``RSA``, ``SAG`` and
+``AGT``, and four-residue windows ``RSAG`` and ``SAGT``.
+Each token :math:`t` records the window sequence, the end from which
+it was counted and its offset from that end. The two lengths test
+how much adjacent sequence helps distinguish a target from the
+pooled reference.
+Let :math:`c_{et}` count the :math:`N_e` reference keys of target
+:math:`e` that carry token :math:`t`. Let :math:`N` be the
+pool size and :math:`c_t` its count for that token. The default pool
+counts target–key memberships, so :math:`N=\sum_eN_e` and
+:math:`c_t=\sum_ec_{et}`. An explicitly supplied pool can count
+physical keys once if its caller deduplicates them. Set the prior
+mass to :math:`\nu=2` and write :math:`T(q)` for the query's
+available positional tokens. The score is
+
+.. math::
+
+   u_t=\frac{1+c_t}{N+\nu},\qquad
+   \theta_{et}=\frac{c_{et}+\nu u_t}{N_e+\nu},\qquad
+   M_e(q)=\frac{1}{|T(q)|}\sum_{t\in T(q)}
+       \log\frac{\theta_{et}}{u_t}.
+
+The pooled frequency starts with one occurrence and one nonoccurrence,
+the Beta(1,1) prior. The target estimate
+:math:`\theta_{et}` borrows :math:`\nu` observations at that pooled
+frequency for either motif length. The target shrinkage mass is
+a modeling choice. A token matching the pooled rate contributes
+zero log enrichment. An available token absent from a nonempty
+target contributes :math:`\log[\nu/(N_e+\nu)]`, which is finite.
+The mean summarizes overlapping windows in natural-log units.
+A unique maximum assigns an epitope in this closed-set assay.
+Empty query token lists and targets with no keys are unsupported.
+
+``vdjmatch.evalue.competitive.anchored_motif_scores`` implements the
+fixed-catalogue rule. On the 1,218 matched M2 cases it assigns 1,116
+correctly with zero ties, including 68 of 87 LLW cases. The full
+motif catalogue includes the assay junctions, and the parameters
+were selected on this panel. The score is available for fixed-catalogue
+assignment diagnostics. It has no calibrated open-set cutoff.
+The four-residue replay improves all three class counts to 870 ELA,
+232 LLL and 86 LLW, with zero ties. It corrects 72 additional
+cases and preserves all correct three-residue calls. This comparison
+uses the same full, overlapping catalogue and the supplied assay.
+
+To replay from a prepared model, run:
+
+.. code-block:: bash
+
+   vdjmatch anchored-motif-score --reference reference.tsv --queries queries.tsv --output scores.tsv
+
+The reference columns are ``target``, ``junction_aa``, ``v_call`` and
+``j_call``. The command deduplicates this four-column key. Encode the
+full peptide–MHC identity in ``target``. The query columns are
+``query_id`` and ``junction_aa``; IDs are unique and junctions include
+their anchors. The output retains all query–target scores and flags
+unique winners and tied maxima.
+Add ``--motif-length 4`` to replay the four-residue setting.
+
+Paired-chain re-ranking by motif conflict
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For each target, let :math:`S_e` be the base score and
+:math:`M_{\alpha e}, M_{\beta e}` the fixed reference motif enrichment
+on the two chains. Treat missing motif values as zero and let
+:math:`M_e=\min(M_{\alpha e},M_{\beta e})`. The selected mouse
+rule penalizes conflict only. For a supported target strictly below the
+query maximum :math:`S_*` and with more than two distinct reference
+keys, the refined score is
+
+.. math::
+
+   S'_e = S_e+4\min(0,M_{\alpha e}, M_{\beta e}).
+
+Every other target keeps its base value. The general reducer caps
+changed lower-tier scores at the greatest representable value below
+:math:`S_*`. The conflict-only correction can only lower a score,
+so that cap is already satisfied by the displayed rule.
+The motif score is independent of gap placement and is applied after
+pairwise distances have been reduced to target scores. The mouse
+ranking rule does not add a k-mer term to the pairwise distance.
+The penalty weight four was selected on the mouse catalogue benchmark.
+The two-key gate applies the penalty only to targets with more than two
+reference keys. On the
+matched class-I and class-II mouse paired catalogue it improved all 39
+ranking endpoints versus both frozen vX and the native comparator.
+
+For the same base scores and full target context, the maximum and the
+set of targets attaining it are exactly invariant. Consequently any final
+decision that uses only a unique maximum and a fixed cutoff has identical
+calls, including on null queries. This holds pointwise, so null call counts
+and the FPR curve are identical at every cutoff on a fixed null bank.
+The refinement provides no improvement to that detector's FPR. A change
+to the base geometry or any downstream decision based on lower ranks
+requires its own calibration check.
+
+Replay with ``vdjmatch paired-motif-rank`` using the complete target
+axis and ``--support-weight 0 --conflict-weight 4``. The command accepts
+either aligned base and chain motif matrices with target key counts,
+or an archive with the base plane and a prepared fixed reference:
+
+.. code-block:: bash
+
+   vdjmatch paired-motif-rank --scores base.npz --queries queries.tsv \
+     --targets targets.tsv --reference memberships.tsv \
+     --support-weight 0 --conflict-weight 4 --output ranks.tsv
+
+In fixed-reference mode, the archive contains ``base`` in the supplied
+query and target order. The query TSV contains ``query_id``,
+``junction_aa_alpha`` and ``junction_aa_beta``. The target TSV contains
+``target`` and ``mhc_class`` (``MHCI`` or ``MHCII``). Each reference row
+contains ``reference_key``, ``target``, and both full junctions. Use the
+same key for a physical pair across its target memberships and distinct
+keys for distinct reference pairs even when their junctions coincide.
+The motif fit pools memberships separately by MHC class; a shared key
+contributes once per target membership. The command constructs both
+motif planes and derives the target key counts. The supplied base
+plane must already reflect the chosen hit-list policy.
+
+For the mouse benchmark, run both stages directly from a pinned VDJdb
+release ZIP and a paired query table:
+
+.. code-block:: bash
+
+   vdjmatch mouse-paired-rank paired-queries.tsv --vdjdb reference.zip \
+     --exclude-exact --output-dir mouse-rank
+
+The output includes ``ranking.tsv`` with the refined ranks and a separate
+ranking manifest. The base archive, maxima and their manifest use the
+same calibration contract as ``vx-base``.
+Wide query tables use ``junction_aa_alpha/beta`` and ``v_alpha/beta``
+with a pair ID. The command retains the full compatible catalogue
+and scores genuine pairs. Exact-hit exclusion operates on both full
+junctions and applies only to the target and background hit lists.
+Omit ``--exclude-exact`` for ordinary exact-retained replay. For the
+base score alone use ``vx-base``, which supports both species and uses
+their respective V-loop models.
+
+For winner-only scoring use ``--maxima-only``. For a target with
+nearest corrected distance :math:`d_1`, the paired score satisfies
+:math:`S\le -d_1` because the competition and second-hit terms can
+only decrease it. The scorer evaluates the closest target to get a
+lower bound on the best score. It can skip targets whose upper bound
+is strictly below that score. Equality stays eligible so that exact
+ties survive. This route processes query blocks and omits the
+per-target score matrix. Use the full output for motif re-ranking.
+
+The paired ``--maxima-only --tie-policy literal`` option evaluates a
+separate call rule. A tied target can be selected when its normalized
+peptide–MHC label refines every tied label and a reference key carrying
+the literal label attains the target's nearest corrected distance.
+MHC refinement uses allele field prefixes in both MHC fields within
+one peptide and class. The resolved tie retains the original score
+and enters the calling statistic only at :math:`S\geq -24`. The scale
+is two maximum-cost weighted junction substitutions. The gate acts
+on the complete evidence score, including loop costs and competition.
+The export preserves the original tie flag and identifies literal
+support and ties admitted by the gate. Calibrate the complete statistic
+with ``vx-evalue`` using a null export from the same tie policy. For
+ordinary annotation select the same rule with ``--vx-tie-policy literal``.
+
+Use ``vx-base --locus TRA`` or ``vx-base --locus TRB`` for single-chain
+replays. TRA keeps the same upper bound as the paired score. TRB allows
+the positive second-hit term, so the upper bound is
+:math:`-d_1+24/160=-d_1+3/20`. The first distance includes the
+TRB reference-source correction in both scoring and pruning.
+Use ``--reference-population all-valid`` to reproduce the historical
+uncurated catalogue. For calibration, ``vx-evalue`` requires the
+same locus and reference population in both score exports.
+
+Ordinary ``vdjmatch annotate`` uses vX by default for human and mouse
+single-chain, paired-chain and mixed inputs. Each population has its own
+pMHC search. Without a null bank, ``selection.tsv`` reports ranked evidence.
+The default tie policy retains ambiguity. Use ``--score-model kernel`` for
+the previous model. Target filters, advanced kernel geometry and detail
+options also use that workflow in automatic mode.
+
+Paired inputs also produce ``TRA.selection.tsv`` and ``TRB.selection.tsv``
+for their observed chains, with corresponding query status tables. Each
+uses the single-chain vX rule and includes unlinked references. Thus a
+chain can have ranked evidence even if its pair has no score. These
+tables leave the paired rank and call unchanged. Under benchmark exact
+exclusion, each marginal search masks exact hits on its own chain.
+
+For calibrated calls, supply ``--vx-null-dir`` from a matched
+``vx-base --null-source`` run. Set ``--species`` and ``--locus`` to the
+population being calibrated. Bank creation and calibrated annotation
+both use the same local VDJdb release ZIP. Annotation verifies the scorer,
+reference, target axis and exact-hit policy before applying the ordered
+cutoff. Paired annotation uses the matched bank's tie policy when
+``--vx-tie-policy`` is omitted. An explicitly selected policy must match
+the bank. For mixed input, supply one bank per primary locus for the same
+species and reference population. The confidence bound applies separately
+to each primary locus. The paired-input marginal tables report ranks
+without applying the paired cutoff or an any-chain cutoff. The default
+target FPR is 1% at 95% confidence. The main selection
+table retains ranked evidence alongside call status, inclusive empirical
+E-values and null-tail counts. Use the installed scorer to regenerate an
+older null export when its source digest differs.
+
+The output also includes ``maxima.tsv`` with one row for every query.
+The ``maximum`` column retains finite tied maxima for audit, whereas
+``score`` and ``target`` require an eligible label. The default policy
+requires a unique maximum. The literal tie policy can populate these
+columns while retaining ``tied=true`` for audit. Unsupported and tied
+queries stay in the input denominator. For a declared calibration
+null, label the input with ``--null-source`` and pass this file directly
+to the ordered calibration command:
+
+.. code-block:: bash
+
+   vdjmatch vx-base mouse-paired-null.tsv --vdjdb reference.zip \
+     --species mouse --locus paired --maxima-only \
+     --null-source generated --output-dir mouse-null
+   vdjmatch calibrate-ordered-calls mouse-null/maxima.tsv \
+     --target-fpr 0.01 --confidence 0.95 --output mouse-calibration.json
+
+Use the same reference and exact-hit policy when scoring the queries
+to which the recipe will be applied. The mouse motif correction
+preserves this maximum-based calling rule.
+
+Use ``vx-evalue`` to verify the score directories and annotate
+queries at the ordered E threshold in one command:
+
+.. code-block:: bash
+
+   vdjmatch vx-evalue mouse-query --null-dir mouse-null \
+     --target-fpr 0.01 --confidence 0.95 --output-prefix mouse-calls
+
+Here ``mouse-query`` is a separate ``vx-base`` output for paired mouse queries.
+Both directories must use the same reference, target axis, model,
+scorer and exact-hit policy. The command verifies the score files
+against their manifests. It exports E, rank P, the inclusive null
+tail count and its denominator on each query. The receipt records the
+threshold, the source hashes, and whether the same query input was
+used for fitting and application. Its inference assumes IID null
+queries. Use the separately reported retrospective protocol for
+peptide-withheld folds.
+
+For the peptide-withheld comparison, supply a TSV with ``query_id``
+and ``epitope`` and list every recorded peptide to withhold for each
+query. Multiple rows can name the same query. Repeated identical
+memberships are counted once.
+
+.. code-block:: bash
+
+   vdjmatch vx-base paired-queries.tsv --vdjdb reference.zip \
+     --species mouse --locus paired --withhold-peptides withheld.tsv \
+     --exclude-exact --output-dir mouse-withheld
+
+Each fold retains the intact target axis, with the excluded target
+scores unsupported. The command reuses the compatible memberships,
+filters their peptides within each fold, and then deduplicates the
+surviving background keys. The ``maxima.tsv`` file names this null
+source ``withheld`` by default. The fold scores use separate reference
+populations, so a single fixed membership table for motif fitting
+would be inappropriate. Use a predeclared transferred cutoff to
+report this diagnostic separately from IID null calibration.
+
+Competitive score diagnostics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For the score-only assignment diagnostic, write :math:`x_e=\log(1+N_e)`
+and maximize :math:`A_\lambda(q,e)=S(q,e)+\lambda x_e` over the three
+declared labels. Here :math:`N_e` is the fixed count of native-eligible
+target keys before exact-hit masking. When :math:`x_i\ne x_j`, the two label
+scores cross at
+
+.. math::
+
+   \lambda_{ij}(q)=\frac{S(q,j)-S(q,i)}{x_i-x_j}.
+
+This partitions the slope axis into intervals with fixed winners. The
+original fit selected the midpoint of an interval improving all three assay
+recalls, with boundaries approximately :math:`0.00201` and
+:math:`0.00365`. The latest vX audit found that the retained midpoint
+attains the maximum of :math:`\min_e[R_e(\lambda)-R_e^{\rm native}]`
+across the crossing intervals. Here :math:`R_e` is the fraction of assay
+records of class :math:`e` uniquely assigned to that class. The gain is flat across multiple intervals. The midpoint maximizes the distance
+to the nearer endpoint of the original interval. The replay also tested
+:math:`\lambda=1/400` inside the same assignment plateau. It shifts the
+3,654 saved scores by at most 0.00337 native distance units and preserves
+all ties, within-target ranks and within-query label orderings. The term
+adds :math:`(\log 2)/400` native distance units per doubling of
+:math:`1+N_e`. Its value comes from the three-label assay replay.
+For numerical reproduction of the historical scores within :math:`10^{-5}`,
+round the historical coefficient to :math:`0.002832`. The largest observed
+score shift then is :math:`3.73\times10^{-6}` native distance units, with
+the same ties, ranks and assignments in all 3,654 slots. The smallest
+historical within-query label gap is :math:`0.00211` native distance units.
+
+The implementation uses ``log1p``. An exact tie or no finite maximum
+abstains. The comparison uses queries with finite scores for all three
+labels and applies no calibrated score cutoff.
+
+The within-assay prevalence diagnostic uses a second assignment statistic.
+Let :math:`p_K(q,e)` be the archived target-specific kernel tail. With
+:math:`O_e` the distinct prepared other-peptide reference identities across
+HLA restrictions and :math:`K(q,e)` kernel evidence for :math:`e`, this is
+:math:`p_K=(1+\#\{r\in O_e:K(r,e)\ge K(q,e)\})/(1+|O_e|)`.
+Use zero kernel evidence for no kernel hit. Let
+:math:`\widetilde S_e` be the median raw vX score for target :math:`e` across
+the scored assay queries and :math:`\pi_e` the observed assay class fraction.
+The diagnostic maximizes
+
+.. math::
+
+   H(q,e)=-\log p_K(q,e)+\frac{S(q,e)-\widetilde S_e}{40}
+          +0.95\log\pi_e.
+
+Adding the same size correction to every query for a fixed target shifts its
+median by the same amount, so the size slope cancels. The evaluation divides
+the centered score by ten native distance units and multiplies it by a
+quarter. The :math:`0.95` weight on log class frequency and the quarter
+weight on centered evidence were selected for the three-class recall
+tradeoff in this assay. This rule uses the fixed complete three-label assay,
+whose median and class fractions belong to that cohort. Exact ties abstain.
+
+The archived generated-receptor study uses the default abstention policy
+and raw :math:`S` across the declared compatible pMHC catalogue. It
+chooses the most permissive inclusive score block whose empirical rate
+:math:`\widehat f_s(t)` meets the cap for every supplied source, with
+an abstain-all option. The ordered calibration above controls a population
+rate at a stated confidence under its sampling assumptions. The generated
+single-chain banks come from rearrangement models and the pair bank
+uses independent TRA and TRB draws.
+
+Recorded-target precision
+-------------------------
+
+Among catalogue positives, let :math:`r_t` be the fraction called
+with a recorded target and :math:`u_t` the fraction called with a
+different target at cutoff :math:`t`. For a mixture with positive
+fraction :math:`\pi` and generated background source :math:`s`, the
+fraction of all calls that recover a recorded target is
+
+.. math::
+
+   \operatorname{Precision}_{s,\pi}(t)=
+   \frac{\pi r_t}{\pi(r_t+u_t)+(1-\pi)\widehat f_s(t)}.
+
+Precision is undefined when the mixture produces no calls. Count
+other-target calls on positives in the denominator. They receive no
+credit under the recorded catalogue annotation. The estimates apply
+to the stated mixture and its conditional query populations.
+
+Expected counts and repertoire enrichment
+-----------------------------------------
+
+For :math:`Q` null receptor opportunities from one source, the
+estimated expected number of false calls at a fixed cutoff is
+:math:`Q\,\widehat f_s(t)`. Linearity of expectation requires no
+independence between opportunities. With :math:`Q_s` opportunities
+from each known source, use :math:`\sum_s Q_s\widehat f_s(t)`.
+For an unknown mix of represented sources, :math:`Q\max_s\widehat f_s(t)`
+bounds that plug-in estimate. Its units are calls. The chance of at
+least one call depends on the joint distribution. For
+:math:`Q` independent opportunities with common call probability
+:math:`f_s(t)` it is :math:`1-(1-f_s(t))^Q`.
+
+Generic multisource reporting takes the maximum of the source-specific
+:math:`E_s(z)` and, separately, of the source-specific :math:`P_s(z)`
+for each finite score. The ordered CLI fits one source per recipe.
+For a hit at finite distance :math:`d`, let :math:`R_e` be the fixed
+reference keys for target :math:`e`. Draw receptor :math:`Q_0` under
+the declared background law and set :math:`D(Q_0,r)=+\infty` when
+key :math:`r` fails the hit rule for that draw. The expected number
+of reference hits at least as close is
+
+.. math::
+
+   E_{\rm hits}(d,e)=\sum_{r\in R_e}\Pr[D(Q_0,r)\le d].
+
+This sum uses linearity of expectation and permits dependent hits.
+Estimating the probability of at least one hit requires the joint
+distribution or a justified approximation. Empirical query-level
+FPR comes from replaying the complete pipeline on null queries.
+A suitable comparison between methods uses the same null queries,
+target catalogue and matched positive recall or a prespecified
+operating point. Report the null count and its denominator separately
+for each source. For distance-ball E-values with reference-key
+exposure, see :doc:`control-calibration`.
+
+For repertoire inference, apply the same membership rule to observed and
+mock data. Write :math:`T_0` for observed matched source richness, matched
+read count, or the declared finite-effort statistic, and :math:`T_1,\ldots,T_R`
+for the same statistic under :math:`R` matched mock draws. The inclusive upper
+tail and fold enrichment are
+
+.. math::
+
+   \widehat P_{\rm sample}=\frac{1+\#\{j:T_j\ge T_0\}}{R+1},
+   \qquad
+   F=\frac{T_0}{R^{-1}\sum_{j=1}^R T_j}.
+
+The ratio is undefined for a zero mock mean. For the accepted
+yellow-fever curve-mean decision, let :math:`J_+` contain the mock
+indices with at least one matched source row. Use the same add-one
+formula with :math:`j\in J_+` and denominator :math:`1+|J_+|`.
+For the curve mean, the standardized excess is
+:math:`(T_0-\bar T_+)/s_+`, where :math:`\bar T_+` and :math:`s_+`
+are the mean and sample standard deviation of those mocks. If the
+library has no matched source row, its conditional tail is undefined. If it has a hit
+but there are no positive mocks, the conditional tail is one and
+the standardized excess is undefined. With fewer than two positive
+mocks there is no sample standard deviation. With zero deviation,
+a nonzero excess has its signed infinite limit and zero excess
+has undefined effect. A call requires a positive
+standardized excess and BH-adjusted :math:`P<0.10` in the declared
+group and donor/day family, with each endpoint adjusted separately.
+Observed-control reference draws use the declared Pgen strata and
+hold the repertoire fixed. The resulting test concerns the sample
+statistic. A receptor-level threshold defines the membership rule
+used for both observed and mock panels.
+
+See :doc:`vx-structure` for structural degree, rarefaction and reciprocal k-NN.

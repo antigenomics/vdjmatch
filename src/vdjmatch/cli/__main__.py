@@ -2,7 +2,7 @@
 
 Subcommands:
   update     fetch/cache the latest VDJdb release
-  annotate   targeted stem4 kernel evidence with retained alternatives
+  annotate   vX peptide–MHC evidence for single and paired receptors
   match      annotate query sample(s) against VDJdb (E-values + ranked hits + epitope summary)
   first-hit  global first-hit control calibration
   search     native sequence batch search with positional row identities
@@ -85,10 +85,15 @@ def _cmd_index(a: argparse.Namespace) -> int:
 
 def _cmd_annotate(a: argparse.Namespace) -> int:
     if a.control and a.background == 'vdjdb-other':
+        if (getattr(a, "score_model", "auto") == "vx" or getattr(a, "vx_null_dir", None)
+                or getattr(a, "vx_tie_policy", "abstain") == "literal"):
+            raise ValueError("vX annotation does not use the legacy --control kernel path")
         from .combined import main
         return main(a)
-    if a.mock_replicates != 200 or a.seed != 0 or a.fpr != .01 or a.evidence_type or a.min_score:
-        raise ValueError('mock-replicates, seed, fpr and evidence filters require annotate --control with the default background')
+    if (a.mock_replicates != 200 or a.seed != 0 or a.evidence_type or a.min_score
+            or (a.fpr != .01 and not getattr(a, "vx_null_dir", None))):
+        raise ValueError('Mock draws and evidence filters require --control with the default background. '
+                         'The FPR option also accepts --vx-null-dir.')
     from ..runner.annotation import annotate_repertoires
 
     options = vars(a).copy()
@@ -97,7 +102,7 @@ def _cmd_annotate(a: argparse.Namespace) -> int:
         options.pop(name, None)
     annotate_repertoires(a.sample, metadata=a.metadata, reference=a.vdjdb,
         output_prefix=a.output_prefix, locus=a.locus, species=a.species,
-        threads=a.threads, **options)
+        threads=a.threads, vx_target_fpr=a.fpr, **options)
     return 0
 
 
@@ -526,7 +531,7 @@ def _cmd_precursor(a: argparse.Namespace) -> int:
 _EXAMPLES = """\
 examples:
   vdjmatch update                                  # cache the latest VDJdb primary/legacy reference
-  vdjmatch match sample.tsv                         # annotate one AIRR sample, default reference
+  vdjmatch annotate sample.tsv                      # rank peptide–MHC targets with vX
   vdjmatch match -o run/out --match-v --no-evalue *.tsv         # match V gene too, write under run/
   vdjmatch match --scope 2,1,1,2 --threads 8 s.tsv  # wider search budget, 8 threads
   vdjmatch precursor --vdjdb -o pre.txt             # precursor frequency per VDJdb epitope
@@ -921,19 +926,25 @@ def main(argv: list[str] | None = None) -> int:
                 action.option_strings.append("-o")
                 annotation._option_string_actions["-o"] = action
     annotation.add_argument("--metadata", help="TSV with path and optional sample_id; paths relative to this TSV")
+    annotation.add_argument("--score-model", choices=("auto", "vx", "kernel"), default="auto",
+                            help="auto uses vX for ordinary human and mouse annotation")
+    annotation.add_argument("--vx-null-dir", type=Path, action="append",
+                            help="matched vx-base null directory for each primary locus (TRA, TRB or paired)")
+    annotation.add_argument("--vx-tie-policy", choices=("abstain", "literal"),
+                            help="paired vX tie policy (default: use the matched bank, otherwise abstain)")
     annotation.add_argument("--details", dest="selection_only", action="store_false",
-                            help="also export per-target evidence and candidates; memory grows with queries × targets")
+                            help="use the kernel workflow and export per-target evidence and candidates")
     annotation.add_argument('--mock-replicates', type=int, default=200,
                             help='with --control: fresh draws per direction (default: 200)')
     annotation.add_argument('--seed', type=int, default=0, help='with --control: reproducible randomization seed')
     annotation.add_argument('--fpr', type=float, default=.01,
-                            help='with --control: any-call P-value threshold for reported specificities (default: 0.01)')
+                            help='any-call false-positive rate with --control or --vx-null-dir (default: 0.01)')
     annotation.add_argument('--evidence-type', action='append', help='with --control: filter reference evidence before recalibration')
     annotation.add_argument('--min-score', type=int, default=0, help='with --control: minimum reference evidence score')
     annotation._option_string_actions['--control'].help = 'one raw control repertoire; calibrate the complete combined score on demand'
     basic = {'help', 'vdjdb', 'locus', 'species', 'reference_population', 'epitope', 'mhc_a', 'mhc_b',
              'mhc_match', 'threads', 'verbose', 'control', 'exclude_exact', 'output_prefix', 'metadata',
-             'mock_replicates', 'seed', 'fpr', 'evidence_type', 'min_score'}
+             'mock_replicates', 'seed', 'fpr', 'evidence_type', 'min_score', 'score_model', 'vx_null_dir', 'vx_tie_policy'}
     advanced = annotation.add_argument_group('Advanced scorer diagnostics')
     for action in list(annotation._optionals._group_actions):
         if action.dest not in basic:
@@ -946,6 +957,8 @@ def main(argv: list[str] | None = None) -> int:
     register_pgen(sub)
     from .calibration import register as register_calibration
     register_calibration(sub)
+    from .ordered_calls import register as register_ordered_calls
+    register_ordered_calls(sub)
     from .reference_calls import register as register_reference_calls
     register_reference_calls(sub)
     from .reference_confusion import register as register_reference_confusion
@@ -978,6 +991,12 @@ def main(argv: list[str] | None = None) -> int:
     register_control_model(sub)
     from .motif_position import register as register_motif_position
     register_motif_position(sub)
+    from .competitive import register as register_competitive
+    register_competitive(sub)
+    from .paired_vx_base import register as register_paired_vx_base
+    register_paired_vx_base(sub)
+    from .paired_vx_evalue import register as register_paired_vx_evalue
+    register_paired_vx_evalue(sub)
     from .reference_pairing import register as register_reference_pairing
     register_reference_pairing(sub)
     from .score_policy import register as register_score_policy
@@ -1006,6 +1025,7 @@ def main(argv: list[str] | None = None) -> int:
     native_threads = None
     evidence_commands = {"equal-tail", "motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     evidence_commands.add('paired-score')
+    evidence_commands.update({'vx-base', 'paired-vx-base', 'mouse-paired-rank'})
     evidence_commands.add('repertoire-exact')
     evidence_commands.add('graph-noise')
     evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment', 'repertoire-tcrnet'})

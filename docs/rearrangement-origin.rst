@@ -1,6 +1,10 @@
 Rearrangement-aware substitution and indel models
 =================================================
 
+This research framework studies how recombination constrains sequence variation.
+The :doc:`frozen vX annotation score <vx-formalism>` specifies the substitution
+and gap costs shipped as the default in VDJmatch 1.3.
+
 **Rearrangement origin changes the meaning of a substitution matrix.**
 Two TCR junctions recognizing the same epitope need not descend from one
 another. Their differences usually compare independently generated,
@@ -275,12 +279,11 @@ weight is
 P_0(\zeta\mid x_j)`, where :math:`\mathcal Z` is the explicitly
 matched channel; trimming/P transitions belong to separate channels.
 The local scenario posterior and masked opportunities must come from
-the existing vdjtools scenario engine. The current public pure-N
-posterior and N-interval API do not identify these full mixed-template
-posteriors; their implementation is not implied by the present N-only
-results. A future owning-library extension must expose the required
-configuration sums without materializing a Pgen bank or inferring
-germline mutations. Empirical recovery must distinguish the resulting
+the existing vdjtools scenario engine. The pure-N posterior and N-interval
+APIs supply the N-only channel. The separate
+``codon_origin_posterior_batch`` API resolves local G/P/N classes and
+immutable letters, as developed below. This local classification groups
+together histories with the same pattern. Empirical recovery must distinguish the resulting
 origin-mixture baseline from a residual recognition matrix and must
 retain all distance cells under the same independent validation contract.
 
@@ -899,7 +902,7 @@ equal-epitope matrices, source/support/exposure tables, and matched
 other-epitope contrasts with both count and directional-log
 symmetrization. This first estimator uses unique junction/V/J clonotypes
 as unit clusters; it does not claim BLOSUM62 redundancy clustering. The
-vdjtools5.8.0 joint masked-N interval extension additionally supplies
+vdjtools 5.8.0 joint masked-N interval extension additionally supplies
 exact alternative-residue opportunities to ``--origin-rates`` and the
 profiled residue/additive/joint fits described above. Neither interface
 assigns the full separate G/P/mixed configuration posterior. The full

@@ -72,16 +72,25 @@ def assayed_targets(queries, raw, reference, species):
     metadata = raw.filter(pl.col('species').str.strip_chars().str.to_lowercase().is_in(aliases))
     joined = queries.join(metadata.select(required), on='query_id', how='inner',
                           validate='1:1', maintain_order='left')
+    reference_schema = reference.schema
+    partitionable = all(reference_schema.get(column) == pl.String for column in ('epitope', 'mhc_class'))
+    reference_parts = None
+    empty_reference = reference.head(0)
     for key, part in joined.group_by(PMHC, maintain_order=True):
         task = dict(zip(PMHC, key))
         if any(not isinstance(value, str) or not value.strip() for value in key):
-            selected = reference.head(0)
+            selected = empty_reference
         else:
-            selected = reference.filter(
-                (pl.col('epitope') == task['epitope']) &
-                (pl.col('mhc_class') == task['mhc_class']) &
-                mhc_compatible('mhc_a', task['mhc_a']) &
-                mhc_compatible('mhc_b', task['mhc_b']))
+            compatible = mhc_compatible('mhc_a', task['mhc_a']) & mhc_compatible('mhc_b', task['mhc_b'])
+            if partitionable:
+                if reference_parts is None:
+                    reference_parts = reference.partition_by('epitope', 'mhc_class', as_dict=True, maintain_order=True)
+                pool = reference_parts.get((task['epitope'], task['mhc_class']), empty_reference)
+                selected = pool.filter(compatible)
+            else:
+                selected = reference.filter(
+                    (pl.col('epitope') == task['epitope']) &
+                    (pl.col('mhc_class') == task['mhc_class']) & compatible)
         yield task, part, selected
 
 

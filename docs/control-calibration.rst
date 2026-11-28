@@ -1,22 +1,21 @@
-Two directions of control calibration
-=====================================
+Directional calibration with one control
+========================================
 
-Select one raw control repertoire. Calibration is computed on demand after
-reference filtering; no fitted calibration file is needed. The
-``database-evidence --control`` command implements the two directions below
-for full-junction scoped nearest distance or distinct-neighbour count.
-For complete-score single, mixed and genuine paired inputs, use the opt-in
-``annotate --control`` route below. The scoped ``database-evidence`` statistics
-remain available separately.
+For default vX annotation, use a matching null bank as described in
+:doc:`vx-formalism`. This page covers the separate on-demand workflows that
+use one raw control repertoire. They compute calibration after filtering the
+reference. Use ``database-evidence --control`` for scoped nearest full-junction
+distance or distinct-neighbour count. Use ``annotate --control`` for the
+retained combined score with single, mixed and genuine paired inputs.
 
-Complete-score annotation
+Combined-score annotation
 -------------------------
 
 .. code-block:: bash
 
    vdjmatch annotate sample.tsv --vdjdb reference.zip --control control.tsv --threads 4 -o calibrated
 
-With default ``--background vdjdb-other``, the control opts into the combined
+With default ``--background vdjdb-other``, ``--control`` selects the combined
 reference-weighted score and both on-demand tails. ``--mock-replicates`` defaults
 to 200. ``--seed`` defaults to zero. No fitted calibration file is required.
 ``--fpr 0.01`` sets the any-call reporting threshold (default 1%); supply a
@@ -28,8 +27,8 @@ and available axes. The threshold is recorded as ``report_p`` in calibration
 metadata. It is a nominal conditional randomization FPR target, not a binding
 probability or an empirically established biological error rate.
 Reference epitope/MHC, ``--evidence-type`` and ``--min-score`` filters apply first.
-Ordinary annotation includes every valid selected reference observation; explicit
-``--reference-population curated-benchmark`` retains benchmark curation.
+The default reference policy is ``--reference-population curated-benchmark``.
+Use ``all-valid`` to apply the broader historical population.
 
 Choose the output that matches the question:
 
@@ -82,9 +81,7 @@ draws remain matched to the observed Pgen strata in both chains.
 Paired score axes include linked evidence and available unlinked marginals; the
 axis maximum is recomputed within every draw. The original component prior uses
 the matching-chain control for singles and the TRB control for paired scoring.
-This candidate one-control context differs from accepted historical benchmark
-model assets. It remains opt-in pending whole-task nonregression checks; the
-no-control stem4 default and older real/generative control routes are unchanged.
+The one-control combined score is specific to this workflow.
 Nondefault geometry and target-from-sample selection are rejected before mocks.
 
 The fixed control's V, J and junction-length marginal counts are constructed
@@ -356,10 +353,10 @@ rows with :math:`\widetilde p_{Q,e}\le\alpha`, plus all declarations, then compu
 their reference-direction tails. This is a lossless screen because
 :math:`p_{{\rm any},e}\ge\widetilde p_{Q,e}`. A bitset verifies that every
 source-query/target case appears exactly once in the real model and each mock.
-With :math:`G` labels and :math:`J=B_QH` test queries across :math:`H` represented
-Pgen strata, let :math:`F_{h,e}` be the multiset of finite supported test scores
-for stratum :math:`h` and target :math:`e`. A finite observed threshold :math:`t`
-has the unchanged fixed-label tail
+Let :math:`Q` count observed queries and :math:`G` count labels.
+There are :math:`J=B_QH` null queries across :math:`H` represented Pgen strata.
+Let :math:`F_{h,e}` be the multiset of finite supported null scores for stratum
+:math:`h` and target :math:`e`. A finite observed threshold :math:`t` has fixed-label tail
 
 .. math::
 

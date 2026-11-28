@@ -42,7 +42,14 @@ def test_gene_controls_filter_declared_metadata_before_shared_gene_resolution(tm
 
 @pytest.mark.parametrize('background',['real','generative','vdjdb-other'])
 @pytest.mark.parametrize('weighting',['ball','local-rank'])
-def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,background,weighting):
+def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,background,weighting,monkeypatch):
+    from vdjmatch import db
+    calls = []
+    provenance = db.provenance
+    def recorded(source):
+        calls.append(source)
+        return provenance(source)
+    monkeypatch.setattr(db, "provenance", recorded)
     q='CASSLGQAYEQYF';r=q[:-3]+'W'+q[-2:]
     sample=tmp_path/'q.tsv';reference=tmp_path/'r.tsv';control=tmp_path/'b.tsv';prefix=tmp_path/'out'
     pl.DataFrame({'junction_aa':[q,q,q],'v_call':['TRBV19']*3,'locus':['TRB']*3,
@@ -78,6 +85,9 @@ def test_cli_counts_and_jeffreys_ratio_use_same_full_distance(tmp_path,backgroun
     assert exact_only['enrichment'] == 0
     manifest=json.loads((tmp_path/'out.manifest.json').read_text())
     assert manifest['calibration']=='none'
+    assert calls.count(str(reference)) == 1
+    if background == 'vdjdb-other':
+        assert manifest['background_enrichment']['background']['reference'] == manifest['reference']
     assert manifest['background_enrichment']['geometry']=='trim3/3'
     if weighting=='local-rank':
         # One near target averages inverse ranks1..m+1; the other model
@@ -181,3 +191,15 @@ def test_matrix_relative_radius_and_bins_preserve_evidence(monkeypatch,tmp_path,
     assert b['distance_scale']['radius']==2*a['distance_scale']['radius']
     assert b['distance_scale']['bin_width']==2*a['distance_scale']['bin_width']
     assert b['distance_scale']['gap_cost']==2*a['distance_scale']['gap_cost']
+
+
+def test_neighbours_rejects_output_inside_reference(tmp_path, capsys):
+    reference = tmp_path / "reference"
+    reference.mkdir()
+    sample = tmp_path / "query.tsv"
+    sample.write_text("junction_aa\tv_call\tlocus\nCASSLGQAYEQYF\tTRBV19\tTRB\n")
+    with pytest.raises(SystemExit):
+        main(["neighbours", str(sample), "--vdjdb", str(reference), "--locus", "TRB",
+              "--output-prefix", str(reference / "output")])
+    assert "output path conflicts" in capsys.readouterr().err
+    assert not list(reference.iterdir())

@@ -22,8 +22,15 @@ from nbclient import NotebookClient
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('output', type=Path)
+parser.add_argument('--vdjdb-reference', type=Path, metavar='ZIP',
+                    help='also run the VDJdb notebook with this official release ZIP')
 parser.add_argument('--scientific', action='store_true', help='also run biological notebooks from local raw mirrors')
 args = parser.parse_args()
+if args.vdjdb_reference is not None:
+    reference = args.vdjdb_reference.expanduser().resolve()
+    if not reference.is_file() or reference.suffix != ".zip":
+        parser.error("--vdjdb-reference requires an existing release ZIP")
+    os.environ["VDJMATCH_EXAMPLE_VDJDB"] = str(reference)
 output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=False)
 os.environ["VDJMATCH_CACHE"] = str(output / "reference")
@@ -77,6 +84,8 @@ def notebook(path):
 
 for path in ("examples/annotation.ipynb", "examples/comparison.ipynb", "examples/repertoire_evidence.ipynb"):
     run(path, lambda path=path: notebook(path))
+if args.vdjdb_reference is not None:
+    run("examples/vdjdb_annotation.ipynb", lambda: notebook("examples/vdjdb_annotation.ipynb"))
 if args.scientific:
     for name in ('accuracy', 'vaccination', 'precursor_estimates'):
         run(f'examples/{name}.ipynb', lambda name=name: notebook(f'examples/{name}.ipynb'))

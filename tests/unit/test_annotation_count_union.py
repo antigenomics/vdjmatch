@@ -18,7 +18,7 @@ def test_counted_and_uncounted_sources_match_separate_runs(tmp_path, alias, monk
     uncounted = tmp_path / 'uncounted.tsv'
     rows.with_columns(pl.Series(alias, [3, 7])).write_csv(counted, separator='\t')
     rows.write_csv(uncounted, separator='\t')
-    options = dict(reference=root / 'examples/inputs/reference.tsv', threads=1)
+    options = dict(reference=root / 'examples/inputs/reference.tsv', score_model='kernel', threads=1)
     service = neighbours.main
     service_counts = []
 

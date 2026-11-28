@@ -1,6 +1,26 @@
 Release notes
 =============
 
+1.3.0
+-----
+
+Paired vX scoring exports unique target winners from a pinned mouse
+catalogue. Ordered-null calibration gives an empirical E threshold and a
+separate confidence bound. The paired E-value command checks that query and
+null scores used matching policies, including exact-hit retention. Fixed
+motif and peptide-withheld replays support reproducible evaluation.
+Ordinary human and mouse annotation defaults to vX for single TRA,
+single TRB, paired-chain and mixed inputs. Annotation reports ranked
+evidence without a bank. Supply a matched null bank for every active
+primary locus for calibrated calls, E-values and null-tail counts.
+Paired queries also receive separate TRA and TRB rankings using unlinked
+reference chains. The paired result determines the primary call.
+Compatible custom tables with peptide–MHC targets support ranked vX evidence.
+Calibrated annotation requires the reference ZIP used to fit the bank. Select
+``--score-model kernel`` to replay the previous model or use peptide-only
+custom references.
+See :doc:`vx-formalism`.
+
 1.2.4
 -----
 

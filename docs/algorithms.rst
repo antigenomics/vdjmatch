@@ -1,9 +1,23 @@
-How VDJmatch scores a receptor
-==============================
+Annotation and reference algorithms
+===================================
 
-All routes start with anchored junctions, chain identities and V genes. They
-retain reference peptide–MHC labels and query identity. Ordinary annotation
-keeps exact evidence; a benchmark filters exact query hits while keeping the reference model fixed.
+Ordinary vX annotation uses anchored junctions, chain identities and resolvable
+V calls. It retains exact evidence, query identity and the selected peptide–MHC
+label. Benchmark exact exclusion filters hits while keeping the reference model
+fixed.
+
+Default vX annotation
+---------------------
+
+vX compares each receptor with the compatible reference catalogue using one
+distance construction for single and paired chains. The paired distance
+compares both chains with the same observed reference pair. For each candidate
+target, vX uses the first two eligible target hits and compares their support
+with HLA-compatible other-peptide hits. The complete selection ranks targets
+with a size adjustment and an explicit ambiguity policy. A matching null bank
+can add a whole-query empirical false-call tail to the selected result.
+See :doc:`vx-formalism` for the distance, target score, selection and calibration
+equations.
 
 Fast reference classification
 -----------------------------
@@ -17,18 +31,21 @@ a scoring default.
 
 Let the population contain :math:`K` distinct full-junction/allele-pooled-V keys.
 Each key retains its complete binary target-membership vector, including shared
-labels. For a target with :math:`N` keys, let :math:`n_v` count its V-gene keys and
-:math:`q_v=K_v/K` be the population V distribution. The gene statistic, in bits
+labels. For a target with :math:`N` keys, let :math:`n_v` count its keys with
+V gene :math:`v`. Let :math:`K_v` count the corresponding keys in the
+population and write :math:`q_v=K_v/K`. The gene statistic, in bits
 per target key, is
 
 .. math::
 
    G=\sum_{v:n_v>0}\frac{n_v}{N}\log_2\frac{n_v/N}{q_v}.
 
-The background includes the target, as in the fixed-cohort label-shuffle
-comparison. Every observed category consequently has population support; no
-pseudocount or zero-frequency extrapolation is needed. Unresolved V calls
-retain their mass and prevent a biological class assignment.
+The population includes the target, so every target category has population
+support. For the shuffle tests, assign unresolved V calls once from the
+resolved-gene frequencies of the same species and chain, using a fixed random
+stream independent of target membership. Keep the original key identities and
+unresolved counts. If every V call is unresolved, use a single category with
+zero V-usage information.
 
 Tokenize the junction after trimming three residues at each end, retaining each
 exact amino-acid 3-mer once per key. For motif :math:`t` within V gene :math:`v`,
@@ -49,9 +66,10 @@ target key; it does not sum correlated, overlapping motifs. Stable lexical
 V/motif order resolves exact ties. The selected motif and its four presence
 counts remain visible.
 
-Two independent fixed random streams (seed 0) generate 199 shuffles. For
-:math:`G`, permute complete membership vectors over population keys. For
-:math:`M`, permute those vectors only within V genes. Target sizes and all
+Two independent fixed random streams (seed 0) each generate :math:`B=999`
+shuffles by default. For :math:`G`, permute complete membership vectors over
+population keys. For :math:`M`, permute those vectors only within V genes.
+Target sizes and all
 shared-membership relationships remain fixed; the latter null also fixes every
 target's V composition. Recompute the same maximum over motifs in each
 replicate, so choosing the best motif is part of the null statistic.
@@ -60,11 +78,11 @@ For either observed statistic :math:`S` and shuffled values :math:`S_b`, report
 
 .. math::
 
-   \Delta S=S-\frac{1}{199}\sum_{b=1}^{199}S_b,\qquad
-   p_S=\frac{1+\sum_{b=1}^{199}\mathbf1\{S_b\ge S\}}{200}.
+   \Delta S=S-\frac{1}{B}\sum_{b=1}^{B}S_b,\qquad
+   p_S=\frac{1+\sum_{b=1}^{B}\mathbf1\{S_b\ge S\}}{B+1}.
 
-Support requires :math:`\Delta S>0` and :math:`p_S\le0.005`; with 199 draws,
-this requires exceeding every shuffled value. Ties count against support.
+Support requires :math:`\Delta S>0` and :math:`p_S\le0.005`. With 999 draws,
+at most four shuffled values can equal or exceed the observed statistic.
 Under the respective exchangeability nulls these Monte Carlo tails are
 conservative; allocating 0.005 to each of two axes bounds the per-profile
 probability of falsely supporting either true-null axis by 0.01, without an
@@ -73,14 +91,21 @@ profile, remove study/ascertainment bias or calibrate selected query calls.
 Effects and null maxima are shown even when support is absent.
 
 The two support flags define V-and-motif, V-only, motif-only and no-supported-axis
-leaves. Missing V is assigned reproducibly from the same population's resolved
-gene frequencies before label shuffling, independently of target membership;
-original key identities and missingness counts remain fixed. With no resolved
-V, one neutral missing category carries no V-usage signal. Missing background
-and inadequate distinct support remain unclassified. A small effect measured precisely can pass its noise test while
-remaining weak for prediction. Neighbour coverage and edit-one pair-density
-enrichment are separate structural descriptors; pair counts share vertices and
-are not independent binomial observations.
+classes. A missing other-peptide background, fewer than two distinct target
+junctions, or a target that spans every population key leaves the profile
+unclassified. In the alternate motif catalogue, the maximum also tests
+four-residue windows with exactly one wildcard in any of the four positions.
+That catalogue uses the same permutation procedure.
+
+Neighbour coverage and edit-one pair-density enrichment describe the reference
+graph separately. Vertices are distinct full junctions. A substitution,
+insertion or deletion connects two distinct junctions at edit distance one.
+Within-target coverage is the fraction of target junctions with a target
+neighbour. The within-target and other-peptide pair densities divide edge
+counts by the corresponding number of eligible pairs whose lengths differ
+by at most one. Shared-label junctions remain in the other-peptide population
+when they carry a different peptide label. Edges that share vertices also
+share observations, so a binomial model with independent pairs does not apply.
 
 Implementation reuses the core tokenizer, fixed sparse key/target membership and
 key/V-motif presence matrices. Identical target memberships are reduced once.
@@ -89,8 +114,8 @@ or reference-model refitting occurs inside them. The completed class table and
 native search index are durable prepared-reference assets; query predictions
 are not reused.
 
-Current kernel evidence
------------------------
+Retained stem4 kernel evidence
+------------------------------
 
 .. graphviz::
 
@@ -109,7 +134,8 @@ Current kernel evidence
      select -> pair -> output;
    }
 
-Larger ``kernel_score`` means stronger evidence. A linked score compares both
+Use ``annotate --score-model kernel`` for this workflow. Larger
+``kernel_score`` means stronger evidence. A paired score compares both
 chains against the same linked reference receptor. Separate alpha and beta
 scores also use unlinked reference observations. The score is not itself a
 P-value. :doc:`scoring` gives the mathematical definitions of retained variants.
@@ -154,12 +180,15 @@ Legacy scoring routes
    }
 
 ``historical-density`` reproduces the retained density model. ``match`` is a
-separate older annotation interface. Neither should be described as the current
-``annotate`` default, and their probability fields cannot be transferred to the
-kernel score.
+separate older annotation interface. Their probability fields belong to their
+own models. See :doc:`vx-formalism` for the ordinary ``annotate`` score.
 
-From ranking to a match decision
---------------------------------
+Calibration for exported score tables
+-------------------------------------
+
+The workflow below applies to the generic ``calibrate-calls`` commands.
+For default vX annotation use the matching null-bank workflow in
+:doc:`vx-formalism`.
 
 .. graphviz::
 
@@ -176,9 +205,10 @@ From ranking to a match decision
    }
 
 The null asks whether an unrelated query would achieve at least this selected
-score. All searched labels, ties and unsupported null queries belong in that
-calculation. Paired any-axis calls require a null for the maximum over linked,
-alpha and beta evidence. See :doc:`explanation` for the output fields.
+score. Include all searched labels, ties and unsupported null queries.
+A kernel any-axis call calibrates the maximum of the paired, TRA and TRB
+scores. Ordinary paired vX calls calibrate the paired score and report separate
+marginal ranks. See :doc:`explanation` for the output fields.
 
 Reference structure for scoring weights
 ---------------------------------------
@@ -240,11 +270,10 @@ transferred to epitope or paired recognition; the exact gene-clonotype flag is a
 separate lookup. The chosen scoring pipeline's ``p_null`` answers a different
 question about its selected evidence score.
 
-Single-control directional calibration
---------------------------------------
+Directional calibration with one control
+----------------------------------------
 
-The preceding ``--null-sample`` graph describes the legacy diagnostic.
-The on-demand ``--control`` workflow computes both conditional directions:
+The on-demand ``--control`` workflow computes both conditional directions.
 
 .. graphviz::
 
@@ -266,11 +295,11 @@ The on-demand ``--control`` workflow computes both conditional directions:
      search -> pr; search -> pq; pr -> combined; pq -> combined;
    }
 
-The scoped nearest/count adapter and independent-chain paired sampler are
-implemented. Full VDJmatch-score, selected-label and paired search adapters
-must repeat their complete statistic, including reference-derived weights,
-inside the null calculation. See :doc:`control-calibration` for the equations,
-event/unique-key distinction and dependence-safe maximum proof.
+The scoped nearest/count and combined-score routes each repeat their complete
+statistic in the null calculation. The combined score recomputes
+reference-derived weights on each mock and repeats label and axis selection.
+See :doc:`control-calibration` for the event units and the maximum of the two
+directional tails.
 
 Exact bulk reference-panel enrichment
 -------------------------------------

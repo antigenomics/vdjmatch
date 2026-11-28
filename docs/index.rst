@@ -6,7 +6,7 @@ vdjmatch
    <div class="proj-intro">
      <p class="proj-intro__eyebrow">TCR specificity and repertoire annotation</p>
      <p class="proj-intro__lead">From receptor sequences to peptide–MHC evidence.
-     Annotate TRA/TRB receptors, linked pairs or whole repertoires while keeping
+     Annotate TRA/TRB receptors, paired-chain receptors or whole repertoires while keeping
      source identities, competing labels and unsupported queries visible.</p>
      <p class="proj-intro__links">
        <a href="tutorial.html">Get started</a><span>·</span>
@@ -23,8 +23,10 @@ Version |release|. Install the published package and annotate your AIRR table:
    python -m pip install vdjmatch
    vdjmatch annotate sample.tsv --threads 4 -o annotation
 
-The reference is fetched on first use. Choose ``--vdjdb reference.tsv`` for an
-offline run, or start with the tiny synthetic inputs in :doc:`examples`.
+The command fetches VDJdb on first use and ranks peptide–MHC evidence with vX.
+Use ``--vdjdb reference.zip`` to pin a release or
+``--vdjdb reference.tsv`` for a compatible local table. Start with the
+synthetic inputs in :doc:`examples`.
 
 .. raw:: html
 
@@ -59,7 +61,7 @@ Explore a worked example
    <div class="proj-card-grid">
      <a class="proj-card" href="examples.html">
        <h3>Examples gallery</h3>
-       <p>Three runnable shell workflows: cohort annotation, geometry comparison and database presence.</p>
+       <p>Run cohort annotation, compare exact-hit policies and check database presence.</p>
      </a>
      <a class="proj-card" href="notebooks.html">
        <h3>Notebooks gallery</h3>
@@ -118,6 +120,8 @@ ingestion uses `vdjtools <https://github.com/antigenomics/vdjtools>`_.
    Two control directions <control-calibration>
    Algorithm diagrams <algorithms>
    Score derivation <scoring>
+   Frozen vX formalism <vx-formalism>
+   Junction matching and repertoire structure <vx-structure>
    Rearrangement-origin models <rearrangement-origin>
    Historical scoring comparisons <historical-comparisons>
    Selection and information <selection-information>

@@ -1,4 +1,5 @@
 """Publicity uses substitutions only, inclusive exact hits, and unique control."""
+import polars as pl
 import pytest
 
 from vdjmatch.aggregate.publicity import junction_publicity
@@ -9,6 +10,8 @@ def test_batched_publicity_preserves_query_order_and_counts():
     control = ['CASSF', 'CASSF', 'CASAF', 'CASGF', 'CASSGF']
     one = junction_publicity(queries, control, threads=1)
     assert one.equals(junction_publicity(queries, control, threads=2))
+    assert one.equals(junction_publicity(pl.Series('query', queries), pl.Series('control', control)))
+    assert one.equals(junction_publicity(iter(queries), iter(control)))
     assert one['cdr3'].to_list() == queries
     assert one['control_exact_junctions'].to_list() == [1, 1, 0, 1]
     assert one['control_hamming1_junctions'].to_list() == [3, 3, 1, 1]

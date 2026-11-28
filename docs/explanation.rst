@@ -1,14 +1,21 @@
 Read scores and decide whether to call a match
 ==============================================
 
-Use ``kernel_score`` to rank evidence and a matching ``p_null`` to judge how
-unusual the selected score is under the declared null. ``call_status`` applies
-the frozen operating cutoff. These quantities answer different questions.
+Use vX ``score`` to rank evidence. With a matched ``--vx-null-dir``,
+``E_null`` reports the fraction of all null queries, including abstentions,
+with eligible evidence at least as strong. ``call_status`` records the decision under the ordered
+cutoff. See :doc:`vx-formalism` for the calibration assumptions.
 
 Which output should I read?
 ---------------------------
 
-.. list-table:: Current annotation output
+The ordinary vX selection table reports ``selected_epitope``, the selected
+MHC restriction, ``score``, ``tied``, and ``selection_status``. A finite
+``maximum`` records the winning score even when a tie prevents selection.
+``ranked_evidence`` marks a resolved ranking. Calibrated decisions appear
+separately in ``call_status``.
+
+.. list-table:: Previous kernel annotation output
    :header-rows: 1
 
    * - Column
@@ -166,8 +173,14 @@ For a decision based on two directional tails, estimate the rate by applying
 the complete decision to null queries. A sum of observed query P-values
 does not estimate the number of false calls.
 
-Single-chain and paired decisions
----------------------------------
+Paired decisions with vX and the previous kernel
+-------------------------------------------------
+
+vX ranks the full peptide–MHC target. For paired-chain annotation its primary
+score uses genuine reference pairs. Separate TRA and TRB tables report
+marginal evidence from the corresponding reference chain, including unlinked
+observations. These tables provide rankings. The bound paired vX null bank
+calibrates the primary paired decision.
 
 For a single chain, the complete selection maximizes over restrictions within
 each peptide, then over peptides. Its null must include that entire search.
@@ -212,10 +225,9 @@ current kernel and retained alternative formulas.
 Benchmark interpretation
 ------------------------
 
-The manuscript curated primary comparison has higher equal-task mean average
-precision than each of seven available rivals on that rival's fixed matched
-task set. This is a matched-mean result, not a claim of winning every individual
-task. The accepted all-valid baseline and its curves and intervals remain
-separate. Changing reference populations does not transfer calibration.
+The earlier curated kernel comparison reported higher equal-task mean average
+precision than each of seven available rivals on that rival's matched task set.
+The vX benchmarks use their own reference inputs, exact-hit policy and matched
+endpoints. See :doc:`vx-formalism` for vX evidence and scope.
 See :doc:`historical-comparisons` for the earlier composition-controlled matrix
 and positional-weighting studies, which use their own evaluation designs.

@@ -20,6 +20,8 @@ assert 'polars' not in sys.modules
 result = annotate_repertoires(sys.argv[1], reference=sys.argv[2], output_prefix=sys.argv[3])
 assert result['queries'].height == 2
 assert result['manifest']['reference_population'] == 'curated-benchmark'
+assert result['manifest']['score_models'] == ['vx']
+assert 'call_status' not in result['selection'].columns
 from vdjmatch.runner import annotate_sample
 assert callable(annotate_sample)
 """
@@ -66,7 +68,7 @@ def core(monkeypatch):
 def test_directory_batches_once_per_population_and_restores_ids(tmp_path, core):
     inputs = tmp_path / "inputs"; inputs.mkdir()
     table(inputs / "b.tsv"); table(inputs / "a.tsv", locus="TRA")
-    out = annotate_repertoires(inputs, reference="unused", output_prefix=tmp_path / "out", threads=2)
+    out = annotate_repertoires(inputs, reference="unused", score_model="kernel", output_prefix=tmp_path / "out", threads=2)
     assert [a.locus for a, _ in core] == ["TRA", "TRB"]
     assert len({i for _, raw in core for i in raw["query_id"]}) == 2
     assert out["queries"]["sample_id"].to_list() == ["a", "b"]
@@ -83,7 +85,7 @@ def test_directory_batches_once_per_population_and_restores_ids(tmp_path, core):
 
 def test_all_valid_baseline_remains_explicit(tmp_path, core):
     source = table(tmp_path / 'input.tsv')
-    annotate_repertoires(source, reference='unused', output_prefix=tmp_path / 'baseline',
+    annotate_repertoires(source, reference='unused', score_model="kernel", output_prefix=tmp_path / 'baseline',
                          reference_population='all-valid')
     assert core[0][0].reference_population == 'all-valid'
     assert core[0][0].kernel_scorer == 'v-bounded'
@@ -92,7 +94,7 @@ def test_all_valid_baseline_remains_explicit(tmp_path, core):
 
 def test_pairs_are_scoped_to_samples_and_keep_both_ids(tmp_path, core):
     a = table(tmp_path / "one.tsv", paired=True); b = table(tmp_path / "two.tsv", paired=True)
-    out = annotate_repertoires([a, b], reference="unused", output_prefix=tmp_path / "out")
+    out = annotate_repertoires([a, b], reference="unused", score_model="kernel", output_prefix=tmp_path / "out")
     assert len(core) == 1 and core[0][0].locus == "paired"
     assert core[0][1]["clone_id"].n_unique() == 2
     q = out["queries"]
@@ -101,6 +103,199 @@ def test_pairs_are_scoped_to_samples_and_keep_both_ids(tmp_path, core):
     assert q["source_query_idb"].to_list() == ["002", "002"]
     assert q["clonotype_ida"].to_list() == ["type-a", "type-a"]
     assert q["clonotype_idb"].to_list() == ["type-b", "type-b"]
+
+
+def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
+    from types import SimpleNamespace
+    from zipfile import ZipFile
+
+    from vdjmatch.cli.paired_vx_base import main as replay_paired
+    from vdjmatch.match.geometry import load_v_loops
+
+    model = load_v_loops("mouse")
+    alpha, beta = [next(v for v, entry in model.items() if entry["locus"] == lane)
+                   for lane in ("TRA", "TRB")]
+    reference = tmp_path / "reference.tsv"
+    pl.DataFrame({
+        "gene": ["TRA", "TRB"], "cdr3": ["CASAAAAAFF", "CASSRRRRFF"],
+        "v": [alpha, beta], "j": ["TRAJ1*01", "TRBJ1-1*01"], "epitope": ["PEPTIDE"] * 2,
+        "mhc_a": ["H2-Kb"] * 2, "mhc_b": ["B2M"] * 2, "mhc_class": ["MHCI"] * 2,
+        "species": ["MusMusculus"] * 2, "complex_id": [1, 1],
+    }).write_csv(reference, separator="\t")
+    pairs = tmp_path / "pairs.tsv"
+    pl.DataFrame({"pair_id": ["007", "008"], "junction_aa_alpha": [" casaaaaaff ", "CASAAAAAFF"],
+                  "junction_aa_beta": ["cassrrrrff", "CASSRRRRFF"], "v_alpha": [alpha] * 2, "v_beta": [beta] * 2,
+                  "species": ["mouse", "human"]}
+                 ).write_csv(pairs, separator="\t")
+    out = annotate_repertoires(pairs, reference=reference, species="MusMusculus",
+                               output_prefix=tmp_path / "paired")
+    assert out["manifest"]["score_models"] == ["vx"]
+    assert out["manifest"]["population_service_calls"] == 3
+    assert out["manifest"]["vx_marginal_chain_rows"] == {"TRA": 2, "TRB": 2}
+    assert out["selection"].select("pair_id", "score", "selected_epitope").rows() == [
+        ("007", 0., "PEPTIDE"), ("008", None, None)]
+    assert out["queries"]["status"].to_list() == ["matched", "unselected_species"]
+    unpaired = tmp_path / "unpaired.tsv"
+    pl.read_csv(reference, separator="\t").head(1).write_csv(unpaired, separator="\t")
+    out = annotate_repertoires(pairs, reference=unpaired, species="MusMusculus",
+                               output_prefix=tmp_path / "empty-reference")
+    assert out["queries"]["status"].to_list() == ["no_reference", "unselected_species"]
+    assert out["selection"]["score"].null_count() == 2
+    assert out["TRA.selection"].select("source_pair_id", "score", "selected_epitope").rows() == [
+        ("007", 0., "PEPTIDE"), ("008", None, None)]
+    assert "call_status" not in out["TRA.selection"].columns
+
+    release = tmp_path / "release.zip"
+    with ZipFile(release, "w") as archive:
+        archive.write(reference, "vdjdb.txt")
+    null_query = tmp_path / "null.tsv"
+    pl.read_csv(pairs, separator="\t", schema_overrides={"pair_id": pl.String}).head(1).drop(
+        "species").with_columns(pl.lit("CASAAAAAFF").alias("junction_aa_alpha"),
+                                pl.lit("CASSRRRRFF").alias("junction_aa_beta"),
+                                pl.col("pair_id").alias("query_id")).write_csv(null_query, separator="\t")
+    null_dir = tmp_path / "null"
+    assert replay_paired(SimpleNamespace(queries=null_query, vdjdb=release, null_source="generated",
+                                        output_dir=null_dir, exclude_exact=False, withhold_peptides=None,
+                                        threads=1)) == 0
+    import json
+
+    from vdjmatch.cli import competitive
+    from vdjmatch.cli.paired_vx_evalue import _source
+    from vdjmatch.db.cache import sha256
+    from vdjmatch.evalue import competitive as reducer
+
+    ranking_dir = tmp_path / "raw-ranking"
+    ranking_args = SimpleNamespace(queries=null_query, vdjdb=release, exclude_exact=False,
+                                   output_dir=ranking_dir, threads=1)
+    assert competitive.mouse_paired_main(ranking_args) == 0
+    with pytest.raises(ValueError, match="fresh output directory"):
+        competitive.mouse_paired_main(ranking_args)
+    _, binding, *_ = _source(ranking_dir)
+    _, null_binding, *_ = _source(null_dir)
+    assert binding == null_binding
+    ranks = pl.read_csv(ranking_dir / "ranking.tsv", separator="\t")
+    assert ranks.height == 1 and ranks["score"].item() == 0
+    rank_manifest = json.loads((ranking_dir / "ranking.manifest.json").read_text())
+    assert rank_manifest["ranking_sha256"] == sha256(ranking_dir / "ranking.tsv")
+    assert rank_manifest["base_manifest_sha256"] == sha256(ranking_dir / "manifest.json")
+    assert rank_manifest["motif_reducer_source_sha256"] == sha256(Path(reducer.__file__))
+
+    out = annotate_repertoires(pairs, reference=release, species="mouse", vx_null_dir=null_dir,
+                               output_prefix=tmp_path / "calibrated")
+    assert out["selection"].select("score", "E_null", "null_tail_count", "call_status").rows() == [
+        (0., 1., 1, "no_supported_match"), (None, 0., 0, "no_supported_match")]
+    assert out["TRA.selection"]["score"].to_list() == [0., None]
+    assert "call_status" not in out["TRA.selection"].columns
+    exact_excluded = annotate_repertoires(pairs, reference=release, species="mouse", exclude_exact=True,
+                                         output_prefix=tmp_path / "exact-excluded")
+    assert exact_excluded["selection"]["score"].to_list() == [None, None]
+    assert exact_excluded["TRA.selection"]["score"].to_list() == [None, None]
+    with pytest.raises(ValueError, match="exact-hit policy"):
+        annotate_repertoires(pairs, reference=release, species="mouse", vx_null_dir=null_dir,
+                             output_prefix=tmp_path / "incompatible", exclude_exact=True)
+    (tmp_path / "collision.selection.tsv").hardlink_to(null_dir / "maxima.tsv")
+    with pytest.raises(ValueError, match="output path conflicts"):
+        annotate_repertoires(pairs, reference=release, species="mouse", vx_null_dir=null_dir,
+                             output_prefix=tmp_path / "collision")
+
+    single = tmp_path / "single.tsv"
+    pl.DataFrame({"query_id": ["01", "02", "03"], "locus": ["TRA"] * 3,
+                  "junction_aa": [" casaaaaaff ", "ZZ", "CASAAAAAFF"], "v_call": [alpha] * 3,
+                  "species": ["mouse", "mouse", "human"]}).write_csv(single, separator="\t")
+    out = annotate_repertoires(single, reference=release, species="mouse",
+                               output_prefix=tmp_path / "single-vx")
+    assert out["queries"]["status"].to_list() == ["matched", "invalid_query_or_gene", "unselected_species"]
+    assert out["selection"].select("source_query_id", "score", "selected_epitope").rows() == [
+        ("01", 0., "PEPTIDE"), ("02", None, None), ("03", None, None)]
+    ranked = annotate_repertoires([pairs, single], reference=release, species="mouse",
+                                  output_prefix=tmp_path / "mixed-ranking")
+    assert ranked["manifest"]["score_models"] == ["vx"]
+    assert ranked["selection"]["query_id"].n_unique() == ranked["selection"].height == 5
+    assert "call_status" not in ranked["selection"].columns
+    with pytest.raises(ValueError, match="null locus"):
+        annotate_repertoires(single, reference=release, species="mouse", score_model="vx", vx_null_dir=null_dir,
+                             output_prefix=tmp_path / "wrong-locus")
+    single_null = tmp_path / "single-null.tsv"
+    first = pl.read_csv(single, separator="\t", schema_overrides={"query_id": pl.String}).head(1)
+    pl.concat([first, first.with_columns(pl.lit("04").alias("query_id"))]).write_csv(single_null, separator="\t")
+    single_null_dir = tmp_path / "single-null"
+    assert replay_paired(SimpleNamespace(queries=single_null, vdjdb=release, null_source="generated",
+                                        output_dir=single_null_dir, exclude_exact=False, withhold_peptides=None,
+                                        locus="TRA", threads=1)) == 0
+    with pytest.raises(ValueError, match="one matching null directory"):
+        annotate_repertoires([pairs, single], reference=release, species="mouse", score_model="vx",
+                             vx_null_dir=null_dir, output_prefix=tmp_path / "missing-bank")
+    mixed = annotate_repertoires([pairs, single], reference=release, species="mouse",
+                                 vx_null_dir=[single_null_dir, null_dir],
+                                 output_prefix=tmp_path / "mixed-vx")
+    assert mixed["selection"]["query_id"].n_unique() == mixed["selection"].height == 5
+    assert set(mixed["selection"]["locus"]) == {"TRA", "paired"}
+    assert mixed["selection"].filter(pl.col("locus") == "TRA")["null_queries"].to_list() == [2] * 3
+    assert mixed["selection"].filter(pl.col("locus") == "paired")["null_queries"].to_list() == [1] * 2
+    assert mixed["selection"]["E_null"].sum() == 2.
+    assert mixed["manifest"]["population_service_calls"] == 3
+    assert mixed["TRA.selection"]["source_pair_id"].to_list() == ["007", "008"]
+    assert "call_status" not in mixed["TRA.selection"].columns
+    explicit = annotate_repertoires([pairs, single], reference=release, species="mouse", score_model="vx",
+                                    vx_tie_policy="abstain", vx_null_dir=[null_dir, single_null_dir],
+                                    output_prefix=tmp_path / "mixed-explicit")
+    assert mixed["selection"].equals(explicit["selection"])
+    with pytest.raises(ValueError, match="requires the vX annotation score"):
+        annotate_repertoires(single, reference=release, species="mouse", score_model="kernel",
+                             vx_null_dir=single_null_dir, output_prefix=tmp_path / "kernel-with-bank")
+    with pytest.raises(ValueError, match="one matching null directory"):
+        annotate_repertoires(single, reference=release, species="mouse", vx_null_dir=[],
+                             output_prefix=tmp_path / "empty-bank")
+    with pytest.raises(ValueError, match="ordinary annotation options"):
+        annotate_repertoires(single, reference=release, species="mouse", vx_null_dir=single_null_dir,
+                             output_prefix=tmp_path / "advanced-with-bank", selection_only=False)
+
+    broad = pl.read_csv(reference, separator="\t")
+    narrow = broad.with_columns(pl.lit(2).alias("complex_id"), pl.lit("H2-Kb:01").alias("mhc_a"))
+    literal_reference = tmp_path / "restriction-hierarchy.zip"
+    with ZipFile(literal_reference, "w") as archive:
+        archive.writestr("vdjdb.txt", pl.concat([broad, narrow], how="vertical_relaxed").write_csv(separator="\t"))
+    literal_null = tmp_path / "literal-null"
+    assert replay_paired(SimpleNamespace(queries=null_query, vdjdb=literal_reference, null_source="generated",
+                                        output_dir=literal_null, exclude_exact=False, withhold_peptides=None,
+                                        maxima_only=True, tie_policy="literal", threads=1)) == 0
+    out = annotate_repertoires(pairs, reference=literal_reference, species="mouse",
+                               vx_null_dir=literal_null,
+                               output_prefix=tmp_path / "literal")
+    assert out["selection"].select("tied", "tie_resolved", "selected_mhc_a", "E_null").rows() == [
+        (True, True, "H2-Kb:01", 1.), (False, False, None, 0.)]
+    explicit_literal = annotate_repertoires(pairs, reference=literal_reference, species="mouse",
+                                            score_model="vx", vx_null_dir=literal_null, vx_tie_policy="literal",
+                                            output_prefix=tmp_path / "literal-explicit")
+    assert out["selection"].equals(explicit_literal["selection"])
+    with pytest.raises(ValueError, match="null tie policy"):
+        annotate_repertoires(pairs, reference=literal_reference, species="mouse",
+                             vx_null_dir=literal_null, vx_tie_policy="abstain",
+                             output_prefix=tmp_path / "literal-with-abstention")
+
+    with pytest.raises(ValueError, match="ordinary annotation options"):
+        annotate_repertoires(pairs, reference=reference, species="MusMusculus",
+                             output_prefix=tmp_path / "modified", score_model="vx", distance_matrix="clipped")
+
+
+def test_vx_cli_custom_reference_preserves_exact_hit_policy(tmp_path):
+    from vdjmatch.cli.__main__ import main
+
+    inputs = Path(__file__).resolve().parents[2] / "examples" / "inputs"
+    retained = tmp_path / "retained"
+    excluded = tmp_path / "excluded"
+    command = [
+        "annotate", str(inputs / "cohort" / "sample_a.tsv"), "--locus", "TRB",
+        "--vdjdb", str(inputs / "reference.tsv"), "--threads", "1",
+    ]
+    assert main([*command, "-o", str(retained)]) == 0
+    assert main([*command, "-o", str(excluded), "--exclude-exact"]) == 0
+    old = pl.read_csv(retained.with_suffix(".selection.tsv"), separator="\t")
+    new = pl.read_csv(excluded.with_suffix(".selection.tsv"), separator="\t")
+    assert old["score_model"].to_list() == new["score_model"].to_list() == ["vx", "vx"]
+    assert old["selected_epitope"].to_list() == new["selected_epitope"].to_list() == ["DEMO_A", "DEMO_A"]
+    assert old["score"].to_list() == pytest.approx([0.01875, 0.01875])
+    assert new["score"].to_list() == [-6.0, -6.0]
 
 
 def test_metadata_paths_relative_to_metadata_and_options(tmp_path, core):
@@ -117,7 +312,7 @@ def test_single_clone_ids_do_not_invent_pairing(tmp_path, core):
     path = table(tmp_path / "single.tsv")
     pl.read_csv(path, separator="\t", infer_schema_length=0).with_columns(
         pl.lit("007").alias("clone_id")).write_csv(path, separator="\t")
-    out = annotate_repertoires(path, reference="unused", output_prefix=tmp_path / "out")
+    out = annotate_repertoires(path, reference="unused", score_model="kernel", output_prefix=tmp_path / "out")
     assert len(core) == 1 and core[0][0].locus == "TRB"
     assert out["queries"]["clone_id"].to_list() == ["007"]
 
@@ -160,7 +355,7 @@ def test_actual_wide_core_preserves_pairs_and_marginal_identities(tmp_path):
         "query_id": ["q007", "q008"], "junction_aa_alpha": ["CAVRDSNYQLIW", None],
         "junction_aa_beta": ["CASSLGQAYEQYF"] * 2, "v_alpha": ["TRAV12-1", None],
         "v_beta": ["TRBV19"] * 2}).write_csv(path, separator="\t")
-    out = annotate_repertoires(path, reference=ref, output_prefix=tmp_path / "out")
+    out = annotate_repertoires(path, reference=ref, score_model="kernel", output_prefix=tmp_path / "out")
     assert out["queries"].height == out["selection"].height == 2
     assert out["queries"]["clone_id"].to_list() == ["007", "008"]
     assert out["queries"]["source_query_ida"].to_list() == ["q007", "q008"]
@@ -168,6 +363,11 @@ def test_actual_wide_core_preserves_pairs_and_marginal_identities(tmp_path):
     assert {"TRA.selection", "TRB.selection"} <= out.keys()
     for lane in ["TRA", "TRB"]:
         assert set(out[lane + ".selection"]["source_query_id"]) == {"q007", "q008"}
+    vx = annotate_repertoires(path, reference=ref, output_prefix=tmp_path / "vx")
+    assert vx["queries"].select("source_pair_id", "status").rows() == [
+        ("007", "matched"), ("008", "invalid_alpha_query")]
+    assert vx["TRB.selection"].select("source_pair_id", "selected_epitope").rows() == [
+        ("007", "E"), ("008", "E")]
 
 
 @pytest.mark.parametrize("complete", [True, False])
@@ -178,7 +378,7 @@ def test_cell_linkage_precedes_shared_clone_identity(tmp_path, core, complete):
     pl.DataFrame({"cell_id": cells, "clone_id": ["clone-x"] * len(loci),
         "clonotype_id": ["type-y"] * len(loci), "sequence_id": [str(i) for i in range(len(loci))],
         "locus": loci, "junction_aa": ["CAVF" if x == "TRA" else "CASSF" for x in loci]}).write_csv(path, separator="\t")
-    out = annotate_repertoires(path, reference="unused", output_prefix=tmp_path / "out")
+    out = annotate_repertoires(path, reference="unused", score_model="kernel", output_prefix=tmp_path / "out")
     assert [a.locus for a, _ in core] == (["paired"] if complete else ["TRA", "TRB"])
     assert out["queries"].height == 2
     assert out["queries"]["clone_id"].to_list() == ["clone-x"] * 2
@@ -209,7 +409,7 @@ def test_source_generated_metadata_columns_are_preserved(tmp_path, core):
     path = table(tmp_path / 'one.tsv')
     pl.read_csv(path, separator='\t', infer_schema_length=0).with_columns(
         pl.lit('raw-status').alias('status')).write_csv(path, separator='\t')
-    result = annotate_repertoires(path, reference='unused', output_prefix=tmp_path / 'out')
+    result = annotate_repertoires(path, reference='unused', score_model="kernel", output_prefix=tmp_path / 'out')
     assert result['queries']['status'].to_list() == ['matched']
     assert result['queries']['input_status'].to_list() == ['raw-status']
 

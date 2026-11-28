@@ -5,7 +5,11 @@ Selection evidence as information
 
 **Scope and status.**
 
-Reference profiles describe which receptor features distinguish a target from a declared background. The gene–length decomposition and V-conditioned motif scores are implemented diagnostics. A tested class-based selector regressed against the accepted original baseline and was not promoted. The equations below explain evidence and calibration; they do not establish an optimal scorer or change the annotation default.
+Reference profiles describe which receptor features distinguish a target from a
+declared background. The gene–length decomposition and V-conditioned motif
+scores are implemented diagnostics. A tested class-based selector lowered
+metrics against the accepted baseline. Ordinary annotation uses the
+:doc:`frozen vX score <vx-formalism>`.
 
 Reading a reference profile
 ---------------------------
@@ -126,7 +130,7 @@ For token :math:`t`, let :math:`x_{lve}(t)` count distinct reference junctions w
 
 .. math:: \mathcal S_{ve}(t)=\{l:x_{lve}(t)\ge2,\ x_{ve}(t)\ge3,\ x_e(t)\ge5\}.
 
-For ordinary annotation the score is
+For the exact-retained ``motif-evidence`` diagnostic the score is
 
 .. math::
     S_e^{\rm motif}(q)=\frac{1}{L_q}
@@ -186,7 +190,16 @@ conditional presence bits, binary KL and availability statuses remain separate.
 Germline-loop information with allele ambiguity
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``reference-structure --control`` also writes ``.germline-map.tsv``, ``.germline.tsv`` and ``.germline-information.tsv``. These project the existing V-gene counts onto individual aligned CDR1, CDR2 and CDR2.5 columns, using full amino acids and the eleven IMGT classes separately. Column numbers are one-based columns in the bundled alignment, not structural residue numbers. A gene has a confirmed residue only where every bundled allele agrees. Missing genes, missing loop templates, stop/unknown symbols and allele-dependent columns remain explicit; an omitted allele never selects ``*01``. A dot denotes aligned absence within a populated loop, while an entirely empty template is unavailable.
+``reference-structure --control`` also writes ``.germline-map.tsv``,
+``.germline.tsv`` and ``.germline-information.tsv``. These project the existing
+V-gene counts onto aligned CDR1, CDR2 and short FR3 columns, using full amino
+acids and the eleven IMGT classes separately. The bundled alignment indexes
+the short FR3 segment as CDR2.5. Reported site numbers are one-based alignment
+columns. A gene has a confirmed residue where every bundled allele agrees.
+Missing genes or templates, stop/unknown symbols and allele-dependent columns
+remain explicit. Omitting an allele leaves its identity unresolved. A dot
+marks aligned absence within a populated loop. An entirely empty template is
+unavailable.
 
 The sampling unit remains a distinct full-junction/V-gene key. Keys from two genes retain their separate mass after those genes map to the same residue, even if their junctions agree. Let :math:`w_e(g)` and :math:`w_0(g)` count such keys for gene :math:`g`, and let :math:`N=\sum_gw_e(g)` and :math:`M=\sum_gw_0(g)`. For one loop column and alphabet, let :math:`\mathcal A_g` be the set of residues across the modeled alleles; missing models or template symbols admit the entire alphabet. For residue :math:`a`, define
 
@@ -266,9 +279,9 @@ Implementation entry points
 ---------------------------
 
 Use :doc:`cli` for ``motif-evidence`` and ``reference-structure --control``. The latter produces pointwise selection bits in ``.genes.tsv`` and conditional/marginal information in ``.information.tsv``.
-See :doc:`scoring` for the current default reducers and :doc:`control-calibration`
-for the two control directions. The information-directed selector described here
-is a mathematical development objective, not an additional CLI mode.
+See :doc:`vx-formalism` for the frozen default and :doc:`control-calibration`
+for the two control directions. The information-directed selector is a
+proposed analysis.
 
 Database occurrence coverage
 ----------------------------

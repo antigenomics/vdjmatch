@@ -11,8 +11,11 @@ def register(sub):
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--control',required=True,help='Distinct junction_aa,v,j probe keys; optional joint_pgen column')
     p.add_argument('--abundance-metrics',action='store_true',help='Compare full-depth curve-average richness, Shannon and Simpson Hill diversity against reference mocks (includes Chao1)')
+    p.add_argument('--discovery-curve',action='store_true',help='Compute whole-library discovery and abundance summaries without per-depth Hill curves')
     p.add_argument('--chao1',action='store_true',help='Compare matched source-clonotype Chao1 from vdjtools against the same mock panels')
-    p.add_argument('--pgen-features',help='Verified marginal Pgen features; use raw probabilities and bins without corrections')
+    probability = p.add_mutually_exclusive_group()
+    probability.add_argument('--pgen-features',help='Verified marginal Pgen features; use raw probabilities and bins without corrections')
+    probability.add_argument('--marginal-pgen',action='store_true',help='Compute raw marginal junction Pgen in memory without model/selection corrections')
     p.add_argument('--model-vj-counts',help='Generated-model v,j,records counts from the selected source')
     p.add_argument('--model-vj-probabilities',help='Exact model v,j,p probabilities; alternative to generated V/J counts')
     p.add_argument('--include-nonfunctional',action='store_true',help='Retain nonfunctional/unsupported genes and zero-mass probes in the lowest Pgen bin; modern default filters them')
@@ -25,7 +28,7 @@ def register(sub):
     p.add_argument('--selection-profile',help='Opt-in length | vj-length | vdjtools calibration JSON')
     p.add_argument('--source',default=None,help='Model source; default isalgo (legacy human: olga-legacy)')
     p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
-    p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact joint Pgen; 1 inclusive Hamming-1 joint mass')
+    p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact junction probability; 1 inclusive Hamming-1 mass in the selected Pgen mode')
     p.add_argument('--allow-missing-model-genes',action='store_true',help='Retain absent model genes with zero joint mass and the existing add-one V/J-count smoothing; original calls are unchanged')
     p.add_argument('--matcher',choices=['exact','hamming','stem4','blosum62','positional-blosum62',*GRADED_FAMILIES],default='exact')
     p.add_argument('--min-score',type=float,help='Explicit dimensionless stem4 score threshold; fixed geometry')
@@ -173,7 +176,8 @@ def main(a):
     from ..runner.annotation import _validate_output_paths
     from vdjtools.cores import kernel_threads
     a.threads = kernel_threads(a.threads)
-    abundance_metrics=getattr(a,'abundance_metrics',False)
+    hill_rarefaction=getattr(a,'abundance_metrics',False)
+    abundance_metrics=hill_rarefaction or getattr(a,'discovery_curve',False)
     chao1=getattr(a,'chao1',False) or abundance_metrics
     if chao1 and a.matcher=='stem4':raise ValueError('--chao1 requires a membership-count matcher')
     if a.mock_replicates<2 or a.seed<0 or a.threads<1:raise ValueError('at least two mocks, nonnegative seed and positive threads required')
@@ -197,8 +201,12 @@ def main(a):
     if any(meta[c].null_count() or meta[c].str.strip_chars().eq('').any() for c in needed):raise ValueError('sample identities, paths and FDR groups cannot be missing')
     paths=[(meta_path.parent/Path(p).expanduser()).resolve() for p in meta['path']]
     if len(set(paths))!=len(paths):raise ValueError('sample paths must be unique')
-    marginal=getattr(a,'pgen_features',None)
-    if marginal and any([a.legacy,a.model_vj_counts,a.model_vj_probabilities,a.selection_profile,a.model_informed_prior,a.selection_q is not None,a.allow_missing_model_genes]):raise ValueError('--pgen-features uses raw marginal Pgen without model/selection corrections')
+    prepared_features = getattr(a, 'pgen_features', None)
+    fresh_marginal = getattr(a, 'marginal_pgen', False)
+    if prepared_features and fresh_marginal:
+        raise ValueError('select either prepared features or fresh marginal Pgen')
+    marginal = bool(prepared_features or fresh_marginal)
+    if marginal and any([a.legacy,a.model_vj_counts,a.model_vj_probabilities,a.selection_profile,a.model_informed_prior,a.selection_q is not None,a.allow_missing_model_genes]):raise ValueError('raw marginal Pgen does not support model/selection corrections')
     model_probabilities=getattr(a,'model_vj_probabilities',None)
     if model_probabilities and a.model_vj_counts:
         raise ValueError('supply model V/J counts or probabilities, not both')
@@ -215,13 +223,14 @@ def main(a):
         inputs.append(Path(model_probabilities).expanduser().resolve())
     if a.selection_profile and a.selection_profile not in {'length','vj-length'}:
         inputs.append(Path(a.selection_profile).expanduser().resolve())
-    if marginal:
-        feature_path=Path(marginal).expanduser().resolve();inputs.extend([feature_path,feature_path.with_name(feature_path.name.removesuffix('.features.parquet')+'.manifest.json')])
+    if prepared_features:
+        feature_path=Path(prepared_features).expanduser().resolve();inputs.extend([feature_path,feature_path.with_name(feature_path.name.removesuffix('.features.parquet')+'.manifest.json')])
     prefix=_validate_output_paths(a.output_prefix,[str(p) for p in inputs])
     suffixes=['v-repairs.tsv','source-audit.tsv','summary.tsv','counts.tsv','vj-audit.tsv','reference-bins.tsv','manifest.json']
     if a.allow_missing_model_genes or a.include_nonfunctional:suffixes.append('missing-model-genes.tsv')
     if chao1:suffixes.append('abundance-spectra.tsv')
-    if abundance_metrics:suffixes.extend(['discovery-curves.tsv','hill-rarefaction.tsv'])
+    if abundance_metrics:suffixes.append('discovery-curves.tsv')
+    if hill_rarefaction:suffixes.append('hill-rarefaction.tsv')
     if any(Path(str(prefix)+'.'+s).exists() for s in suffixes):raise FileExistsError('fresh output prefix required')
     before={str(p):sha256(p) for p in inputs}
     import seqtree._core as search_native
@@ -234,8 +243,11 @@ def main(a):
         from vdjtools.stats.inext import asymptotic_diversity
         source_files.append(Path(asymptotic_diversity.__code__.co_filename))
     if abundance_metrics:
-        from vdjtools.stats import subset_rarefaction_batch,shannon_wiener,inverse_simpson,inext_batch
-        source_files.extend(Path(f.__code__.co_filename) for f in [subset_rarefaction_batch,shannon_wiener,inverse_simpson,inext_batch])
+        from vdjtools.stats import subset_rarefaction_batch,shannon_wiener,inverse_simpson
+        source_files.extend(Path(f.__code__.co_filename) for f in [subset_rarefaction_batch,shannon_wiener,inverse_simpson])
+    if hill_rarefaction:
+        from vdjtools.stats import inext_batch
+        source_files.append(Path(inext_batch.__code__.co_filename))
     source_before={str(p):sha256(p) for p in source_files}
     now=time.monotonic();stages['input_validation_and_freeze']=now-mark;mark=now
     reference=db.load(inputs[1],species={'human':'HomoSapiens','mouse':'MusMusculus'}[a.species]).filter(pl.col('gene')==a.locus)
@@ -297,11 +309,17 @@ def main(a):
     if 'joint_pgen' in probes.columns and a.pgen_mismatches:
         raise ValueError('neighbourhood Pgen requires fresh native probabilities')
     if marginal:
-        from ..evalue.mock_reference import load_pgen_features
-        model_identity=_pgen_model_identity(a.species,a.locus,source=a.source)
-        probabilities,feature_identity=load_pgen_features(marginal,reference,probes,species=a.species,locus=a.locus,mismatches=a.pgen_mismatches,source=a.source)
+        from ..evalue.mock_reference import compute_pgen, load_pgen_features
+        model_identity = _pgen_model_identity(a.species, a.locus, source=a.source)
+        options = dict(species=a.species, locus=a.locus, mismatches=a.pgen_mismatches, source=a.source)
+        if prepared_features:
+            probabilities, feature_identity = load_pgen_features(prepared_features, reference, probes, **options)
+            pgen_origin = 'verified raw marginal Pgen features'
+        else:
+            probabilities = compute_pgen(reference, probes, threads=a.threads, **options)
+            feature_identity = None
+            pgen_origin = 'fresh native marginal junction probability'
         probes=pl.concat([probes.select(keys),reference.select(keys)]).unique(maintain_order=True).join(probabilities,on='junction_aa',how='left',validate='m:1')
-        pgen_origin='verified raw marginal Pgen features'
     elif 'joint_pgen' in probes.columns:
         probes=probes.select(*keys,pl.col('joint_pgen').cast(pl.Float64).alias('pgen'))
         if reference.select(keys).join(probes.select(keys),on=keys,how='anti').height:raise ValueError('external joint_pgen probes must include every reference key')
@@ -404,6 +422,8 @@ def main(a):
             pl.col('qD').filter(pl.col('replicate')>=0).mean().alias('mock_mean_richness'),
             pl.col('qD').filter(pl.col('replicate')>=0).std().alias('mock_sd_richness')).sort('sample_id','group_id','m')
         del curves,matrix
+        counts=counts.with_columns(pl.when(pl.col('matched_simpson')>0).then(1-1/pl.col('matched_simpson')).otherwise(0.).alias('gini_simpson'))
+    if hill_rarefaction:
         limits=counts.group_by('sample_id','group_id').agg(pl.col('matched_reads').min().alias('hill_max_depth'))
         hill_keys=counts.with_row_index('sample').select('sample','sample_id','group_id','replicate','matched_records','matched_reads').join(limits,on=['sample_id','group_id'],validate='m:1',maintain_order='left').filter(pl.col('hill_max_depth')>0)
         if hill_keys.height:
@@ -422,14 +442,14 @@ def main(a):
         hill_summary=(pl.concat(hill_parts).join(limits,on=['sample_id','group_id'],validate='m:1') if hill_parts else limits.clear().with_columns(pl.lit(None,dtype=pl.Int64).alias('matched_read_depth')))
         unavailable=limits.filter(pl.col('hill_max_depth')==0).with_columns(pl.lit(None,dtype=pl.Int64).alias('matched_read_depth'))
         hill_summary=pl.concat([hill_summary,unavailable],how='diagonal_relaxed').sort('sample_id','group_id','matched_read_depth')
-        counts=counts.with_columns(pl.when(pl.col('matched_simpson')>0).then(1-1/pl.col('matched_simpson')).otherwise(0.).alias('gini_simpson'))
     now=time.monotonic();stages['cohort_kernel_and_count_assembly']=now-mark;mark=now
     summary=_summaries(counts).join(meta.select('sample_id',*a.fdr_group),on='sample_id',validate='m:1')
     summary=_adjust_summary(summary,['records','reads']+(['chao1'] if chao1 else [])+(['curve_mean','shannon','simpson'] if abundance_metrics else []),a.fdr_group).join(inventory,on='group_id',validate='m:1')
     now=time.monotonic();stages['statistics_and_fdr']=now-mark;mark=now
     outputs={'source-audit.tsv':pl.DataFrame(source_audit),'summary.tsv':summary,'counts.tsv':counts,'vj-audit.tsv':audit,'reference-bins.tsv':reference.group_by('group_id','pgen_bin').len(name='reference_keys')}
     if chao1:outputs['abundance-spectra.tsv']=spectra
-    if abundance_metrics:outputs.update({'discovery-curves.tsv':curve_summary,'hill-rarefaction.tsv':hill_summary})
+    if abundance_metrics:outputs['discovery-curves.tsv']=curve_summary
+    if hill_rarefaction:outputs['hill-rarefaction.tsv']=hill_summary
     if v_repairs:outputs['v-repairs.tsv']=pl.concat(v_repairs)
     if 'pgen_model_supported' in probes.columns:
         outputs['missing-model-genes.tsv']=probes.filter(~pl.col('pgen_model_supported'))
@@ -466,5 +486,9 @@ def main(a):
     if shape is not None:
         manifest['selection_profile_kind']=shape['kind']
         manifest['probability']='global Q times AA-max selected joint mass times residual within-V J usage ratio; floor2^-80'
+    if abundance_metrics and not hill_rarefaction:
+        manifest['abundance_metrics'].pop('hill_rarefaction')
+        for metric in ('hill0','hill1','hill2'):
+            manifest['abundance_metrics']['tails'].pop(metric)
     Path(str(prefix)+'.manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     return 0

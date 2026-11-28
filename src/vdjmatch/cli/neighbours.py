@@ -38,7 +38,7 @@ def _apply_geometry_extra(a):
 
 
 def register(subparsers, name='neighbours'):
-    p=subparsers.add_parser(name,help='targeted stem4 kernel evidence' if name=='annotate' else 'native junction/V-loop distance balls')
+    p=subparsers.add_parser(name,help='vX peptide–MHC annotation' if name=='annotate' else 'native junction/V-loop distance balls')
     p.add_argument('sample')
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--locus',choices=['TRA','TRB','paired'],required=True)
@@ -234,6 +234,16 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
             raise ValueError('--resolved-v-nearest requires its clipped default or full BLOSUM62 with double-cdr12, and the uniform nearest reducer')
         a.unbounded_nearest = True
     matrix_path=Path(a.distance_matrix).expanduser()
+    from ..runner.annotation import _validate_output_paths
+    protected = [path for path in (a.sample, a.vdjdb, a.control) if path]
+    if matrix_path.is_file():
+        protected.append(matrix_path)
+    suffixes = {'.queries.tsv', '.selection.tsv', '.manifest.json', '.boundaries.tsv',
+                '.radii.tsv', '.candidates.tsv', '.shortlist.tsv', '.enrichment.tsv',
+                '.enrichment.tsv.gz', '.paired-evidence.tsv', '.paired-evidence.tsv.gz'}
+    if a.locus == 'paired':
+        suffixes |= {f'.{chain}{suffix}' for chain in ('TRA', 'TRB') for suffix in suffixes}
+    _validate_output_paths(a.output_prefix, protected, suffixes=suffixes)
     matrix_hash=sha256(matrix_path) if matrix_path.is_file() else None
     streamed_rows=False
     streamed_selections=[]
@@ -357,6 +367,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
             .then(pl.lit(a.locus)).otherwise(pl.col('locus')).alias('locus'))
         _,q=_prepare(data)
         metadata=raw
+    reference_provenance = db.provenance(a.vdjdb)
     reference_species={'human':'HomoSapiens','mouse':'MusMusculus'}[organism]
     def reference_selection(**filters):
         if reference_loader is None:
@@ -613,7 +624,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
                 shared=shared.with_columns(pl.Series('_rank_control',mc))
             del mc
         else:
-            background_provenance={'kind':'vdjdb_other_epitopes','reference':db.provenance(a.vdjdb),
+            background_provenance={'kind':'vdjdb_other_epitopes','reference':reference_provenance,
                 'target_removal':'all records of target peptide, before key deduplication',
                 'shared_key_policy':'other epitope annotations retained; no arbitrary label selection',
                 'observation_unit':('distinct linked full alpha/beta junctions + resolved V alleles' if paired else
@@ -1116,7 +1127,7 @@ def main(a, *, marginal_tables=None, v_loop_distances=None, reference_loader=Non
                     'scorer_source_sha256':sha256(Path(distance_matrix.__code__.co_filename)),
                     **({'kernel_source_sha256':sha256(Path(kernel_ladder.__code__.co_filename))} if kernel else {}),
                     'cli_source_sha256':sha256(Path(__file__))},
-        'reference':db.provenance(a.vdjdb),'reference_population':a.reference_population,'ingestion':ingestion,'reference_observations':original,'withheld_reference_chain_records':withheld_records,
+        'reference':reference_provenance,'reference_population':a.reference_population,'ingestion':ingestion,'reference_observations':original,'withheld_reference_chain_records':withheld_records,
         'v_loop_model':{'sha256':sha256(Path(str(files('vdjmatch.resources')/'vloops'/f'{organism}_v_loops.tsv'))),
                         'precomputation':'one exact aligned-loop table per locus and invocation; reused across population batches',
                         'missing_v_policy':'unresolved V allele unavailable' if resolved_v_nearest else 'fixed first complete co-locus template; original raw calls retained with geometry imputation flags',
