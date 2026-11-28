@@ -18,6 +18,16 @@ def register(subparsers):
     assay.add_argument("--output", type=Path, required=True)
     assay.set_defaults(func=assay_main)
 
+    paired = subparsers.add_parser("paired-motif-rank", help="Refine paired ranks within a fixed target context")
+    paired.add_argument("--scores", type=Path, required=True,
+                        help="NumPy .npz with base, tra, trb and target_key_counts arrays")
+    paired.add_argument("--queries", type=Path, required=True, help="TSV with query_id in matrix row order")
+    paired.add_argument("--targets", type=Path, required=True, help="TSV with full target ID in matrix column order")
+    paired.add_argument("--support-weight", type=float, required=True)
+    paired.add_argument("--conflict-weight", type=float, required=True)
+    paired.add_argument("--output", type=Path, required=True)
+    paired.set_defaults(func=paired_main)
+
 
 def _read(path, columns):
     import polars as pl
@@ -81,3 +91,27 @@ def assay_main(a):
     if a.exact_hits:
         inputs.append(a.exact_hits)
     return _output(a, inputs, pl.DataFrame({"query_id": ids, "score": scores}))
+
+
+def paired_main(a):
+    import numpy as np
+    import polars as pl
+    from ..evalue.competitive import paired_motif_ranking_scores
+
+    queries = _read(a.queries, ("query_id",))["query_id"]
+    targets = _read(a.targets, ("target",))["target"]
+    if queries.n_unique() != len(queries) or targets.n_unique() != len(targets):
+        raise ValueError("query and target identifiers must each be unique")
+    with np.load(a.scores, allow_pickle=False) as arrays:
+        base, tra, trb, counts = (arrays[key] for key in ("base", "tra", "trb", "target_key_counts"))
+    if base.shape != (len(queries), len(targets)):
+        raise ValueError("score axes must match the query and target identifiers")
+    scores = paired_motif_ranking_scores(base, tra, trb, counts,
+                                         support_weight=a.support_weight,
+                                         conflict_weight=a.conflict_weight)
+    table = pl.DataFrame({
+        "query_id": np.repeat(queries.to_numpy(), len(targets)),
+        "target": np.tile(targets.to_numpy(), len(queries)),
+        "score": scores.ravel(),
+    })
+    return _output(a, [a.scores, a.queries, a.targets], table)

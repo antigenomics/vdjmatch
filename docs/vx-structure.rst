@@ -278,6 +278,20 @@ partial AUROC endpoints against frozen vX and native TCRdist3.
 The setting was selected on the benchmark. The human class-I
 full-catalogue comparison is a separate evaluation.
 
+Replay the verified mouse refinement from prepared scores:
+
+.. code-block:: bash
+
+   vdjmatch paired-motif-rank --scores context.npz --queries queries.tsv \
+       --targets targets.tsv --support-weight 0 --conflict-weight 4 --output ranks.tsv
+
+The NumPy archive contains the original paired scores ``base``,
+the two chain motif score matrices ``tra`` and ``trb``, and the
+one-dimensional ``target_key_counts`` array for the same whole
+context. The TSV columns ``query_id`` and ``target`` identify the
+matrix rows and columns. Use one species and one MHC class per
+benchmark run. Select reporting targets after refinement.
+
 Ranking reactivity within an annotated assay
 --------------------------------------------
 

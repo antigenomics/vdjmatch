@@ -87,6 +87,15 @@ def test_research_score_cli_keeps_output_identity(tmp_path):
     assert main(["paired-assay-score", "--distances", str(distances), "--queries",
                  str(queries), "--output", str(output)]) == 0
     assert output.read_text() == "query_id\tscore\n01\t-3.0\n02\t-3.0\n"
+    targets = tmp_path / "targets.tsv"
+    targets.write_text("target\nA\nB\n")
+    scores = tmp_path / "rank-input.npz"
+    np.savez(scores, base=[[-1, -3], [-1, -1]], tra=[[0, -1], [0, 0]],
+             trb=[[0, -2], [0, 0]], target_key_counts=[5, 6])
+    assert main(["paired-motif-rank", "--scores", str(scores), "--queries", str(queries),
+                 "--targets", str(targets), "--support-weight", "0", "--conflict-weight",
+                 "4", "--output", str(output)]) == 0
+    assert output.read_text() == "query_id\ttarget\tscore\n01\tA\t-1.0\n01\tB\t-11.0\n02\tA\t-1.0\n02\tB\t-1.0\n"
 
 
 def test_paired_motif_refinement_leaves_top_ties_and_unsupported_cells():
