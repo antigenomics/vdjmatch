@@ -452,6 +452,83 @@ from 48 to 291 among 1,032 assay negatives before a score cutoff.
 This is a peptide-level diagnostic. Applying it as a call rule
 requires calibrating its own decision, including the newly admitted ties.
 
+Sample-level neighborhood association
+--------------------------------------
+
+Fix the vX distance, neighborhood centers and radii before testing
+sample covariates. In sample :math:`i`, let :math:`X_i(q,r)` be the
+number of distinct eligible receptor keys within radius :math:`r`
+of center :math:`q`, and let :math:`N_i` be the total eligible keys
+in the corresponding sample or prespecified stratum. For
+:math:`N_i>0`, the sample-level neighborhood fraction is
+
+.. math::
+
+   Y_i(q,r)=X_i(q,r)/N_i.
+
+Handle zero-exposure samples by the prespecified design and retain
+their counts in cohort accounting. A paired comparison with
+:math:`n` donors uses the mean within-donor change,
+
+.. math::
+
+   T(q,r)=\frac{1}{n}\sum_{i=1}^n
+          [Y_{i,1}(q,r)-Y_{i,0}(q,r)].
+
+The two indices denote the paired conditions. One donor contributes
+one contrast. For a randomized paired design, swap the condition
+labels within each donor only as allowed by the randomization. The
+exact null is that assignment has no effect on any donor's outcome.
+An observational design requires joint swap invariance under its
+conditional null. Use the same swaps for all overlapping
+neighborhoods. For a global test of any association, use the maximum
+absolute statistic across the tested centers and radii. Let
+:math:`M_{\rm obs}` be that maximum with the observed labels and
+:math:`M_\sigma` its value under an allowed rearrangement
+:math:`\sigma\in\mathcal G`, including the identity. The exact
+global tail for equally likely assignments is
+
+.. math::
+
+   p_{\rm global} =
+     \frac{\#\{\sigma\in\mathcal G:M_\sigma\geq M_{\rm obs}\}}{|\mathcal G|}.
+
+Repeat any label-dependent selection inside each rearrangement.
+This formulation targets sample association. It does not turn
+receptor keys from the same donor into independent replicates.
+
+Background-controlled radius selection
+--------------------------------------
+
+Let :math:`A_r(x)` indicate that the entire annotation rule calls
+background query :math:`x` at radius :math:`r`, including target
+selection and abstention. Choose the radius using a training
+background and freeze the decision before evaluation. On an
+independent evaluation null of :math:`B>0` queries, count
+:math:`C=\sum_{j=1}^B A_r(x_j)` calls. The observed any-call rate is
+:math:`C/B`. For independent queries with a common false-call
+probability, a one-sided exact upper confidence limit at confidence
+:math:`1-\delta` is
+
+.. math::
+
+   U=\operatorname{Beta}^{-1}(1-\delta;\,C+1,B-C),\qquad 0\leq C<B.
+
+Here :math:`\operatorname{Beta}^{-1}` denotes the beta quantile.
+Use :math:`U=1` if :math:`C=B`. A bound for a fixed rule does
+not justify selecting a radius on the same evaluation queries.
+For clustered queries, use an interval that respects the sampling
+design. The expected number of background calls across :math:`Q`
+query opportunities at the same marginal rate is estimated by
+:math:`QC/B`. Reference-hit counts inside a ball are a separate
+quantity.
+
+These are proposed vX procedures and specify a matched comparison
+with the TCRdist3 neighborhood tests and empirical background-radius
+workflow. Compare the same samples, truth criteria and background
+sources. Measure power or correct-call recall at matched
+false-call control before claiming a performance advantage.
+
 Assignment and complete-query calibration
 -----------------------------------------
 
