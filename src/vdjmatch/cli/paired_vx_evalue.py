@@ -1,4 +1,4 @@
-"""Calibrate and annotate mouse paired-chain vX calls with a matched null source."""
+"""Calibrate and annotate paired-chain vX calls with a matched null source."""
 from pathlib import Path
 
 
@@ -25,9 +25,9 @@ def _source(directory):
     manifest = json.loads(source)
     if not isinstance(manifest, dict) or not isinstance(manifest.get("inputs_sha256"), dict):
         raise ValueError("incomplete paired-vx-base manifest")
-    if (manifest.get("species") != "mouse" or "withholding_folds" in manifest
+    if (manifest.get("species") not in ("mouse", "human") or "withholding_folds" in manifest
             or "withhold_peptides" in manifest.get("inputs_sha256", {})):
-        raise ValueError("ordered vX calibration requires ordinary mouse paired score populations")
+        raise ValueError("ordered vX calibration requires ordinary paired score populations")
     try:
         keys = ("species", "exact_hits_excluded", "reference_keys", "region_weights", "competitive_rule",
                 "software", "v_loop_model_sha256", "source_sha256")

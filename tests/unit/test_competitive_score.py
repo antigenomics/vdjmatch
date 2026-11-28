@@ -173,7 +173,8 @@ def test_frozen_paired_base_masks_hits_in_both_lists_and_preserves_unsupported_r
         "nativea": ["a"] * 3, "nativeb": ["b"] * 3,
     })
     query = fixed.head(1)
-    queries = pl.concat([query, query.with_columns(pl.lit(None, dtype=pl.String).alias("nativea"))])
+    queries = pl.concat([query, query.with_columns(pl.lit(None, dtype=pl.String).alias("nativea"))]
+                        ).with_row_index("query_id")
     # Equal-tail also imports the native function. Load it before stubbing so
     # other tests cannot inherit this test's one-row distance matrix.
     assert equal_tail.paired_distance_matrix is geometry.paired_distance_matrix
@@ -186,6 +187,9 @@ def test_frozen_paired_base_masks_hits_in_both_lists_and_preserves_unsupported_r
                                              threads=1, exclude_exact=exclude_exact)
         np.testing.assert_allclose(actual[0], expected)
         np.testing.assert_array_equal(actual[1], [-np.inf, -np.inf])
+        maxima = paired_vx_base._paired_maxima(queries, fixed, groups, backgrounds, {}, ["A", "B"], None,
+                                               threads=1, exclude_exact=exclude_exact)
+        assert maxima.equals(paired_vx_base._maxima_table(queries["query_id"], actual, ["A", "B"], None))
 
 
 def test_frozen_paired_maxima_exports_only_unique_winners_as_callable_scores():
@@ -198,6 +202,31 @@ def test_frozen_paired_maxima_exports_only_unique_winners_as_callable_scores():
     assert table.rows() == expected
     nulls = _maxima_table(["01", "02", "03"], scores, ["A", "B"], "generated")
     assert nulls.rows() == [(*row, "null", "generated") for row in expected]
+
+
+def test_paired_winner_bound_retains_exact_ties_and_checks_the_runner_up():
+    from vdjmatch.cli.paired_vx_base import _competitive_winners
+
+    native = np.array([[0, 0, 1, 100], [0, 1, 5, 100], [np.inf, np.inf, np.inf, np.inf]])
+    hits = native.copy()
+    maximum, winner, tied = _competitive_winners(
+        native, hits, np.arange(4), np.arange(4), np.arange(4), ([2], [2], [3], [0]))
+    np.testing.assert_array_equal(maximum, [-11 * (1 / 40), -7 * (1 / 40), -np.inf])
+    np.testing.assert_array_equal(winner[:2], [0, 0])
+    np.testing.assert_array_equal(tied, [True, False, False])
+
+    # The closest hit loses to a hit with a slightly larger corrected distance
+    # when the latter has no close other-peptide competitor.
+    hits[1, 1] = .1
+    maximum, winner, tied = _competitive_winners(
+        native, hits, np.arange(4), np.arange(4), np.arange(4), ([2], [3], [3], [0]))
+    assert (maximum[1], winner[1], tied[1]) == (-.1, 1, False)
+
+    # The first target has two distinct keys at the same nearest distance.
+    # Both targets attain the incumbent exactly at their upper bound.
+    maximum, _, tied = _competitive_winners(
+        native[:1], hits[:1], [0, 1, 2, 0], [0, 3], [0, 0, 0, 1], ([3], [3]))
+    assert (maximum[0], tied[0]) == (0., True)
 
 
 def test_paired_withholding_filters_target_labels_and_competitor_memberships(monkeypatch, tmp_path):

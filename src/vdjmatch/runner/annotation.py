@@ -157,7 +157,7 @@ def _mouse_paired_vx(sample, part, reference, context, threads, reference_popula
     """Score the normal paired population and keep its service row axis."""
     import polars as pl
     from ..cli.neighbours import _paired_input
-    from ..cli.paired_vx_base import _base_scores, _maxima_table, _reference_catalogue, _score_binding, _target_axis
+    from ..cli.paired_vx_base import _paired_maxima, _reference_catalogue, _score_binding, _target_axis
     from ..db.vdjdb import _select_reference
     from ..evalue.equal_tail import _prepare
     reference = _select_reference(reference, species="MusMusculus")
@@ -169,11 +169,10 @@ def _mouse_paired_vx(sample, part, reference, context, threads, reference_popula
     source_alleles = pairs.with_columns(pl.col("v_call_alpha").alias("va"), pl.col("v_call_beta").alias("vb"))
     pairs = _prepare(source_alleles, "ab", context["model"])
     pairs = pairs.with_columns(pl.when("available").then(pl.col("nativea")).otherwise(None).alias("nativea"))
-    base = _base_scores(pairs, fixed, groups, backgrounds, context,
-                        threads=threads, exclude_exact=exclude_exact)
     axis = _target_axis(targets)
     labels = axis["target"].to_list()
-    maxima = _maxima_table(pairs["query_id"], base, labels, None)
+    maxima = _paired_maxima(pairs, fixed, groups, backgrounds, context, labels, None,
+                            threads=threads, exclude_exact=exclude_exact)
     selected = targets.with_columns(axis["target"])
     selected = selected.rename({name: "selected_" + name for name in selected.columns if name != "target"})
     disposition = maxima.with_columns(

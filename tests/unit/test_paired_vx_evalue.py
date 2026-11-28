@@ -71,5 +71,5 @@ def test_bound_evalue_rejects_tampered_export_and_fold_input(tmp_path):
     with pytest.raises(ValueError, match="maxima.tsv differs"):
         _source(source)
     manifest.write_text(json.dumps(json.loads(manifest.read_text()) | {"withholding_folds": 1}))
-    with pytest.raises(ValueError, match="ordinary mouse"):
+    with pytest.raises(ValueError, match="ordinary paired"):
         _source(source)

@@ -731,8 +731,18 @@ Wide query tables use ``junction_aa_alpha/beta`` and ``v_alpha/beta``
 with a pair ID. The command retains the full compatible catalogue
 and scores genuine pairs. Exact-hit exclusion operates on both full
 junctions and applies only to the target and background hit lists.
-Omit ``--exclude-exact`` for ordinary exact-retained replay. This
-command uses the verified mouse frozen base before motif re-ranking.
+Omit ``--exclude-exact`` for ordinary exact-retained replay. The default
+species is mouse. Use ``--species human`` to replay the same paired
+score against human VDJdb records with the human V-loop model.
+
+For winner-only scoring use ``--maxima-only``. For a target with
+nearest corrected distance :math:`d_1`, the paired score satisfies
+:math:`S\le -d_1` because the competition and second-hit terms can
+only decrease it. The scorer evaluates the closest target to get a
+lower bound on the best score. It can skip targets whose upper bound
+is strictly below that score. Equality stays eligible so that exact
+ties survive. This route processes query blocks and omits the
+per-target score matrix. Use the full output for motif re-ranking.
 
 Ordinary mouse paired input to ``vdjmatch annotate`` uses this vX
 score by default, including when paired linkage is inferred. The
