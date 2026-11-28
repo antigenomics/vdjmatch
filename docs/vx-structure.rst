@@ -371,3 +371,10 @@ winner changed outside the called set. The COVID replay retained the same
 identical visit and depth probabilities. The false-positive rate is
 measured on the generated bank used to fit the cutoff. This extension
 applies to the paired research score.
+
+The same amplitude with the 31 mouse class-I contact weights was also
+tested on paired-chain mouse VDJdb. At 6,978 distinct receptor cases,
+the top labels and ties matched frozen vX, but 53 of 736 target AP and
+AUROC endpoints decreased. The mouse scorer therefore retains frozen vX.
+The mouse benchmark tests catalogue recovery. It has no matched mouse
+null calibration or experimental negative binding panel.
