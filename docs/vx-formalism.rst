@@ -43,6 +43,34 @@ weight differences to that native distance in the original order.
 The fractions encode the selected geometry exactly. The simpler base weights
 :math:`(1,3/4,3/2)` lowered 23 of the 72 frozen ranking endpoints on the matched comparison.
 
+The frozen geometry minimizes a sum of substitution and gap costs.
+The clipped BLOSUM62 cost :math:`\delta` is defined above. A native
+kernel that accepts similarities can represent this cost as
+:math:`s(a,b)=-\delta(a,b)`. Its diagonal is zero, so the kernel's
+conversion :math:`s(a,a)+s(b,b)-2s(a,b)` yields :math:`2\delta(a,b)`.
+The frozen junction code divides out that factor before applying the
+junction weight of three. Gap costs must follow the same unit conversion.
+
+The experimental Smith–Waterman and Needleman–Wunsch arms instead
+align using raw BLOSUM62 similarities and affine gap penalties. Let
+:math:`H(x,y)` be the resulting optimal similarity for a segment,
+using the same mode and penalties for self-alignment and cross-alignment.
+Convert it once to distance units through
+
+.. math::
+
+   D_H(x,y)=\frac{H(x,x)+H(y,y)-2H(x,y)}{2}.
+
+The native alignment replay returns the numerator. The two self-scores
+set the similarity scale for the two sequences. For a fixed query and
+reference, they are constant across candidate alignments. Therefore
+maximizing :math:`H(x,y)` minimizes :math:`D_H(x,y)` for that pair.
+Applying a clipped residue cost before alignment defines a different
+objective and can select different alignments. Local and global modes also
+optimize different alignment sets. Treat the resulting distance as a
+dissimilarity unless its metric properties are established for the
+chosen mode. Apply segment weights after the conversion to distance.
+
 For target key :math:`r`, order hits by
 :math:`d(q,r;e)=D_w(q,r)-a\log_2\max(1,n_{er})`, where :math:`n_{er}` counts
 distinct reference IDs supporting that target key. Only TRB uses a nonzero
