@@ -1,12 +1,13 @@
-Frozen vX research score
-========================
+The frozen vX annotation score
+==============================
 
-This research candidate uses a fixed receptor catalogue. Let :math:`q` be a
-TRA receptor, a TRB receptor, or a paired-chain TRA–TRB receptor and let :math:`e` be a
-candidate peptide–MHC. A chain is represented by its anchor-inclusive amino
-acid junction and mapped V allele. Search keys are distinct encodings. A
-key can have several source observations. Paired keys represent observed
-links and both chain distances are evaluated against the same key.
+Ordinary annotation in VDJmatch 1.3 uses the frozen vX score and a fixed
+receptor catalogue. A query :math:`q` represents TRA, TRB or a genuine
+TRA–TRB pair. A target :math:`e` comprises the peptide, its recorded MHC
+restriction and its MHC class. Each chain contributes its anchor-inclusive
+amino-acid junction and mapped V allele. Distinct search keys can carry
+multiple source observations. A paired-chain key records two chains observed
+in the same reference receptor.
 
 The vX contribution is the receptor-to-database evidence score defined
 here. It combines a weighted receptor distance with a target's first
@@ -16,8 +17,8 @@ chains and genuine paired-chain keys, with chain-specific settings.
 The published comparator supplies the native distance baseline. Fixed-site gaps, movable
 single-block gaps and Smith–Waterman are existing alignment choices.
 The novel vX contribution is how distance and reference evidence
-are combined into a target score, together with the separately
-verified neighborhood rules.
+are combined into a target score. The sections below also record the
+separately evaluated motif, structural and neighborhood extensions.
 
 Benchmark provenance
 --------------------
@@ -104,8 +105,8 @@ Evidence scores, dissimilarities and metrics
 The competitive score :math:`S(q,e)` ranks a query against a fixed
 peptide–MHC catalogue. It depends on other receptors and their labels,
 so it is evidence rather than a distance between two receptors.
-The underlying weighted pairwise geometry :math:`D_w` is a symmetric
-dissimilarity on the frozen resolved inputs. It fails two metric axioms.
+The underlying weighted pairwise geometry :math:`D_w` is nonnegative,
+symmetric, and zero for identical resolved keys. It fails two metric axioms.
 
 * Different full junctions can have zero dissimilarity when they differ
   only in the trimmed residues and use the same V allele.
@@ -950,7 +951,9 @@ tables leave the paired rank and call unchanged. Under benchmark exact
 exclusion, each marginal search masks exact hits on its own chain.
 
 For calibrated calls, supply ``--vx-null-dir`` from a matched
-``paired-vx-base --null-source`` run. Annotation verifies the scorer,
+``vx-base --null-source`` run. Set ``--species`` and ``--locus`` to the
+population being calibrated. Bank creation and calibrated annotation
+both use the same local VDJdb release ZIP. Annotation verifies the scorer,
 reference, target axis and exact-hit policy before applying the ordered
 cutoff. Paired annotation uses the matched bank's tie policy when
 ``--vx-tie-policy`` is omitted. An explicitly selected policy must match
@@ -974,7 +977,8 @@ to the ordered calibration command:
 
 .. code-block:: bash
 
-   vdjmatch paired-vx-base null-queries.tsv --vdjdb reference.zip \
+   vdjmatch vx-base mouse-paired-null.tsv --vdjdb reference.zip \
+     --species mouse --locus paired --maxima-only \
      --null-source generated --output-dir mouse-null
    vdjmatch calibrate-ordered-calls mouse-null/maxima.tsv \
      --target-fpr 0.01 --confidence 0.95 --output mouse-calibration.json
@@ -983,15 +987,15 @@ Use the same reference and exact-hit policy when scoring the queries
 to which the recipe will be applied. The mouse motif correction
 preserves this maximum-based calling rule.
 
-Use ``paired-vx-evalue`` to verify the score directories and annotate
+Use ``vx-evalue`` to verify the score directories and annotate
 queries at the ordered E threshold in one command:
 
 .. code-block:: bash
 
-   vdjmatch paired-vx-evalue mouse-query --null-dir mouse-null \
+   vdjmatch vx-evalue mouse-query --null-dir mouse-null \
      --target-fpr 0.01 --confidence 0.95 --output-prefix mouse-calls
 
-Here ``mouse-query`` is a separate ordinary ``paired-vx-base`` output.
+Here ``mouse-query`` is a separate ``vx-base`` output for paired mouse queries.
 Both directories must use the same reference, target axis, model,
 scorer and exact-hit policy. The command verifies the score files
 against their manifests. It exports E, rank P, the inclusive null
@@ -1008,8 +1012,9 @@ memberships are counted once.
 
 .. code-block:: bash
 
-   vdjmatch paired-vx-base paired-queries.tsv --vdjdb reference.zip \
-     --withhold-peptides withheld.tsv --exclude-exact --output-dir mouse-withheld
+   vdjmatch vx-base paired-queries.tsv --vdjdb reference.zip \
+     --species mouse --locus paired --withhold-peptides withheld.tsv \
+     --exclude-exact --output-dir mouse-withheld
 
 Each fold retains the intact target axis, with the excluded target
 scores unsupported. The command reuses the compatible memberships,
@@ -1040,8 +1045,8 @@ recalls, with boundaries approximately :math:`0.00201` and
 attains the maximum of :math:`\min_e[R_e(\lambda)-R_e^{\rm native}]`
 across the crossing intervals. Here :math:`R_e` is the fraction of assay
 records of class :math:`e` uniquely assigned to that class. The gain is flat across multiple intervals. The midpoint maximizes the distance
-to the nearer endpoint of the original interval. Use the simpler
-:math:`\lambda=1/400` inside the same assignment plateau. It changes the
+to the nearer endpoint of the original interval. The replay also tested
+:math:`\lambda=1/400` inside the same assignment plateau. It shifts the
 3,654 saved scores by at most 0.00337 native distance units and preserves
 all ties, within-target ranks and within-query label orderings. The term
 adds :math:`(\log 2)/400` native distance units per doubling of

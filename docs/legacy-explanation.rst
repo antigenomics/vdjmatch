@@ -1,9 +1,12 @@
-Understand matching evidence
+Historical matching evidence
 ============================
 
-A query junction can match several reference observations and several peptide–MHC
-labels. The software keeps the sequence search, reference observations, candidate
-ranking and background calibration as distinct layers.
+This page records the NED-v1 and fixed-ball workflows retained for historical
+reproduction. For ordinary annotation in VDJmatch 1.3, see the
+:doc:`frozen vX annotation score <vx-formalism>` and its ordered null calibration.
+A query junction can match several reference observations and peptide–MHC labels.
+The historical workflow tracks search, observations, ranking and calibration
+separately.
 
 Identity and observation counts
 -------------------------------
@@ -204,23 +207,6 @@ Homogeneity-Parsimony Trade-off*,
 `arXiv:2607.20799 <https://arxiv.org/abs/2607.20799>`_,
 `doi:10.48550/arXiv.2607.20799 <https://doi.org/10.48550/arXiv.2607.20799>`_.
 
-Historical scoring evidence
----------------------------
-
-The following recorded scoring studies describe their stated historical reference
-and evaluation design. They do not identify every production score as the same
-estimator or make a query-level statistic a specificity posterior.
-
-**What scoring actually buys.** An empirical study on VDJdb (the scoring appendix; 2026-06-11-ZENODO
-release, composition-controlled) finds that **Hamming distance 1 is the signal:noise optimum** (macro
-purity 0.49 → 0.07 over edit distance 1–5; the original VDJdb observation), that **central substitutions
-carry the specificity signal** (P(same) ≈ 0.31 in the core vs ≈ 0.75 near the anchors), and that **no
-amino-acid matrix clearly beats BLOSUM62** — a genetic-code null (VDJAMr) even ties it in that
-comparison. This compares scoring alphabets; it does not exclude chemical constraints on
-recognition. **Reweighting BLOSUM62 by the central-position
-significance** (a native ``seqtree`` ``PositionalMatrix``, end-anchored) is the one change that does beat
-it, in 7/8 held-out epitopes. The substitution alphabet is second-order, position is the first-order
-matrix lever, and the overall first-order statistic is the control-calibrated E-value. Finally, the
-**V gene is a strong near-binary prior** (same-V neighbours share an epitope up to ~7× more than
-cross-V); loose CDR1/CDR2 similarity does not recover it, and near-exact germline-loop identity recovers
-only about **half** of it (the rest is gene-identity-specific).
+See :doc:`historical-comparisons` for the recorded one-mismatch,
+substitution-matrix, positional-weighting and V-gene comparisons on the
+2026-06-11-ZENODO VDJdb release.

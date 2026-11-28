@@ -1,5 +1,5 @@
-Laptop runtime, RAM and thread budget
-=====================================
+Thread budgets and recorded laptop measurements
+================================================
 
 The worked examples use four native threads as a practical explicit setting.
 Ordinary CLI commands and repertoire annotation default to the physical core
@@ -12,7 +12,10 @@ thread before imports in the notebooks. The measurements below retain their reco
 Measured commodity laptop
 -------------------------
 
-The following whole-CLI observations were recorded on 14 October 2026 on an
+The following whole-CLI measurements describe the workloads and scorer from
+VDJmatch 0.4.0. For timing the frozen vX scorer, use the profiling helper with
+the 1.3 command and the exact reference and query inputs of interest.
+The recorded runs used an
 Apple M3 Max laptop, 16 physical/logical cores and 48 GiB RAM (51.54 decimal GB).
 All 16 cores were available to the host; the table varies the requested native
 worker budget rather than asserting OS CPU affinity. The interpreter was

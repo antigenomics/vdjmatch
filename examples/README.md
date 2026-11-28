@@ -1,14 +1,15 @@
 # CLI-first worked examples
 
-Run from a fresh installation with `vdjmatch` on PATH:
+Run from an isolated installation with `vdjmatch` on PATH.
 
 Browse the [examples gallery](https://docs.isalgo.dev/vdjmatch/examples.html) and
 [notebooks gallery](https://docs.isalgo.dev/vdjmatch/notebooks.html).
 
 | Workflow | Read online | Notebook source | Shell script |
 | --- | --- | --- | --- |
-| Cohort and paired annotation | [Preview](https://docs.isalgo.dev/vdjmatch/notebooks/annotation.html) | [annotation.ipynb](annotation.ipynb) | [annotate.sh](annotate.sh) |
-| Geometry comparison | [Preview](https://docs.isalgo.dev/vdjmatch/notebooks/comparison.html) | [comparison.ipynb](comparison.ipynb) | [compare.sh](compare.sh) |
+| Official VDJdb annotation | [Preview](https://docs.isalgo.dev/vdjmatch/notebooks/vdjdb_annotation.html) | [vdjdb_annotation.ipynb](vdjdb_annotation.ipynb) | `vdjmatch annotate` |
+| Custom complete pMHC and opaque labels | [Preview](https://docs.isalgo.dev/vdjmatch/notebooks/annotation.html) | [annotation.ipynb](annotation.ipynb) | [annotate.sh](annotate.sh) |
+| Exact-hit policy comparison | [Preview](https://docs.isalgo.dev/vdjmatch/notebooks/comparison.html) | [comparison.ipynb](comparison.ipynb) | [compare.sh](compare.sh) |
 
 ```sh
 sh examples/annotate.sh NEW_ANNOTATION_DIRECTORY
@@ -18,22 +19,24 @@ sh examples/database.sh NEW_DATABASE_DIRECTORY
 sh examples/annotate.sh NEW_BUILD_DIRECTORY /path/to/build/tables/vdjdb.parquet
 ```
 
-Keep this complete directory together. The scripts find their raw inputs beside
-themselves, use the offline reference unless a second annotation argument supplies a
-local primary or legacy table (or an AIRR bundle with receptor species metadata), default to four native threads and fail if
-the output directory exists. Every invocation calculates fresh CLI tables;
-there are no feature caches, predictions as inputs, skip or resume paths.
+Keep the complete directory together. The shell scripts use four native
+threads and require a fresh output directory. The optional second argument to
+`annotate.sh` supplies a local reference table or archive. VDJdb AIRR bundles
+must provide receptor species for species-filtered annotation.
 
-Annotation defaults to the curated manuscript reference population in 0.6.0.
-Pass `--reference-population all-valid` for the accepted all-valid baseline;
-keep that population label with every output, curve and interval. The stem4
-formula is unchanged, and these tiny fixtures do not establish manuscript accuracy.
+Ordinary annotation uses vX on supported human and mouse lanes and retains
+exact junction hits. The official VDJdb notebook uses the default reference
+fetch. Set `VDJMATCH_EXAMPLE_VDJDB` to an official release ZIP for an offline
+run. The custom-reference notebook checks a four-row AIRR cohort and two wide
+pairs, including a missing beta chain. It also demonstrates direct lookup for
+opaque labels via `Annotator.from_labels`. The exact-hit policy notebook
+compares the two search policies using the same vX score and fixed reference.
+Open notebooks from the repository root or the complete examples directory.
 
-The annotation notebook covers a four-row metadata cohort and two wide pairs,
-including an incomplete pair. The comparison notebook calls the CLI with exact
-exclusion and detailed default stem4 / advanced vcdr12 settings, then joins its
-continuous evidence on source identity and complete pMHC keys. Open either
-notebook from the repository root or this directory. No outputs are committed.
+The CLI records the scorer, reference identity and hit-list policy in its
+manifest. The supplied workflows display descriptive scores. To report
+empirical E-values, supply a vX null bank that matches the official release
+ZIP and the complete search policy.
 
 `database.sh` checks three synthetic queries against the same offline reference
 and one supplied synthetic raw control. Exact/one-edit/no-hit queries return
@@ -60,20 +63,24 @@ uv pip install --python .venv-gallery/bin/python -r examples/requirements-notebo
 .venv-gallery/bin/python examples/check_gallery.py NEW_GALLERY_OUTPUT_DIRECTORY
 ```
 
-The checker creates a kernel for that interpreter, keeps executed notebooks and
-the HTML export in the new output directory, and exits nonzero on any failure.
+The checker creates a kernel for that interpreter, saves executed notebooks
+with cell timings in the new output directory and exits nonzero on failure.
 Use the same Git checkout for source, scripts and documentation. Released
 packages need the examples from their matching release tag.
-Shell examples have a 120-second timeout; ordinary notebook cells and the marimo
-export have a 300-second timeout. The full-cohort vaccination calculation has
-an explicit 1,800-second cell budget. With `--scientific`, the precursor tutorial downloads the pinned public
-Hugging Face VDJdb snapshot and uses four native threads. With `--scientific`, the compendium downloads
-its documented public tables and reference. The default check requires no downloads. Reference downloads stay in the
-output directory; computed results are rebuilt on every invocation.
+The default check needs no downloads. Add `--vdjdb-reference /path/to/release.zip`
+to execute the official VDJdb annotation example. Add `--scientific` to
+include the biological notebooks and the interactive compendium export, which
+need their documented inputs and may download public data. Shell examples
+have a 120-second limit. Ordinary notebook cells and the compendium export
+have a 300-second limit. The deferred full-cohort vaccination cell has a
+1,800-second limit.
 
 ## Biological examples
 
-Run the three-score accuracy comparison entirely from the terminal:
+The historical kernel diagnostic illustrates metric construction on the
+supplied panels. The recorded figures describe that scorer and population.
+The separate historical three-score comparison can be reproduced from the
+terminal:
 
 ```sh
 python examples/accuracy.py --benchmark /path/to/airr_benchmark \
@@ -144,10 +151,11 @@ keeps complete execution outputs private; docs builds never execute notebooks.
 
 ## Read the biological examples in the right order
 
-1. Run `annotation.ipynb` to learn query identities, complete pMHC keys and no-hit
-   outputs on offline fixtures; it does not validate biological specificity.
-2. Run `comparison.ipynb` to inspect matcher/geometry differences on identical
-   queries. An annotation score is not a repertoire enrichment P-value.
+1. Run `vdjdb_annotation.ipynb` with an official reference, or use
+   `annotation.ipynb` to learn query identities, complete pMHC keys and no-hit
+   outputs on a small synthetic reference.
+2. Run `comparison.ipynb` to inspect how exact-hit exclusion affects vX
+   evidence on identical queries with the same reference.
 3. Read `vaccination.ipynb` as an annotation/coverage example. Its neighbourhood
    evidence is distinct from the manuscript's mock-reference enrichment test.
 4. Use the [repertoire method guide](../docs/repertoire-method.rst) to select

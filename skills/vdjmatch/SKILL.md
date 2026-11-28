@@ -1,13 +1,19 @@
 ---
 name: vdjmatch
-description: Annotate single or paired TCR repertoires against VDJdb with the vdjmatch library or CLI, including AIRR directories and sample-path metadata.
+description: Rank peptide–MHC evidence for human and mouse TCRs using vX, VDJdb or custom references, with optional matched null calibration.
 ---
 
 # VDJmatch repertoire annotation
 
 ## Choose the reference
 
-Use `Annotator.latest()` for official vdjdb-db, `from_path(path)` for custom
+Start with `vdjmatch annotate` or `annotate_repertoires` for vX. Omit the reference
+to fetch VDJdb, supply a pinned ZIP for reproducibility, or pass a VDJdb-format
+custom table with species, V genes and peptide–MHC labels for ranked evidence.
+Match the score policy, selection policy and reference ZIP to the null bank
+when reporting calibrated calls.
+
+For fixed-scope matching, use `Annotator.latest()` for official vdjdb-db, `from_path(path)` for custom
 VDJdb-format data, and `from_labels(rows_or_table, locus="TRA"/"TRB")` for simple
 `junction_aa,label` references. Three-value rows or wide alpha/beta junction
 columns define real pairs. `match --reference PATH --reference-format labels`
@@ -28,7 +34,7 @@ comparator; neither is a reason to introduce a chemistry-driven replacement.
 Reuse `match.regions.significance_weights/significance_pssm` and the existing
 historical matcher. Mode availability is not evidence of improved accuracy.
 
-For the frozen **vX research score**, see the
+For the frozen **vX default score**, see the
 [score and decision equations](https://docs.isalgo.dev/vdjmatch/vx-formalism.html).
 Keep TCRvdb, measured NLV, and ELA–LLW–LLL as separate benchmark cohorts.
 TCRvdb was compiled without those two experimental series. Their records
@@ -154,13 +160,10 @@ Permutation/matched-control envelopes are not Efron bootstrap CIs.
 Use the installed `vdjmatch annotate` command or Python `annotate_repertoires`.
 Read [README.md](../../README.md) for input schemas and [CLI documentation](https://docs.isalgo.dev/vdjmatch/cli.html)
 for advanced scorers. Run `vdjmatch annotate --help` to verify installed options.
-Use released `seqtree>=1.3.2` and `vdjtools>=5.7.0` for native search, ingestion and abundance statistics.
-Version 0.6.0 defaults to `--reference-population curated-benchmark`, the manuscript
-primary population. Preserve `--reference-population all-valid` for the accepted
-all-valid baseline. Curation excludes KLGGALQAK and PMID 40498839 source records;
-exact hits remain included unless benchmark exclusion is explicitly requested.
-The stem4 scoring formula is unchanged; neither the resolved-first repair nor
-paired-score diagnostic is promoted by this reference-population change.
+Use released `seqtree>=1.3.2` and `vdjtools>=5.9.2` for native search, ingestion and abundance statistics.
+The ordinary `curated-benchmark` population excludes KLGGALQAK and PMID 40498839
+source records. Use `--reference-population all-valid` to reproduce the retained
+uncurated reference baseline.
 
 ```sh
 vdjmatch annotate airr_directory/ --threads 4 -o annotation

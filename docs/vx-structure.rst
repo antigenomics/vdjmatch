@@ -76,7 +76,7 @@ independently to retain all supported labels. A winning-label policy
 can further reduce those labels.
 
 For a radius :math:`h` applied separately to each chain, let
-:math:`R_{\alpha\beta,e}` be the eligible linked keys and
+:math:`R_{\alpha\beta,e}` be the eligible paired-chain keys and
 :math:`R_{\alpha,e},R_{\beta,e}` the eligible chain keys of target
 :math:`e`. The two matching rules use
 
@@ -92,12 +92,12 @@ For a radius :math:`h` applied separately to each chain, let
 
 Apply :math:`D\le h` to either distance. The minimum of an empty
 set is :math:`+\infty`. When the chain pools include the corresponding
-linked chains under the same masks, :math:`D_{\rm int}\le D_{\rm pair}`.
+paired-chain components under the same masks, :math:`D_{\rm int}\le D_{\rm pair}`.
 Summing the chain distances sets a total
 substitution budget. A budget of two admits two differences on
 one chain, which the per-chain radius-one rule excludes.
 
-In the :doc:`vX research score <vx-formalism>` distance and score terms
+In the :doc:`vX annotation score <vx-formalism>`, distance and score terms
 can change the ordering through trimming, unequal substitution costs, gap
 costs, V-loop costs, source support, the background margin and the second
 hit. Its cutoff must meet the separation condition on the stated cohort
@@ -478,10 +478,11 @@ distance unit. For base distance :math:`D_0(i,j)`, component loop costs
 
 .. math::
 
-   D_{ij}=256D_0(i,j)+\sum_{\ell\in\{1,2,2.5\}}
+   D_{ij}=256D_0(i,j)+\sum_{\ell\in\{1,2,\mathrm{FR3}\}}
        \bigl(\operatorname{int}(256w_\ell)-256\bigr)D_\ell(i,j).
 
-The pair geometry omits source support, the background margin and the
+The loop indices refer to CDR1, CDR2 and the short FR3 segment. The pair
+geometry omits source support, the background margin and the
 second-hit score. With :math:`n` placed vertices, set :math:`k=\lceil\log n\rceil`,
 using the natural logarithm. Every row in the benchmark has at least
 :math:`k` eligible comparisons. Let :math:`r_i` be the :math:`k`-th smallest distance
@@ -649,7 +650,7 @@ distinct positive V pairs.
 Estimate the weights separately by species. The human paired benchmarks
 test the human template only.
 
-The frozen distance has zero contact amplitude. The human benchmarked
+The frozen annotation distance has zero contact amplitude. The human benchmarked
 extension adds :math:`C_{\alpha\beta}/32` to each
 paired-chain target distance, at most :math:`1/8` distance unit per key.
 The two target hits are reordered after the

@@ -151,8 +151,8 @@ def _(arm_df, estimator, meas, mo, np, pred, ratio):
         median predicted/measured = **{np.median(ratio):.3g}×** &nbsp;·&nbsp;
         spread (max/min) = **{ratio.max() / ratio.min():.0f}×**
 
-        The median is the calibration; the spread is why `{estimator.value}` supports a **ranking**
-        and not an absolute frequency for a named epitope.
+        The median ratio describes the typical multiplicative offset. The range of ratios shows
+        how much agreement varies between the displayed epitopes.
         """
     )
     return rho, spearmanr
@@ -218,8 +218,9 @@ def _(arm_df, pl):
 def _(mo):
     mo.md(
         r"""
-        The **count** of uncatalogued junctions is a separate computation, because it needs the ball
-        enumerated rather than only its mass. `union_mass(..., count_members=True)` returns it:
+        `union_mass(..., count_members=True)` returns the number of distinct members in the
+        Hamming ball. Subtract the number of observed junctions to count the uncatalogued
+        candidates in that ball.
         """
     )
     return
@@ -275,18 +276,11 @@ def _(chain_pick, epitope_census, mo, obs, u):
           construction, so their balls overlap and the *union* is the correct object — the sum is
           not.
 
-        Two different "unseen" questions, and conflating them is the classic error:
-
-        - **Unseen count** is a *census* of the ball: finite and exact given the ball. A
-          Horvitz–Thompson richness extrapolation is not — `1/π` diverges as `π → 0` and the first
-          real run returned 10¹¹–10¹⁴ unseen junctions, which is not a number.
-        - **Unseen mass** *does* converge, because the Horvitz–Thompson weight `p/π → 1/N` as
-          `p → 0`. That is what makes the correction work without guessing the shape of the tail.
-
-        The missing count can be enormous while the missing mass stays small, because the unseen
-        members are systematically the low-`Pgen` ones. That asymmetry is why the library ships both
-        and marks a richness number unreliable when the rarest observed junction was captured too
-        seldom for it to mean anything.
+        The census describes the finite ball. Extrapolation beyond the catalogued set uses a model
+        of repeat reports across capture units. With generation probability `p`, `N` capture units
+        and fitted capture scale `θ`, the inclusion probability is `π = 1 − exp(−Nθp)`. The
+        Horvitz–Thompson mass weight `p/π` approaches `1/(Nθ)` at small `p`. The richness weight
+        `1/π` grows without bound, making the extrapolated count sensitive to rare junctions.
         """
     )
     return
@@ -349,16 +343,13 @@ def _(js, mo, np, p, p_nz):
         **{len(p_nz):,} junctions score a non-zero `Pgen`**, spanning
         **{np.ptp(np.log10(p_nz)):.1f} decades**; {int((p <= 0).sum())} score exactly zero.
 
-        The summed mass is carried by a small minority: the top 10% of junctions hold
-        **{order[: max(1, len(order) // 10)].sum() / order.sum():.1%}** of it. That concentration is
-        the `Σπ²` term that makes a naive set *total* the wrong functional — under the size bias
-        governing which receptors get catalogued, a set total has expectation `n·(Σπ²)/F`, which is
-        proportional to how many receptors were catalogued and *inversely* proportional to the
-        quantity it is meant to estimate.
-
-        A junction that scores exactly zero contributes nothing to any mass and raises no error, so
-        it is reported rather than dropped silently — under the `olga` model set 5.7% of human TRA
-        junctions land there.
+        The highest-scoring tenth of the nonzero junctions contributes
+        **{order[: max(1, len(order) // 10)].sum() / order.sum():.1%}** of the generation mass.
+        In a size-biased model with `n` independent draws proportional to cognate junction
+        frequencies `π`, the expected sum of the drawn frequencies is `n·(Σπ²)/F`, where
+        `F = Σπ` is the total cognate frequency. The sum depends on sampling depth and the
+        concentration of frequencies. A zero under the selected recombination model contributes
+        zero generation mass.
         """
     )
     return (order,)
@@ -370,9 +361,10 @@ def _(mo):
         r"""
         ## From a mass to a number of cells
 
-        `F(e)` is the probability a precursor *exists*. A detectable response needs more than one
-        cell, and once `n_eff · F` is of order one the two stop being a monotone reparametrisation
-        — which is the regime a rare neoepitope sits in.
+        `F(e)` is the modeled repertoire fraction that recognises epitope `e`. For
+        `n_eff` independent opportunities, the Poisson occupancy model has mean
+        `n_eff × F(e)`. Its upper tail gives the probability of at least `k` precursors
+        under that model.
         """
     )
     return
@@ -398,14 +390,14 @@ def _(f_slider, k_slider, mo):
     prob = p_at_least(f, n_eff=n_eff, k=k_slider.value)
     mo.md(
         f"""
-        At `F = {f:.3g}` and an effective naive pool of `{n_eff:.2g}` cells:
+        The illustration uses `F = {f:.3g}` and a naive pool of `{n_eff:.2g}` cells.
+        It sets the independent-opportunity count to the same value.
 
         - expected precursors: **{cells:,.0f}**
         - P(at least {k_slider.value}) = **{prob:.4g}**
 
-        Everything here is uncalibrated: `q` defaults to 1, so `F` is a raw mass whose *ranking*, not
-        scale, is the supported claim. The measured per-chain depth factors are
-        `SELECTION_BY_CHAIN` (TRB 4.62, TRA 1.07) and are deliberately not applied by default.
+        Move the frequency and precursor-count sliders to see how the expected count and
+        occupancy change. An assay response also depends on factors outside this model.
         """
     )
     return N_T_CELLS, cells, expected_cells, f, n_eff, p_at_least, prob

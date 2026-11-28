@@ -38,7 +38,7 @@ def _apply_geometry_extra(a):
 
 
 def register(subparsers, name='neighbours'):
-    p=subparsers.add_parser(name,help='targeted stem4 kernel evidence' if name=='annotate' else 'native junction/V-loop distance balls')
+    p=subparsers.add_parser(name,help='vX peptide–MHC annotation' if name=='annotate' else 'native junction/V-loop distance balls')
     p.add_argument('sample')
     p.add_argument('--vdjdb',required=True)
     p.add_argument('--locus',choices=['TRA','TRB','paired'],required=True)

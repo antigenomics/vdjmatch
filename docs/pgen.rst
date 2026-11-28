@@ -1,5 +1,3 @@
-:orphan:
-
 Marginal junction generation probability
 ========================================
 
@@ -96,4 +94,6 @@ controls retain their separate raw NT/V/J normalization and chain selection.
 ``scores.tsv`` still retains every selected reference
 observation and its full pMHC metadata. Models remain separate by species and chain.
 The requested feature table is a versioned input to subsequent diagnostics;
-those consumers validate it against its companion manifest.
+those consumers validate it against its companion manifest. Use
+``--features-only`` to write the feature table and manifest without a row-wise
+score table, either for the input alone or for its union with ``--control``.

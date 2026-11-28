@@ -2,7 +2,7 @@
 
 Subcommands:
   update     fetch/cache the latest VDJdb release
-  annotate   targeted stem4 kernel evidence with retained alternatives
+  annotate   vX peptide–MHC evidence for single and paired receptors
   match      annotate query sample(s) against VDJdb (E-values + ranked hits + epitope summary)
   first-hit  global first-hit control calibration
   search     native sequence batch search with positional row identities
@@ -531,7 +531,7 @@ def _cmd_precursor(a: argparse.Namespace) -> int:
 _EXAMPLES = """\
 examples:
   vdjmatch update                                  # cache the latest VDJdb primary/legacy reference
-  vdjmatch match sample.tsv                         # annotate one AIRR sample, default reference
+  vdjmatch annotate sample.tsv                      # rank peptide–MHC targets with vX
   vdjmatch match -o run/out --match-v --no-evalue *.tsv         # match V gene too, write under run/
   vdjmatch match --scope 2,1,1,2 --threads 8 s.tsv  # wider search budget, 8 threads
   vdjmatch precursor --vdjdb -o pre.txt             # precursor frequency per VDJdb epitope
@@ -933,7 +933,7 @@ def main(argv: list[str] | None = None) -> int:
     annotation.add_argument("--vx-tie-policy", choices=("abstain", "literal"),
                             help="paired vX tie policy (default: use the matched bank, otherwise abstain)")
     annotation.add_argument("--details", dest="selection_only", action="store_false",
-                            help="also export per-target evidence and candidates; memory grows with queries × targets")
+                            help="use the kernel workflow and export per-target evidence and candidates")
     annotation.add_argument('--mock-replicates', type=int, default=200,
                             help='with --control: fresh draws per direction (default: 200)')
     annotation.add_argument('--seed', type=int, default=0, help='with --control: reproducible randomization seed')

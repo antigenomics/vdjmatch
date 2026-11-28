@@ -58,18 +58,17 @@ receptors, including an incomplete pair. Inspect these outputs:
 * :download:`First AIRR sample <../examples/inputs/cohort/sample_a.tsv>` · :download:`Second AIRR sample <../examples/inputs/cohort/sample_b.tsv>`
 * :download:`Paired sample <../examples/inputs/paired.tsv>`
 
-Compare geometries
-------------------
+Compare exact-hit policies
+---------------------------
 
 .. code-block:: sh
 
    sh examples/compare.sh comparison-demo
 
-This calculates fresh, exact-excluded kernel evidence for stem4 and the
-advanced ``vcdr12`` geometry. The notebook joins ``*.enrichment.tsv`` by source
-identity and full peptide–MHC key, then displays the score differences.
-These are geometry diagnostics: synthetic labels cannot establish biological
-accuracy, and score scales do not share calibration.
+This runs the same vX scorer with ordinary exact-hit retention and with
+``--exclude-exact``. It writes ``exact-retained.selection.tsv`` and
+``exact-excluded.selection.tsv``. The reference stays fixed. The notebook
+compares the rankings and dispositions on the same synthetic queries.
 
 * :doc:`Read the rendered notebook <notebooks/comparison>`
 * :download:`Notebook source <../examples/comparison.ipynb>` · :download:`Shell script <../examples/compare.sh>`

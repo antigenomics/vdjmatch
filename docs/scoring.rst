@@ -1,19 +1,21 @@
 Score definitions
 =================
 
+The default annotation score, assignment rule and whole-query calibration
+are defined in :doc:`vx-formalism`. This page describes retained alternative
+scorers and diagnostic statistics.
+
 See :doc:`selection-information` for selection factors, likelihood ratios,
 information in bits, masked-four-mer weighting, geometry and comparable tails.
-Benchmark exact exclusion filters hit contributions only: model populations,
-priors, motifs and graphs stay fixed. Historical population-puncturing recipes
-below do not define the current selection procedure.
+The vX benchmark exact-hit policy keeps model populations, priors, motifs and
+graphs fixed. Historical diagnostics below specify their own exclusion rules.
 
 Stem4 kernel
 ------------
 
-The ordinary vX score is defined in :doc:`vx-formalism`.
 ``annotate --score-model kernel`` uses the stem4 geometry and the ``v-bounded``
-kernel reducer. All quantities below are computed after the declared exact-match
-policy. Let :math:`N` be the number of eligible target reference keys,
+kernel reducer. Let :math:`N` be the size of the eligible target reference population
+before any exact-hit filtering,
 :math:`t_j` the ordered distance cutoffs, :math:`n_j` and :math:`v_j` the target
 and same-V target counts in shell :math:`j`, and :math:`m_j` the cumulative
 other-peptide background count through that cutoff. The score is
@@ -32,17 +34,10 @@ relative target support; the score is not a P-value.
 
 The ``all-bounded`` reducer weights every reference equally; ``vonly-bounded``
 uses only same-V shell mass. The retained ``rare`` variants replace
-:math:`1+m_j` with :math:`\max(m_j,0.01)`. These are explicit alternatives,
-not a per-query selection of whichever score performs best.
+:math:`1+m_j` with :math:`\max(m_j,0.01)`. Select one reducer for the run.
 
 See :doc:`algorithms` for the computation and paired axes, and
-:doc:`explanation` for complete-score calibration. The remaining sections
-document retained historical and experimental statistics; they do not redefine
-the annotation default.
-
-
-See :doc:`vx-formalism` for the frozen vX research score and its
-assignment and null-calibration equations.
+:doc:`explanation` for complete-score calibration.
 
 
 Target-specific distance and support ranks
@@ -201,7 +196,7 @@ reference pair and other-peptide linked pairs as its joint population. It does
 not multiply independently selected chain matches. Real/generated joint controls
 and paired confidence calibration remain undefined.
 
-An additive clipped BLOSUM62 geometry-like geometry uses clipped BLOSUM costs, explicit
+The additive clipped BLOSUM62 geometry uses clipped substitution costs, explicit
 positional weights, a linear gap charge and aligned V loops:
 
 .. math::
@@ -215,7 +210,7 @@ positional weights, a linear gap charge and aligned V loops:
 Here :math:`s` is BLOSUM62, :math:`q,r` are full junctions,
 :math:`d_V` sums aligned CDR1/CDR2/CDR2.5 costs, :math:`A` is an allowed
 single-block alignment, :math:`h` is the length difference, :math:`L`
-the longer length and :math:`w` the positional weight. clipped BLOSUM62 geometry uses unit
+the longer length and :math:`w` the positional weight. The standard clipped geometry uses unit
 interior weights with three N-terminal and two C-terminal residues excluded.
 The CLI's opt-in ``neighbours --junction-ends trim3`` excludes
 three residues at each end. Exact exclusion still compares full junctions.
@@ -253,19 +248,15 @@ ball counts :math:`n_z,m_z`, a coherent unsmoothed factorisation is
    \frac{N_z/N}{M_z/M}\frac{n_z/N_z}{m_z/M_z}
    =\frac{n_z/N}{m_z/M}.
 
-Read the :download:`revised derivation source <../appendix/score-derivation.tex>`
+Read the :download:`derivation source <../appendix/score-derivation.tex>`
 for gap schemes, historical correspondence, symbols and limiting cases.
-The document editor compiles its current preview; the older repository PDF
-has not been re-exported for this revision.
 
 Implemented historical and matched-kernel experiments
 -----------------------------------------------------
 
-The experimental ``matched-pssm`` score uses one positional distance for both
-reference neighbours and control counts. It is a background-normalised ranking
-statistic. It has not replaced the default annotation scorer or acquired a
-calibrated P-value. These equations describe the implemented single-chain score;
-paired joint scoring remains a separate contract.
+The experimental single-chain ``matched-pssm`` score uses one positional
+distance for both reference neighbours and control counts. Its output is a
+background-normalised ranking statistic.
 
 Populations and geometry
 ------------------------
@@ -304,7 +295,7 @@ therefore length differences above four cannot enter this score.
 Define the historical V factor :math:`a(q,r)` as one for identical
 allele-stripped V genes and :math:`0.25\,\mathrm{vsim}(V_q,V_r)` otherwise.
 It is separate from the distance and is not a calibrated V-loop likelihood.
-This experimental mode does not add clipped BLOSUM62 geometry CDR1/CDR2/CDR2.5 distances.
+The sequence term in this mode uses the junction only.
 
 One kernel and one background predicate
 ---------------------------------------

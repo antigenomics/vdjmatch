@@ -1,5 +1,5 @@
 #!/bin/sh
-# Raw synthetic queries -> two fresh detailed CLI geometries, no fitted models.
+# Compare exact-hit policies with the same vX scorer and reference.
 set -eu
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 OUT=${1:-comparison-demo}
@@ -8,8 +8,7 @@ command -v "$CLI" >/dev/null
 if [ -e "$OUT" ]; then echo "Choose a fresh output directory: $OUT" >&2; exit 1; fi
 mkdir -p "$OUT"
 "$CLI" annotate "$HERE/inputs/cohort/sample_a.tsv" --vdjdb "$HERE/inputs/reference.tsv" \
-  --threads 4 --exclude-exact --details --output-prefix "$OUT/stem4"
+  --threads 4 --output-prefix "$OUT/exact-retained"
 "$CLI" annotate "$HERE/inputs/cohort/sample_a.tsv" --vdjdb "$HERE/inputs/reference.tsv" \
-  --threads 4 --exclude-exact --details --v-regions cdr12 --stem-depth 0 \
-  --distance-matrix clipped --junction-ends trim3 --output-prefix "$OUT/vcdr12"
-printf 'Fresh comparison tables written under %s\n' "$OUT"
+  --threads 4 --exclude-exact --output-prefix "$OUT/exact-excluded"
+printf 'Fresh vX comparisons written under %s\n' "$OUT"

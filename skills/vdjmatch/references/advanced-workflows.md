@@ -1,9 +1,19 @@
 # Advanced VDJmatch workflows
 
-[Calibration](#one-raw-control-complete-score-calibration) ·
+[vX calibration](#vx-calibration) ·
+[Raw-control calibration](#one-raw-control-complete-score-calibration) ·
 [Examples](#cli-first-examples) ·
 [Reference diagnostics](#database-level-diagnostic) ·
 [Repertoire inference](#m3-reference-null-repertoire-inference)
+
+## vX calibration
+
+Ordinary `annotate` ranks peptide–MHC evidence with vX and includes exact hits.
+Use a pinned VDJdb ZIP and one `--vx-null-dir` per scored locus to apply an
+ordered cutoff to the final decision score. Match the reference bytes, model
+settings, exact-hit policy and tie policy. Keep null abstentions in the
+denominator. Paired TRA and TRB marginal rankings remain separate from the
+primary paired decision. See [vX formalism](../../../docs/vx-formalism.rst).
 
 ## One raw control, complete-score calibration
 
@@ -40,8 +50,7 @@ populations; original query IDs need not be globally unique.
 `p_both=max(p_reference,p_query)` tests both conditional directions; match rates
 are separate `k/B` estimates, never binding probabilities. The candidate prior
 comes from the matching-chain control (TRB for paired scoring), distinct from
-historical benchmark assets. Keep this route opt-in until nonregression gates
-pass; ordinary no-control annotation keeps the accepted stem4 scorer.
+historical benchmark assets. Request this route with `--control`.
 Nondefault geometries/target-selection options fail before computation. Legacy
 `--background real/generative --control` routes retain their existing meaning.
 See [the calibration guide](../../../docs/control-calibration.rst).
@@ -60,11 +69,11 @@ advanced recipes do not supply files to the one-control workflow above.
 ## CLI-first examples
 
 Use [examples](../../../docs/examples.rst) for raw synthetic offline inputs,
-annotation/comparison shell commands and fresh-kernel notebooks. Run
+annotation/comparison shell commands and notebooks. Run
 `sh examples/annotate.sh NEW_DIRECTORY` or
 `sh examples/compare.sh NEW_DIRECTORY` with the installed CLI on PATH.
 All computed results come from CLI tables; preserve source identity and full
-pMHC keys in downstream joins. Scripts default to threads4, reject an existing
+pMHC keys in downstream joins. Scripts use four threads, reject an existing
 output directory and propagate errors. DEMO labels are not experimental truth.
 Do not add computed caches or use old notebook outputs as prediction inputs.
 

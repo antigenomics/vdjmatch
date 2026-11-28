@@ -14,8 +14,9 @@ single TRB, paired-chain and mixed inputs. Annotation reports ranked
 evidence without a bank. Supply a matched null bank for every active
 primary locus for calibrated calls, E-values and null-tail counts.
 Paired queries also receive separate TRA and TRB rankings using unlinked
-reference chains.
-The paired result determines the primary call. Select
+reference chains. The paired result determines the primary call.
+Compatible custom tables with peptide–MHC targets support ranked vX evidence.
+Calibrated annotation requires the reference ZIP used to fit the bank. Select
 ``--score-model kernel`` to replay the previous model or use peptide-only
 custom references.
 See :doc:`vx-formalism`.

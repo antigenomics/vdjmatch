@@ -1,6 +1,10 @@
 Repertoire enrichment: algorithm and parameter choices
 ======================================================
 
+Repertoire enrichment compares sample-level match counts and diversity with
+matched mock references. For receptor-level annotation and its complete-query
+false-call calibration, see :doc:`vx-formalism`.
+
 Matching and count units
 ------------------------
 
@@ -194,11 +198,12 @@ direction accelerates that same test rather than selecting its threshold.
 Two algorithms, two null hypotheses
 -----------------------------------
 
-``repertoire-exact`` reproduces the historical bulk-panel calculation, including
-source-row/read units, joint probability strata and its recorded sampler.
+``repertoire-exact`` retains the bulk panel sampler and source-row/read units.
+It uses explicit marginal probability strata with ``--pgen-features`` and
+can reproduce historical joint probability strata with their original options.
 ``repertoire-enrichment --null reference`` fixes the sample and generates mock
-target references using marginal full-junction Pgen. Do not exchange their
-P-values, denominators or significance conventions.
+target references using marginal full-junction Pgen. Interpret each result
+under its producing null, denominator and decision rule.
 
 For the reference-null route:
 

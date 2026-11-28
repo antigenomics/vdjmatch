@@ -27,12 +27,12 @@
   <a href="https://docs.isalgo.dev/vdjmatch/examples.html">Examples</a>
 </b></p>
 
-`vdjmatch` annotates selected T-cell receptors and repertoires against
-[VDJdb](https://github.com/antigenomics/vdjdb-db), preserving query identities and
-reporting peptide–MHC candidates, competing evidence and optional background calibration.
-Native sequence search uses [`seqtree`](https://github.com/antigenomics/seqtree);
-repertoire ingestion reuses published `vdjtools` readers.
-Dependency versions and native CPU budgets are managed by the installed package.
+`vdjmatch` ranks peptide–MHC evidence for human and mouse T-cell receptors
+against VDJdb or a compatible reference. The default vX score combines weighted
+junction and V-region distances with evidence from nearby references and competing
+targets. It supports TRA, TRB and paired-chain receptors and preserves unsupported
+queries and ambiguous rankings.
+[VDJdb](https://github.com/antigenomics/vdjdb-db) · [vX score and calibration](https://docs.isalgo.dev/vdjmatch/vx-formalism.html)
 
 <p align="center">
   <picture>
@@ -54,18 +54,31 @@ Source builds of the native dependencies require Microsoft C++ Build Tools.
 Windows CI builds the source stack and checks single-chain, paired and CLI
 annotation on synthetic fixtures.
 
-Use AIRR `junction_aa` (including conserved anchors) and V calls. The curated
-VDJdb reference is fetched on first use; add `--vdjdb reference.zip` for offline
-input. vX ranks evidence for single TRA/TRB and paired-chain receptors and keeps
-exact hits. Supply matching `--vx-null-dir` banks for calibrated calls.
-Use `--score-model kernel` to reproduce the previous scorer.
+Use AIRR `junction_aa` with conserved anchors, V calls and chain identities.
+On first use the command fetches VDJdb and applies the curated reference policy.
+Add `--vdjdb reference.zip` to pin a local release. The `*.selection.tsv` table
+reports scores and ranking status. Supply matching `--vx-null-dir` banks for
+calibrated calls. Ordinary annotation retains exact hits.
 
 For a small offline example, download the [examples directory](examples/) and run
 `sh examples/annotate.sh annotation-demo` from the repository root.
 
 ## Choose a reference
 
-The existing `match` command and `Annotator` API support three reference choices:
+Run vX against a user-supplied VDJdb-format table with peptide–MHC labels and
+receptor species, junctions and V genes. Set a common `complex_id` on both
+chain rows of each genuine reference pair.
+
+```sh
+vdjmatch annotate queries.tsv --vdjdb reference.tsv -o custom
+```
+
+The command reports ranked evidence for a standalone custom table. Applying a
+vX null bank requires the same reference ZIP and scoring configuration used to
+fit the bank. Use `--score-model kernel` to replay stem4.
+
+Use `match` or `Annotator` for fixed-scope candidate matching and for
+references with arbitrary labels.
 
 | Reference | Python | CLI |
 | --- | --- | --- |
@@ -127,11 +140,3 @@ Sample workers keep their inner numerical kernels serial.
 ## License
 
 ISALGO LAB Academic and Non-Commercial Research License v1.0. See [LICENSE](LICENSE).
-
-## Paired score and calibration provenance
-
-New paired producer manifests record the SHA-256 of their selection or calls
-TSV. Use each table with the manifest emitted in the same run. Regenerate older
-outputs with the original inputs and options before reducing them with paired-
-score. Equal-tail any-call recipes now pin the VDJdb loader. Refit older recipes
-using the original reference, null inputs and options before applying them.

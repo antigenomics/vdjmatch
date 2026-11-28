@@ -278,6 +278,26 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
                              output_prefix=tmp_path / "modified", score_model="vx", distance_matrix="clipped")
 
 
+def test_vx_cli_custom_reference_preserves_exact_hit_policy(tmp_path):
+    from vdjmatch.cli.__main__ import main
+
+    inputs = Path(__file__).resolve().parents[2] / "examples" / "inputs"
+    retained = tmp_path / "retained"
+    excluded = tmp_path / "excluded"
+    command = [
+        "annotate", str(inputs / "cohort" / "sample_a.tsv"), "--locus", "TRB",
+        "--vdjdb", str(inputs / "reference.tsv"), "--threads", "1",
+    ]
+    assert main([*command, "-o", str(retained)]) == 0
+    assert main([*command, "-o", str(excluded), "--exclude-exact"]) == 0
+    old = pl.read_csv(retained.with_suffix(".selection.tsv"), separator="\t")
+    new = pl.read_csv(excluded.with_suffix(".selection.tsv"), separator="\t")
+    assert old["score_model"].to_list() == new["score_model"].to_list() == ["vx", "vx"]
+    assert old["selected_epitope"].to_list() == new["selected_epitope"].to_list() == ["DEMO_A", "DEMO_A"]
+    assert old["score"].to_list() == pytest.approx([0.01875, 0.01875])
+    assert new["score"].to_list() == [-6.0, -6.0]
+
+
 def test_metadata_paths_relative_to_metadata_and_options(tmp_path, core):
     table(tmp_path / "input.tsv")
     pl.DataFrame({"path": ["input.tsv"], "sample_id": ["007"], "condition": ["x"]}).write_csv(tmp_path / "metadata.tsv", separator="\t")

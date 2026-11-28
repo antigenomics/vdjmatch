@@ -56,7 +56,7 @@ reference evidence. Add a matched null bank to apply a call threshold.
 Paired input
 ------------
 
-Put linked alpha and beta chains on the same row, with a stable ``clone_id``.
+Put observed alpha and beta chains on the same row, with a stable ``clone_id``.
 Do not manufacture pairs from independent single-chain receptors.
 
 .. literalinclude:: ../examples/inputs/paired.tsv
@@ -118,7 +118,7 @@ Parameters that change the question
    * - ``--details``
      - Use the kernel workflow to export all candidate evidence as well as the selected label.
    * - ``--threads 4``
-     - Use a budget of four CPU workers. This changes runtime, not the score.
+     - Use a budget of four CPU workers for the same score calculation.
 
 Install and reproduce everything above
 --------------------------------------

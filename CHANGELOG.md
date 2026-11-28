@@ -20,7 +20,9 @@
   unlinked reference chains. The paired result determines the primary call.
 - Reduce catalogue preparation time by grouping reference rows before
   checking peptide–MHC compatibility.
-
+- Document vX from input preparation through ranking and matched null
+  calibration. Provide worked offline examples for ordinary annotation,
+  custom references and benchmark exact-hit exclusion.
 - Report exact, finite-population rediscovery probabilities for V-conditioned
   motifs at user-specified TCR sampling depths in `reference-profiles`.
   Use `motif-depth` to calculate the expected breadth of the observed V/core
