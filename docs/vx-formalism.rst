@@ -538,6 +538,41 @@ workflow. Compare the same samples, truth criteria and background
 sources. Measure power or correct-call recall at matched
 false-call control before claiming a performance advantage.
 
+Calibration from an ordered null sample
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For a single cutoff on a fixed whole-query score, choose the allowed
+calibration count before examining the null scores. Let :math:`B` be
+the number of independent draws from the declared null, :math:`k<B`
+the allowed count, and :math:`Z_{(B-k)}` the ascending order statistic
+of the calibration scores. Give abstentions score :math:`-\infty`.
+Call only when the new score is strictly above :math:`Z_{(B-k)}`.
+This excludes the boundary tie in full. If :math:`f` is the resulting
+population any-call probability and :math:`\alpha` its intended cap,
+
+.. math::
+
+   \Pr(f>\alpha)\leq\Pr\{\operatorname{Binomial}(B,\alpha)\leq k\}.
+
+The probability on the left is over calibration samples. The one-sided
+upper bound at confidence :math:`1-\delta` is the beta quantile with
+shape parameters :math:`k+1` and :math:`B-k`. Exceeding the cap
+requires the boundary score to fall below the null
+:math:`(1-\alpha)` quantile. In that case at most :math:`k` calibration
+scores reach a quantile whose upper tail has mass at least
+:math:`\alpha`. The binomial bound is tight for a continuous score
+and conservative with ties. See `Tong, Feng and Li, Proposition 1
+<https://arxiv.org/abs/1608.03109>`_.
+
+Choose the largest :math:`k` whose binomial tail is at most :math:`\delta`.
+For 100,000 nulls, a 1% cap and 95% confidence give :math:`k=948`.
+Allowing 1,000 calls instead gives an upper bound of 1.0533%. Use an
+abstain-all rule when no count qualifies. Freeze the catalogue, score,
+and label decision independently of this sample. A radius family uses
+the same argument when its call sets are nested and admit one scalar
+score. A family in which adding neighbors can create an abstention
+uses an independent evaluation background after radius selection.
+
 Assignment and complete-query calibration
 -----------------------------------------
 
