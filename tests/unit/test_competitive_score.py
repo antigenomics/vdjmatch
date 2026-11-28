@@ -196,6 +196,40 @@ def test_frozen_paired_maxima_exports_only_unique_winners_as_callable_scores():
     assert nulls.rows() == [(*row, "null", "generated") for row in expected]
 
 
+def test_paired_withholding_filters_target_labels_and_competitor_memberships(monkeypatch, tmp_path):
+    import polars as pl
+
+    from vdjmatch.cli import paired_vx_base
+
+    holdouts = tmp_path / "withheld.tsv"
+    holdouts.write_text("query_id\tepitope\n01\tH\n01\tH\n02\tP\n02\tH\n02\tQ\n")
+    queries = pl.DataFrame({"query_id": ["01", "02"]})
+    targets = pl.DataFrame({"epitope": ["H", "P", "H", "Q"]})
+    folds = paired_vx_base._withholding_folds(holdouts, queries["query_id"], {"H", "P", "Q"})
+    assert folds == {("H",): [0], ("H", "P", "Q"): [1]}
+    groups = [[0], [1], [2], [3]]
+    backgrounds = [
+        (np.array([3]), np.array(["Q"])),
+        (np.array([2, 3, 3]), np.array(["H", "H", "Q"])),
+        (np.array([3]), np.array(["Q"])),
+        (np.array([1]), np.array(["P"])),
+    ]
+
+    def score(part, fixed, members, others, context, *, threads, exclude_exact):
+        assert part["query_id"].to_list() == ["01"]
+        assert members == [[1], [3]]
+        assert [x.tolist() for x in others] == [[3], [1]]
+        assert exclude_exact
+        return np.array([[-3, -5]])
+
+    monkeypatch.setattr(paired_vx_base, "_base_scores", score)
+    result = paired_vx_base._withheld_scores(
+        queries, None, targets, groups, backgrounds, None, folds=folds, threads=1, exclude_exact=True)
+    np.testing.assert_array_equal(result, [[-np.inf, -3, -np.inf, -5], [-np.inf] * 4])
+    with pytest.raises(ValueError, match="every query ID"):
+        paired_vx_base._withholding_folds(holdouts, ["01"], {"H", "P", "Q"})
+
+
 def test_paired_motif_refinement_leaves_top_ties_and_unsupported_cells():
     frozen = [[-1, -1, -2, -np.inf], [-1, -2, -3, -4]]
     tra = [[4, -4, 5, 3], [0, -2, 4, 7]]

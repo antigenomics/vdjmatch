@@ -739,6 +739,25 @@ Use the same reference and exact-hit policy when scoring the queries
 to which the recipe will be applied. The mouse motif correction
 preserves this maximum-based calling rule.
 
+For the peptide-withheld comparison, supply a TSV with ``query_id``
+and ``epitope`` and list every recorded peptide to withhold for each
+query. Multiple rows can name the same query. Repeated identical
+memberships are counted once.
+
+.. code-block:: bash
+
+   vdjmatch paired-vx-base paired-queries.tsv --vdjdb reference.zip \
+     --withhold-peptides withheld.tsv --exclude-exact --output-dir mouse-withheld
+
+Each fold retains the intact target axis, with the excluded target
+scores unsupported. The command reuses the compatible memberships,
+filters their peptides within each fold, and then deduplicates the
+surviving background keys. The ``maxima.tsv`` file names this null
+source ``withheld`` by default. The fold scores use separate reference
+populations, so a single fixed membership table for motif fitting
+would be inappropriate. Use a predeclared transferred cutoff to
+report this diagnostic separately from IID null calibration.
+
 Competitive score diagnostics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

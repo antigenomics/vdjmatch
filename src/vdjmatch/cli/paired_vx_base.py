@@ -16,12 +16,13 @@ def register(subparsers):
     parser.add_argument("--exclude-exact", action="store_true",
                         help="Benchmark only: exclude matching paired junctions from the hit lists")
     parser.add_argument("--null-source", help="Declare all input queries as one named calibration null")
+    parser.add_argument("--withhold-peptides", type=Path, help="TSV of query_id, epitope to withhold across restrictions")
     parser.add_argument("--threads", type=cpu_budget, default="0")
     parser.add_argument("--output-dir", type=Path, required=True, help="Fresh directory for paired motif rank inputs")
     parser.set_defaults(func=main)
 
 
-def _reference_catalogue(raw, model):
+def _reference_catalogue(raw, model, *, background_memberships=False):
     import polars as pl
     from .historical import assayed_targets
     from ..aggregate.candidates import PMHC
@@ -51,10 +52,48 @@ def _reference_catalogue(raw, model):
             & (pl.col("mhc_class") == target["mhc_class"])
             & mhc_compatible("mhc_a", target["mhc_a"])
             & mhc_compatible("mhc_b", target["mhc_b"])
-        )["reference_key"].unique().to_numpy()
+        )
         groups.append(members)
-        backgrounds.append(compatible)
+        if background_memberships:
+            backgrounds.append((compatible["reference_key"].to_numpy(), compatible["epitope"].to_numpy()))
+        else:
+            backgrounds.append(compatible["reference_key"].unique().to_numpy())
     return fixed, declared.select(PMHC), groups, backgrounds
+
+
+def _withholding_folds(path, query_ids, reference_peptides):
+    import polars as pl
+    from ..io.airr import _read_table
+
+    frame = _read_table(path)
+    if {"query_id", "epitope"} - set(frame.columns):
+        raise ValueError("withholding requires query_id and epitope columns")
+    frame = frame.select(pl.col("query_id", "epitope").cast(pl.String))
+    if set(frame["query_id"]) != set(query_ids) or not set(frame["epitope"]) <= reference_peptides:
+        raise ValueError("withholding requires every query ID and only known reference peptides")
+    by_query = dict(frame.group_by("query_id").agg(pl.col("epitope").unique().sort()).iter_rows())
+    folds = {}
+    for i, query_id in enumerate(query_ids):
+        folds.setdefault(tuple(by_query[query_id]), []).append(i)
+    return folds
+
+
+def _withheld_scores(queries, fixed, targets, groups, backgrounds, context, *, folds, threads, exclude_exact):
+    import numpy as np
+
+    result = np.full((queries.height, targets.height), -np.inf)
+    for excluded, rows in folds.items():
+        columns = np.flatnonzero(~targets["epitope"].is_in(excluded).to_numpy())
+        if not len(columns):
+            continue
+        remaining = []
+        for column in columns:
+            keys, peptide = backgrounds[column]
+            remaining.append(np.unique(keys[~np.isin(peptide, excluded)]))
+        result[np.ix_(rows, columns)] = _base_scores(
+            queries[rows], fixed, [groups[column] for column in columns], remaining, context,
+            threads=threads, exclude_exact=exclude_exact)
+    return result
 
 
 def _regional_corrections(context, locus):
@@ -156,26 +195,32 @@ def main(args):
     if null_source == "":
         raise ValueError("--null-source must name a nonempty null population")
     inputs = {"reference": args.vdjdb, "queries": args.queries}
+    if args.withhold_peptides is not None:
+        inputs["withhold_peptides"] = args.withhold_peptides
+        if null_source is None:
+            null_source = "withheld"
     digests = {name: sha256(path) for name, path in inputs.items()}
     context = precompute_v_loop_distances(species="mouse")
     raw = db.load(args.vdjdb, species="MusMusculus")
-    fixed, targets, groups, backgrounds = _reference_catalogue(raw, context["model"])
+    fixed, targets, groups, backgrounds = _reference_catalogue(
+        raw, context["model"], background_memberships=args.withhold_peptides is not None)
     queries, ingestion = _queries(args.queries, "paired", "mouse", declared=False)
     if queries.is_empty() or queries.height * 2 != ingestion["output_rows"] or not queries.select(pl.all_horizontal(
         pl.col("cdr3" + chain).str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$").fill_null(False) for chain in "ab"
     ).all()).item():
         raise ValueError("provide complete mouse pairs with both canonical junctions")
     queries = _prepare(queries, "ab", context["model"])
-    base = _base_scores(queries, fixed, groups, backgrounds, context,
-                        threads=args.threads, exclude_exact=args.exclude_exact)
+    folds = None
+    if args.withhold_peptides is None:
+        base = _base_scores(queries, fixed, groups, backgrounds, context,
+                            threads=args.threads, exclude_exact=args.exclude_exact)
+    else:
+        folds = _withholding_folds(args.withhold_peptides, queries["query_id"],
+                                   set(raw["epitope"].drop_nulls()) - {""})
+        base = _withheld_scores(queries, fixed, targets, groups, backgrounds, context,
+                                folds=folds, threads=args.threads, exclude_exact=args.exclude_exact)
     labels = [json.dumps(target, separators=(",", ":")) for target in targets.iter_rows()]
     maxima = _maxima_table(queries["query_id"], base, labels, null_source)
-    member_rows = pl.DataFrame({
-        "reference_key": np.concatenate(groups),
-        "target": np.repeat(labels, [len(group) for group in groups]),
-    }).join(fixed.select("reference_key", pl.col("cdr3a").alias(CHAINS[0]),
-                        pl.col("cdr3b").alias(CHAINS[1])), on="reference_key",
-            validate="m:1", maintain_order="left")
     if digests != {name: sha256(path) for name, path in inputs.items()}:
         raise ValueError("paired-vx-base inputs changed during replay")
     out.mkdir(parents=True, exist_ok=False)
@@ -184,14 +229,24 @@ def main(args):
                    pl.col("cdr3b").alias(CHAINS[1])).write_csv(out / "queries.tsv", separator="\t")
     pl.DataFrame({"target": labels, "mhc_class": targets["mhc_class"]}).write_csv(
         out / "targets.tsv", separator="\t")
-    member_rows.write_csv(out / "memberships.tsv", separator="\t")
+    if folds is None:
+        member_rows = pl.DataFrame({
+            "reference_key": np.concatenate(groups),
+            "target": np.repeat(labels, [len(group) for group in groups]),
+        }).join(fixed.select("reference_key", pl.col("cdr3a").alias(CHAINS[0]),
+                            pl.col("cdr3b").alias(CHAINS[1])), on="reference_key",
+                validate="m:1", maintain_order="left")
+        member_rows.write_csv(out / "memberships.tsv", separator="\t")
+        fold_status = {"motif_reference_keys": member_rows["reference_key"].n_unique()}
+    else:
+        fold_status = {"withholding_folds": len(folds)}
     maxima.write_csv(out / "maxima.tsv", separator="\t")
     (out / "manifest.json").write_text(json.dumps({
         "inputs_sha256": digests, "species": "mouse", "exact_hits_excluded": args.exclude_exact,
         "queries": queries.height, "targets": targets.height, "reference_keys": fixed.height,
         "supported_queries": maxima["maximum"].count(), "unique_winners": maxima["score"].count(),
         "top_ties": int(maxima["tied"].sum()), "null_source": null_source,
-        "motif_reference_keys": member_rows["reference_key"].n_unique(),
+        **fold_status,
         "threads": args.threads,
         "software": {package: version(package) for package in ("vdjmatch", "seqtree", "vdjtools")},
         "v_loop_model_sha256": sha256(Path(str(files("vdjmatch.resources") / "vloops" / "mouse_v_loops.tsv"))),
