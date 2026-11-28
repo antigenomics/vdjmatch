@@ -6,7 +6,7 @@ import pytest
 
 from vdjmatch.evalue.competitive import (
     anchored_motif_scores, assay_local_score, assignment_score, paired_assay_local_score,
-    paired_motif_ranking_scores, reduced_hits,
+    fr3_sw_distance_correction, paired_motif_ranking_scores, reduced_hits,
 )
 
 
@@ -132,3 +132,19 @@ def test_paired_motif_refinement_leaves_top_ties_and_unsupported_cells():
     with pytest.raises(ValueError, match="finite score range"):
         paired_motif_ranking_scores([[0, -1]], [[0, -2]], [[0, -2]], [3, 3],
                                     support_weight=0, conflict_weight=1e308)
+
+
+def test_fr3_sw_research_correction_matches_verified_native_units():
+    from vdjmatch.match.geometry import precompute_v_loop_distances
+
+    context = precompute_v_loop_distances()
+    for locus, pair, residual in (
+        ("TRA", ("TRAV1-1*01", "TRAV9-2*04"), 0.5),
+        ("TRB", ("TRBV1*01", "TRBV9*03"), -4.5),
+    ):
+        alleles, correction = fr3_sw_distance_correction(context, locus)
+        np.testing.assert_array_equal(alleles, context["tables"][locus][0])
+        np.testing.assert_array_equal(correction, correction.T)
+        np.testing.assert_array_equal(correction.diagonal(), 0)
+        i, j = np.searchsorted(alleles, pair)
+        assert correction[i, j] == residual * (3 / 2 + 1 / 256) / 512

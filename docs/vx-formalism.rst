@@ -78,6 +78,27 @@ TRA–TRB contact joins positions on two chains and is evaluated as a
 pair of sites under the interface term. It does not define a continuous
 sequence segment for alignment.
 
+The human FR3 research candidate replaces one part in 512 of the
+existing weighted FR3 cost with the local-alignment dissimilarity.
+For chain :math:`i`, let :math:`D_{{\rm FR3},i}` be the frozen
+aligned segment cost and :math:`D_{H,i}` the local dissimilarity for
+the same segment. The distance becomes
+
+.. math::
+
+   D'_w = D_w +
+     \frac{3/2+1/256}{512}
+     \sum_i \bigl(D_{H,i}-D_{{\rm FR3},i}\bigr).
+
+The sum ranges over the observed chains, using the native fallback
+when the frozen correction is unavailable. On the matched human
+priority cohorts, the candidate improved five organizer-protocol
+and four fixed-reference TCRvdb endpoints with zero endpoint losses.
+The six measured NLV endpoints and all three LLL–LLW–ELA correct
+counts were preserved. It is available as an explicit research
+component. Fresh whole-search calibration and broader benchmark
+verification are pending.
+
 For target key :math:`r`, order hits by
 :math:`d(q,r;e)=D_w(q,r)-a\log_2\max(1,n_{er})`, where :math:`n_{er}` counts
 distinct reference IDs supporting that target key. Only TRB uses a nonzero

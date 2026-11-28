@@ -9,6 +9,50 @@ MAX_MIDPOINT_GAP_PER_CHAIN = 24
 ASSIGNMENT_SIZE_SLOPE = 1 / 400
 
 
+def fr3_sw_distance_correction(context, locus):
+    """Return the research FR3 correction in native distance units.
+
+    This replaces 1/512 of the frozen FR3 cost with Smith–Waterman
+    dissimilarity. Add it only where the frozen geometry is available
+    for every observed chain. The allele order matches the context.
+    """
+    from seqtree import SubstitutionMatrix, gapblock
+    from ..match.geometry import _v_loop_groups
+
+    alleles = context["tables"][locus][0]
+    model = context["model"]
+    region = "cdr25"  # Historical key for the selected FR3 segment.
+    only_fr3 = {gene: dict(entry, cdr1="", cdr2="") for gene, entry in model.items()}
+    old, indices = _v_loop_groups(alleles.tolist(), only_fr3, context["costs"])
+    old = old[np.ix_(indices, indices)]
+    segments = [model[gene][region].replace(".", "").replace("-", "") for gene in alleles]
+    keep = np.flatnonzero([bool(segment) for segment in segments])
+    aligned = [segments[i] for i in keep]
+    n = len(aligned)
+    correction = np.zeros(old.shape, dtype=float)
+    if not n:
+        return alleles, correction
+
+    native = gapblock.grouped_count_batch(
+        aligned, aligned, [10000], reference_target_offsets=list(range(n + 1)),
+        reference_target_ids=[0] * n, target_peptide_ids=[0],
+        reference_exclusive_peptide_ids=[0] * n, query_gene_ids=[0] * n,
+        reference_gene_ids=[0] * n, query_target_ids=[0] * n,
+        return_hits=True, chunk_size=32, threads=1, matrix=SubstitutionMatrix.blosum62(),
+        gap_open=2, gap_extend=2, alignment_mode="local",
+    )
+    distance = np.full((n, n), np.nan)
+    for chunk in native:
+        q, r, numerator = np.asarray(chunk.hits).T
+        distance[q, r] = numerator / 2
+    if not np.isfinite(distance).all():
+        raise ValueError("FR3 alignment did not cover the resolved allele pairs")
+    pair = np.ix_(keep, keep)
+    frozen_fr3_weight = 3 / 2 + 1 / 256
+    correction[pair] = (distance - old[pair]) * frozen_fr3_weight / 512
+    return alleles, correction
+
+
 def reduced_hits(first, second, background, rules, chains):
     """Score ordered finite target hits with the configured competitive margin.
 
