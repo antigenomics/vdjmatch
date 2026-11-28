@@ -33,9 +33,8 @@ geometry is
 
 .. math::
 
-   D_w = 3D_J + \frac{257}{256}D_1
-             + \frac{193}{256}D_2
-             + \frac{385}{256}D_{2.5}.
+   D_w = 3D_J + D_1 + \frac34 D_2 + \frac32 D_{2.5}
+             + \frac{D_1+D_2+D_{2.5}}{256}.
 
 CDR2.5 is the selected
 short segment within FR3, and full FR1–3 contributions are absent. In
@@ -241,11 +240,12 @@ recalls, with boundaries approximately :math:`0.00201` and
 attains the maximum of :math:`\min_e[R_e(\lambda)-R_e^{\rm native}]`
 across the crossing intervals. Here :math:`R_e` is the fraction of assay
 records of class :math:`e` uniquely assigned to that class. The gain is flat across multiple intervals. The midpoint maximizes the distance
-to the nearer endpoint of the original interval. The six-decimal
-rounding :math:`\lambda=0.002832` limits the shift from the frozen scores
-to under :math:`10^{-5}` while preserving all saved assignments. The slope
-is about 0.002 distance units per doubling of :math:`1+N_e`. This is an
-in-panel cross-label adjustment estimated from assignment crossings.
+to the nearer endpoint of the original interval. Use the simpler
+:math:`\lambda=1/400` inside the same assignment plateau. It changes the
+3,654 saved scores by at most 0.00337 native distance units and preserves
+all ties, within-target ranks and within-query label orderings. The term
+adds :math:`(\log 2)/400` native distance units per doubling of
+:math:`1+N_e`. Its value comes from the three-label assay replay.
 
 The implementation uses ``log1p``. An exact tie or no finite maximum
 abstains. The comparison uses queries with finite scores for all three

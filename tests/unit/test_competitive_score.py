@@ -37,7 +37,7 @@ def test_size_adjustment_uses_rounded_slope():
     scores = np.array([[-12.0, -12.0, -np.inf]])
     counts = np.array([1, 7, 15])
     adjusted = assignment_score(scores, counts)
-    np.testing.assert_array_equal(adjusted, scores + 0.002832 * np.log1p(counts))
+    np.testing.assert_array_equal(adjusted, scores + np.log1p(counts) * (1 / 400))
     assert adjusted.argmax(axis=1).item() == 1
 
 

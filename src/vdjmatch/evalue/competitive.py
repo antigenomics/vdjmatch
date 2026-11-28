@@ -5,7 +5,7 @@ from collections import Counter
 import numpy as np
 
 MAX_MIDPOINT_GAP_PER_CHAIN = 24
-ASSIGNMENT_SIZE_SLOPE = 0.002832
+ASSIGNMENT_SIZE_SLOPE = 1 / 400
 
 
 def reduced_hits(first, second, background, rules, chains):

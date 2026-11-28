@@ -350,6 +350,14 @@ ranking endpoints, with both self-only and paired-junction exact
 exclusion. The setting was selected on the evaluation panel.
 It requires the annotated assay group at scoring time and has
 no fixed-reference specificity cutoff.
+With square weights and the same width, four endpoints fall below
+the organizer scores and 18 fall below the current local score.
+Taking one eighth of the available neighbours with square weights
+raises the organizer losses to five.
+Exponential and logarithmic tapers also lower priority endpoints.
+At the original width, :math:`r^2\log(1+r/k)`, with descending rank
+weight :math:`r=k-i+1`, lowers six endpoints relative to the current
+score and one against the organizer under both exclusion policies.
 
 To reduce a prepared matrix, run:
 
