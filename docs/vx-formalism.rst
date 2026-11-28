@@ -468,13 +468,27 @@ the remaining distances :math:`d_{(1)}\leq\cdots\leq d_{(k)}` and use
    k=\max\{1,\lfloor 31(n-1)/250\rfloor\}.
 
 The decreasing rank weights emphasize the closest neighbors. The
-organizer assay selected the fraction and exponent. All eight observed
+weights are normalized to sum to one. For rank exponent
+:math:`p`, their real-arithmetic form is proportional to
+:math:`\exp\{p\log[(k-j+1)/k]\}`. At :math:`p=0` the
+score is the negative mean of the first :math:`k` distances, and as
+:math:`p\to\infty` it approaches the negative nearest distance
+for a supported row. At :math:`k=1` it is the negative nearest
+distance for any exponent. The replay retains the original power and
+reduction order in binary64.
+
+The vX replay selected the fraction and exponent on the supplied
+organizer panel. All eight observed
 neighbor counts stay fixed for fractions in
 :math:`[15/121,16/129)`. The endpoints have cross-product difference
 one, so their mediant :math:`31/250` has the smallest denominator among
 fractions strictly between them. It equals 12.4%. One eighth would add
-one neighbor in four groups. If fewer than :math:`k` distances are
-finite, the case is unscored. Equal distances
+one neighbor in four groups. At the selected width, a square rank
+weight lost four organizer endpoints and lowered 18 relative to
+the selected exponent. If fewer than :math:`k` distances are
+finite, the case is unscored. Rounding the exponent to 2.33
+retained the organizer wins but lowered two accepted assay-local
+endpoints. Equal distances
 at the boundary have equal effect on this distance average. This score
 operates within an already specified target group.
 
@@ -758,21 +772,32 @@ Each token :math:`t` records the window sequence, the end from which
 it was counted and its offset from that end. The two lengths test
 how much adjacent sequence helps distinguish a target from the
 pooled reference.
-For :math:`N_e` distinct reference keys for target :math:`e`, let
-:math:`c_{et}` count keys with token :math:`t`. Across the full model let
-:math:`N=\sum_eN_e` and :math:`c_t=\sum_ec_{et}`. Use
+Let :math:`c_{et}` count the :math:`N_e` reference keys of target
+:math:`e` that carry token :math:`t`. Let :math:`N` be the
+pool size and :math:`c_t` its count for that token. The default pool
+counts target–key memberships, so :math:`N=\sum_eN_e` and
+:math:`c_t=\sum_ec_{et}`. An explicitly supplied pool can count
+physical keys once if its caller deduplicates them. Set the prior
+mass to :math:`\nu=2` and write :math:`T(q)` for the query's
+available positional tokens. The score is
 
 .. math::
 
-   u_t=\frac{1+c_t}{2+N},\qquad
+   u_t=\frac{1+c_t}{N+\nu},\qquad
+   \theta_{et}=\frac{c_{et}+\nu u_t}{N_e+\nu},\qquad
    M_e(q)=\frac{1}{|T(q)|}\sum_{t\in T(q)}
-       \log\frac{c_{et}+2u_t}{(N_e+2)u_t}.
+       \log\frac{\theta_{et}}{u_t}.
 
-The pooled frequency uses one occurrence and one nonoccurrence
-pseudocount. The target estimate borrows two reference observations
-at that frequency at both motif lengths. The mean is an enrichment score for overlapping
-windows. A unique maximum assigns an epitope in the closed-set assay.
-Empty query token lists and absent targets are unsupported.
+The pooled frequency starts with one occurrence and one nonoccurrence,
+the Beta(1,1) prior. The target estimate
+:math:`\theta_{et}` borrows :math:`\nu` observations at that pooled
+frequency for either motif length. The target shrinkage mass is
+a modeling choice. A token matching the pooled rate contributes
+zero log enrichment. An available token absent from a nonempty
+target contributes :math:`\log[\nu/(N_e+\nu)]`, which is finite.
+The mean summarizes overlapping windows in natural-log units.
+A unique maximum assigns an epitope in this closed-set assay.
+Empty query token lists and targets with no keys are unsupported.
 
 ``vdjmatch.evalue.competitive.anchored_motif_scores`` implements the
 fixed-catalogue rule. On the 1,218 matched M2 cases it assigns 1,116

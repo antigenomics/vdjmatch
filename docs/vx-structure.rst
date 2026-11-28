@@ -292,11 +292,14 @@ Paired motif ranking refinement
 
 Let :math:`S_e` be the paired-chain score in the full compatible target
 context and :math:`m_e` the smaller of the two fixed-catalogue chain motif
-enrichments. For targets with more than two reference keys, add
+enrichments. Replace a missing chain motif by zero before taking the
+minimum. This prevents a positive bonus from one chain alone and
+still lets a negative motif penalize the pair. For targets with more
+than two reference keys, add
 
 .. math::
 
-   \lambda_+[m_e]_+-\lambda_-[-m_e]_+.
+   \Delta_e=\lambda_+[m_e]_+-\lambda_-[-m_e]_+.
 
 Here :math:`[x]_+=\max(x,0)`. A negative enrichment means that
 the observed sequence windows occur less often in that target
@@ -306,13 +309,17 @@ adds zero. The conflict weight :math:`\lambda_-` converts one unit of
 natural-log enrichment into distance score units. The reported
 weights were selected on their stated comparison panels.
 
-The two reference keys in this gate correspond to the two pooled
-pseudocount observations in the three-residue sequence-window score used in these ranking
-comparisons. Keep every target at
-the original maximum unchanged. Cap other scores strictly below that
-maximum, at its binary64 predecessor. This preserves the winning tier
-and any cutoff on the maximum score. It can change lower target ranks
-and per-target AP and AUROC. The caller supplies the species weights.
+The gate requires more observed keys than the two prior observations
+used for motif shrinkage at either window length. Set
+:math:`\Delta_e=0` when the gate fails. Keep every target at the
+original maximum unchanged, as well as every original no-hit target.
+For other targets let :math:`L_e` be the supplied finite lower-tier
+baseline, falling back to :math:`S_e` when it is unavailable. The
+refined value is :math:`\min(L_e+\Delta_e,S_*^-)`, where
+:math:`S_*^-` is the binary64 predecessor of the query's original
+maximum. The cap preserves the winning tier and any cutoff on that
+maximum. A separate lower-tier baseline can still change a rank when
+:math:`\Delta_e=0`. The caller supplies the species weights.
 Use ``vdjmatch.evalue.competitive.paired_motif_ranking_scores`` for
 retrospective ranking; benchmarking reuses the complete fixed motif
 model, including exact junctions in model counts.
@@ -330,9 +337,9 @@ sibling pool. For motif token :math:`t` and target :math:`e`, use
 
 Here :math:`N` and :math:`N_s` count keys in the fixed global and
 sibling pools, and :math:`c_t` and :math:`c_{st}` count keys carrying
-the token in each. The one success and one failure define the
-uniform Beta prior, and two global pseudocounts shrink sparse sibling
-estimates. The enrichment for a token is
+the token in each. Both pool frequencies include a Beta(1,1) prior.
+The outer coefficients mix the two smoothed frequencies, with
+the sibling weight increasing with its key count. The enrichment for a token is
 :math:`\log[(c_{et}+2p_{et})/((N_e+2)p_{et})]`, where :math:`N_e`
 counts focal reference keys and :math:`c_{et}` counts those carrying
 the token. Average over the query's available anchored tokens. With

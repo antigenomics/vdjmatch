@@ -133,7 +133,9 @@ def anchored_motif_scores(reference_keys, junctions, targets, *,
     An explicit pool can use physical keys counted once. Optional sibling
     junctions come from compatible same-peptide targets, with shared
     reference keys removed by the caller.
-    Both motif lengths borrow two pooled observations.
+    Global and sibling frequencies start with one occurrence and one
+    nonoccurrence. Both motif lengths borrow two prior observations
+    when estimating the target frequency.
     """
     if not isinstance(motif_length, (int, np.integer)) or motif_length not in (3, 4):
         raise ValueError("motif_length must be 3 or 4")
@@ -143,16 +145,17 @@ def anchored_motif_scores(reference_keys, junctions, targets, *,
     target_counts = {target: Counter() for target in targets}
     sizes = Counter()
     pooled = Counter()
+    prior_mass = 2
     for target, junction in reference_keys:
         counts = target_counts[target]
         tokens = _anchored_tokens(junction, motif_length)
         counts.update(tokens)
         pooled.update(tokens)
         sizes[target] += 1
-    denominator = 2 + sizes.total()
+    denominator = prior_mass + sizes.total()
     if reference_pool is not None:
         pooled.clear()
-        denominator = 2
+        denominator = prior_mass
         for junction in reference_pool:
             pooled.update(_anchored_tokens(junction, motif_length))
             denominator += 1
@@ -164,18 +167,18 @@ def anchored_motif_scores(reference_keys, junctions, targets, *,
         counts = target_counts[target]
         siblings = tuple(sibling_references.get(target, ())) if sibling_references is not None else ()
         sibling_counts = Counter(token for junction in siblings for token in _anchored_tokens(junction, motif_length))
-        borrowing = len(siblings) / (len(siblings) + 2)
+        borrowing = len(siblings) / (len(siblings) + prior_mass)
         for row, tokens in enumerate(queries):
             if not tokens:
                 continue
             prior = np.asarray([(1 + pooled[token]) / denominator for token in tokens])
             if siblings:
-                sibling_prior = np.asarray([(1 + sibling_counts[token]) / (len(siblings) + 2)
+                sibling_prior = np.asarray([(1 + sibling_counts[token]) / (len(siblings) + prior_mass)
                                             for token in tokens])
                 prior = (1 - borrowing) * prior + borrowing * sibling_prior
             observed = np.asarray([counts[token] for token in tokens])
             enrichment = np.log(
-                (observed + 2 * prior) / ((sizes[target] + 2) * prior)
+                (observed + prior_mass * prior) / ((sizes[target] + prior_mass) * prior)
             )
             if reference_pool is None and sibling_references is None:
                 scores[row, column] = enrichment.mean()

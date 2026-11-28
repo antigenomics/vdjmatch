@@ -62,6 +62,13 @@ same endpoint in observed and Pgen-matched mock panels.
 The accepted yellow-fever curve-mean decision uses its positive-hit mock
 tail and donor/day correction.
 
+For motif diagnostics, retain the fixed target counts and two prior
+observations for either motif length. When refining paired motif ranks,
+replace missing chain evidence by zero before taking the minimum.
+Keep the original winning tier and no-hit cells. For organizer-assay
+ranking, use the packaged width and exponent on the supplied
+same-target groups.
+
 For epitope structure, define the vertices, radius and gene gates before
 computing a degree histogram. Use the existing graph acquisition and
 vdjtools subset-rarefaction APIs. The vX clustering benchmark uses reciprocal
