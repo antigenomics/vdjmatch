@@ -1182,3 +1182,29 @@ statistic. A receptor-level threshold defines the membership rule
 used for both observed and mock panels.
 
 See :doc:`vx-structure` for structural degree, rarefaction and reciprocal k-NN.
+
+Fixed-target and mock-panel replays
+----------------------------------
+
+Use ``vx-fixed-target RECTANGLE.npz --locus TRA|TRB|paired --output-prefix OUT``
+to rank one declared target from native comparator distances. The NPZ stores
+``native`` on the ``query_id`` by ``reference_key`` axes, and the aligned
+``query_junction``, ``reference_junction``, ``query_v`` and ``reference_v``
+arrays as Unicode strings with one column per chain (TRA then TRB for pairs).
+Supply one pre-reduced native ``background`` distance per query and one
+``source_log2`` value per reference key. A reference key's source value is
+the base-two logarithm of its distinct reference IDs, with a minimum count
+of one. Use zero for keys without source adjustment. The command computes the
+frozen region correction from the receptor arrays and retains native-only
+distance on unsupported geometry coordinates. With ``--exclude-exact``,
+matching junctions are masked on the hit list while the background stays fixed.
+
+Use ``repertoire-exact --matcher vx`` with one pooled human TRB epitope and
+``--discovery-curve`` to replay frozen vX on observed and mock panels.
+Supply the fixed competing VDJdb archive with ``--vx-competitors``, the
+competitor restriction with ``--vx-competitor-mhc MHC_A MHC_B CLASS``, and
+the frozen full human TRB operating point with ``--vx-cutoff-summary``.
+The competitor pool includes compatible other-peptide keys. Each observed
+panel key uses its distinct source IDs and each mock key has unit support.
+The null bank cutoff sets receptor membership. The existing repertoire
+procedure uses matched mock panels to test library-level enrichment.

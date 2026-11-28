@@ -30,7 +30,11 @@ def register(sub):
     p.add_argument('--legacy',action='store_true',help='Compiled reproduction with historical source and Q=1')
     p.add_argument('--pgen-mismatches',type=int,choices=[0,1],default=0,help='0 exact junction probability; 1 inclusive Hamming-1 mass in the selected Pgen mode')
     p.add_argument('--allow-missing-model-genes',action='store_true',help='Retain absent model genes with zero joint mass and the existing add-one V/J-count smoothing; original calls are unchanged')
-    p.add_argument('--matcher',choices=['exact','hamming','stem4','blosum62','positional-blosum62',*GRADED_FAMILIES],default='exact')
+    p.add_argument('--matcher',choices=['exact','hamming','stem4','vx','blosum62','positional-blosum62',*GRADED_FAMILIES],default='exact')
+    p.add_argument('--vx-competitors',help='Fixed VDJdb competitor catalogue for vX mock-panel membership')
+    p.add_argument('--vx-competitor-mhc',nargs=3,metavar=('MHC_A','MHC_B','CLASS'),
+                   help='Compatibility restriction for the fixed vX competitor pool')
+    p.add_argument('--vx-cutoff-summary',help='Frozen generated-TRB cutoff summary JSON')
     p.add_argument('--min-score',type=float,help='Explicit dimensionless stem4 score threshold; fixed geometry')
     p.add_argument('--radius-factor',type=float,help='Normalized distance bound for BLOSUM or graded family matching')
     p.add_argument('--mismatches',type=int,default=1,help='Hamming substitutions or graded total edits; bulk retains exact J')
@@ -179,6 +183,14 @@ def main(a):
     hill_rarefaction=getattr(a,'abundance_metrics',False)
     abundance_metrics=hill_rarefaction or getattr(a,'discovery_curve',False)
     chao1=getattr(a,'chao1',False) or abundance_metrics
+    vx_options = (a.vx_competitors, a.vx_competitor_mhc, a.vx_cutoff_summary)
+    vx_matcher = None
+    if a.matcher == 'vx':
+        if (not all(vx_options) or not a.pool_mhc or not a.epitope or len(a.epitope) != 1
+                or a.species != 'human' or a.locus != 'TRB' or not abundance_metrics or a.legacy):
+            raise ValueError('vX mock panels require one pooled human TRB epitope, discovery metrics, and all three vX options')
+    elif any(vx_options):
+        raise ValueError('vX competitor and cutoff options require --matcher vx')
     if chao1 and a.matcher=='stem4':raise ValueError('--chao1 requires a membership-count matcher')
     if a.mock_replicates<2 or a.seed<0 or a.threads<1:raise ValueError('at least two mocks, nonnegative seed and positive threads required')
     if not 0<=a.mismatches<=3:raise ValueError('zero to three mismatches required')
@@ -217,6 +229,8 @@ def main(a):
     if not marginal and not a.selection_profile and not a.model_vj_counts and not model_probabilities:
         raise ValueError('--model-vj-counts is required without a selection profile')
     inputs=[meta_path,Path(a.vdjdb).expanduser().resolve(),Path(a.control).expanduser().resolve(),*paths]
+    if a.matcher == 'vx':
+        inputs.extend(Path(path).expanduser().resolve() for path in (a.vx_competitors, a.vx_cutoff_summary))
     if a.model_vj_counts:
         inputs.append(Path(a.model_vj_counts).expanduser().resolve())
     if model_probabilities:
@@ -231,8 +245,22 @@ def main(a):
     if chao1:suffixes.append('abundance-spectra.tsv')
     if abundance_metrics:suffixes.append('discovery-curves.tsv')
     if hill_rarefaction:suffixes.append('hill-rarefaction.tsv')
+    if a.matcher == 'vx':suffixes.append('vx-geometry-audit.tsv')
     if any(Path(str(prefix)+'.'+s).exists() for s in suffixes):raise FileExistsError('fresh output prefix required')
     before={str(p):sha256(p) for p in inputs}
+    if a.matcher == 'vx':
+        import math
+        from ..aggregate.vx_panels import VxMockPanels
+
+        cutoff_path = Path(a.vx_cutoff_summary).expanduser().resolve()
+        recipe = json.loads(cutoff_path.read_text())
+        cutoff = recipe.get('cutoff')
+        if (recipe.get('species') != 'human' or recipe.get('lane') != 'TRB'
+                or 'query_limit' not in recipe or recipe['query_limit'] is not None
+                or recipe.get('action') != 'apply_cutoff' or recipe.get('comparison') != '>='
+                or not isinstance(cutoff, (float, int)) or isinstance(cutoff, bool) or not math.isfinite(cutoff)):
+            raise ValueError('vX requires an inclusive finite cutoff from the full human TRB null')
+        vx_matcher = VxMockPanels(inputs[1], a.vx_competitors, a.epitope[0], *a.vx_competitor_mhc, cutoff)
     import seqtree._core as search_native
     import vdjtools._core as native_core
     import vdjtools.model.io as model_io
@@ -380,6 +408,8 @@ def main(a):
         loaded=time.monotonic()
         totals.append(dict(sample_id=sample,sample_clonotypes=observations.height,sample_reads=int(observations['count'].sum())))
         if a.matcher=='stem4':cohort.append(observations.with_columns(pl.lit(sample).alias('sample_id')))
+        elif vx_matcher is not None:
+            counts.append(vx_matcher.count(observations,panels,threads=a.threads).with_columns(pl.lit(sample).alias('sample_id')))
         else:counts.append(exact_reference_counts(observations,panels,matcher=a.matcher,mismatches=a.mismatches,threads=a.threads,radius_factor=factor,locus=a.locus,species=a.species,with_abundances=chao1).with_columns(pl.lit(sample).alias('sample_id')))
         finished=time.monotonic()
         sample_timings.append(dict(sample_id=sample,records=observations.height,load_seconds=loaded-sample_start,match_or_stage_seconds=finished-loaded))
@@ -451,6 +481,9 @@ def main(a):
     if abundance_metrics:outputs['discovery-curves.tsv']=curve_summary
     if hill_rarefaction:outputs['hill-rarefaction.tsv']=hill_summary
     if v_repairs:outputs['v-repairs.tsv']=pl.concat(v_repairs)
+    if vx_matcher is not None:
+        outputs['vx-geometry-audit.tsv'] = pl.concat(
+            [meta.select('sample_id'), pl.DataFrame(vx_matcher.sample_audit)], how='horizontal')
     if 'pgen_model_supported' in probes.columns:
         outputs['missing-model-genes.tsv']=probes.filter(~pl.col('pgen_model_supported'))
     prefix.parent.mkdir(parents=True,exist_ok=True)
@@ -483,6 +516,14 @@ def main(a):
         _,scale=graded_family_params(a.matcher,a.mismatches,factor)
         manifest['matching_model']=dict(preset=a.matcher,radius_factor=factor,max_edits=a.mismatches,normalization=scale,match_v=a.matcher.startswith('v-'),match_j=True)
         manifest['counting']='source rows and reads; individual alignment distance threshold; exact J; hard V only for v-prefixed families'
+    if vx_matcher is not None:
+        manifest['counting'] = 'source rows and reads; frozen vX TRB membership'
+        manifest['matching_model'] = {
+            'score_cutoff': vx_matcher.cutoff,
+            'target_source_weights': 'distinct observed-panel reference IDs; unit support for mock keys',
+            'competitor_reference_sha256': before[str(Path(a.vx_competitors).expanduser().resolve())],
+            'control_cutoff_summary_sha256': before[str(Path(a.vx_cutoff_summary).expanduser().resolve())],
+        }
     if shape is not None:
         manifest['selection_profile_kind']=shape['kind']
         manifest['probability']='global Q times AA-max selected joint mass times residual within-V J usage ratio; floor2^-80'

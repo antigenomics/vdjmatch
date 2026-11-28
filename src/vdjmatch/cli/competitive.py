@@ -6,6 +6,9 @@ from . import cpu_budget
 
 
 def register(subparsers):
+    from .vx_fixed_target import register as register_fixed_target
+
+    register_fixed_target(subparsers)
     motif = subparsers.add_parser("anchored-motif-score", help="Score TRB junctions against a fixed motif catalogue")
     motif.add_argument("--reference", type=Path, required=True,
                        help="TSV with target, junction_aa, v_call and j_call")
