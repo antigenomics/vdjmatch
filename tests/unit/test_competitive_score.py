@@ -165,6 +165,7 @@ def test_frozen_paired_base_masks_hits_in_both_lists_and_preserves_unsupported_r
     import polars as pl
 
     from vdjmatch.cli import paired_vx_base
+    from vdjmatch.evalue import equal_tail
     from vdjmatch.match import geometry
 
     fixed = pl.DataFrame({
@@ -173,6 +174,9 @@ def test_frozen_paired_base_masks_hits_in_both_lists_and_preserves_unsupported_r
     })
     query = fixed.head(1)
     queries = pl.concat([query, query.with_columns(pl.lit(None, dtype=pl.String).alias("nativea"))])
+    # Equal-tail also imports the native function. Load it before stubbing so
+    # other tests cannot inherit this test's one-row distance matrix.
+    assert equal_tail.paired_distance_matrix is geometry.paired_distance_matrix
     monkeypatch.setattr(geometry, "paired_distance_matrix", lambda *args, **kwargs: np.array([[0, 4, 9]]))
     monkeypatch.setattr(paired_vx_base, "_regional_corrections", lambda _, locus: (
         np.array(["a" if locus == "TRA" else "b"]), np.zeros((1, 1))))
