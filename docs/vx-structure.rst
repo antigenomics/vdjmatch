@@ -142,6 +142,23 @@ calls and reports the distribution counts and denominators. An empty
 graph has no degree distribution. The implementation batches the
 junction search and expands degrees without materializing clonotype edges.
 
+With :math:`N>0` clonotype vertices, uniform vertex mass and
+self-inclusive similarity give :math:`z_i=(d_i+1)/N`. The
+reported similarity-aware Hill orders zero, one and two are
+
+.. math::
+
+   H_0=\frac1N\sum_i z_i^{-1},\qquad
+   H_1=\exp\!\left[-\frac1N\sum_i\log z_i\right],\qquad
+   H_2=\frac{N}{1+\bar d}.
+
+Here :math:`\bar d` is the mean ordinary degree. All three return
+:math:`N` for an edgeless graph and one for a complete graph.
+The synthetic inclusive degree mass is :math:`\sum_i(d_i+1)=N+2|E|`,
+where :math:`E` is the undirected edge set. The degree-based Chao
+fields use these synthetic counts. Occurrence-based extrapolation
+uses source counts and answers a different question.
+
 For vX, a threshold defines a bipartite query–target graph. Its adjacency
 :math:`B_{qe}(t)` equals one for a finite score at least :math:`t`
 under the chosen call policy, and zero otherwise. The target degree
@@ -154,6 +171,22 @@ degree. The fixed competitor and target panels are part of this graph.
 Read rarefaction and graph acquisition
 --------------------------------------
 
+For :math:`N\geq0` eligible items, a specified subset of
+:math:`a\in\{0,\ldots,N\}` items, and a uniform sample of
+:math:`m\in\{0,\ldots,N\}` without replacement, define
+
+.. math::
+
+   A(N,a;m)=\frac{\binom{N-a}{m}}{\binom{N}{m}}
+           =\frac{\binom{N-m}{a}}{\binom{N}{a}}.
+
+This is the probability that the sample avoids the subset. Use
+:math:`\binom{n}{m}=0` for :math:`m>n\geq0`. Its complement
+is the probability of finding at least one subset item, as in
+`Nipperess and Matsen, Eq. 3 <https://arxiv.org/html/1208.6552#S4.SS1>`_.
+At depth zero the avoidance probability is one. At full depth it is
+one for an empty subset and zero otherwise.
+
 For a library with :math:`N>0` eligible reads, let :math:`M` be the set of matched
 source clonotypes and let :math:`a_i` be the read abundance of source
 clonotype :math:`i\in M`. Hold match membership fixed and sample reads
@@ -162,29 +195,28 @@ The expected number of matched source clonotypes found is
 
 .. math::
 
-   R(m)=\sum_{i\in M}
-   \left[1-\frac{\binom{N-a_i}{m}}{\binom{N}{m}}\right].
+   R(m)=\sum_{i\in M}\bigl[1-A(N,a_i;m)\bigr].
 
-The ratio counts samples that avoid all :math:`a_i` reads. Take
-:math:`\binom{n}{m}=0` for :math:`m>n\ge0`. Linearity of expectation gives the sum
-even when discovery events depend on each other. The subset-hit
-probability is the same identity used in Eq. 3 of
-`Nipperess and Matsen, §4.1 <https://arxiv.org/html/1208.6552#S4.SS1>`_.
+Linearity of expectation gives this sum even when discovery events
+depend on each other.
 The vdjtools subset rarefaction API pools unmatched reads into one
 category for the richness calculation and subtracts the expected
 presence of that category. The denominator is the original eligible
 library depth. Distinct source clonotypes keep their own read counts
 even when they share a matching key. At depth zero the expected
-richness is zero, and at depth :math:`N` it is :math:`|M|`.
+richness is zero. At full depth it is :math:`|M|` because each
+eligible source clonotype has positive integer read abundance. The
+common-depth CLI grid ends at the smallest eligible library depth.
 
 For uniform sampling of distinct receptor IDs, each ID has unit
 abundance. With :math:`B` called IDs among :math:`N` IDs, the expected number
 retained is :math:`mB/N`, and the probability of retaining any called ID is
-:math:`1-\binom{N-B}{m}/\binom{N}{m}`. Depth here is measured in receptor IDs.
+:math:`1-A(N,B;m)`. Depth here is measured in receptor IDs.
 
 Graph acquisition samples :math:`m\in\{1,\ldots,N\}` distinct vertices
 uniformly without replacement from a fixed undirected graph of :math:`N>0`
-observed vertices. Retain edges whose endpoints both occur in the
+observed vertices. The structure command uses the junction/V/J clonotype
+graph defined above. Retain edges whose endpoints both occur in the
 sample. Write :math:`E` for the edge set and :math:`d_i` for the degree of vertex
 :math:`i` in the full graph. For :math:`N>1`, both endpoints of an edge are
 sampled with probability :math:`m(m-1)/(N(N-1))`. The expected edge count
@@ -195,13 +227,16 @@ among the other :math:`m-1` vertices. The expected sampled orphan count is
 .. math::
 
    O(m)=\frac{m}{N}\sum_{i=1}^{N}
-   \frac{\binom{N-1-d_i}{m-1}}{\binom{N-1}{m-1}}.
+   A(N-1,d_i;m-1).
 
 The expected number of sampled vertices with a neighbor is :math:`m-O(m)`,
 and their expected fraction is :math:`1-O(m)/m`. A one-vertex sample is
 always orphaned. At full depth the formulas return the original edge
 and orphan counts. The structure command reduces these expressions
-over the full-graph degree histogram.
+over the full-graph degree histogram. If the proportion of
+vertices of degree :math:`j` is :math:`p_j`, the expected
+orphan fraction simplifies to :math:`O(m)/m=\sum_j p_j A(N-1,j;m-1)`.
+This samples the observed graph with its original distances and edges.
 
 For a fixed exact or Hamming rule, one can also rarefy reference keys.
 Let :math:`K_e(q)` of the :math:`N_e` target keys be eligible neighbors of
@@ -211,7 +246,7 @@ probability
 
 .. math::
 
-   1-\frac{\binom{N_e-K_e(q)}{m}}{\binom{N_e}{m}}.
+   1-A(N_e,K_e(q);m).
 
 The probability is zero at depth zero. At full depth it is one
 if at least one eligible key exists and zero otherwise.
@@ -455,6 +490,9 @@ outgoing arcs because all ties at the boundary are kept. For background
 on directed nearest-neighbor graphs, see
 `Baron and Darling <https://arxiv.org/abs/1908.07645>`_.
 The benchmark evaluates exact row distances in batches.
+At :math:`k=1`, the graph retains all tied mutual nearest
+neighbors. An exact strictly increasing transform of distance preserves
+the unweighted reciprocal graph because it preserves ranks and ties.
 
 The undirected graph keeps an edge precisely when both arcs occur.
 Symmetric pair distances can give different ranks in the two rows.
@@ -505,8 +543,10 @@ For the fractional boundary graph, each eligible pair receives weight
    \end{cases}
 
 Thus all boundary ties have equal weight and the graph has total
-undirected edge weight :math:`B`. If every eligible pair fits, use
-unit weights on all of them. Apply weighted Louvain with the same seed
+undirected edge weight :math:`B`. The archived benchmark requires
+an over-budget distance. If the full eligible graph fits the budget,
+the mathematical rule reduces to unit weights on all eligible pairs.
+Apply weighted Louvain with the same seed
 and resolution. An isolate variant of the hard-radius graph adds the
 nearest tied reciprocal neighbors of vertices isolated by that radius.
 

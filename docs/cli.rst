@@ -1631,9 +1631,10 @@ radii from different matrices are not interchangeable. ``pam250``, ``mj`` and
 ``vdjam`` are also supported by the existing distance backend.
 
 ``neighbours --reference-radius`` applies this selection to each
-sample-declared compatible reference union. It requires uniform geometry,
-V loops, ``--nearest-rank --unbounded-nearest --targets-from-sample``,
-``--neighbour-weighting local-rank --background vdjdb-other``. Its additional
+compatible reference union in the chosen target set. It requires uniform geometry,
+V loops, ``--nearest-rank --unbounded-nearest``,
+``--neighbour-weighting local-rank --background vdjdb-other``, and
+either ``--targets-from-sample`` or ``--all-targets``. Its additional
 ``.radii.tsv`` records the raw knee, selected integer radius and disposition;
 ``selected_radius`` accompanies each enrichment row. The exhaustive nearest
 search remains uncensored.
@@ -1642,8 +1643,11 @@ Both commands use ``--knee-floor-factor 0.5`` times the median positive knee
 within the same species, locus and geometry. If there are no positive knees,
 the floor uses the median positive nonexact nearest distance. Missing knees
 remain missing in ``reference-radius``; the scoring command explicitly falls
-back to its positive ``--radius``. No positive scale means no inferred radius.
-Rounding upward to an integer preserves the selected distance boundary.
+back to its positive fixed radius. The default fallback is 22.5 times
+the largest substitution cost, which is 90 for the clipped matrix.
+No positive scale means no inferred radius.
+The scoring command rounds either selection upward to a multiple of
+the matrix distance quantum, which can admit an additional boundary.
 These are experimental ranking radii, without transferred probability calibration.
 
 Cohort-relative paired evidence ordering

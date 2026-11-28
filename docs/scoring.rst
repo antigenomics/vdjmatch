@@ -538,20 +538,23 @@ The optional radius uses the sorted nonexact nearest-reference distances
 :math:`d_i`, with query identity defined by the unchanged full junction
 (both junctions together for a linked pair). Define
 :math:`x_i=i/(n-1)` and :math:`y_i=(d_i-d_0)/(d_{n-1}-d_0)` for zero-based
-indices. For this increasing convex curve, Kneedle considers local maxima of
-:math:`x_i-y_i` and confirms a candidate when the difference drops by more
-than :math:`1/(n-1)` before the following local minimum. Sensitivity is fixed
+indices. The rising-convex orientation uses local maxima of
+:math:`x_i-y_i`. Confirm a candidate when the difference drops by more
+than :math:`1/(n-1)` at or before the following local minimum, or by
+the last point if there is no following minimum. Sensitivity is fixed
 at one; the observed monotone curve is used without smoothing. Endpoints,
 flat curves and curves shorter than three observations supply no knee.
 Among confirmed candidates, the largest normalized difference wins; a minor
 leading bump cannot override a stronger later bend. Ties select the earlier bend.
 See `Kneedle, section III <https://raghavan.usc.edu/papers/kneedle-simplex11.pdf>`_.
 
-A zero or near-zero knee is floored at half the median positive knee within
-one species/chain geometry. With no positive knees, positive nearest distances
-provide that scale. Raw and adjusted knees are retained. Multiplying all
-distances by a positive constant multiplies both the raw radius and its floor
-by that constant; changing substitution weights requires recomputing the curve.
+A present knee :math:`r` is adjusted to :math:`\max(r,\rho/2)`
+by default, where :math:`\rho` is the median positive knee within
+one species/chain geometry. With no positive knees, use the median
+positive nearest distance. A missing knee remains missing. Raw and
+adjusted knees are retained. In real arithmetic, multiplying all
+distances by a positive constant scales both the raw radius and its floor
+by that constant. Changing substitution weights requires recomputing the curve.
 Single-chain and linked-sum geometries are never pooled for this floor.
 Reference-selected radii do not inherit fixed-radius probability guarantees.
 

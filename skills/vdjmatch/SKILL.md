@@ -71,8 +71,11 @@ same-target groups.
 
 For epitope structure, define the vertices, radius and gene gates before
 computing a degree histogram. Use the existing graph acquisition and
-vdjtools subset-rarefaction APIs. The vX clustering benchmark uses reciprocal
-k-NN on weighted pairwise distances with all boundary ties retained. The vX
+vdjtools subset-rarefaction APIs. Keep library reads, reference keys and
+graph vertices as separate sampling units. A matched-subset read curve
+uses the original eligible library depth. The vX clustering benchmark
+uses reciprocal k-NN on weighted pairwise distances with all boundary ties
+retained. The vX
 target score instead uses the fixed target and competitor panels. A common
 vX cutoff reproduces exact or Hamming calls only when the score ordering
 strictly separates the two membership sets. Full ungapped junctions,
