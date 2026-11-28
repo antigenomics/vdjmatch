@@ -355,8 +355,24 @@ to the number of null final scores at least as strong as the query score.
 A query with no score has empirical expected calls zero and rank tail one.
 Rank-test validity requires exchangeability under the same final-score
 pipeline.
-For distance-ball E-values with reference-key exposure, see
-:doc:`control-calibration`.
+For a hit at distance :math:`d`, let :math:`R_e` be the fixed set
+of eligible reference opportunities for target :math:`e`. With null
+receptor :math:`Q_0` drawn under the declared background law, the
+expected number of reference hits at least as close is
+
+.. math::
+
+   E_{\rm hits}(d,e)=\sum_{r\in R_e}\Pr[D(Q_0,r)\le d].
+
+This sum uses linearity of expectation and permits dependent hits.
+Estimating the probability of at least one hit requires the joint
+distribution or a justified approximation. Empirical query-level
+FPR comes from replaying the complete pipeline on null queries.
+A suitable comparison between methods uses the same null queries,
+target catalogue and matched positive recall or a prespecified
+operating point. Report the null count and its denominator separately
+for each source. For distance-ball E-values with reference-key
+exposure, see :doc:`control-calibration`.
 
 For repertoire inference, apply the same membership rule to observed and
 mock data. Write :math:`T_0` for observed matched source richness, matched
