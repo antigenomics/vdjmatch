@@ -1366,8 +1366,29 @@ any-call rate. If none is usable, it reports ``abstain_all`` with a null cutoff.
 It writes ``.operating_points.tsv`` and ``.calibration.json`` with separate
 null counts/rates, labelled-query correct-call recall and call precision.
 Generated nulls do not enter the labelled-query precision denominator.
-Labelled queries are optional. A null-only input fits the same cutoff and
-source rates, with recall and precision left unavailable.
+Labelled queries are optional. A null-only input selects from the observed
+null scores and leaves recall and precision unavailable. Including labelled
+queries adds their scores to the candidate cutoff grid. It can change the
+numeric cutoff while preserving the selected null calls.
+
+For one independent null bank, derive a call-count allowance :math:`k`
+from the planned population error cap and confidence, as described in
+:doc:`vx-formalism`. If the bank has :math:`B` queries, pass :math:`k/B`
+to this command as its empirical target. For example:
+
+.. code-block:: bash
+
+   vdjmatch calibrate-calls cases.tsv --target-fpr 0.00948 --output-prefix calibration
+   vdjmatch apply-call-calibration queries.tsv --calibration calibration.calibration.json --output calls.tsv
+
+Here :math:`B=100{,}000` and :math:`k=948` for a predeclared 1% cap at
+95% confidence. The higher-is-better recipe's inclusive observed cutoff
+is at least as strict as the ordered-null rule. Both rules select the
+same fitting queries. The observed cutoff can reject future scores
+between the two cutoffs. An ``abstain_all`` recipe rejects every score.
+The confidence calculation
+requires a frozen scoring pipeline and independent draws from the
+declared null population.
 
 This command computes an empirical recommendation candidate. The input hash
 is recorded; callers must also pin the producing scorer, geometry, reference,
