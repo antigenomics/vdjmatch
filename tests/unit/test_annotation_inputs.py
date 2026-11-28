@@ -130,6 +130,8 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
     out = annotate_repertoires(pairs, reference=reference, species="MusMusculus",
                                output_prefix=tmp_path / "paired")
     assert out["manifest"]["score_models"] == ["vx"]
+    assert out["manifest"]["population_service_calls"] == 3
+    assert out["manifest"]["vx_marginal_chain_rows"] == {"TRA": 2, "TRB": 2}
     assert out["selection"].select("pair_id", "score", "selected_epitope").rows() == [
         ("007", 0., "PEPTIDE"), ("008", None, None)]
     assert out["queries"]["status"].to_list() == ["matched", "unselected_species"]
@@ -139,6 +141,9 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
                                output_prefix=tmp_path / "empty-reference")
     assert out["queries"]["status"].to_list() == ["no_reference", "unselected_species"]
     assert out["selection"]["score"].null_count() == 2
+    assert out["TRA.selection"].select("source_pair_id", "score", "selected_epitope").rows() == [
+        ("007", 0., "PEPTIDE"), ("008", None, None)]
+    assert "call_status" not in out["TRA.selection"].columns
 
     release = tmp_path / "release.zip"
     with ZipFile(release, "w") as archive:
@@ -179,6 +184,12 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
                                output_prefix=tmp_path / "calibrated")
     assert out["selection"].select("score", "E_null", "null_tail_count", "call_status").rows() == [
         (0., 1., 1, "no_supported_match"), (None, 0., 0, "no_supported_match")]
+    assert out["TRA.selection"]["score"].to_list() == [0., None]
+    assert "call_status" not in out["TRA.selection"].columns
+    exact_excluded = annotate_repertoires(pairs, reference=release, species="mouse", exclude_exact=True,
+                                         output_prefix=tmp_path / "exact-excluded")
+    assert exact_excluded["selection"]["score"].to_list() == [None, None]
+    assert exact_excluded["TRA.selection"]["score"].to_list() == [None, None]
     with pytest.raises(ValueError, match="exact-hit policy"):
         annotate_repertoires(pairs, reference=release, species="mouse", vx_null_dir=null_dir,
                              output_prefix=tmp_path / "incompatible", exclude_exact=True)
@@ -222,6 +233,9 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
     assert mixed["selection"].filter(pl.col("locus") == "TRA")["null_queries"].to_list() == [2] * 3
     assert mixed["selection"].filter(pl.col("locus") == "paired")["null_queries"].to_list() == [1] * 2
     assert mixed["selection"]["E_null"].sum() == 2.
+    assert mixed["manifest"]["population_service_calls"] == 3
+    assert mixed["TRA.selection"]["source_pair_id"].to_list() == ["007", "008"]
+    assert "call_status" not in mixed["TRA.selection"].columns
     explicit = annotate_repertoires([pairs, single], reference=release, species="mouse", score_model="vx",
                                     vx_tie_policy="abstain", vx_null_dir=[null_dir, single_null_dir],
                                     output_prefix=tmp_path / "mixed-explicit")
@@ -329,6 +343,11 @@ def test_actual_wide_core_preserves_pairs_and_marginal_identities(tmp_path):
     assert {"TRA.selection", "TRB.selection"} <= out.keys()
     for lane in ["TRA", "TRB"]:
         assert set(out[lane + ".selection"]["source_query_id"]) == {"q007", "q008"}
+    vx = annotate_repertoires(path, reference=ref, output_prefix=tmp_path / "vx")
+    assert vx["queries"].select("source_pair_id", "status").rows() == [
+        ("007", "matched"), ("008", "invalid_alpha_query")]
+    assert vx["TRB.selection"].select("source_pair_id", "selected_epitope").rows() == [
+        ("007", "E"), ("008", "E")]
 
 
 @pytest.mark.parametrize("complete", [True, False])

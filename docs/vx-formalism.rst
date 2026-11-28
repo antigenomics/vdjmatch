@@ -828,14 +828,23 @@ The default tie policy retains ambiguity. Use ``--score-model kernel`` for
 the previous model. Target filters, advanced kernel geometry and detail
 options also use that workflow in automatic mode.
 
+Paired inputs also produce ``TRA.selection.tsv`` and ``TRB.selection.tsv``
+for their observed chains, with corresponding query status tables. Each
+uses the single-chain vX rule and includes unlinked references. Thus a
+chain can have ranked evidence even if its pair has no score. These
+tables leave the paired rank and call unchanged. Under benchmark exact
+exclusion, each marginal search masks exact hits on its own chain.
+
 For calibrated calls, supply ``--vx-null-dir`` from a matched
 ``paired-vx-base --null-source`` run. Annotation verifies the scorer,
 reference, target axis and exact-hit policy before applying the ordered
 cutoff. Paired annotation uses the matched bank's tie policy when
 ``--vx-tie-policy`` is omitted. An explicitly selected policy must match
-the bank. For mixed input, supply one bank per scored locus for the same
+the bank. For mixed input, supply one bank per primary locus for the same
 species and reference population. The confidence bound applies separately
-to each locus. The default target FPR is 1% at 95% confidence. The selection
+to each primary locus. The paired-input marginal tables report ranks
+without applying the paired cutoff or an any-chain cutoff. The default
+target FPR is 1% at 95% confidence. The main selection
 table retains ranked evidence alongside call status, inclusive empirical
 E-values and null-tail counts. Use the installed scorer to regenerate an
 older null export when its source digest differs.

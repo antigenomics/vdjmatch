@@ -10,10 +10,10 @@ separate confidence bound. The paired E-value command checks that query and
 null scores used matching policies, including exact-hit retention. Fixed
 motif and peptide-withheld replays support reproducible evaluation.
 Ordinary human and mouse annotation uses vX for single-chain, paired-chain
-and mixed inputs. Supply a matched null bank per locus for calibrated calls.
-Paired vX scores genuine paired references. Select ``--score-model kernel``
-to replay the previous model, including its unlinked marginal evidence and
-peptide-only custom references.
+and mixed inputs. Supply a matched null bank per primary locus for calibrated
+calls. Paired queries also receive separate TRA and TRB rankings using
+unlinked reference chains. Select ``--score-model kernel`` to replay the
+previous model or use peptide-only custom references.
 See :doc:`vx-formalism`.
 
 1.2.4

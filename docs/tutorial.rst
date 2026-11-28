@@ -93,9 +93,9 @@ Read the output
      - no_support
 
 The complete pair ranks DEMO_A first. The second row lacks a beta chain and
-keeps its identity and missing-chain disposition. Analyze that alpha chain
-as a TRA query for single-chain evidence. Use ``--score-model kernel`` to
-reproduce the previous linked and marginal kernel outputs.
+keeps its identity and missing-chain disposition. Its alpha evidence is in
+``paired.TRA.selection.tsv``. The marginal tables include unlinked reference
+chains and report ranked evidence independently of paired calls.
 
 Parameters that change the question
 -----------------------------------

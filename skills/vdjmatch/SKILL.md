@@ -168,10 +168,11 @@ queries, selections = result["queries"], result["selection"]
 - Keep `sample_id` and source identities when joining outputs. Retain no-support,
   invalid and missing-chain dispositions; these are not experimentally negative labels.
 - Ordinary human and mouse annotation defaults to vX. Use one matching
-  `--vx-null-dir` per scored locus for calibrated calls. Without a bank,
+  `--vx-null-dir` per primary locus for calibrated calls. Without a bank,
   `score` ranks evidence and `selection_status` marks ambiguous or unsupported
-  queries. Use `--score-model kernel` to reproduce stem4 scores, including
-  separately reported paired-chain and marginal evidence.
+  queries. Paired inputs report marginal TRA/TRB evidence in separate ranking
+  tables. Apply null cutoffs only to the primary selection. Use
+  `--score-model kernel` to reproduce stem4 scores.
 - Ordinary annotation retains exact hits and conflicting-label ambiguity.
   `--exclude-exact` is the explicit benchmark option.
 - Compact output is the default. `--details` selects the kernel workflow and

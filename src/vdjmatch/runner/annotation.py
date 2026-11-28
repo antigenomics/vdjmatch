@@ -227,8 +227,9 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     ``threads=0`` uses all allocated physical cores; positive counts may use allocated logical CPUs.
     Outputs are ``<prefix>.queries.tsv``, ``.selection.tsv``, optional detail tables,
     and ``.manifest.json``. The result contains frames, manifest and output paths.
-    For calibrated calls, supply one vX null directory per scored locus.
+    For calibrated calls, supply one vX null directory per primary locus.
     A paired bank determines the tie policy unless explicitly selected.
+    TRA/TRB evidence for chains from paired inputs is reported separately.
     """
     if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
         raise ValueError("threads must be a nonnegative integer (0 selects allocated cores)")
@@ -373,6 +374,8 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         options.get('neighbour_weighting',defaults.neighbour_weighting)=='kernel' and
         paired_rows.height>0 and cohort.filter(pl.col('_population')=='single').height>0)
     marginal_tables={};service_batches=[];detail_columns={}
+    vx_marginal_rows = {}
+    vx_service_calls = 0
     from ..match.geometry import precompute_v_loop_distances
     v_loop_distances = (
         precompute_v_loop_distances(species=organism) if vx_enabled else
@@ -392,7 +395,10 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
             part = (cohort.filter(pl.col("_population") == "paired") if population == "paired" else
                 cohort.filter((pl.col("_population") == "single") & (pl.col("locus") == population)) if locus == "auto" else
                 cohort.filter(pl.col("_population") == population))
-            service_part=part
+            marginal = paired_rows.filter(pl.col("locus") == population) if vx_enabled and population != "paired" else None
+            service_part = part
+            if marginal is not None and marginal.height:
+                service_part = pl.concat([part, marginal])
             if mixed_union and population!='paired':
                 # Both paired loci retain the existing nonselected-chain dispositions.
                 service_part=pl.concat([part,paired_rows],how='vertical')
@@ -417,6 +423,19 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
                     sample, scoring_part, reference_loader(), v_loop_distances, threads,
                     reference_population, options.get("exclude_exact", defaults.exclude_exact), population,
                     vx_tie_policy if population == "paired" else "abstain")
+                vx_service_calls += 1
+                mapping = (_pair_mapping(part, offset) if population == "paired" else
+                           service_part.drop("_population").with_columns(
+                               pl.col("query_id").cast(pl.String).alias("_service_query_id"),
+                               pl.col("source_pair_id").alias("pair_id")))
+                if marginal is not None and marginal.height:
+                    is_marginal = pl.col("query_id").is_in(marginal["query_id"].implode())
+                    for kind, table in (("queries", query), ("selection", selection)):
+                        tables[f"{population}.{kind}"] = [_restore(table.filter(is_marginal), mapping)]
+                    vx_marginal_rows[population] = marginal.height
+                    if not part.height:
+                        continue
+                    query, selection = query.filter(~is_marginal), selection.filter(~is_marginal)
                 calibration = {}
                 if banks:
                     from hashlib import sha256 as digest_bytes
@@ -429,10 +448,6 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
                                    "calibration_bank_replayed": any(report["source_sha256"] == null_input
                                                                     for report in reports),
                                    "null_inputs_sha256": {p.name: digest for p, digest in null_paths.items()}}
-                mapping = (_pair_mapping(part, offset) if population == "paired" else
-                           part.drop("_population").with_columns(
-                               pl.col("query_id").cast(pl.String).alias("_service_query_id"),
-                               pl.col("source_pair_id").alias("pair_id")))
                 for kind, table in (("queries", query), ("selection", selection)):
                     tables.setdefault(kind, []).append(_restore(table, mapping))
                 manifests.append({"score_model": "vx", "locus": population,
@@ -501,10 +516,12 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         frame.write_csv(path, separator="\t")
         result[kind], outputs[kind] = frame, str(path)
     manifest = {**(manifests[0] if len(manifests) == 1 else {}), "input_samples": len(rows), "input_chain_rows": cohort.height, "ingestion": reports,
-        "populations": batches, "population_service_calls": len(manifests), "native_threads": threads,
+        "populations": batches, "population_service_calls": vx_service_calls if vx_enabled else len(manifests),
+        "native_threads": threads,
         "table_threads": pl.thread_pool_size(), "species": species, "locus": locus,
         "selection_only": selection_only, "core_manifests": manifests, "outputs": outputs,
         "score_models": sorted({manifest.get("score_model", "kernel") for manifest in manifests}),
+        **({"vx_marginal_chain_rows": vx_marginal_rows} if vx_marginal_rows else {}),
         **({'mixed_chain_union':True,'service_batches':service_batches} if mixed_union else {}),
         **({'population_table_columns':detail_columns} if detail_columns else {}),
         "wall_seconds": time.perf_counter() - started}

@@ -929,7 +929,7 @@ def main(argv: list[str] | None = None) -> int:
     annotation.add_argument("--score-model", choices=("auto", "vx", "kernel"), default="auto",
                             help="auto uses vX for ordinary human and mouse annotation")
     annotation.add_argument("--vx-null-dir", type=Path, action="append",
-                            help="matched vx-base null directory for E-value calls, once per scored locus")
+                            help="matched vx-base null directory for each primary locus (TRA, TRB or paired)")
     annotation.add_argument("--vx-tie-policy", choices=("abstain", "literal"),
                             help="paired vX tie policy (default: use the matched bank, otherwise abstain)")
     annotation.add_argument("--details", dest="selection_only", action="store_false",

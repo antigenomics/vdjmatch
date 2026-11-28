@@ -37,8 +37,10 @@ Batch repertoire annotation
 ``annotate_repertoires`` accepts a table path, directory or list of paths. The separate
 ``metadata`` argument accepts a TSV path or DataFrame with ``path`` and optional ``sample_id``. It preserves sample/source identities
 and batches single or paired-chain populations. The default compact output
-reports vX ranks. Supply one ``vx_null_dir`` per scored locus for calibrated
-calls. ``score_model="kernel"`` selects the previous score and
+reports vX ranks. Supply one ``vx_null_dir`` per primary locus for calibrated
+calls. With paired input, ``TRA.selection`` and ``TRB.selection`` report
+uncalibrated rankings for the observed chains. ``score_model="kernel"``
+selects the previous score and
 ``selection_only=False`` requests its full candidate and target evidence.
 ``threads`` also bounds the Polars pool. Set ``POLARS_MAX_THREADS`` before importing
 Polars if that library has already initialized its pool; a larger existing pool

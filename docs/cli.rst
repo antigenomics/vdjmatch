@@ -315,7 +315,7 @@ vdjmatch annotate
 -----------------
 
 Ordinary annotation uses vX for human and mouse TRA, TRB and paired-chain
-queries. Supply ``--vx-null-dir`` once per scored locus to apply matching
+queries. Supply ``--vx-null-dir`` once per primary locus to apply matching
 null calibration. Use ``--score-model kernel`` for the previous stem4
 kernel-ladder scorer, or ``--details`` for its per-target evidence export.
 See :doc:`vx-formalism` for vX scoring and calibration.
@@ -335,8 +335,9 @@ gzip and Parquet repertoire tables with unique sample names.
 For a custom vX reference, provide species, junctions, resolvable V calls,
 and complete ``epitope``, ``mhc_a``, ``mhc_b`` and ``mhc_class`` fields.
 Provide paired references as wide rows or link long TRA and TRB rows with
-``pair_id``. Use ``--score-model kernel`` with peptide-only references and
-for the previous linked and unlinked marginal evidence outputs.
+``pair_id``. Paired vX also reports single-chain evidence for observed
+TRA and TRB chains. Use ``--score-model kernel`` with peptide-only
+references or to reproduce the previous kernel outputs.
 
 Input uses anchor-inclusive ``junction_aa`` with AIRR ``v_call`` or simple ``v``
 and optional ``j`` fields. Wide pairs use ``junction_aa_alpha/beta`` and
