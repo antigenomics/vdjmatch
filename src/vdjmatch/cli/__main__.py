@@ -85,12 +85,14 @@ def _cmd_index(a: argparse.Namespace) -> int:
 
 def _cmd_annotate(a: argparse.Namespace) -> int:
     if a.control and a.background == 'vdjdb-other':
-        if getattr(a, "score_model", "auto") == "vx":
+        if getattr(a, "score_model", "auto") == "vx" or getattr(a, "vx_null_dir", None):
             raise ValueError("vX annotation does not use the legacy --control kernel path")
         from .combined import main
         return main(a)
-    if a.mock_replicates != 200 or a.seed != 0 or a.fpr != .01 or a.evidence_type or a.min_score:
-        raise ValueError('mock-replicates, seed, fpr and evidence filters require annotate --control with the default background')
+    if (a.mock_replicates != 200 or a.seed != 0 or a.evidence_type or a.min_score
+            or (a.fpr != .01 and not getattr(a, "vx_null_dir", None))):
+        raise ValueError('Mock draws and evidence filters require --control with the default background. '
+                         'The FPR option also accepts --vx-null-dir.')
     from ..runner.annotation import annotate_repertoires
 
     options = vars(a).copy()
@@ -99,7 +101,7 @@ def _cmd_annotate(a: argparse.Namespace) -> int:
         options.pop(name, None)
     annotate_repertoires(a.sample, metadata=a.metadata, reference=a.vdjdb,
         output_prefix=a.output_prefix, locus=a.locus, species=a.species,
-        threads=a.threads, **options)
+        threads=a.threads, vx_target_fpr=a.fpr, **options)
     return 0
 
 
@@ -925,19 +927,21 @@ def main(argv: list[str] | None = None) -> int:
     annotation.add_argument("--metadata", help="TSV with path and optional sample_id; paths relative to this TSV")
     annotation.add_argument("--score-model", choices=("auto", "vx", "kernel"), default="auto",
                             help="auto uses vX for ordinary paired mouse annotation; kernel selects the previous model")
+    annotation.add_argument("--vx-null-dir", type=Path,
+                            help="matched paired-vx-base null directory for E-value calls")
     annotation.add_argument("--details", dest="selection_only", action="store_false",
                             help="also export per-target evidence and candidates; memory grows with queries × targets")
     annotation.add_argument('--mock-replicates', type=int, default=200,
                             help='with --control: fresh draws per direction (default: 200)')
     annotation.add_argument('--seed', type=int, default=0, help='with --control: reproducible randomization seed')
     annotation.add_argument('--fpr', type=float, default=.01,
-                            help='with --control: any-call P-value threshold for reported specificities (default: 0.01)')
+                            help='any-call false-positive rate with --control or --vx-null-dir (default: 0.01)')
     annotation.add_argument('--evidence-type', action='append', help='with --control: filter reference evidence before recalibration')
     annotation.add_argument('--min-score', type=int, default=0, help='with --control: minimum reference evidence score')
     annotation._option_string_actions['--control'].help = 'one raw control repertoire; calibrate the complete combined score on demand'
     basic = {'help', 'vdjdb', 'locus', 'species', 'reference_population', 'epitope', 'mhc_a', 'mhc_b',
              'mhc_match', 'threads', 'verbose', 'control', 'exclude_exact', 'output_prefix', 'metadata',
-             'mock_replicates', 'seed', 'fpr', 'evidence_type', 'min_score', 'score_model'}
+             'mock_replicates', 'seed', 'fpr', 'evidence_type', 'min_score', 'score_model', 'vx_null_dir'}
     advanced = annotation.add_argument_group('Advanced scorer diagnostics')
     for action in list(annotation._optionals._group_actions):
         if action.dest not in basic:

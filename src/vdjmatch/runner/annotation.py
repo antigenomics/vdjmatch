@@ -157,7 +157,7 @@ def _mouse_paired_vx(sample, part, reference, context, threads, reference_popula
     """Score the normal paired population and keep its service row axis."""
     import polars as pl
     from ..cli.neighbours import _paired_input
-    from ..cli.paired_vx_base import _base_scores, _maxima_table, _reference_catalogue
+    from ..cli.paired_vx_base import _base_scores, _maxima_table, _reference_catalogue, _score_binding, _target_axis
     from ..db.vdjdb import _select_reference
     from ..evalue.equal_tail import _prepare
     reference = _select_reference(reference, species="MusMusculus")
@@ -171,9 +171,10 @@ def _mouse_paired_vx(sample, part, reference, context, threads, reference_popula
     pairs = pairs.with_columns(pl.when("available").then(pl.col("nativea")).otherwise(None).alias("nativea"))
     base = _base_scores(pairs, fixed, groups, backgrounds, context,
                         threads=threads, exclude_exact=exclude_exact)
-    labels = [str(i) for i in range(targets.height)]
+    axis = _target_axis(targets)
+    labels = axis["target"].to_list()
     maxima = _maxima_table(pairs["query_id"], base, labels, None)
-    selected = targets.with_row_index("target").with_columns(pl.col("target").cast(pl.String))
+    selected = targets.with_columns(axis["target"])
     selected = selected.rename({name: "selected_" + name for name in selected.columns if name != "target"})
     disposition = maxima.with_columns(
         pl.when("tied").then(pl.lit("ambiguous")).when(pl.col("score").is_not_null())
@@ -189,12 +190,12 @@ def _mouse_paired_vx(sample, part, reference, context, threads, reference_popula
         .when(pl.col("maximum").is_not_null()).then(pl.lit("matched"))
         .otherwise(pl.lit("no_neighbours")).alias("status")
     ).drop("maximum")
-    return query, disposition
+    return query, disposition, _score_binding(fixed.height, exclude_exact), axis
 
 
 def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_prefix="annotation",
                          locus="auto", species="HomoSapiens", threads=0, selection_only=True,
-                         score_model="auto", **options):
+                         score_model="auto", vx_null_dir=None, vx_target_fpr=.01, **options):
     """Annotate files, a directory, or path/sample_id metadata as population batches.
 
     Source rows are read once through shared ingestion. Query IDs are global numeric
@@ -305,6 +306,17 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     if score_model == "vx" and not vx_profile:
         raise ValueError("current vX annotation supports ordinary paired mouse scoring")
     vx_paired = vx_profile and score_model != "kernel"
+    if vx_null_dir is not None:
+        if not vx_paired or reference_population != "curated-benchmark":
+            raise ValueError("vX null calibration requires ordinary paired mouse scoring with a curated reference")
+        archive = Path(reference)
+        if not archive.is_file() or archive.suffix != ".zip":
+            raise ValueError("vX null calibration requires the same VDJdb release ZIP used to score the null")
+        from ..cli.paired_vx_evalue import _calibrate, _source
+        null_directory = Path(vx_null_dir).expanduser()
+        nulls, null_binding, source, null_input, null_paths = _source(null_directory)
+        _validate_output_paths(prefix, [null_directory, *null_paths])
+        reference_digest = sha256(archive)
     mixed_union=(locus=='auto' and
         not vx_paired and
         options.get('neighbour_weighting',defaults.neighbour_weighting)=='kernel' and
@@ -349,10 +361,24 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
             )
             scoring_part.write_csv(sample, separator="\t")
             if population == "paired" and vx_paired:
-                query, selection = _mouse_paired_vx(
+                query, selection, binding, axis = _mouse_paired_vx(
                     sample, scoring_part, reference_loader(), v_loop_distances, threads,
                     reference_population,
                     options.get("exclude_exact", defaults.exclude_exact))
+                calibration = {}
+                if vx_null_dir is not None:
+                    from hashlib import sha256 as digest_bytes
+                    binding["reference_sha256"] = reference_digest
+                    binding["target_axis_sha256"] = digest_bytes(axis.write_csv(separator="\t").encode()).hexdigest()
+                    selection, recipe = _calibrate(
+                        selection, binding, nulls, null_binding, source, vx_target_fpr, .95)
+                    if (sha256(archive) != reference_digest
+                            or any(sha256(path) != digest for path, digest in null_paths.items())):
+                        raise ValueError("vX score inputs changed during calibration")
+                    calibration = {"paired_vx_binding": binding, "calibration": recipe,
+                                   "calibration_bank_replayed": any(report["source_sha256"] == null_input
+                                                                    for report in reports),
+                                   "null_inputs_sha256": {p.name: digest for p, digest in null_paths.items()}}
                 mapping = _pair_mapping(part, offset)
                 for kind, table in (("queries", query), ("selection", selection)):
                     tables.setdefault(kind, []).append(_restore(table, mapping))
@@ -360,7 +386,7 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
                                   "reference": db.provenance(reference),
                                   "reference_population": reference_population,
                                   "exact_hits_excluded": options.get("exclude_exact", defaults.exclude_exact),
-                                  "queries": query.height})
+                                  "queries": query.height, **calibration})
                 batches.append({"locus": population, "query_chain_rows": part.height,
                                 "sample_count": part["sample_id"].n_unique()})
                 continue

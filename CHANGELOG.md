@@ -12,6 +12,8 @@
   reproducible research comparisons.
 - Use vX for ordinary mouse paired-chain annotation invoked without a
   score-model override. The previous scorer remains available as `--score-model kernel`.
+- Accept a matching null bank in `annotate --vx-null-dir` to report calibrated
+  paired mouse calls, E-values and null-tail counts.
 
 - Report exact, finite-population rediscovery probabilities for V-conditioned
   motifs at user-specified TCR sampling depths in `reference-profiles`.

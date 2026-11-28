@@ -741,6 +741,14 @@ as ambiguous evidence. Use ``--score-model kernel`` for the previous
 model. Varying advanced kernel-specific geometry options uses the
 kernel workflow in automatic mode.
 
+For calibrated calls, supply ``--vx-null-dir`` from a matched
+``paired-vx-base --null-source`` run. Annotation verifies the scorer,
+reference, target axis and exact-hit policy before applying the ordered
+cutoff. The default target FPR is 1% at 95% confidence. The selection
+table retains ranked evidence alongside call status, inclusive empirical
+E-values and null-tail counts. Use the installed scorer to regenerate an
+older null export when its source digest differs.
+
 The output also includes ``maxima.tsv`` with one row for every query.
 The ``maximum`` column retains finite tied maxima for audit, whereas
 ``score`` and ``target`` require a unique winning pMHC. Unsupported and

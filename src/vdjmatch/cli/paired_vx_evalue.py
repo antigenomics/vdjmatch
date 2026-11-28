@@ -62,23 +62,28 @@ def _source(directory):
     return frame, binding, manifest.get("null_source"), query_input_sha256, signed
 
 
-def main(args):
-    import json
+def _calibrate(queries, binding, nulls, null_binding, source, target_fpr, confidence):
     from .calibration import apply_calibration, null_tail_probabilities
     from .ordered_calls import fit_ordered_calls
+
+    if binding != null_binding:
+        raise ValueError("query and null vX inputs must match in reference, model, scorer and exact-hit policy")
+    if not source or "null_source" not in nulls.columns or set(nulls["null_source"]) != {source}:
+        raise ValueError("null population must match its paired-vx-base --null-source declaration")
+    recipe = fit_ordered_calls(nulls, target_fpr, confidence)
+    accepted = apply_calibration(queries, recipe)
+    calls, tails = null_tail_probabilities(accepted, nulls)
+    return calls.with_columns(tails["null_queries"], tails["null_tail_count"]), recipe
+
+
+def main(args):
+    import json
     from ..db.cache import sha256
     from ..runner.annotation import _validate_output_paths
 
     queries, binding, _, query_input, query_paths = _source(args.queries)
     nulls, null_binding, source, null_input, null_paths = _source(args.null_dir)
-    if binding != null_binding:
-        raise ValueError("query and null vX inputs must match in reference, model, scorer and exact-hit policy")
-    if not source or "null_source" not in nulls.columns or set(nulls["null_source"]) != {source}:
-        raise ValueError("null population must match its paired-vx-base --null-source declaration")
-    recipe = fit_ordered_calls(nulls, args.target_fpr, args.confidence)
-    accepted = apply_calibration(queries, recipe)
-    calls, tails = null_tail_probabilities(accepted, nulls)
-    calls = calls.with_columns(tails["null_queries"], tails["null_tail_count"])
+    calls, recipe = _calibrate(queries, binding, nulls, null_binding, source, args.target_fpr, args.confidence)
     prefix = _validate_output_paths(args.output_prefix, [*query_paths, *null_paths],
                                     suffixes=(".calls.tsv", ".manifest.json"))
     if any(sha256(path) != expected for signed in (query_paths, null_paths) for path, expected in signed.items()):

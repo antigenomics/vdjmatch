@@ -175,10 +175,30 @@ def _maxima_table(query_ids, base, labels, null_source):
     return table
 
 
-def main(args):
+def _target_axis(targets):
     import json
+    import polars as pl
+
+    labels = [json.dumps(target, separators=(",", ":")) for target in targets.iter_rows()]
+    return pl.DataFrame({"target": pl.Series(labels, dtype=pl.String), "mhc_class": targets["mhc_class"]})
+
+
+def _score_binding(reference_keys, exclude_exact):
     from importlib.metadata import version
     from importlib.resources import files
+    from ..db.cache import sha256
+
+    return {
+        "species": "mouse", "exact_hits_excluded": exclude_exact, "reference_keys": reference_keys,
+        "software": {package: version(package) for package in ("vdjmatch", "seqtree", "vdjtools")},
+        "v_loop_model_sha256": sha256(Path(str(files("vdjmatch.resources") / "vloops" / "mouse_v_loops.tsv"))),
+        "source_sha256": sha256(Path(__file__)),
+        "region_weights": REGION_WEIGHTS, "competitive_rule": PAIR_RULE,
+    }
+
+
+def main(args):
+    import json
 
     import numpy as np
     import polars as pl
@@ -221,7 +241,8 @@ def main(args):
                                    set(raw["epitope"].drop_nulls()) - {""})
         base = _withheld_scores(queries, fixed, targets, groups, backgrounds, context,
                                 folds=folds, threads=args.threads, exclude_exact=args.exclude_exact)
-    labels = [json.dumps(target, separators=(",", ":")) for target in targets.iter_rows()]
+    target_axis = _target_axis(targets)
+    labels = target_axis["target"].to_list()
     maxima = _maxima_table(queries["query_id"], base, labels, null_source)
     if digests != {name: sha256(path) for name, path in inputs.items()}:
         raise ValueError("paired-vx-base inputs changed during replay")
@@ -229,8 +250,7 @@ def main(args):
     np.savez(out / "base.npz", base=base)
     queries.select("query_id", pl.col("cdr3a").alias(CHAINS[0]),
                    pl.col("cdr3b").alias(CHAINS[1])).write_csv(out / "queries.tsv", separator="\t")
-    pl.DataFrame({"target": labels, "mhc_class": targets["mhc_class"]}).write_csv(
-        out / "targets.tsv", separator="\t")
+    target_axis.write_csv(out / "targets.tsv", separator="\t")
     if folds is None:
         member_rows = pl.DataFrame({
             "reference_key": np.concatenate(groups),
@@ -244,16 +264,12 @@ def main(args):
         fold_status = {"withholding_folds": len(folds)}
     maxima.write_csv(out / "maxima.tsv", separator="\t")
     (out / "manifest.json").write_text(json.dumps({
-        "inputs_sha256": digests, "species": "mouse", "exact_hits_excluded": args.exclude_exact,
-        "queries": queries.height, "targets": targets.height, "reference_keys": fixed.height,
+        "inputs_sha256": digests, **_score_binding(fixed.height, args.exclude_exact),
+        "queries": queries.height, "targets": targets.height,
         "supported_queries": maxima["maximum"].count(), "unique_winners": maxima["score"].count(),
         "top_ties": int(maxima["tied"].sum()), "null_source": null_source,
         **fold_status,
         "threads": args.threads,
-        "software": {package: version(package) for package in ("vdjmatch", "seqtree", "vdjtools")},
-        "v_loop_model_sha256": sha256(Path(str(files("vdjmatch.resources") / "vloops" / "mouse_v_loops.tsv"))),
-        "source_sha256": sha256(Path(__file__)),
-        "region_weights": REGION_WEIGHTS, "competitive_rule": PAIR_RULE,
         "outputs_sha256": {file.name: sha256(file) for file in sorted(out.iterdir())},
     }, indent=2) + "\n")
     return 0

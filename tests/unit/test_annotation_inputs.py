@@ -104,6 +104,10 @@ def test_pairs_are_scoped_to_samples_and_keep_both_ids(tmp_path, core):
 
 
 def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
+    from types import SimpleNamespace
+    from zipfile import ZipFile
+
+    from vdjmatch.cli.paired_vx_base import main as replay_paired
     from vdjmatch.match.geometry import load_v_loops
 
     model = load_v_loops("mouse")
@@ -133,6 +137,31 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
                                output_prefix=tmp_path / "empty-reference")
     assert out["queries"]["status"].to_list() == ["no_reference", "unselected_species"]
     assert out["selection"]["score"].null_count() == 2
+
+    release = tmp_path / "release.zip"
+    with ZipFile(release, "w") as archive:
+        archive.write(reference, "vdjdb.txt")
+    null_query = tmp_path / "null.tsv"
+    pl.read_csv(pairs, separator="\t", schema_overrides={"pair_id": pl.String}).head(1).drop(
+        "species").with_columns(pl.lit("CASAAAAAFF").alias("junction_aa_alpha"),
+                                pl.lit("CASSRRRRFF").alias("junction_aa_beta"),
+                                pl.col("pair_id").alias("query_id")).write_csv(null_query, separator="\t")
+    null_dir = tmp_path / "null"
+    assert replay_paired(SimpleNamespace(queries=null_query, vdjdb=release, null_source="generated",
+                                        output_dir=null_dir, exclude_exact=False, withhold_peptides=None,
+                                        threads=1)) == 0
+    out = annotate_repertoires(pairs, reference=release, species="mouse", vx_null_dir=null_dir,
+                               output_prefix=tmp_path / "calibrated")
+    assert out["selection"].select("score", "E_null", "null_tail_count", "call_status").rows() == [
+        (0., 1., 1, "no_supported_match"), (None, 0., 0, "no_supported_match")]
+    with pytest.raises(ValueError, match="exact-hit policy"):
+        annotate_repertoires(pairs, reference=release, species="mouse", vx_null_dir=null_dir,
+                             output_prefix=tmp_path / "incompatible", exclude_exact=True)
+    (tmp_path / "collision.selection.tsv").hardlink_to(null_dir / "maxima.tsv")
+    with pytest.raises(ValueError, match="output path conflicts"):
+        annotate_repertoires(pairs, reference=release, species="mouse", vx_null_dir=null_dir,
+                             output_prefix=tmp_path / "collision")
+
     with pytest.raises(ValueError, match="ordinary paired mouse"):
         annotate_repertoires(pairs, reference=reference, species="MusMusculus",
                              output_prefix=tmp_path / "modified", score_model="vx", distance_matrix="clipped")
