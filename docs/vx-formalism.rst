@@ -13,7 +13,7 @@ here. It combines a weighted receptor distance with a target's first
 two eligible hits and an explicit comparison against HLA-compatible
 other-peptide references. The same construction applies to single
 chains and genuine paired-chain keys, with chain-specific settings.
-TCRdist3 supplies the native distance baseline. Fixed-site gaps, movable
+The published comparator supplies the native distance baseline. Fixed-site gaps, movable
 single-block gaps and Smith–Waterman are existing alignment choices.
 The novel vX contribution is how distance and reference evidence
 are combined into a target score, together with the separately
@@ -33,7 +33,7 @@ The junction's weight of three makes the maximum cost of one core
 substitution and the cost of one gap residue both 12 native distance units.
 Let :math:`d` be the full junction length difference and
 :math:`\Pi(q,r)` the permitted alignments of their retained residues.
-The accepted vX geometry reproduces the TCRdist3 default junction
+The accepted vX geometry reproduces the comparator’s default junction
 alignment. At equal lengths there is one ungapped alignment. With
 unequal lengths, one block spans the full length difference. If
 the shorter full junction has :math:`s\geq 10` residues, the block
@@ -45,12 +45,12 @@ with legal boundaries of the trimmed core. The trim always removes
 three N-terminal and two C-terminal residues from the substitution sum.
 A 3-N/3-C research variant trims one more C-terminal residue.
 
-TCRdist3 also allows a fixed position for the single gap and permits
+The native comparator also allows a fixed position for the single gap and permits
 custom metrics including Smith–Waterman local alignment. The
 native-default comparator uses the movable gap. The vX local and
 global alignment experiments are separate alternatives to that default.
-See the `TCRdist3 methods chapter <https://pmc.ncbi.nlm.nih.gov/articles/PMC9719034/>`_
-and `distance documentation <https://tcrdist3.readthedocs.io/en/latest/tcrdistances.html>`_. For
+See the `native methods chapter <https://pmc.ncbi.nlm.nih.gov/articles/PMC9719034/>`_
+and :download:`comparison provenance notebook <../examples/comparison-provenance.ipynb>`. For
 the aligned index pairs :math:`(i,j)\in\pi`, the junction cost is
 
 .. math::
@@ -130,7 +130,7 @@ replay.
 
 The fraction :math:`1/512` was selected by matched benchmark replay.
 At :math:`1/256` the local variant lowered two fixed-reference paired
-TCRvdb endpoints. The smaller local fraction improved five organizer
+fixed-reference human endpoints. The smaller local fraction improved five organizer
 and four fixed-reference endpoints with zero losses, keeping all six
 measured NLV endpoints and all three LLL–LLW–ELA correct counts.
 This is an explicit human research component. Whole-search
@@ -173,11 +173,11 @@ other-peptide comparison stayed clipped. This is a comparison of
 costs in the same single-gap geometry. The Smith–Waterman FR3
 comparison above uses a separate alignment objective.
 
-Clipped costs beat native TCRdist3 on all 78 matched human ranking
+Clipped costs beat the native comparator on all 78 matched human ranking
 endpoints, compared with 65 for VDJAM, 63 for unclipped BLOSUM62, 53
 for PAM250 and 47 for MJ. In a direct comparison on those 78
 endpoints, clipped won 33, tied 2 and lost 43 against unclipped
-BLOSUM62. The unclipped arm lowered 30 of the 72 TCRvdb endpoints
+BLOSUM62. The unclipped arm lowered 30 of the 72 fixed-reference human endpoints
 relative to frozen vX and lowered measured NLV TRB average precision
 by 0.02108. Clipped costs remain the reference-ranked choice under
 the priority nonregression requirement. The direct endpoint tally
@@ -257,7 +257,7 @@ The gap contribution is in :math:`[-2.4,0]` for TRA, :math:`[0,0.15]` for
 TRB and :math:`[-4.8,0]` for paired-chain receptors. An equal-length
 junction of length :math:`\ell` can contribute up to
 :math:`12[\ell-5]_+` before V-loop terms, and other terms or unequal lengths
-change the range further. In the matched TCRvdb ranking queries
+change the range further. In the matched fixed-reference human ranking queries
 (2,636 records per axis), median full junction lengths were 13 for TRA
 and 14 for TRB. Their median core lengths of eight and nine give loose
 substitution-only midpoint scales of 48 and 54 units. A length-based cap
@@ -268,10 +268,10 @@ reference hits are in a real panel. The original support-gap sweep fixed the
 cap across its variants.
 Its value remains a design choice. In the matched ranking replay,
 the midpoint gap exceeded the frozen cap in 69 of 8,295 finite
-query–target scores across TCRvdb and measured NLV. Halving the cap
+query–target scores across fixed-reference human and measured NLV. Halving the cap
 changed 374 scores and lowered 32 of 78 endpoints.
 Doubling it or using the query-core capacity each changed 69 scores and
-lowered six endpoints. All cap options beat native TCRdist3 on the 78
+lowered six endpoints. All cap options beat the native comparator on the 78
 endpoints. The frozen cap also preserved all frozen vX endpoints.
 Binary64 evaluation forms the midpoint before subtracting :math:`d_1`,
 then limits the result to :math:`[0,g_\star]`.
@@ -432,7 +432,7 @@ when :math:`x_e>0`, with abstention at a tied maximum or without support.
 This uses the observed-versus-expected neighborhood principle of
 `TCRNET <https://pmc.ncbi.nlm.nih.gov/articles/PMC6156623/>`_ for a
 different question. TCRNET tests within-sample neighborhood degree
-against a control repertoire. TCRdist3 offers neighborhood tests
+against a control repertoire. The native comparator offers neighborhood tests
 for covariates, including a documented chi-squared example with
 epitope as the category. It can also choose radii that control
 neighbor discovery in a background repertoire. The vX design
@@ -441,8 +441,8 @@ its receptor distance and a query-level open-set decision. The
 one-sided hypergeometric tail is the Fisher exact enrichment test
 for one label inside versus outside the neighborhood. It remains
 defined for sparse counts.
-See the `TCRdist3 enrichment workflow <https://tcrdist3.readthedocs.io/en/latest/#neighborhood-enrichment>`_
-and `radius procedure <https://tcrdist3.readthedocs.io/en/latest/radius.html>`_.
+The :download:`comparison provenance notebook <../examples/comparison-provenance.ipynb>`
+identifies the native enrichment and radius workflows.
 
 The exchangeability model is a ranking reference. Study composition,
 HLA restriction and repeated biological observations can give targets
@@ -464,13 +464,9 @@ If several winning pMHC labels share one peptide, the peptide is resolved
 at the score maximum and the MHC restriction remains ambiguous.
 If the maxima span distinct peptides, peptide assignment also abstains.
 
-On the full paired TCRvdb catalogue replay, 1,360 of 1,404 tied maxima
-among resolved assay cases involved a single peptide. Reporting that
-peptide at a tie raises correct peptide calls from 376 to 1,040 among
-1,325 assay positives. It also raises calls of the assayed peptide
-from 48 to 291 among 1,032 assay negatives before a score cutoff.
-This is a peptide-level diagnostic. Applying it as a call rule
-requires calibrating its own decision, including the newly admitted ties.
+A peptide-level reduction pools restriction labels and changes the
+reported outcome. Evaluate peptide and full pMHC calls separately
+against their respective truth criteria.
 
 Sample-level neighborhood association
 --------------------------------------
@@ -544,7 +540,7 @@ query opportunities at the same marginal rate is estimated by
 quantity.
 
 These are proposed vX procedures and specify a matched comparison
-with the TCRdist3 neighborhood tests and empirical background-radius
+with the native neighborhood tests and empirical background-radius
 workflow. Compare the same samples, truth criteria and background
 sources. Measure power or correct-call recall at matched
 false-call control before claiming a performance advantage.
@@ -688,7 +684,7 @@ The penalty weight four was selected on the mouse catalogue benchmark.
 The two-key gate applies the penalty only to targets with more than two
 reference keys. On the
 matched class-I and class-II mouse paired catalogue it improved all 39
-ranking endpoints versus both frozen vX and native TCRdist3.
+ranking endpoints versus both frozen vX and the native comparator.
 
 For the same base scores and full target context, the maximum and the
 set of targets attaining it are exactly invariant. Consequently any final
@@ -755,6 +751,24 @@ to the ordered calibration command:
 Use the same reference and exact-hit policy when scoring the queries
 to which the recipe will be applied. The mouse motif correction
 preserves this maximum-based calling rule.
+
+Use ``paired-vx-evalue`` to verify the score directories and annotate
+queries at the ordered E threshold in one command:
+
+.. code-block:: bash
+
+   vdjmatch paired-vx-evalue mouse-query --null-dir mouse-null \
+     --target-fpr 0.01 --confidence 0.95 --output-prefix mouse-calls
+
+Here ``mouse-query`` is a separate ordinary ``paired-vx-base`` output.
+Both directories must use the same reference, target axis, model,
+scorer and exact-hit policy. The command verifies the score files
+against their manifests. It exports E, rank P, the inclusive null
+tail count and its denominator on each query. The receipt records the
+threshold, the source hashes, and whether the same query input was
+used for fitting and application. Its inference assumes IID null
+queries. Use the separately reported retrospective protocol for
+peptide-withheld folds.
 
 For the peptide-withheld comparison, supply a TSV with ``query_id``
 and ``epitope`` and list every recorded peptide to withhold for each

@@ -984,6 +984,8 @@ def main(argv: list[str] | None = None) -> int:
     register_competitive(sub)
     from .paired_vx_base import register as register_paired_vx_base
     register_paired_vx_base(sub)
+    from .paired_vx_evalue import register as register_paired_vx_evalue
+    register_paired_vx_evalue(sub)
     from .reference_pairing import register as register_reference_pairing
     register_reference_pairing(sub)
     from .score_policy import register as register_score_policy
