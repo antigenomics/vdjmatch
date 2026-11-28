@@ -182,7 +182,8 @@ Fixed-catalogue motif assignment
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For a TRB junction, trim the same three N-terminal and two C-terminal
-positions used by vX. Take up to four trimer windows from each end.
+positions used by vX. Take up to four windows from each end. The
+default uses trimers, and the optional four-residue version uses tetramers.
 The end and offset are part of each token :math:`t`.
 For :math:`N_e` distinct reference keys for target :math:`e`, let
 :math:`c_{et}` count keys with token :math:`t`. Across the full model let
@@ -196,7 +197,7 @@ For :math:`N_e` distinct reference keys for target :math:`e`, let
 
 The pooled frequency uses one occurrence and one nonoccurrence
 pseudocount. The target estimate borrows two reference observations
-at that frequency. The mean is an enrichment score for overlapping
+at that frequency at both motif lengths. The mean is an enrichment score for overlapping
 windows. A unique maximum assigns an epitope in the closed-set assay.
 Empty query token lists and absent targets are unsupported.
 
@@ -206,6 +207,10 @@ correctly with zero ties, including 68 of 87 LLW cases. The full
 motif catalogue includes the assay junctions, and the parameters
 were selected on this panel. The score is available for fixed-catalogue
 assignment diagnostics. It has no calibrated open-set cutoff.
+The tetramer replay improves all three class counts to 870 ELA,
+232 LLL and 86 LLW, with zero ties. It corrects 72 additional
+cases and preserves all correct trimer calls. This comparison
+uses the same full, overlapping catalogue and the supplied assay.
 
 To replay from a prepared model, run:
 
@@ -219,6 +224,7 @@ full peptide–MHC identity in ``target``. The query columns are
 ``query_id`` and ``junction_aa``; IDs are unique and junctions include
 their anchors. The output retains all query–target scores and flags
 unique winners and tied maxima.
+Add ``--motif-length 4`` to replay the tetramer setting.
 
 Competitive score diagnostics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

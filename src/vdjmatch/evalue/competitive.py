@@ -65,17 +65,17 @@ def paired_assay_local_score(distances, *, exact_hits=None):
     return assay_local_score(order, width, 7 / 3)
 
 
-def _anchored_trimers(junction):
+def _anchored_tokens(junction, motif_length):
     core = junction[3:-2]
-    width = min(4, len(core) - 2)
+    width = min(4, len(core) - motif_length + 1)
     return (
-        tuple(("N", i, core[i:i + 3]) for i in range(width))
-        + tuple(("C", i, core[len(core) - i - 3:len(core) - i]) for i in range(width))
+        tuple(("N", i, core[i:i + motif_length]) for i in range(width))
+        + tuple(("C", i, core[len(core) - i - motif_length:len(core) - i]) for i in range(width))
     )
 
 
 def anchored_motif_scores(reference_keys, junctions, targets, *,
-                          reference_pool=None, sibling_references=None):
+                          reference_pool=None, sibling_references=None, motif_length=3):
     """Return fixed-catalogue TRB motif enrichment in the requested target order.
 
     Each reference item is a (target, full junction) observation. Callers
@@ -85,7 +85,10 @@ def anchored_motif_scores(reference_keys, junctions, targets, *,
     An explicit pool can use physical keys counted once. Optional sibling
     junctions come from compatible same-peptide targets, with shared
     reference keys removed by the caller.
+    Both motif lengths borrow two pooled observations.
     """
+    if not isinstance(motif_length, (int, np.integer)) or motif_length not in (3, 4):
+        raise ValueError("motif_length must be 3 or 4")
     targets = tuple(targets)
     if not targets or len(set(targets)) != len(targets):
         raise ValueError("expected distinct target labels")
@@ -94,7 +97,7 @@ def anchored_motif_scores(reference_keys, junctions, targets, *,
     pooled = Counter()
     for target, junction in reference_keys:
         counts = target_counts[target]
-        tokens = _anchored_trimers(junction)
+        tokens = _anchored_tokens(junction, motif_length)
         counts.update(tokens)
         pooled.update(tokens)
         sizes[target] += 1
@@ -103,16 +106,16 @@ def anchored_motif_scores(reference_keys, junctions, targets, *,
         pooled.clear()
         denominator = 2
         for junction in reference_pool:
-            pooled.update(_anchored_trimers(junction))
+            pooled.update(_anchored_tokens(junction, motif_length))
             denominator += 1
-    queries = [_anchored_trimers(junction) for junction in junctions]
+    queries = [_anchored_tokens(junction, motif_length) for junction in junctions]
     scores = np.full((len(queries), len(targets)), -np.inf)
     for column, target in enumerate(targets):
         if not sizes[target]:
             continue
         counts = target_counts[target]
         siblings = tuple(sibling_references.get(target, ())) if sibling_references is not None else ()
-        sibling_counts = Counter(token for junction in siblings for token in _anchored_trimers(junction))
+        sibling_counts = Counter(token for junction in siblings for token in _anchored_tokens(junction, motif_length))
         borrowing = len(siblings) / (len(siblings) + 2)
         for row, tokens in enumerate(queries):
             if not tokens:

@@ -78,6 +78,13 @@ def test_anchored_motif_scores_borrow_from_compatible_siblings():
     np.testing.assert_allclose(result[0], np.log([(1 + 2 * prior) / (3 * prior), 2 / 3]))
 
 
+def test_anchored_tetramer_uses_longer_windows():
+    refs = [("a", "CASAAAAFF"), ("b", "CASRRRRFF")]
+    result = anchored_motif_scores(refs, ["CASAAAAFF", "CASAAAFF"], ["a", "b"], motif_length=4)
+    np.testing.assert_allclose(result[0], np.log([4 / 3, 2 / 3]))
+    assert np.isneginf(result[1]).all()
+
+
 def test_research_score_cli_keeps_output_identity(tmp_path):
     from vdjmatch.cli.__main__ import main
 

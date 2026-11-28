@@ -8,6 +8,8 @@ def register(subparsers):
     motif.add_argument("--reference", type=Path, required=True,
                        help="TSV with target, junction_aa, v_call and j_call")
     motif.add_argument("--queries", type=Path, required=True, help="TSV with query_id and junction_aa")
+    motif.add_argument("--motif-length", type=int, choices=(3, 4), default=3,
+                       help="Anchored motif length (default: 3)")
     motif.add_argument("--output", type=Path, required=True)
     motif.set_defaults(func=motif_main)
 
@@ -62,7 +64,7 @@ def motif_main(a):
         raise ValueError("query identifiers must be unique")
     targets = reference["target"].unique().sort().to_list()
     values = anchored_motif_scores(reference.select("target", "junction_aa").iter_rows(),
-                                   query["junction_aa"], targets)
+                                   query["junction_aa"], targets, motif_length=a.motif_length)
     maxima = (values == values.max(axis=1, keepdims=True)) & np.isfinite(values)
     result = pl.DataFrame({
         "query_id": np.repeat(query["query_id"].to_numpy(), len(targets)),

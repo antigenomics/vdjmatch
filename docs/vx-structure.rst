@@ -266,8 +266,9 @@ enrichments. For targets with more than two reference keys, add
 
    \lambda_+[m_e]_+-\lambda_-[-m_e]_+.
 
-The two reference keys in the gate correspond to the two pooled
-pseudocount observations in the motif score. Keep every target at
+The two reference keys in this gate correspond to the two pooled
+pseudocount observations in the trimer score used in these ranking
+comparisons. Keep every target at
 the original maximum unchanged. Cap other scores strictly below that
 maximum, at its binary64 predecessor. This preserves the winning tier
 and any cutoff on the maximum score. It can change lower target ranks
