@@ -251,11 +251,14 @@ For target key :math:`r`, order hits by
 :math:`d(q,r;e)=D_w(q,r)-a\log_2\max(1,n_{er})`, where :math:`n_{er}` counts
 distinct reference IDs supporting that target key. Only TRB uses a nonzero
 :math:`a`, a discount of :math:`9/32` units per doubling of support. The
-replay takes the maximum distinct-ID count among compatible raw keys
-mapping to a native key. The generated-null catalogue counts distinct IDs
-across the compatible rows for a native key. The benchmark uses the native
-distance when the loop correction is unavailable. The code accumulates
-loop corrections before adding them to the native distance.
+discount is zero for zero or one source ID. Its logarithm gives each
+doubling the same effect. A reference ID identifies recorded support.
+The archived benchmark takes the maximum distinct-ID count among
+compatible raw keys mapping to a native key. Ordinary annotation and
+its generated null count distinct IDs across the compatible rows for
+a native key. The archived replay falls back to the native distance
+when its loop correction is unavailable. The installed vX scorer
+requires a resolved, modeled V allele on each observed chain.
 
 When both chain corrections are available, for a pair :math:`q=(q_\alpha,q_\beta)` and a paired-chain key
 :math:`r=(r_\alpha,r_\beta)`, use
@@ -358,8 +361,8 @@ can make :math:`d_1` negative. The nonnegative competitor penalty and capped mid
 gap give the exact all-target search bound
 :math:`S\le -d_1+g_\star\max(b,0)`. A target can be skipped once its bound
 is strictly below the best score already found. Equality still needs to
-be checked for an exact tie. The settings below were fixed by the matched
-tuning study.
+be checked for an exact tie. The settings below are the frozen choices
+from the matched tuning study.
 
 .. list-table::
    :header-rows: 1
@@ -388,6 +391,24 @@ tuning study.
      - 6
      - :math:`-1/10`
      - 0
+
+The TRA margin is one maximum-cost junction edit per chain
+(:math:`m=C`). For pairs it is half that cost per chain
+(:math:`m=C/2`), so the two settings have the same total margin
+:math:`Lm=12`. The TRB margin :math:`17/4`, the background ranks,
+and the penalty and support weights are empirical settings.
+A unit of margin shortfall costs :math:`\gamma` score units. A unit
+of midpoint gap below the cap changes the score by :math:`b` units.
+These interpretations do not require fitting a new parameter.
+
+The sensitivity audit varied the V-loop weights, margins, penalties,
+midpoint-gap weights and TRB source discount by 5% and 10% in both
+directions. It kept the cap and background ranks fixed. Fifty of 52
+perturbations lowered at least one frozen TCRvdb ranking endpoint.
+The two increases to the TRB midpoint-gap weight left those
+ranking metrics unchanged.
+The common :math:`1/256` increment on the three V-loop weights is
+also empirical. Removing it lowered 23 of 72 frozen TCRvdb endpoints.
 
 Single-chain scores
 -------------------
@@ -423,7 +444,7 @@ distances:
    S_{\alpha\beta}=-d_1-\frac{[d_1+12-c_1]_+}{40}
      -\frac{\min\{48,[(d_1+d_2)/2-d_1]_+\}}{10}.
 
-The margin 12 is twice the fitted six units per chain. The cap 48
+The margin 12 is twice the selected six units per chain. The cap 48
 is twice the single-chain cap. Separate best hits on the two chains
 cannot supply :math:`d_1`.
 

@@ -4,8 +4,9 @@ from collections import Counter
 
 import numpy as np
 
-# Half the separation of four maximum-cost junction edits (12 units each).
-MAX_MIDPOINT_GAP_PER_CHAIN = 24
+# The midpoint cap is two maximum-cost junction edits per chain.
+# One edit costs four clipped units at junction weight three.
+MAX_MIDPOINT_GAP_PER_CHAIN = 2 * (3 * 4)
 ASSIGNMENT_SIZE_SLOPE = 1 / 400
 
 
@@ -54,16 +55,18 @@ def fr3_sw_distance_correction(context, locus):
 
 
 def reduced_hits(first, second, background, rules, chains):
-    """Score ordered finite target hits with the configured competitive margin.
+    """Score the nearest hit, adjusted for competition and second-hit support.
 
-    Callers repeat the first hit for singletons and handle unsupported targets
-    before reduction. An infinite background distance yields zero excess.
+    The margin is in distance units per observed chain. The margin penalty
+    and second-hit gap weight are dimensionless. Callers repeat the first
+    distance when only one finite target hit remains. Infinite background
+    distance removes the competition penalty.
     """
     # Keep the midpoint before subtraction to preserve the frozen binary64 scores.
     midpoint = (first + second) / 2
-    gap = np.clip(midpoint - first, 0, MAX_MIDPOINT_GAP_PER_CHAIN * chains)
-    excess = np.maximum(first + chains * rules["margin_per_chain"] - background, 0)
-    return -first - rules["margin_penalty"] * excess + rules["second_hit_gap_weight"] * gap
+    midpoint_gap = np.clip(midpoint - first, 0, MAX_MIDPOINT_GAP_PER_CHAIN * chains)
+    margin_shortfall = np.maximum(first + chains * rules["margin_per_chain"] - background, 0)
+    return -first - rules["margin_penalty"] * margin_shortfall + rules["second_hit_gap_weight"] * midpoint_gap
 
 
 def assignment_score(scores, target_key_counts):
