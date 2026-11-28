@@ -349,11 +349,16 @@ the remaining distances :math:`d_{(1)}\leq\cdots\leq d_{(k)}` and use
 
    S_{\text{assay}}=-\frac{\sum_{j=1}^k (k-j+1)^{7/3}d_{(j)}}
                               {\sum_{j=1}^k(k-j+1)^{7/3}},\qquad
-   k=\max\{1,\lfloor 0.124(n-1)\rfloor\}.
+   k=\max\{1,\lfloor 31(n-1)/250\rfloor\}.
 
 The decreasing rank weights emphasize the closest neighbors. The
-fraction and exponent were selected on the organizer assay. If fewer
-than :math:`k` distances are finite, the case is unscored. Equal distances
+organizer assay selected the fraction and exponent. All eight observed
+neighbor counts stay fixed for fractions in
+:math:`[15/121,16/129)`. The endpoints have cross-product difference
+one, so their mediant :math:`31/250` has the smallest denominator among
+fractions strictly between them. It equals 12.4%. One eighth would add
+one neighbor in four groups. If fewer than :math:`k` distances are
+finite, the case is unscored. Equal distances
 at the boundary have equal effect on this distance average. This score
 operates within an already specified target group.
 

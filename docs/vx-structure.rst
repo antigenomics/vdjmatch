@@ -358,7 +358,7 @@ optional exact-hit mask. It returns the negative weighted mean of the first
 :math:`k` distances, with weight :math:`(k-i+1)^p` at rank :math:`i`.
 
 The matched TCRvdb comparison used the accepted human paired-chain
-contact geometry, :math:`k=\max(1,\lfloor0.124(n-1)\rfloor)`, and
+contact geometry, :math:`k=\max(1,\lfloor31(n-1)/250\rfloor)`, and
 :math:`p=7/3`. It led the supplied organizer scores on all 24 paired
 ranking endpoints, with both self-only and paired-junction exact
 exclusion. The setting was selected on the evaluation panel.

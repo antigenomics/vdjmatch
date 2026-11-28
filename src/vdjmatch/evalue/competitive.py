@@ -105,7 +105,7 @@ def paired_assay_local_score(distances, *, exact_hits=None):
             raise ValueError("exact_hits must be a boolean mask aligned to distances")
         group[mask] = np.inf
     np.fill_diagonal(group, np.inf)
-    width = max(1, (group.shape[0] - 1) * 124 // 1000)
+    width = max(1, 31 * (group.shape[0] - 1) // 250)
     order = np.sort(group, axis=1)
     return assay_local_score(order, width, 7 / 3)
 
