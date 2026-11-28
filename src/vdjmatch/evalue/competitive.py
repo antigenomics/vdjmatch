@@ -132,7 +132,12 @@ def paired_motif_ranking_scores(base, tra, trb, target_key_counts, *,
             or min(support_weight, conflict_weight) < 0):
         raise ValueError("motif weights must be finite and nonnegative")
     motif = np.minimum(np.where(np.isfinite(tra), tra, 0), np.where(np.isfinite(trb), trb, 0))
-    correction = (support_weight * np.maximum(motif, 0) + conflict_weight * np.minimum(motif, 0))
     maximum = base.max(axis=1, keepdims=True)
     cap = np.nextafter(maximum, -np.inf)
-    return np.where(base == maximum, base, np.minimum(base + correction * (counts > 2), cap))
+    motif = np.where(np.isfinite(base) & (base < maximum) & (counts > 2), motif, 0)
+    with np.errstate(over="ignore"):
+        correction = support_weight * np.maximum(motif, 0) + conflict_weight * np.minimum(motif, 0)
+        result = np.where(base < maximum, np.minimum(base + correction, cap), base)
+    if np.any(np.isfinite(base) & ~np.isfinite(result)):
+        raise ValueError("motif refinement exceeds the finite score range")
+    return result
