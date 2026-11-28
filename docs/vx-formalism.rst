@@ -21,9 +21,24 @@ The junction's weight of three makes the maximum cost of one core
 substitution and the cost of one gap residue both 12 native distance units.
 Let :math:`d` be the full junction length difference and
 :math:`\Pi(q,r)` the permitted alignments of their retained residues.
-At equal lengths there is one ungapped alignment. With unequal lengths,
-the native routine tries internal positions for the length difference as
-one block, with the position window adjusted for short junctions. For
+The accepted vX geometry reproduces the TCRdist3 default junction
+alignment. At equal lengths there is one ungapped alignment. With
+unequal lengths, one block spans the full length difference. If
+the shorter full junction has :math:`s\geq 10` residues, the block
+can follow :math:`5,6,\ldots,s-5` residues counted from its N terminus,
+giving :math:`s-9` candidate sites. For example, a shorter junction of
+length 13 gives four sites. For shorter junctions, widen the initial
+interval symmetrically until it contains a site, then intersect it
+with legal boundaries of the trimmed core. The trim always removes
+three N-terminal and two C-terminal residues from the substitution sum.
+A 3-N/3-C research variant trims one more C-terminal residue.
+
+TCRdist3 also allows a fixed position for the single gap and permits
+custom metrics including Smith–Waterman local alignment. The
+native-default comparator uses the movable gap. The vX local and
+global alignment experiments are separate alternatives to that default.
+See the `TCRdist3 methods chapter <https://pmc.ncbi.nlm.nih.gov/articles/PMC9719034/>`_
+and `distance documentation <https://tcrdist3.readthedocs.io/en/latest/tcrdistances.html>`_. For
 the aligned index pairs :math:`(i,j)\in\pi`, the junction cost is
 
 .. math::
@@ -342,6 +357,9 @@ Here :math:`\operatorname{pred}(S_*)` is the greatest representable
 floating-point value below :math:`S_*`. The same cap applies with a
 zero motif adjustment to lower scores with at most two keys.
 Every maximal score and every unsupported target retains its base value.
+The motif score is independent of gap placement and is applied after
+pairwise distances have been reduced to target scores. The mouse
+ranking rule does not add a k-mer term to the pairwise distance.
 The penalty weight four was selected on the mouse catalogue benchmark.
 The two-key gate applies the penalty only to targets with more than two
 reference keys. On the
