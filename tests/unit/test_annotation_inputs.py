@@ -207,7 +207,7 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
     with pytest.raises(ValueError, match="one matching null directory"):
         annotate_repertoires([pairs, single], reference=release, species="mouse", score_model="vx",
                              vx_null_dir=null_dir, output_prefix=tmp_path / "missing-bank")
-    mixed = annotate_repertoires([pairs, single], reference=release, species="mouse", score_model="vx",
+    mixed = annotate_repertoires([pairs, single], reference=release, species="mouse",
                                  vx_null_dir=[single_null_dir, null_dir],
                                  output_prefix=tmp_path / "mixed-vx")
     assert mixed["selection"]["query_id"].n_unique() == mixed["selection"].height == 5
@@ -215,6 +215,19 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
     assert mixed["selection"].filter(pl.col("locus") == "TRA")["null_queries"].to_list() == [2] * 3
     assert mixed["selection"].filter(pl.col("locus") == "paired")["null_queries"].to_list() == [1] * 2
     assert mixed["selection"]["E_null"].sum() == 2.
+    explicit = annotate_repertoires([pairs, single], reference=release, species="mouse", score_model="vx",
+                                    vx_tie_policy="abstain", vx_null_dir=[null_dir, single_null_dir],
+                                    output_prefix=tmp_path / "mixed-explicit")
+    assert mixed["selection"].equals(explicit["selection"])
+    with pytest.raises(ValueError, match="requires the vX annotation score"):
+        annotate_repertoires(single, reference=release, species="mouse", score_model="kernel",
+                             vx_null_dir=single_null_dir, output_prefix=tmp_path / "kernel-with-bank")
+    with pytest.raises(ValueError, match="one matching null directory"):
+        annotate_repertoires(single, reference=release, species="mouse", vx_null_dir=[],
+                             output_prefix=tmp_path / "empty-bank")
+    with pytest.raises(ValueError, match="ordinary annotation options"):
+        annotate_repertoires(single, reference=release, species="mouse", vx_null_dir=single_null_dir,
+                             output_prefix=tmp_path / "advanced-with-bank", selection_only=False)
 
     broad = pl.read_csv(reference, separator="\t")
     narrow = broad.with_columns(pl.lit(2).alias("complex_id"), pl.lit("H2-Kb:01").alias("mhc_a"))
@@ -226,10 +239,18 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
                                         output_dir=literal_null, exclude_exact=False, withhold_peptides=None,
                                         maxima_only=True, tie_policy="literal", threads=1)) == 0
     out = annotate_repertoires(pairs, reference=literal_reference, species="mouse",
-                               vx_null_dir=literal_null, vx_tie_policy="literal",
+                               vx_null_dir=literal_null,
                                output_prefix=tmp_path / "literal")
     assert out["selection"].select("tied", "tie_resolved", "selected_mhc_a", "E_null").rows() == [
         (True, True, "H2-Kb:01", 1.), (False, False, None, 0.)]
+    explicit_literal = annotate_repertoires(pairs, reference=literal_reference, species="mouse",
+                                            score_model="vx", vx_null_dir=literal_null, vx_tie_policy="literal",
+                                            output_prefix=tmp_path / "literal-explicit")
+    assert out["selection"].equals(explicit_literal["selection"])
+    with pytest.raises(ValueError, match="null tie policy"):
+        annotate_repertoires(pairs, reference=literal_reference, species="mouse",
+                             vx_null_dir=literal_null, vx_tie_policy="abstain",
+                             output_prefix=tmp_path / "literal-with-abstention")
 
     with pytest.raises(ValueError, match="ordinary annotation options"):
         annotate_repertoires(pairs, reference=reference, species="MusMusculus",

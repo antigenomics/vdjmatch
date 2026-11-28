@@ -927,11 +927,11 @@ def main(argv: list[str] | None = None) -> int:
                 annotation._option_string_actions["-o"] = action
     annotation.add_argument("--metadata", help="TSV with path and optional sample_id; paths relative to this TSV")
     annotation.add_argument("--score-model", choices=("auto", "vx", "kernel"), default="auto",
-                            help="auto uses vX for ordinary paired mouse annotation; kernel selects the previous model")
+                            help="auto uses vX with matching null banks or for ordinary paired mouse annotation")
     annotation.add_argument("--vx-null-dir", type=Path, action="append",
                             help="matched vx-base null directory for E-value calls, once per scored locus")
-    annotation.add_argument("--vx-tie-policy", choices=("abstain", "literal"), default="abstain",
-                            help="label selection for paired vX score ties")
+    annotation.add_argument("--vx-tie-policy", choices=("abstain", "literal"),
+                            help="paired vX tie policy (default: use the matched bank, otherwise abstain)")
     annotation.add_argument("--details", dest="selection_only", action="store_false",
                             help="also export per-target evidence and candidates; memory grows with queries × targets")
     annotation.add_argument('--mock-replicates', type=int, default=200,

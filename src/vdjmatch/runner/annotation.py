@@ -217,7 +217,7 @@ def _vx_population(sample, part, reference, context, threads, reference_populati
 
 def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_prefix="annotation",
                          locus="auto", species="HomoSapiens", threads=0, selection_only=True,
-                         score_model="auto", vx_null_dir=None, vx_target_fpr=.01, vx_tie_policy="abstain", **options):
+                         score_model="auto", vx_null_dir=None, vx_target_fpr=.01, vx_tie_policy=None, **options):
     """Annotate files, a directory, or path/sample_id metadata as population batches.
 
     Source rows are read once through shared ingestion. Query IDs are global numeric
@@ -227,7 +227,8 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     ``threads=0`` uses all allocated physical cores; positive counts may use allocated logical CPUs.
     Outputs are ``<prefix>.queries.tsv``, ``.selection.tsv``, optional detail tables,
     and ``.manifest.json``. The result contains frames, manifest and output paths.
-    For calibrated vX calls, supply one null directory per scored locus.
+    For calibrated calls, supply one vX null directory per scored locus.
+    A paired bank determines the tie policy unless explicitly selected.
     """
     if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
         raise ValueError("threads must be a nonnegative integer (0 selects allocated cores)")
@@ -237,8 +238,10 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         raise ValueError("locus must be auto, TRA, TRB or paired")
     if score_model not in {"auto", "vx", "kernel"}:
         raise ValueError("score_model must be auto, vx or kernel")
-    if vx_tie_policy not in {"abstain", "literal"}:
+    if vx_tie_policy not in {None, "abstain", "literal"}:
         raise ValueError("vx_tie_policy must be abstain or literal")
+    if score_model == "kernel" and vx_null_dir is not None:
+        raise ValueError("vX null calibration requires the vX annotation score")
     table_budget = os.environ.get("POLARS_MAX_THREADS")
     if table_budget is not None and (not table_budget.isdecimal() or int(table_budget) < 1):
         raise ValueError("POLARS_MAX_THREADS must be a positive integer before import")
@@ -328,22 +331,22 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     organism = _organism(species)
     vx_profile = selection_only and all(value == original_defaults[name] for name, value in options.items()
                                         if name not in {"reference_population", "exclude_exact", "verbose"})
-    if score_model == "vx" and not vx_profile:
+    vx_enabled = score_model == "vx" or (score_model == "auto" and (
+        vx_null_dir is not None or (organism == "mouse" and paired_rows.height == cohort.height and vx_profile)))
+    if vx_enabled and not vx_profile:
         raise ValueError("vX scoring requires ordinary annotation options")
-    vx_enabled = vx_profile and (score_model == "vx" or
-        (score_model == "auto" and organism == "mouse" and paired_rows.height == cohort.height))
     if vx_tie_policy == "literal" and (not vx_enabled or paired_rows.is_empty()):
         raise ValueError("literal tie resolution requires paired vX annotation")
     banks = {}
     if vx_null_dir is not None:
-        if not vx_enabled:
-            raise ValueError("vX null calibration requires the vX annotation score")
         active_lanes = ([locus] if locus != "auto" else
                         cohort.filter(pl.col("_population") == "single")["locus"].unique().to_list()
                         + (["paired"] if paired_rows.height else []))
         archive = Path(reference)
         if not archive.is_file() or archive.suffix != ".zip":
             raise ValueError("vX null calibration requires the same VDJdb release ZIP used to score the null")
+        reference_digest = sha256(archive)
+        exclude_exact = options.get("exclude_exact", defaults.exclude_exact)
         from ..cli.paired_vx_evalue import _calibrate, _source
         directories = [vx_null_dir] if isinstance(vx_null_dir, (str, os.PathLike)) else vx_null_dir
         for directory in directories:
@@ -354,15 +357,18 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
             if (lane not in active_lanes or binding["species"] != organism
                     or binding["reference_population"] != reference_population):
                 raise ValueError("vX null locus, species and reference population must match the annotation run")
-            if binding["tie_policy"] != (vx_tie_policy if lane == "paired" else "abstain"):
+            if lane == "paired" and vx_tie_policy is not None and binding["tie_policy"] != vx_tie_policy:
                 raise ValueError("vX null tie policy must match the annotation run")
+            if binding["reference_sha256"] != reference_digest or binding["exact_hits_excluded"] != exclude_exact:
+                raise ValueError("vX null reference and exact-hit policy must match the annotation run")
             if lane in banks:
                 raise ValueError(f"more than one vX null directory for {lane}")
             _validate_output_paths(prefix, [null_directory, *input_paths])
             banks[lane] = bank
         if banks.keys() != set(active_lanes):
             raise ValueError("vX annotation requires one matching null directory per scored locus")
-        reference_digest = sha256(archive)
+    if vx_tie_policy is None:
+        vx_tie_policy = banks["paired"][1]["tie_policy"] if "paired" in banks else "abstain"
     mixed_union=(locus=='auto' and
         not vx_enabled and
         options.get('neighbour_weighting',defaults.neighbour_weighting)=='kernel' and

@@ -823,21 +823,24 @@ same locus and reference population in both score exports.
 
 Ordinary mouse paired input to ``vdjmatch annotate`` uses this vX
 score by default, including when paired linkage is inferred. The
-``selection.tsv`` output identifies the score model and retains ties
-as ambiguous evidence. Use ``--score-model kernel`` for the previous
-model. Varying advanced kernel-specific geometry options uses the
-kernel workflow in automatic mode.
+``selection.tsv`` output identifies the score model. The uncalibrated
+default retains ties as ambiguous evidence. Use ``--score-model kernel``
+for the previous model. Without a null bank, varying advanced
+kernel-specific geometry options uses the kernel workflow in automatic mode.
 
-Select ``--score-model vx`` to exercise the same vX score on single-chain
-and mixed inputs during evaluation. Each population has its own pMHC
-search. For calibrated mixed input, repeat ``--vx-null-dir`` once per
-scored locus and match species and reference population. The ordered
-confidence bound applies to each locus separately.
+For uncalibrated human paired, single-chain and mixed evaluations, select
+``--score-model vx``. For calibrated inputs, ``--vx-null-dir`` selects
+vX automatically. Each population has its own pMHC search. For mixed
+input, repeat ``--vx-null-dir`` once per scored locus and match species
+and reference population. The ordered confidence bound applies to each
+locus separately.
 
 For calibrated calls, supply ``--vx-null-dir`` from a matched
 ``paired-vx-base --null-source`` run. Annotation verifies the scorer,
 reference, target axis and exact-hit policy before applying the ordered
-cutoff. The default target FPR is 1% at 95% confidence. The selection
+cutoff. Paired annotation uses the matched bank's tie policy when
+``--vx-tie-policy`` is omitted. An explicitly selected policy must match
+the bank. The default target FPR is 1% at 95% confidence. The selection
 table retains ranked evidence alongside call status, inclusive empirical
 E-values and null-tail counts. Use the installed scorer to regenerate an
 older null export when its source digest differs.
