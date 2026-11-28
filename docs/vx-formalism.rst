@@ -2,7 +2,7 @@ Frozen vX research score
 ========================
 
 This research candidate uses a fixed receptor catalogue. Let :math:`q` be a
-TRA receptor, a TRB receptor, or a linked TRA–TRB pair and let :math:`e` be a
+TRA receptor, a TRB receptor, or a paired-chain TRA–TRB receptor and let :math:`e` be a
 candidate peptide–MHC. A chain is represented by its anchor-inclusive amino
 acid junction and mapped V allele. Search keys are distinct encodings. A
 key can have several source observations. Paired keys represent observed
@@ -54,20 +54,20 @@ across the compatible rows for a native key. The benchmark uses the native
 distance when the loop correction is unavailable. The code accumulates
 loop corrections before adding them to the native distance.
 
-When both chain corrections are available, for a pair :math:`q=(q_\alpha,q_\beta)` and a linked key
+When both chain corrections are available, for a pair :math:`q=(q_\alpha,q_\beta)` and a paired-chain key
 :math:`r=(r_\alpha,r_\beta)`, use
 
 .. math::
 
    d(q,r;e)=D_w(q_\alpha,r_\alpha)+D_w(q_\beta,r_\beta).
 
-Order these joint distances across linked keys for the same target. Compute
+Order these joint distances across paired-chain keys for the same target. Compute
 the native competitor distances by summing the two native distances to each
-linked competitor. A missing correction on either chain leaves the native
+paired-chain competitor. A missing correction on either chain leaves the native
 pair distance in the replay. Apply the pair margin and gap adjustment once, after
-ordering. For example, two linked keys with chain distances :math:`(2,14)`
+ordering. For example, two paired-chain keys with chain distances :math:`(2,14)`
 and :math:`(9,3)` give joint hit distances 12 and 16. Taking the minimum of
-each chain separately would give 5, a distance to neither linked key.
+each chain separately would give 5, a distance to neither paired-chain key.
 
 
 Let :math:`d_1\le d_2` be the two smallest target hit distances, including
@@ -95,11 +95,11 @@ The leading term :math:`-d_1` rewards the best hit. The per-chain margin
 :math:`m` sets its desired lead over the background, and :math:`\gamma`
 sets the cost of falling short. The order :math:`k` sets the background
 comparison rank. The gap weight :math:`b` penalizes separation for TRA and
-linked pairs and rewards it slightly for TRB. All distance terms have native
+paired-chain receptors and rewards it slightly for TRB. All distance terms have native
 distance units. The weights :math:`\gamma,b` are dimensionless.
 
 The gap contribution is in :math:`[-2.4,0]` for TRA, :math:`[0,0.15]` for
-TRB and :math:`[-4.8,0]` for linked pairs. In real arithmetic the midpoint gap
+TRB and :math:`[-4.8,0]` for paired-chain receptors. In real arithmetic the midpoint gap
 is half the separation :math:`d_2-d_1`, so saturation begins at
 :math:`d_2-d_1=48L`. This is four maximum-cost substitutions or gap residues
 per chain in distance units. It is a scale comparison. For example, an
@@ -149,12 +149,32 @@ tuning study.
      - :math:`17/4`
      - :math:`1/160`
      - :math:`9/32`
-   * - Linked pair
+   * - Paired-chain
      - 1
      - :math:`1/40`
      - 6
      - :math:`-1/10`
      - 0
+
+Single-chain scores
+-------------------
+
+Set :math:`g=\min(24,[(d_1+d_2)/2-d_1]_+)` for the two ordered hits
+from one chain. Use the target-hit distances for the appropriate locus
+and the native competitor distance :math:`c_k` at order :math:`k`.
+Then
+
+.. math::
+
+   \begin{aligned}
+   S_{\mathrm{TRA}} &= -d_1-\tfrac1{10}[d_1+12-c_8]_+-\tfrac1{10}g,\\
+   S_{\mathrm{TRB}} &= -d_1-\tfrac14[d_1+\tfrac{17}{4}-c_1]_++\tfrac1{160}g.
+   \end{aligned}
+
+The TRB support discount is already included in the ordered hit distances.
+For example, if a TRB target has only one hit, the repeated distance gives
+zero gap contribution. With an empty competitor panel, its score is
+then simply :math:`-d_1`.
 
 Assignment and complete-query calibration
 -----------------------------------------

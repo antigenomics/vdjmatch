@@ -25,12 +25,12 @@ mask removes ineligible comparisons before matching. Handling of
 unresolved calls belongs to that mask, and gene-level agreement pools
 alleles.
 
-A linked-pair rule requires both chains of a genuine query pair to match
-the two chains of one linked reference receptor for the target. A
+A paired-chain rule requires both chains of a genuine query pair to match
+the two chains of one paired-chain reference receptor for the target. A
 target-level chain intersection requires a TRA match and a TRB match
 for the same query receptor and target, allowing the reference chains
-to come from different receptors. The linked-pair rule implies the
-intersection when its linked chains are included in the respective
+to come from different receptors. The paired-chain rule implies the
+intersection when its paired chains are included in the respective
 single-chain pools and the chain predicates agree.
 
 When a cutoff reproduces membership
@@ -64,9 +64,9 @@ substitution and the same hard gene and target masks. On eligible
 comparisons, :math:`D(x,y)=\lambda H(x,y)`, so :math:`D\le\lambda h` is exactly
 :math:`H\le h`. Taking the minimum distance over eligible references preserves
 this equivalence for target membership, with an empty reference set
-giving infinite distance. For a linked pair with the same radius on both
+giving infinite distance. For a paired-chain receptor with the same radius on both
 chains, take the maximum of the two chain distances before minimizing
-over linked references. Summing the chain distances bounds the total
+over paired-chain references. Summing the chain distances bounds the total
 substitution count. A two-substitution total admits two differences on
 one chain, which the per-chain radius-one rule excludes.
 
@@ -185,12 +185,40 @@ probability
 
    1-\frac{\binom{N_e-K_e(q)}{m}}{\binom{N_e}{m}}.
 
-Use linked pairs as the sampling units for a linked rule. The expectation
+Use paired-chain receptors as the sampling units for a paired-chain rule. The expectation
 of the number of recovered queries sums the probabilities over fixed
 query opportunities. Under vX, dropping a target key can change both the
 nearest and second-nearest evidence. Its reference-depth experiment
 re-evaluates the full target score on each sampled target set, with the
 other-peptide background fixed.
+
+Epitope assignment by neighbor counts
+-------------------------------------
+
+Let :math:`\mathcal R(q)` be the eligible distinct reference keys with finite distance after
+applying the chain, gene and benchmark hit-list rules. Let :math:`E(r)`
+be the set of peptide–MHC labels on key :math:`r`, and let :math:`D(q,r)`
+be the chosen receptor distance, with smaller values closer. At a fixed
+radius :math:`t`, use :math:`\mathcal N_t(q)=\{r\in\mathcal R(q):D(q,r)\le t\}`.
+For k-NN, let :math:`t_k(q)` be the distance to the
+:math:`\min(k,|\mathcal R(q)|)`-th eligible finite hit and use
+:math:`\mathcal N_{t_k(q)}(q)`, including every hit tied at the boundary.
+When there are no finite hits, the neighborhood is empty.
+An optional maximum radius :math:`t_{\max}` gives the combined
+threshold :math:`\min(t_k(q),t_{\max})`, so fewer than :math:`k` hits
+may vote.
+
+.. math::
+
+   V_e(q)=\sum_{r\in\mathcal N(q)}\mathbf 1\{e\in E(r)\}.
+
+Each key votes once for each distinct label it carries. Assign the unique
+top label only when its vote count meets the declared positive minimum
+:math:`v_{\min}`; abstain on a tie or insufficient support. Radius zero
+recovers exact neighbors when zero distance is equivalent to equality
+under the declared key and eligibility rules. These votes define a
+classification rule. A cutoff calibrated for the competitive score
+cannot calibrate neighbor votes.
 
 Multi-epitope reciprocal nearest neighbors
 ------------------------------------------
@@ -300,7 +328,7 @@ from structures that resolve both positions. Use one interchain
 contact observation per structure and apply the same grouping weights
 used for the receptor contact profiles. If :math:`\delta_{\alpha i}`
 and :math:`\delta_{\beta j}` are clipped mismatch costs between the query
-and one linked reference, the coupled contact cost is
+and one paired-chain reference, the coupled contact cost is
 
 .. math::
 
@@ -311,7 +339,7 @@ and one linked reference, the coupled contact cost is
 The product is zero when either endpoint is unchanged. The divisor
 four is the maximum clipped single-site cost, so the coupled term has
 the same units and range as one site. It supplements the two chain
-distances before the shared linked hit list is ordered. This research
+distances before the shared paired-chain hit list is ordered. This research
 term uses only verified canonical V-domain sites. Give missing
 templates the frozen target geometry and retain the hit-list exclusions.
 
@@ -329,7 +357,7 @@ Estimate the weights separately by species. The human paired benchmarks
 test the human template only.
 
 The human benchmarked extension adds :math:`C_{\alpha\beta}/32` to each
-linked target distance. The two target hits are reordered after the
+paired-chain target distance. The two target hits are reordered after the
 correction. The competitor still uses the frozen native geometry. Of 16
 tested amplitudes, :math:`1/32` alone improved TCRvdb ranking while
 preserving all matched matrix and reference-depth endpoints. It retained

@@ -34,7 +34,7 @@ Order target hits by the weighted vX distance, with the fixed TRB
 reference-ID discount applied before ordering. With first and second hits
 `d1,d2`, native competitor distance `c`, and `L` chains, use
 `X=max(d1+L*m-c,0)`, `G=min(24*L,max((d1+d2)/2-d1,0))`, and
-`S=-d1-gamma*X+b*G`. Evaluate the midpoint before subtraction. The fixed cap bounds the second-hit effect. For linked pairs, sum the two chain distances within each reference pair before ranking hits. Repeat
+`S=-d1-gamma*X+b*G`. Evaluate the midpoint before subtraction. The fixed cap bounds the second-hit effect. For paired-chain receptors, sum the two chain distances within each reference pair before ranking hits. Repeat
 a singleton hit, use zero penalty for an infinite background, and give
 unsupported targets negative infinity. Apply benchmark exact exclusion to
 hit lists with the model held fixed.
@@ -72,7 +72,7 @@ When testing a coupled TRA–TRB term, estimate edge weights on structures
 that resolve both sites. Normalize the weighted product of the two clipped
 site costs by the edge-weight sum and the maximum single-site cost.
 For the benchmarked human research extension, add one thirty-second of
-that result to each linked target distance before ordering hits. Keep
+that result to each paired-chain target distance before ordering hits. Keep
 the native competitor distances and frozen fallback for missing templates.
 Use the species-specific observed pair weights. The class-I atlas supports
 54 human and 31 mouse V-domain pairs, including 29 shared pairs. The
