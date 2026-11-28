@@ -302,7 +302,7 @@ borrowing preserves distinct peptide--MHC labels.
 On the capped mouse paired-chain cohorts, separately fitting the
 two MHC-class motif models and setting support weight to zero and
 conflict weight to four improved all 39 AP, AUROC and standardized
-partial AUROC endpoints against frozen vX and native TCRdist3.
+partial AUROC endpoints against frozen vX and the native distance comparator.
 The setting was selected on the benchmark. The human class-I
 full-catalogue comparison is a separate evaluation.
 
@@ -514,7 +514,7 @@ paired-chain target distance. The two target hits are reordered after the
 correction. The competitor still uses the frozen native geometry. Of 16
 tested amplitudes, :math:`1/32` alone improved TCRvdb ranking while
 preserving all matched matrix and reference-depth endpoints. It retained
-the 78 strict M1 wins over native TCRdist3.
+the 78 strict M1 wins over the native distance comparator.
 
 The generated paired null retained the same cutoff and all 1,000
 receptor–target calls among 100,000 queries. Five tie flags and one unique
