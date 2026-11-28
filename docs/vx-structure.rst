@@ -266,8 +266,16 @@ enrichments. For targets with more than two reference keys, add
 
    \lambda_+[m_e]_+-\lambda_-[-m_e]_+.
 
+Here :math:`[x]_+=\max(x,0)`. A negative enrichment means that
+the observed sequence windows occur less often in that target
+than in the pooled reference. With support weight :math:`\lambda_+=0`,
+the rule subtracts :math:`\lambda_-|m_e|` in that case and otherwise
+adds zero. The conflict weight :math:`\lambda_-` converts one unit of
+natural-log enrichment into distance score units. The reported
+weights were selected on their stated comparison panels.
+
 The two reference keys in this gate correspond to the two pooled
-pseudocount observations in the trimer score used in these ranking
+pseudocount observations in the three-residue sequence-window score used in these ranking
 comparisons. Keep every target at
 the original maximum unchanged. Cap other scores strictly below that
 maximum, at its binary64 predecessor. This preserves the winning tier
