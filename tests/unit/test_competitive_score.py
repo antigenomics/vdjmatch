@@ -2,7 +2,9 @@
 
 import numpy as np
 
-from vdjmatch.evalue.competitive import assignment_score, reduced_hits
+from vdjmatch.evalue.competitive import (
+    assay_local_score, assignment_score, paired_assay_local_score, reduced_hits,
+)
 
 
 def test_competitive_score_binary64():
@@ -34,3 +36,17 @@ def test_size_adjustment_uses_rounded_slope():
     adjusted = assignment_score(scores, counts)
     np.testing.assert_array_equal(adjusted, scores + 0.002832 * np.log1p(counts))
     assert adjusted.argmax(axis=1).item() == 1
+
+
+def test_assay_local_score_keeps_equal_distances_and_masked_hits():
+    ordered = [[2, 2, 8], [1, 4, 4], [1, np.inf, np.inf]]
+    np.testing.assert_array_equal(assay_local_score(ordered, 2, 1), [-2, -2, -np.inf])
+
+
+def test_paired_assay_local_score_preserves_membership_and_input():
+    distances = np.array([[0, 1, 3], [1, 0, 2], [3, 2, 0]])
+    exact_hits = distances == 1
+    np.testing.assert_array_equal(paired_assay_local_score(distances), [-1, -1, -2])
+    np.testing.assert_array_equal(paired_assay_local_score(distances, exact_hits=exact_hits), [-3, -2, -2])
+    np.testing.assert_array_equal(distances.diagonal(), [0, 0, 0])
+    assert paired_assay_local_score([[0]]).item() == -np.inf

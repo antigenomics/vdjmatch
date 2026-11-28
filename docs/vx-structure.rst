@@ -221,6 +221,25 @@ under the declared key and eligibility rules. These votes define a
 classification rule. A cutoff calibrated for the competitive score
 cannot calibrate neighbor votes.
 
+Ranking reactivity within an annotated assay
+--------------------------------------------
+
+An assay-local ranking starts with a supplied target annotation for every
+receptor. Rank each receptor using its distances to the other receptors
+with that annotation. The outcome labels are used only for evaluation.
+The reusable reducer ``vdjmatch.evalue.competitive.paired_assay_local_score``
+takes a square same-target distance matrix, masks self-hits and accepts an
+optional exact-hit mask. It returns the negative weighted mean of the first
+:math:`k` distances, with weight :math:`(k-i+1)^p` at rank :math:`i`.
+
+The matched TCRvdb comparison used the accepted human paired-chain
+contact geometry, :math:`k=\max(1,\lfloor0.124(n-1)\rfloor)`, and
+:math:`p=7/3`. It led the supplied organizer scores on all 24 paired
+ranking endpoints, with both self-only and paired-junction exact
+exclusion. The setting was selected on the evaluation panel.
+It requires the annotated assay group at scoring time and has
+no fixed-reference specificity cutoff.
+
 Multi-epitope reciprocal nearest neighbors
 ------------------------------------------
 
