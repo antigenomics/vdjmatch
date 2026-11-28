@@ -108,17 +108,14 @@ def test_directory_library_metadata_cli_parallel_resource_parity(tmp_path, input
     driver.write_text('''import json,sys
 from functools import wraps
 from seqtree import gapblock
-calls={'grouped_count_batch':[], 'grouped_paired_sum_count_batch':[]}
-for name in calls:
-    original=getattr(gapblock,name)
-    def wrap(original,name):
-        @wraps(original)
-        def counted(*args,**kwargs):
-            calls[name].append(kwargs.get('threads'))
-            return original(*args,**kwargs)
-        return counted
-    setattr(gapblock,name,wrap(original,name))
-mode,source,reference,prefix,threads,paired=sys.argv[1:]
+calls=[]
+score_matrix=gapblock.score_matrix
+@wraps(score_matrix)
+def counted(*args,**kwargs):
+    calls.append(kwargs['threads'])
+    return score_matrix(*args,**kwargs)
+gapblock.score_matrix=counted
+mode,source,reference,prefix,threads,expected_batches=sys.argv[1:]
 threads=int(threads)
 if mode=='library':
     from vdjmatch import annotate_repertoires
@@ -126,23 +123,20 @@ if mode=='library':
 else:
     from vdjmatch.cli.__main__ import main
     assert main(['annotate','--metadata',source,'--vdjdb',reference,'--threads',str(threads),'-o',prefix])==0
-assert calls['grouped_count_batch'] and set(calls['grouped_count_batch'])=={threads}, calls
-if paired in ('1','2'):
-    assert calls['grouped_paired_sum_count_batch'] and set(calls['grouped_paired_sum_count_batch'])=={threads}, calls
-if paired=='2':
-    assert len(calls['grouped_count_batch'])==2 and len(calls['grouped_paired_sum_count_batch'])==1, calls
-print(json.dumps({'native_batches':{k:len(v) for k,v in calls.items()},
-    'native_thread_arguments':{k:sorted(set(v)) for k,v in calls.items()}}))
+assert calls==[threads]*int(expected_batches), calls
+print(json.dumps({'native_batches':len(calls), 'native_thread_arguments':sorted(set(calls))}))
 ''')
     baseline = None
     for mode in ("library", "cli"):
         for threads in (1, 4):
             prefix = tmp_path / f"{mode}{threads}"
+            # Paired vX scores both chain axes and both chains of the joint axis.
             command = [sys.executable, str(driver), mode, str(samples if mode == "library" else metadata),
-                       str(reference), str(prefix), str(threads), '2' if input_format=='mixed' else str(int(paired))]
+                       str(reference), str(prefix), str(threads), "4" if paired else "1"]
             _measured(command, prefix.with_suffix(".resources.json"), threads)
             manifest=json.loads(Path(str(prefix)+'.manifest.json').read_text())
-            assert manifest['population_service_calls']==(3 if input_format=='mixed' else 1)
+            assert manifest["score_models"] == ["vx"]
+            assert manifest['population_service_calls']==(3 if paired else 1)
             assert manifest['input_samples']==len(names)
             assert manifest['input_chain_rows']==rows_per_sample*(6 if input_format=='mixed' else len(names)*(2 if paired else 1))
             assert manifest['native_threads']==threads
@@ -167,6 +161,15 @@ print(json.dumps({'native_batches':{k:len(v) for k,v in calls.items()},
                 for column in clonotype_columns:
                     assert set(frame[column].drop_nulls()) == {f'type{i:04}' for i in range(rows_per_sample)}
                 tables[kind] = frame.sort("sample_id", "query_id")
+            if paired:
+                marginal_rows = rows_per_sample * (2 if input_format == "mixed" else len(names))
+                assert manifest["vx_marginal_chain_rows"] == dict(TRA=marginal_rows, TRB=marginal_rows)
+                for locus in ("TRA", "TRB"):
+                    for output in ("queries", "selection"):
+                        kind = f"{locus}.{output}"
+                        frame = pl.read_csv(f"{prefix}.{kind}.tsv", separator="\t", infer_schema_length=0)
+                        assert frame.height == marginal_rows
+                        tables[kind] = frame.sort("sample_id", "query_id")
             if baseline is None:
                 baseline = tables
             else:
