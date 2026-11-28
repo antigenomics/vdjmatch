@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.1
+
+- Add `vx-fixed-target` to score fixed target distance rectangles.
+- Add `repertoire-exact --matcher vx` to apply the frozen human TRB score
+  to observed and mock reference panels.
+- Call the default annotation method the VDJmatch score in user-facing
+  introductions. Existing vX command names, calibration identifiers,
+  and score arithmetic are unchanged.
+
 ## 1.3.0
 
 - Add vX paired-chain scoring from a fixed mouse reference ZIP, with

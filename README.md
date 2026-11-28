@@ -28,11 +28,11 @@
 </b></p>
 
 `vdjmatch` ranks peptide–MHC evidence for human and mouse T-cell receptors
-against VDJdb or a compatible reference. The default vX score combines weighted
+against VDJdb or a compatible reference. The VDJmatch score combines weighted
 junction and V-region distances with evidence from nearby references and competing
 targets. It supports TRA, TRB and paired-chain receptors and preserves unsupported
 queries and ambiguous rankings.
-[VDJdb](https://github.com/antigenomics/vdjdb-db) · [vX score and calibration](https://docs.isalgo.dev/vdjmatch/vx-formalism.html)
+[VDJdb](https://github.com/antigenomics/vdjdb-db) · [Score and calibration](https://docs.isalgo.dev/vdjmatch/vx-formalism.html)
 
 <p align="center">
   <picture>
@@ -65,7 +65,7 @@ For a small offline example, download the [examples directory](examples/) and ru
 
 ## Choose a reference
 
-Run vX against a user-supplied VDJdb-format table with peptide–MHC labels and
+Run annotation against a user-supplied VDJdb-format table with peptide–MHC labels and
 receptor species, junctions and V genes. Set a common `complex_id` on both
 chain rows of each genuine reference pair.
 
@@ -74,7 +74,7 @@ vdjmatch annotate queries.tsv --vdjdb reference.tsv -o custom
 ```
 
 The command reports ranked evidence for a standalone custom table. Applying a
-vX null bank requires the same reference ZIP and scoring configuration used to
+calibration null bank requires the same reference ZIP and scoring configuration used to
 fit the bank. Use `--score-model kernel` to replay stem4.
 
 Use `match` or `Annotator` for fixed-scope candidate matching and for
