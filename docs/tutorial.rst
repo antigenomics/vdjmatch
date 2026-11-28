@@ -1,9 +1,9 @@
 Annotate single and paired receptors
 ====================================
 
-Run one command, then rank candidate antigens with ``kernel_score``.
-A larger score means stronger reference evidence. A match decision additionally
-needs the matching calibration described in :doc:`explanation`.
+Run one command and read the vX ``score``. Larger values indicate stronger
+reference evidence. Use the matching calibration described in
+:doc:`explanation` to decide whether to call a match.
 
 The annotation workflow uses the curated manuscript reference population by default.
 Pass ``--reference-population all-valid`` for the preserved all-valid baseline.
@@ -39,23 +39,19 @@ from the verified example are shown below; the full table preserves input IDs.
 
    * - sequence_id
      - selected_epitope
-     - kernel_score
-     - kernel_competing_score
+     - score
      - selection_status
    * - q1
      - DEMO_A
-     - 0.978264
-     - 0.220985
+     - 0.01875
      - ranked_evidence
    * - q2
      - DEMO_A
-     - 0.978264
-     - 0.219845
+     - 0.01875
      - ranked_evidence
 
-Both receptors rank DEMO_A above the alternative label. The score is evidence
-for ranking, not a probability of binding. DEMO_A and DEMO_B are synthetic labels.
-Use ``--details`` to export evidence for every candidate peptide–MHC.
+Both receptors rank the synthetic label DEMO_A first. These scores rank
+reference evidence. Add a matched null bank to apply a call threshold.
 
 Paired input
 ------------
@@ -78,31 +74,28 @@ Run
 Read the output
 ~~~~~~~~~~~~~~~
 
-``paired.selection.tsv`` keeps linked evidence and both marginal chains:
+``paired.selection.tsv`` reports evidence against genuine paired reference keys.
 
 .. list-table:: Paired result
    :header-rows: 1
 
    * - clone_id
-     - Linked label / score
-     - Alpha label / score
-     - Beta label / score
-     - kernel_any_axis_score
+     - selected_epitope
+     - score
+     - selection_status
    * - pair1
-     - DEMO_A / 0.962190
-     - DEMO_A / 0.739132
-     - DEMO_A / 0.978264
-     - 0.978264
+     - DEMO_A
+     - −0.45
+     - ranked_evidence
    * - pair2
      - unavailable
-     - DEMO_B / 0.739132
      - unavailable
-     - 0.739132
+     - no_support
 
-The complete pair supports DEMO_A on all three axes. The second row lacks a
-beta chain: its alpha evidence remains available, but it has no linked-pair
-score. ``kernel_any_axis_score`` is the maximum of the three selected scores
-for the declared any-axis calibration event; it does not invent a joint label.
+The complete pair ranks DEMO_A first. The second row lacks a beta chain and
+keeps its identity and missing-chain disposition. Analyze that alpha chain
+as a TRA query for single-chain evidence. Use ``--score-model kernel`` to
+reproduce the previous linked and marginal kernel outputs.
 
 Parameters that change the question
 -----------------------------------
@@ -123,7 +116,7 @@ Parameters that change the question
    * - ``--exclude-exact``
      - Remove exact query evidence for a benchmark. Ordinary annotation keeps it.
    * - ``--details``
-     - Export all candidate evidence as well as the selected label.
+     - Use the kernel workflow to export all candidate evidence as well as the selected label.
    * - ``--threads 4``
      - Use a budget of four CPU workers. This changes runtime, not the score.
 

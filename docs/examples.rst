@@ -65,7 +65,7 @@ Compare geometries
 
    sh examples/compare.sh comparison-demo
 
-This calculates fresh, exact-excluded evidence for default stem4 and the
+This calculates fresh, exact-excluded kernel evidence for stem4 and the
 advanced ``vcdr12`` geometry. The notebook joins ``*.enrichment.tsv`` by source
 identity and full peptide–MHC key, then displays the score differences.
 These are geometry diagnostics: synthetic labels cannot establish biological

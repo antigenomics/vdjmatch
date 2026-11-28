@@ -54,7 +54,7 @@ def comparable(frame):
 @pytest.mark.parametrize('exclude',[False,True])
 def test_union_equals_separate_fresh_services_and_searches_three_populations(tmp_path,monkeypatch,scorer,exclude):
     paths,reference=inputs(tmp_path)
-    options=dict(reference=reference,kernel_scorer=scorer,exclude_exact=exclude,threads=2)
+    options=dict(reference=reference,score_model="kernel",kernel_scorer=scorer,exclude_exact=exclude,threads=2)
     pieces={}
     for path in paths:
         out=annotate_repertoires(path,output_prefix=tmp_path/('separate-'+path.stem),**options)
@@ -93,7 +93,7 @@ def test_union_equals_separate_fresh_services_and_searches_three_populations(tmp
 @pytest.mark.parametrize('details',[False,True])
 def test_union_edge_dispositions_equal_separate_services(tmp_path,edge,details):
     paths,reference=inputs(tmp_path)
-    options=dict(reference=reference,exclude_exact=True,threads=2,selection_only=not details)
+    options=dict(reference=reference,score_model="kernel",exclude_exact=True,threads=2,selection_only=not details)
     if edge=='assayed-missing-target':
         options['targets_from_sample']=True
         for path in paths:
@@ -153,7 +153,7 @@ def test_detailed_union_equals_separate_fresh_services_three_native_batches(tmp_
     if assayed:
         frame=pl.read_csv(paths[1],separator='\t')
         frame.with_columns(pl.lit('B').alias('epitope')).write_csv(paths[1],separator='\t')
-    options=dict(reference=reference,selection_only=False,targets_from_sample=assayed,
+    options=dict(reference=reference,score_model="kernel",selection_only=False,targets_from_sample=assayed,
                  exclude_exact=exclude,threads=threads,withhold_epitope=withheld)
     pieces={}
     for path in paths:

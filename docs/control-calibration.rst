@@ -83,8 +83,8 @@ Paired score axes include linked evidence and available unlinked marginals; the
 axis maximum is recomputed within every draw. The original component prior uses
 the matching-chain control for singles and the TRB control for paired scoring.
 This candidate one-control context differs from accepted historical benchmark
-model assets. It remains opt-in pending whole-task nonregression checks; the
-no-control stem4 default and older real/generative control routes are unchanged.
+model assets. It remains opt-in pending whole-task nonregression checks.
+Ordinary vX annotation has its own calibration route in :doc:`vx-formalism`.
 Nondefault geometry and target-from-sample selection are rejected before mocks.
 
 The fixed control's V, J and junction-length marginal counts are constructed

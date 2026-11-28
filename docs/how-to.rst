@@ -5,11 +5,10 @@ Current annotation CLI
 ----------------------
 
 ``vdjmatch annotate`` is the current cohort entry point. Its default
-``--reference-population curated-benchmark`` matches the manuscript primary
-reference population, retains exact evidence and combines linked paired references
-with unlinked marginal support. Choose ``--reference-population all-valid`` to
-reproduce the accepted all-valid baseline. See :doc:`tutorial` and :doc:`examples` for
-raw inputs and reproducible offline commands.
+vX scorer uses the curated reference population and retains exact evidence.
+Choose ``--reference-population all-valid`` for the uncurated reference,
+and select ``--score-model kernel`` to replay a previous kernel result.
+See :doc:`tutorial` and :doc:`examples` for reproducible offline commands.
 
 To compute complete-score tails from one raw control, run:
 
@@ -17,10 +16,10 @@ To compute complete-score tails from one raw control, run:
 
    vdjmatch annotate sample.tsv --vdjdb reference.zip --control control.tsv --threads 4 -o calibrated
 
-This opts into the combined candidate score. It produces four flat TSVs without
-a fitted calibration file; see :doc:`control-calibration` for control eligibility,
-paired routing and interpretation. The no-control annotation default remains
-stem4.
+This selects the combined candidate score and produces four flat TSVs.
+See :doc:`control-calibration` for control eligibility, paired routing and
+interpretation. For calibrated vX calls, use a matched bank as described in
+:doc:`vx-formalism`.
 
 Legacy Annotator API: choose a reference
 ----------------------------------------
@@ -209,7 +208,7 @@ Run a reproducible CLI comparison
 
 Use :doc:`examples` for offline raw-input scripts and two output-free notebooks.
 The comparison runs fresh ``annotate --exclude-exact --details`` invocations with
-default stem4 and retained advanced vcdr12, then joins CLI tables on source IDs
+the stem4 and vcdr12 kernel geometries, then joins CLI tables on source IDs
 and complete pMHC keys. Use ordinary annotation without ``--exclude-exact`` when
 exact observations belong in the evidence. Choose a new output directory for each
 run; keep raw inputs and requested final tables, never computed feature caches.

@@ -821,26 +821,21 @@ Use ``--reference-population all-valid`` to reproduce the historical
 uncurated catalogue. For calibration, ``vx-evalue`` requires the
 same locus and reference population in both score exports.
 
-Ordinary mouse paired input to ``vdjmatch annotate`` uses this vX
-score by default, including when paired linkage is inferred. The
-``selection.tsv`` output identifies the score model. The uncalibrated
-default retains ties as ambiguous evidence. Use ``--score-model kernel``
-for the previous model. Without a null bank, varying advanced
-kernel-specific geometry options uses the kernel workflow in automatic mode.
-
-For uncalibrated human paired, single-chain and mixed evaluations, select
-``--score-model vx``. For calibrated inputs, ``--vx-null-dir`` selects
-vX automatically. Each population has its own pMHC search. For mixed
-input, repeat ``--vx-null-dir`` once per scored locus and match species
-and reference population. The ordered confidence bound applies to each
-locus separately.
+Ordinary ``vdjmatch annotate`` uses vX by default for human and mouse
+single-chain, paired-chain and mixed inputs. Each population has its own
+pMHC search. Without a null bank, ``selection.tsv`` reports ranked evidence.
+The default tie policy retains ambiguity. Use ``--score-model kernel`` for
+the previous model. Target filters, advanced kernel geometry and detail
+options also use that workflow in automatic mode.
 
 For calibrated calls, supply ``--vx-null-dir`` from a matched
 ``paired-vx-base --null-source`` run. Annotation verifies the scorer,
 reference, target axis and exact-hit policy before applying the ordered
 cutoff. Paired annotation uses the matched bank's tie policy when
 ``--vx-tie-policy`` is omitted. An explicitly selected policy must match
-the bank. The default target FPR is 1% at 95% confidence. The selection
+the bank. For mixed input, supply one bank per scored locus for the same
+species and reference population. The confidence bound applies separately
+to each locus. The default target FPR is 1% at 95% confidence. The selection
 table retains ranked evidence alongside call status, inclusive empirical
 E-values and null-tail counts. Use the installed scorer to regenerate an
 older null export when its source digest differs.

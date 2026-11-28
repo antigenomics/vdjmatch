@@ -1,14 +1,21 @@
 Read scores and decide whether to call a match
 ==============================================
 
-Use ``kernel_score`` to rank evidence and a matching ``p_null`` to judge how
-unusual the selected score is under the declared null. ``call_status`` applies
-the frozen operating cutoff. These quantities answer different questions.
+Use vX ``score`` to rank evidence. With a matched ``--vx-null-dir``,
+``E_null`` reports the fraction of null queries with selected evidence at
+least as strong. ``call_status`` records the decision under the ordered
+cutoff. See :doc:`vx-formalism` for the calibration assumptions.
 
 Which output should I read?
 ---------------------------
 
-.. list-table:: Current annotation output
+The ordinary vX selection table reports ``selected_epitope``, the selected
+MHC restriction, ``score``, ``tied``, and ``selection_status``. A finite
+``maximum`` records the winning score even when a tie prevents selection.
+``ranked_evidence`` marks a resolved ranking. Calibrated decisions appear
+separately in ``call_status``.
+
+.. list-table:: Previous kernel annotation output
    :header-rows: 1
 
    * - Column

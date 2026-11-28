@@ -314,11 +314,11 @@ unlinked chains do not create a paired-receptor class.
 vdjmatch annotate
 -----------------
 
-The targeted annotation default is the stem4 kernel-ladder scorer:
-
-Aligned CDR1/CDR2/CDR2.5 V-loop costs are precomputed once per annotation
-invocation and reused across target populations. Different V genes retain their
-loop-similarity contribution; the same-V shell is an additional kernel component.
+Ordinary annotation uses vX for human and mouse TRA, TRB and paired-chain
+queries. Supply ``--vx-null-dir`` once per scored locus to apply matching
+null calibration. Use ``--score-model kernel`` for the previous stem4
+kernel-ladder scorer, or ``--details`` for its per-target evidence export.
+See :doc:`vx-formalism` for vX scoring and calibration.
 The legacy ``match`` command retains edit ``--scope`` and optional ``--match-v``.
 
 .. code-block:: bash
@@ -332,9 +332,11 @@ table/archive. Metadata has ``path`` and optional ``sample_id``; relative paths
 resolve beside the metadata TSV. Directory discovery accepts TSV, CSV, text,
 gzip and Parquet repertoire tables with unique sample names.
 
-A custom reference can contain ``junction_aa,locus,epitope`` with ``pair_id``
-linking paired chain rows, or wide ``junction_aa_alpha/beta,v_alpha/beta,j_alpha/beta``
-and ``epitope`` columns. Reference pairing and source metadata survive normalization.
+For a custom vX reference, provide species, junctions, resolvable V calls,
+and complete ``epitope``, ``mhc_a``, ``mhc_b`` and ``mhc_class`` fields.
+Provide paired references as wide rows or link long TRA and TRB rows with
+``pair_id``. Use ``--score-model kernel`` with peptide-only references and
+for the previous linked and unlinked marginal evidence outputs.
 
 Input uses anchor-inclusive ``junction_aa`` with AIRR ``v_call`` or simple ``v``
 and optional ``j`` fields. Wide pairs use ``junction_aa_alpha/beta`` and
@@ -346,7 +348,8 @@ The command retains exact evidence in ordinary annotation. ``--exclude-exact``
 filters exact hits for benchmarking; model populations, priors and graph weights stay fixed. Combine it
 with the default ``--reference-population curated-benchmark`` for the manuscript
 primary reference view. Use ``--reference-population all-valid`` to reproduce the
-accepted all-valid baseline; the stem4 formula is unchanged.
+all-valid reference population. Select the historical score explicitly when
+reproducing a kernel result.
 
 One-control complete-score mode
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -368,8 +371,8 @@ rows retain components, weights, directional tails and separate null match rates
 See :doc:`control-calibration` for the conditional laws and candidate prior policy.
 ``--background real``/``generative`` retain their existing control behavior.
 
-Default stem4 score
-~~~~~~~~~~~~~~~~~~~
+Stem4 kernel score
+~~~~~~~~~~~~~~~~~~
 
 The geometry combines threefold 3/3-trimmed junction distance, aligned V loops,
 and the rounded mean of four hairpin-level costs on untrimmed junctions. All
@@ -1501,7 +1504,7 @@ remain available to the two marginal axes.
 
 The paired statistic is ``kernel_any_axis_score``, the maximum of the final
 selected linked, alpha and beta scores. This defines an any-axis call event and
-introduces no combined label. Paired ``annotate`` outputs preserve the linked
+introduces no combined label. Paired ``annotate --score-model kernel`` outputs preserve the linked
 ``kernel_score`` and existing labels, and add ``kernel_alpha_score``,
 ``kernel_beta_score`` and ``kernel_any_axis_score`` with marginal ties.
 Fit/apply a matching recipe with ``--score-column kernel_any_axis_score``, or

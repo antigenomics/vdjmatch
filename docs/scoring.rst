@@ -7,10 +7,11 @@ Benchmark exact exclusion filters hit contributions only: model populations,
 priors, motifs and graphs stay fixed. Historical population-puncturing recipes
 below do not define the current selection procedure.
 
-Current VDJmatch kernel
------------------------
+Stem4 kernel
+------------
 
-The default ``annotate`` model uses the stem4 geometry and the ``v-bounded``
+The ordinary vX score is defined in :doc:`vx-formalism`.
+``annotate --score-model kernel`` uses the stem4 geometry and the ``v-bounded``
 kernel reducer. All quantities below are computed after the declared exact-match
 policy. Let :math:`N` be the number of eligible target reference keys,
 :math:`t_j` the ordered distance cutoffs, :math:`n_j` and :math:`v_j` the target
@@ -487,7 +488,6 @@ unique reference keys, repertoire selection and database ascertainment do not
 automatically support exchangeability. ``rank_model_status`` and the manifest
 retain this restriction; deployment priors cannot be inferred from VDJdb or
 custom benchmark fractions. Target/route selection is not calibrated here.
-This retained experiment does not replace the current kernel default.
 
 The general expectation-one and conservative conversion are discussed by
 `Vovk and Wang <https://arxiv.org/abs/1912.06116>`_. The particular reciprocal-rank
@@ -513,8 +513,8 @@ nearest search. Fixed-radius outputs and the averaged rank score are preserved.
 
 This is a conditional exchangeable-label statistic, not biological confidence,
 an E-value, a selected-label calibration or a replacement deployment cutoff.
-Paired generated/real backgrounds remain undefined. This retained experiment does not replace the current kernel default; promotion
-requires all-task and full-reference nonregression.
+Paired generated/real backgrounds remain undefined. Promotion requires
+all-task and full-reference nonregression.
 
 Nearest-conditioned censored rank (experimental)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

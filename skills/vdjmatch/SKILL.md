@@ -167,14 +167,17 @@ queries, selections = result["queries"], result["selection"]
   when the intended population cannot be inferred, including incomplete pair cohorts.
 - Keep `sample_id` and source identities when joining outputs. Retain no-support,
   invalid and missing-chain dispositions; these are not experimentally negative labels.
-- Default stem4 kernel scores and support shares are relative evidence, not binding
-  probabilities, E-values or calibrated false-call rates. Linked and unlinked marginal
-  paired evidence remain separate; absence of linked references cannot veto marginals.
+- Ordinary human and mouse annotation defaults to vX. Use one matching
+  `--vx-null-dir` per scored locus for calibrated calls. Without a bank,
+  `score` ranks evidence and `selection_status` marks ambiguous or unsupported
+  queries. Use `--score-model kernel` to reproduce stem4 scores, including
+  separately reported paired-chain and marginal evidence.
 - Ordinary annotation retains exact hits and conflicting-label ambiguity.
   `--exclude-exact` is the explicit benchmark option.
-- Compact output is the default. `--details` exports continuous evidence per target
-  and candidates; its memory grows with queries × targets. `--epitope` restricts
-  requested targets. `--kernel-scorer` selects retained advanced kernel variants;
+- Compact output is the default. `--details` selects the kernel workflow and
+  exports per-target evidence and candidates. Its memory grows with queries ×
+  targets. `--epitope` restricts requested targets in the kernel workflow.
+  `--kernel-scorer` selects retained advanced kernel variants;
   see the CLI documentation for recorded geometry recipes. Calibration does not
   transfer between scorers, geometries or selection procedures. Preserve the
   original `historical-density` route and its explicitly supplied model assets.

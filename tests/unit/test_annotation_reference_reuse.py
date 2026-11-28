@@ -30,7 +30,7 @@ def test_mixed_populations_load_once_and_preserve_selection(tmp_path, monkeypatc
         return load(*args, **kwargs)
 
     monkeypatch.setattr(db, 'load', observed)
-    options = dict(reference=root / 'examples/inputs/reference.tsv', threads=1,
+    options = dict(reference=root / 'examples/inputs/reference.tsv', score_model='kernel', threads=1,
                    reference_population=population)
     actual = annotate_repertoires(inputs, output_prefix=tmp_path / 'shared', **options)
     assert len(calls) == 1

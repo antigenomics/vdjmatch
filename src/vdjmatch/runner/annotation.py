@@ -331,8 +331,7 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     organism = _organism(species)
     vx_profile = selection_only and all(value == original_defaults[name] for name, value in options.items()
                                         if name not in {"reference_population", "exclude_exact", "verbose"})
-    vx_enabled = score_model == "vx" or (score_model == "auto" and (
-        vx_null_dir is not None or (organism == "mouse" and paired_rows.height == cohort.height and vx_profile)))
+    vx_enabled = score_model == "vx" or (score_model == "auto" and (vx_profile or vx_null_dir is not None))
     if vx_enabled and not vx_profile:
         raise ValueError("vX scoring requires ordinary annotation options")
     if vx_tie_policy == "literal" and (not vx_enabled or paired_rows.is_empty()):

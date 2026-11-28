@@ -154,9 +154,8 @@ Legacy scoring routes
    }
 
 ``historical-density`` reproduces the retained density model. ``match`` is a
-separate older annotation interface. Neither should be described as the current
-``annotate`` default, and their probability fields cannot be transferred to the
-kernel score.
+separate older annotation interface. Their probability fields belong to their
+own models. See :doc:`vx-formalism` for the ordinary ``annotate`` score.
 
 From ranking to a match decision
 --------------------------------

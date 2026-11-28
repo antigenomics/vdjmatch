@@ -20,6 +20,8 @@ assert 'polars' not in sys.modules
 result = annotate_repertoires(sys.argv[1], reference=sys.argv[2], output_prefix=sys.argv[3])
 assert result['queries'].height == 2
 assert result['manifest']['reference_population'] == 'curated-benchmark'
+assert result['manifest']['score_models'] == ['vx']
+assert 'call_status' not in result['selection'].columns
 from vdjmatch.runner import annotate_sample
 assert callable(annotate_sample)
 """
@@ -66,7 +68,7 @@ def core(monkeypatch):
 def test_directory_batches_once_per_population_and_restores_ids(tmp_path, core):
     inputs = tmp_path / "inputs"; inputs.mkdir()
     table(inputs / "b.tsv"); table(inputs / "a.tsv", locus="TRA")
-    out = annotate_repertoires(inputs, reference="unused", output_prefix=tmp_path / "out", threads=2)
+    out = annotate_repertoires(inputs, reference="unused", score_model="kernel", output_prefix=tmp_path / "out", threads=2)
     assert [a.locus for a, _ in core] == ["TRA", "TRB"]
     assert len({i for _, raw in core for i in raw["query_id"]}) == 2
     assert out["queries"]["sample_id"].to_list() == ["a", "b"]
@@ -83,7 +85,7 @@ def test_directory_batches_once_per_population_and_restores_ids(tmp_path, core):
 
 def test_all_valid_baseline_remains_explicit(tmp_path, core):
     source = table(tmp_path / 'input.tsv')
-    annotate_repertoires(source, reference='unused', output_prefix=tmp_path / 'baseline',
+    annotate_repertoires(source, reference='unused', score_model="kernel", output_prefix=tmp_path / 'baseline',
                          reference_population='all-valid')
     assert core[0][0].reference_population == 'all-valid'
     assert core[0][0].kernel_scorer == 'v-bounded'
@@ -92,7 +94,7 @@ def test_all_valid_baseline_remains_explicit(tmp_path, core):
 
 def test_pairs_are_scoped_to_samples_and_keep_both_ids(tmp_path, core):
     a = table(tmp_path / "one.tsv", paired=True); b = table(tmp_path / "two.tsv", paired=True)
-    out = annotate_repertoires([a, b], reference="unused", output_prefix=tmp_path / "out")
+    out = annotate_repertoires([a, b], reference="unused", score_model="kernel", output_prefix=tmp_path / "out")
     assert len(core) == 1 and core[0][0].locus == "paired"
     assert core[0][1]["clone_id"].n_unique() == 2
     q = out["queries"]
@@ -189,11 +191,16 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
     pl.DataFrame({"query_id": ["01", "02", "03"], "locus": ["TRA"] * 3,
                   "junction_aa": [" casaaaaaff ", "ZZ", "CASAAAAAFF"], "v_call": [alpha] * 3,
                   "species": ["mouse", "mouse", "human"]}).write_csv(single, separator="\t")
-    out = annotate_repertoires(single, reference=release, species="mouse", score_model="vx",
+    out = annotate_repertoires(single, reference=release, species="mouse",
                                output_prefix=tmp_path / "single-vx")
     assert out["queries"]["status"].to_list() == ["matched", "invalid_query_or_gene", "unselected_species"]
     assert out["selection"].select("source_query_id", "score", "selected_epitope").rows() == [
         ("01", 0., "PEPTIDE"), ("02", None, None), ("03", None, None)]
+    ranked = annotate_repertoires([pairs, single], reference=release, species="mouse",
+                                  output_prefix=tmp_path / "mixed-ranking")
+    assert ranked["manifest"]["score_models"] == ["vx"]
+    assert ranked["selection"]["query_id"].n_unique() == ranked["selection"].height == 5
+    assert "call_status" not in ranked["selection"].columns
     with pytest.raises(ValueError, match="null locus"):
         annotate_repertoires(single, reference=release, species="mouse", score_model="vx", vx_null_dir=null_dir,
                              output_prefix=tmp_path / "wrong-locus")
@@ -271,7 +278,7 @@ def test_single_clone_ids_do_not_invent_pairing(tmp_path, core):
     path = table(tmp_path / "single.tsv")
     pl.read_csv(path, separator="\t", infer_schema_length=0).with_columns(
         pl.lit("007").alias("clone_id")).write_csv(path, separator="\t")
-    out = annotate_repertoires(path, reference="unused", output_prefix=tmp_path / "out")
+    out = annotate_repertoires(path, reference="unused", score_model="kernel", output_prefix=tmp_path / "out")
     assert len(core) == 1 and core[0][0].locus == "TRB"
     assert out["queries"]["clone_id"].to_list() == ["007"]
 
@@ -314,7 +321,7 @@ def test_actual_wide_core_preserves_pairs_and_marginal_identities(tmp_path):
         "query_id": ["q007", "q008"], "junction_aa_alpha": ["CAVRDSNYQLIW", None],
         "junction_aa_beta": ["CASSLGQAYEQYF"] * 2, "v_alpha": ["TRAV12-1", None],
         "v_beta": ["TRBV19"] * 2}).write_csv(path, separator="\t")
-    out = annotate_repertoires(path, reference=ref, output_prefix=tmp_path / "out")
+    out = annotate_repertoires(path, reference=ref, score_model="kernel", output_prefix=tmp_path / "out")
     assert out["queries"].height == out["selection"].height == 2
     assert out["queries"]["clone_id"].to_list() == ["007", "008"]
     assert out["queries"]["source_query_ida"].to_list() == ["q007", "q008"]
@@ -332,7 +339,7 @@ def test_cell_linkage_precedes_shared_clone_identity(tmp_path, core, complete):
     pl.DataFrame({"cell_id": cells, "clone_id": ["clone-x"] * len(loci),
         "clonotype_id": ["type-y"] * len(loci), "sequence_id": [str(i) for i in range(len(loci))],
         "locus": loci, "junction_aa": ["CAVF" if x == "TRA" else "CASSF" for x in loci]}).write_csv(path, separator="\t")
-    out = annotate_repertoires(path, reference="unused", output_prefix=tmp_path / "out")
+    out = annotate_repertoires(path, reference="unused", score_model="kernel", output_prefix=tmp_path / "out")
     assert [a.locus for a, _ in core] == (["paired"] if complete else ["TRA", "TRB"])
     assert out["queries"].height == 2
     assert out["queries"]["clone_id"].to_list() == ["clone-x"] * 2
@@ -363,7 +370,7 @@ def test_source_generated_metadata_columns_are_preserved(tmp_path, core):
     path = table(tmp_path / 'one.tsv')
     pl.read_csv(path, separator='\t', infer_schema_length=0).with_columns(
         pl.lit('raw-status').alias('status')).write_csv(path, separator='\t')
-    result = annotate_repertoires(path, reference='unused', output_prefix=tmp_path / 'out')
+    result = annotate_repertoires(path, reference='unused', score_model="kernel", output_prefix=tmp_path / 'out')
     assert result['queries']['status'].to_list() == ['matched']
     assert result['queries']['input_status'].to_list() == ['raw-status']
 

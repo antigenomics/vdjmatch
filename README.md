@@ -56,8 +56,9 @@ annotation on synthetic fixtures.
 
 Use AIRR `junction_aa` (including conserved anchors) and V calls. The curated
 VDJdb reference is fetched on first use; add `--vdjdb reference.zip` for offline
-input. Single TRA/TRB receptors and paired receptors are supported. Exact hits
-are retained by default. Scores describe sequence evidence, not proof of binding.
+input. vX ranks evidence for single TRA/TRB and paired-chain receptors and keeps
+exact hits. Supply matching `--vx-null-dir` banks for calibrated calls.
+Use `--score-model kernel` to reproduce the previous scorer.
 
 For a small offline example, download the [examples directory](examples/) and run
 `sh examples/annotate.sh annotation-demo` from the repository root.

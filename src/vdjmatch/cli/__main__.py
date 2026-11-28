@@ -927,7 +927,7 @@ def main(argv: list[str] | None = None) -> int:
                 annotation._option_string_actions["-o"] = action
     annotation.add_argument("--metadata", help="TSV with path and optional sample_id; paths relative to this TSV")
     annotation.add_argument("--score-model", choices=("auto", "vx", "kernel"), default="auto",
-                            help="auto uses vX with matching null banks or for ordinary paired mouse annotation")
+                            help="auto uses vX for ordinary human and mouse annotation")
     annotation.add_argument("--vx-null-dir", type=Path, action="append",
                             help="matched vx-base null directory for E-value calls, once per scored locus")
     annotation.add_argument("--vx-tie-policy", choices=("abstain", "literal"),
