@@ -4,12 +4,13 @@ Release notes
 1.3.0
 -----
 
-Opt-in paired vX scoring exports unique target winners from a pinned mouse
+Paired vX scoring exports unique target winners from a pinned mouse
 catalogue. Ordered-null calibration gives an empirical E threshold and a
 separate confidence bound. The paired E-value command checks that query and
 null scores used matching policies, including exact-hit retention. Fixed
 motif and peptide-withheld replays support reproducible evaluation.
-Ordinary annotation defaults are unchanged. See :doc:`vx-formalism`.
+Ordinary mouse paired-chain annotation uses vX by default. Select
+``--score-model kernel`` to replay the previous model. See :doc:`vx-formalism`.
 
 1.2.4
 -----

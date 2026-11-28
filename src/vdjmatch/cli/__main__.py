@@ -85,6 +85,8 @@ def _cmd_index(a: argparse.Namespace) -> int:
 
 def _cmd_annotate(a: argparse.Namespace) -> int:
     if a.control and a.background == 'vdjdb-other':
+        if getattr(a, "score_model", "auto") == "vx":
+            raise ValueError("vX annotation does not use the legacy --control kernel path")
         from .combined import main
         return main(a)
     if a.mock_replicates != 200 or a.seed != 0 or a.fpr != .01 or a.evidence_type or a.min_score:
@@ -921,6 +923,8 @@ def main(argv: list[str] | None = None) -> int:
                 action.option_strings.append("-o")
                 annotation._option_string_actions["-o"] = action
     annotation.add_argument("--metadata", help="TSV with path and optional sample_id; paths relative to this TSV")
+    annotation.add_argument("--score-model", choices=("auto", "vx", "kernel"), default="auto",
+                            help="auto uses vX for ordinary paired mouse annotation; kernel selects the previous model")
     annotation.add_argument("--details", dest="selection_only", action="store_false",
                             help="also export per-target evidence and candidates; memory grows with queries × targets")
     annotation.add_argument('--mock-replicates', type=int, default=200,
@@ -933,7 +937,7 @@ def main(argv: list[str] | None = None) -> int:
     annotation._option_string_actions['--control'].help = 'one raw control repertoire; calibrate the complete combined score on demand'
     basic = {'help', 'vdjdb', 'locus', 'species', 'reference_population', 'epitope', 'mhc_a', 'mhc_b',
              'mhc_match', 'threads', 'verbose', 'control', 'exclude_exact', 'output_prefix', 'metadata',
-             'mock_replicates', 'seed', 'fpr', 'evidence_type', 'min_score'}
+             'mock_replicates', 'seed', 'fpr', 'evidence_type', 'min_score', 'score_model'}
     advanced = annotation.add_argument_group('Advanced scorer diagnostics')
     for action in list(annotation._optionals._group_actions):
         if action.dest not in basic:

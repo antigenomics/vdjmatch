@@ -103,6 +103,41 @@ def test_pairs_are_scoped_to_samples_and_keep_both_ids(tmp_path, core):
     assert q["clonotype_idb"].to_list() == ["type-b", "type-b"]
 
 
+def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
+    from vdjmatch.match.geometry import load_v_loops
+
+    model = load_v_loops("mouse")
+    alpha, beta = [next(v for v, entry in model.items() if entry["locus"] == lane)
+                   for lane in ("TRA", "TRB")]
+    reference = tmp_path / "reference.tsv"
+    pl.DataFrame({
+        "gene": ["TRA", "TRB"], "cdr3": ["CASAAAAAFF", "CASSRRRRFF"],
+        "v": [alpha, beta], "j": ["TRAJ1*01", "TRBJ1-1*01"], "epitope": ["PEPTIDE"] * 2,
+        "mhc_a": ["H2-Kb"] * 2, "mhc_b": ["B2M"] * 2, "mhc_class": ["MHCI"] * 2,
+        "species": ["MusMusculus"] * 2, "complex_id": [1, 1],
+    }).write_csv(reference, separator="\t")
+    pairs = tmp_path / "pairs.tsv"
+    pl.DataFrame({"pair_id": ["007", "008"], "junction_aa_alpha": [" casaaaaaff ", "CASAAAAAFF"],
+                  "junction_aa_beta": ["cassrrrrff", "CASSRRRRFF"], "v_alpha": [alpha] * 2, "v_beta": [beta] * 2,
+                  "species": ["mouse", "human"]}
+                 ).write_csv(pairs, separator="\t")
+    out = annotate_repertoires(pairs, reference=reference, species="MusMusculus",
+                               output_prefix=tmp_path / "paired")
+    assert out["manifest"]["score_models"] == ["vx"]
+    assert out["selection"].select("pair_id", "score", "selected_epitope").rows() == [
+        ("007", 0., "PEPTIDE"), ("008", None, None)]
+    assert out["queries"]["status"].to_list() == ["matched", "unselected_species"]
+    unpaired = tmp_path / "unpaired.tsv"
+    pl.read_csv(reference, separator="\t").head(1).write_csv(unpaired, separator="\t")
+    out = annotate_repertoires(pairs, reference=unpaired, species="MusMusculus",
+                               output_prefix=tmp_path / "empty-reference")
+    assert out["queries"]["status"].to_list() == ["no_reference", "unselected_species"]
+    assert out["selection"]["score"].null_count() == 2
+    with pytest.raises(ValueError, match="ordinary paired mouse"):
+        annotate_repertoires(pairs, reference=reference, species="MusMusculus",
+                             output_prefix=tmp_path / "modified", score_model="vx", distance_matrix="clipped")
+
+
 def test_metadata_paths_relative_to_metadata_and_options(tmp_path, core):
     table(tmp_path / "input.tsv")
     pl.DataFrame({"path": ["input.tsv"], "sample_id": ["007"], "condition": ["x"]}).write_csv(tmp_path / "metadata.tsv", separator="\t")

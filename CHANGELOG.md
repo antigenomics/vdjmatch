@@ -2,14 +2,16 @@
 
 ## 1.3.0
 
-- Add opt-in vX paired-chain scoring from a fixed mouse reference ZIP, with
+- Add vX paired-chain scoring from a fixed mouse reference ZIP, with
   exact-hit retention, peptide-withheld replay, and explicit abstention at
   tied target maxima.
 - Fit strict ordered-null cutoffs and report the equivalent empirical
   E-value threshold. Bind paired vX E-value annotation to matching scores,
   reference, model, and exact-hit policy.
 - Add fixed-catalogue motif ranking and paired assay scoring commands for
-  reproducible research comparisons. Ordinary annotation defaults are unchanged.
+  reproducible research comparisons.
+- Use vX for ordinary mouse paired-chain annotation invoked without a
+  score-model override. The previous scorer remains available as `--score-model kernel`.
 
 - Report exact, finite-population rediscovery probabilities for V-conditioned
   motifs at user-specified TCR sampling depths in `reference-profiles`.

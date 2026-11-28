@@ -22,7 +22,7 @@ def register(subparsers):
     parser.set_defaults(func=main)
 
 
-def _reference_catalogue(raw, model, *, background_memberships=False):
+def _reference_catalogue(raw, model, *, background_memberships=False, allow_empty=False):
     import polars as pl
     from .historical import assayed_targets
     from ..aggregate.candidates import PMHC
@@ -42,7 +42,7 @@ def _reference_catalogue(raw, model, *, background_memberships=False):
     declared = (pairs.select(PMHC).unique().drop_nulls()
                 .filter(pl.all_horizontal(pl.col(*PMHC).str.strip_chars() != ""))
                 .sort(PMHC).with_row_index("query_id").with_columns(pl.lit("mouse").alias("species")))
-    if declared.is_empty():
+    if declared.is_empty() and not allow_empty:
         raise ValueError("mouse reference has no eligible paired pMHC targets")
     groups, backgrounds = [], []
     for target, _, selected in assayed_targets(declared.select("query_id"), declared, pairs, "mouse"):
@@ -116,6 +116,8 @@ def _base_scores(queries, fixed, groups, backgrounds, context, *, threads, exclu
     from ..match.geometry import paired_distance_matrix
 
     result = np.full((queries.height, len(groups)), -np.inf)
+    if not len(groups):
+        return result
     eligible = queries.with_row_index("_i").filter(_eligible("ab", "native", 5))
     tables = [_regional_corrections(context, locus) for locus in ("TRA", "TRB")]
     refs = [fixed["cdr3" + chain].to_list() for chain in "ab"]
@@ -155,11 +157,11 @@ def _maxima_table(query_ids, base, labels, null_source):
     import numpy as np
     import polars as pl
 
-    maximum = base.max(axis=1)
+    maximum = base.max(axis=1, initial=-np.inf)
     finite = np.isfinite(maximum)
     tied = finite & (np.count_nonzero(base == maximum[:, None], axis=1) > 1)
     unique = finite & ~tied
-    target = np.asarray(labels, dtype=object)[base.argmax(axis=1)]
+    target = np.asarray(labels, dtype=object)[base.argmax(axis=1)] if len(labels) else None
     table = pl.DataFrame({
         "query_id": query_ids,
         "target": pl.Series(np.where(unique, target, None).tolist(), dtype=pl.String),

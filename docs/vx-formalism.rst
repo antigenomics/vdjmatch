@@ -734,6 +734,13 @@ junctions and applies only to the target and background hit lists.
 Omit ``--exclude-exact`` for ordinary exact-retained replay. This
 command uses the verified mouse frozen base before motif re-ranking.
 
+Ordinary mouse paired input to ``vdjmatch annotate`` uses this vX
+score by default, including when paired linkage is inferred. The
+``selection.tsv`` output identifies the score model and retains ties
+as ambiguous evidence. Use ``--score-model kernel`` for the previous
+model. Varying advanced kernel-specific geometry options uses the
+kernel workflow in automatic mode.
+
 The output also includes ``maxima.tsv`` with one row for every query.
 The ``maximum`` column retains finite tied maxima for audit, whereas
 ``score`` and ``target`` require a unique winning pMHC. Unsupported and

@@ -153,8 +153,48 @@ def _restore(frame, mapping):
     return result
 
 
+def _mouse_paired_vx(sample, part, reference, context, threads, reference_population, exclude_exact):
+    """Score the normal paired population and keep its service row axis."""
+    import polars as pl
+    from ..cli.neighbours import _paired_input
+    from ..cli.paired_vx_base import _base_scores, _maxima_table, _reference_catalogue
+    from ..db.vdjdb import _select_reference
+    from ..evalue.equal_tail import _prepare
+    reference = _select_reference(reference, species="MusMusculus")
+    if reference_population == "all-valid":
+        reference = reference.with_columns(
+            pl.col("cdr3").str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$").fill_null(False).alias("reference_valid"))
+    fixed, targets, groups, backgrounds = _reference_catalogue(reference, context["model"], allow_empty=True)
+    pairs, _ = _paired_input(sample, part, context["model"], "mouse", resolved_v_nearest=True)
+    source_alleles = pairs.with_columns(pl.col("v_call_alpha").alias("va"), pl.col("v_call_beta").alias("vb"))
+    pairs = _prepare(source_alleles, "ab", context["model"])
+    pairs = pairs.with_columns(pl.when("available").then(pl.col("nativea")).otherwise(None).alias("nativea"))
+    base = _base_scores(pairs, fixed, groups, backgrounds, context,
+                        threads=threads, exclude_exact=exclude_exact)
+    labels = [str(i) for i in range(targets.height)]
+    maxima = _maxima_table(pairs["query_id"], base, labels, None)
+    selected = targets.with_row_index("target").with_columns(pl.col("target").cast(pl.String))
+    selected = selected.rename({name: "selected_" + name for name in selected.columns if name != "target"})
+    disposition = maxima.with_columns(
+        pl.when("tied").then(pl.lit("ambiguous")).when(pl.col("score").is_not_null())
+        .then(pl.lit("ranked_evidence")).otherwise(pl.lit("no_support")).alias("selection_status"),
+        pl.lit("vx").alias("score_model"),
+    )
+    disposition = disposition.join(selected, on="target", how="left", validate="m:1", maintain_order="left")
+    query = pairs.select("query_id", "status").join(
+        maxima.select("query_id", "maximum"), on="query_id", validate="1:1", maintain_order="left")
+    query = query.with_columns(
+        pl.when(pl.col("status") != "searched").then(pl.col("status"))
+        .when(pl.lit(targets.is_empty())).then(pl.lit("no_reference"))
+        .when(pl.col("maximum").is_not_null()).then(pl.lit("matched"))
+        .otherwise(pl.lit("no_neighbours")).alias("status")
+    ).drop("maximum")
+    return query, disposition
+
+
 def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_prefix="annotation",
-                         locus="auto", species="HomoSapiens", threads=0, selection_only=True, **options):
+                         locus="auto", species="HomoSapiens", threads=0, selection_only=True,
+                         score_model="auto", **options):
     """Annotate files, a directory, or path/sample_id metadata as population batches.
 
     Source rows are read once through shared ingestion. Query IDs are global numeric
@@ -171,6 +211,8 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     threads = kernel_threads(threads)
     if locus not in {"auto", "TRA", "TRB", "paired"}:
         raise ValueError("locus must be auto, TRA, TRB or paired")
+    if score_model not in {"auto", "vx", "kernel"}:
+        raise ValueError("score_model must be auto, vx or kernel")
     table_budget = os.environ.get("POLARS_MAX_THREADS")
     if table_budget is not None and (not table_budget.isdecimal() or int(table_budget) < 1):
         raise ValueError("POLARS_MAX_THREADS must be a positive integer before import")
@@ -184,11 +226,15 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
 
     started = time.perf_counter()
     defaults = _core_defaults(reference or "unused", output_prefix)
+    original_defaults = vars(defaults).copy()
     unknown = set(options) - set(vars(defaults))
     if unknown:
         raise ValueError(f"unknown scorer options: {sorted(unknown)}")
     if set(options) & {"sample", "vdjdb", "output_prefix", "func", "command"}:
         raise ValueError("input/reference/output options use the public runner arguments")
+    reference_population = options.get("reference_population", defaults.reference_population)
+    if reference_population not in {"curated-benchmark", "all-valid"}:
+        raise ValueError("reference_population must be curated-benchmark or all-valid")
     if options.get('geometry_extra') is not None:
         vars(defaults).update(options)
         defaults.selection_only=selection_only
@@ -252,16 +298,26 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     prefix.parent.mkdir(parents=True, exist_ok=True)
     tables, manifests, batches = {}, [], []
     paired_rows=cohort.filter(pl.col('_population')=='paired')
+    from ..evalue.control import _organism
+    vx_profile = (selection_only and paired_rows.height == cohort.height and _organism(species) == "mouse"
+                  and all(value == original_defaults[name] for name, value in options.items()
+                          if name not in {"reference_population", "exclude_exact", "verbose"}))
+    if score_model == "vx" and not vx_profile:
+        raise ValueError("current vX annotation supports ordinary paired mouse scoring")
+    vx_paired = vx_profile and score_model != "kernel"
     mixed_union=(locus=='auto' and
+        not vx_paired and
         options.get('neighbour_weighting',defaults.neighbour_weighting)=='kernel' and
         paired_rows.height>0 and cohort.filter(pl.col('_population')=='single').height>0)
     marginal_tables={};service_batches=[];detail_columns={}
-    from ..evalue.control import _organism
     from ..match.geometry import precompute_v_loop_distances
-    v_loop_distances=precompute_v_loop_distances(species=_organism(species),
-        alphabet=options.get('alphabet',defaults.alphabet),
-        matrix=options.get('distance_matrix',defaults.distance_matrix),
-        v_regions=options.get('v_regions',defaults.v_regions))
+    v_loop_distances = (
+        precompute_v_loop_distances(species="mouse") if vx_paired else
+        precompute_v_loop_distances(species=_organism(species),
+            alphabet=options.get("alphabet", defaults.alphabet),
+            matrix=options.get("distance_matrix", defaults.distance_matrix),
+            v_regions=options.get("v_regions", defaults.v_regions))
+    )
     normalized_reference = None
     def reference_loader():
         nonlocal normalized_reference
@@ -288,9 +344,26 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
             count_aliases = [c for c in service_part.columns if c.lower().lstrip("#") in
                             (*io.columns.ALIASES["count"], *io.columns._COUNT_FALLBACKS)]
             # Original aliases remain in the restoration mapping as source metadata.
-            service_part.drop("_population", *wide_sequences, *count_aliases).with_columns(
+            scoring_part = service_part.drop("_population", *wide_sequences, *count_aliases).with_columns(
                 canonical_counts.gather(service_part["query_id"]).alias("count")
-            ).write_csv(sample, separator="\t")
+            )
+            scoring_part.write_csv(sample, separator="\t")
+            if population == "paired" and vx_paired:
+                query, selection = _mouse_paired_vx(
+                    sample, scoring_part, reference_loader(), v_loop_distances, threads,
+                    reference_population,
+                    options.get("exclude_exact", defaults.exclude_exact))
+                mapping = _pair_mapping(part, offset)
+                for kind, table in (("queries", query), ("selection", selection)):
+                    tables.setdefault(kind, []).append(_restore(table, mapping))
+                manifests.append({"score_model": "vx", "locus": population,
+                                  "reference": db.provenance(reference),
+                                  "reference_population": reference_population,
+                                  "exact_hits_excluded": options.get("exclude_exact", defaults.exclude_exact),
+                                  "queries": query.height})
+                batches.append({"locus": population, "query_chain_rows": part.height,
+                                "sample_count": part["sample_id"].n_unique()})
+                continue
             args = _core_defaults(reference, local_prefix)
             vars(args).update(options)
             args.sample, args.locus, args.species = str(sample), population, species
@@ -347,6 +420,7 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         "populations": batches, "population_service_calls": len(manifests), "native_threads": threads,
         "table_threads": pl.thread_pool_size(), "species": species, "locus": locus,
         "selection_only": selection_only, "core_manifests": manifests, "outputs": outputs,
+        "score_models": sorted({manifest.get("score_model", "kernel") for manifest in manifests}),
         **({'mixed_chain_union':True,'service_batches':service_batches} if mixed_union else {}),
         **({'population_table_columns':detail_columns} if detail_columns else {}),
         "wall_seconds": time.perf_counter() - started}
