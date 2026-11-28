@@ -373,6 +373,69 @@ This is a classification rule for evaluation. The accepted organizer
 density score and the fixed-reference evidence score above retain
 their respective definitions and cutoff scopes.
 
+Epitope enrichment across a reference catalogue
+------------------------------------------------
+
+In the fixed-reference vX score, :math:`d_1,d_2` are taken separately
+for each candidate pMHC. A nearer key for a different peptide can
+influence the background comparison, and another candidate can win.
+For a cross-target neighborhood, count each distinct physical key
+once. If it supports several pMHC labels, count it once for each
+supported label while keeping one key in the neighborhood denominator.
+
+Let :math:`N` be the size of the fixed catalogue, :math:`N_e` the
+number of keys supporting target :math:`e`, :math:`m` the number
+of finite neighbors including ties, and :math:`x_e` the number of
+those neighbors supporting :math:`e`. The local fraction, background
+fraction and observed enrichment ratio are
+
+.. math::
+
+   f_e=x_e/m,\qquad \pi_e=N_e/N,\qquad R_e=f_e/\pi_e.
+
+For a neighborhood defined by distance alone, a finite-catalogue
+reference model draws :math:`m` keys without replacement under
+exchangeable target membership. Rank target support using the upper
+hypergeometric tail
+
+.. math::
+
+   p_e = \Pr\{X_e\geq x_e\},\qquad
+   X_e\sim\operatorname{Hypergeom}(N,N_e,m).
+
+A binomial with parameters :math:`m,\pi_e` approximates this tail
+when the neighborhood is small relative to the catalogue. Exact-hit
+exclusion only changes the benchmark hit list. The fixed reference
+fractions remain unchanged. A target can be ranked by :math:`-\log p_e`
+when :math:`x_e>0`, with abstention at a tied maximum or without support.
+
+This uses the observed-versus-expected neighborhood principle of
+`TCRNET <https://pmc.ncbi.nlm.nih.gov/articles/PMC6156623/>`_ for a
+different question. TCRNET tests within-sample neighborhood degree
+against a control repertoire. TCRdist3 offers neighborhood tests
+for covariates, including a documented chi-squared example with
+epitope as the category. It can also choose radii that control
+neighbor discovery in a background repertoire. The vX design
+combines label enrichment from a fixed multi-label catalogue with
+its receptor distance and a query-level open-set decision. The
+one-sided hypergeometric tail is the Fisher exact enrichment test
+for one label inside versus outside the neighborhood. It remains
+defined for sparse counts.
+See the `TCRdist3 enrichment workflow <https://tcrdist3.readthedocs.io/en/latest/#neighborhood-enrichment>`_
+and `radius procedure <https://tcrdist3.readthedocs.io/en/latest/radius.html>`_.
+
+The exchangeability model is a ranking reference. Study composition,
+HLA restriction and repeated biological observations can give targets
+different exposure to the same kinds of receptors. A stronger call
+procedure prespecifies the compatible catalogue and neighborhood
+rule. If the search requires a V match, use the same fixed V stratum
+in both the neighborhood and the reference fractions. Then calibrate
+the maximum target evidence on held-out null
+queries after rerunning the entire label search. If the rule searches
+several neighborhood sizes, the null replay repeats that search.
+Test generated and withheld-specificity nulls separately. The resulting
+empirical any-call rate applies to that decision and null population.
+
 Assignment and complete-query calibration
 -----------------------------------------
 
