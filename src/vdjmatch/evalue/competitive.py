@@ -1,5 +1,7 @@
 """Evidence reduction for the frozen vX research score."""
 
+from collections import Counter
+
 import numpy as np
 
 MAX_MIDPOINT_GAP_PER_CHAIN = 24
@@ -58,3 +60,50 @@ def paired_assay_local_score(distances, *, exact_hits=None):
     width = max(1, (group.shape[0] - 1) * 124 // 1000)
     order = np.sort(group, axis=1)
     return assay_local_score(order, width, 7 / 3)
+
+
+def _anchored_trimers(junction):
+    core = junction[3:-2]
+    width = min(4, len(core) - 2)
+    return (
+        tuple(("N", i, core[i:i + 3]) for i in range(width))
+        + tuple(("C", i, core[len(core) - i - 3:len(core) - i]) for i in range(width))
+    )
+
+
+def anchored_motif_scores(reference_keys, junctions, targets):
+    """Return fixed-catalogue TRB motif enrichment in the requested target order.
+
+    Each reference item is a (target, full junction) observation. Callers
+    deduplicate their declared reference keys before passing the retained
+    items. Distinct keys may carry the same junction. Targets with no
+    reference observations are unsupported. The score uses no query labels.
+    """
+    targets = tuple(targets)
+    if not targets or len(set(targets)) != len(targets):
+        raise ValueError("expected distinct target labels")
+    target_counts = {target: Counter() for target in targets}
+    sizes = Counter()
+    pooled = Counter()
+    for target, junction in reference_keys:
+        counts = target_counts[target]
+        tokens = _anchored_trimers(junction)
+        counts.update(tokens)
+        pooled.update(tokens)
+        sizes[target] += 1
+    denominator = 2 + sizes.total()
+    queries = [_anchored_trimers(junction) for junction in junctions]
+    scores = np.full((len(queries), len(targets)), -np.inf)
+    for column, target in enumerate(targets):
+        if not sizes[target]:
+            continue
+        counts = target_counts[target]
+        for row, tokens in enumerate(queries):
+            if not tokens:
+                continue
+            prior = np.asarray([(1 + pooled[token]) / denominator for token in tokens])
+            observed = np.asarray([counts[token] for token in tokens])
+            scores[row, column] = np.log(
+                (observed + 2 * prior) / ((sizes[target] + 2) * prior)
+            ).mean()
+    return scores

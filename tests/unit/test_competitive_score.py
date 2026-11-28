@@ -3,7 +3,8 @@
 import numpy as np
 
 from vdjmatch.evalue.competitive import (
-    assay_local_score, assignment_score, paired_assay_local_score, reduced_hits,
+    anchored_motif_scores, assay_local_score, assignment_score, paired_assay_local_score,
+    reduced_hits,
 )
 
 
@@ -50,3 +51,12 @@ def test_paired_assay_local_score_preserves_membership_and_input():
     np.testing.assert_array_equal(paired_assay_local_score(distances, exact_hits=exact_hits), [-3, -2, -2])
     np.testing.assert_array_equal(distances.diagonal(), [0, 0, 0])
     assert paired_assay_local_score([[0]]).item() == -np.inf
+
+
+def test_anchored_motif_scores_counts_distinct_reference_observations():
+    refs = [("a", "CASAAAFF"), ("a", "CASAAAFF"), ("b", "CASRRRFF")]
+    result = anchored_motif_scores(refs, ["CASAAAFF", "CAS"], ["a", "b", "empty"])
+    prior = 3 / 5
+    np.testing.assert_allclose(result[0, :2], np.log([(2 + 2 * prior) / (4 * prior), 2 / 3]))
+    assert np.isneginf(result[1]).all()
+    assert np.isneginf(result[:, 2]).all()
