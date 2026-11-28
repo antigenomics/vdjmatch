@@ -232,8 +232,9 @@ paired-chain lane count genuine paired observations. Count distinct
 physical query keys separately from source records and reference keys.
 
 Report both all eligible cases and a capped query view. To construct
-the capped view, put unique physical query keys in canonical order,
-then shuffle with Python's ``random.Random(20261128)``.
+the capped view, retain unique physical query keys with at least one
+admitted label. Put those keys in canonical order, then shuffle with
+Python's ``random.Random(20261128)``.
 Use junction and V call for one chain and both junctions and V calls
 for a pair. Keep a case only when each of its eligible annotations
 has fewer than 300 selected cases. Retain the case's complete label
