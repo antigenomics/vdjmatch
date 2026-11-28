@@ -654,6 +654,11 @@ to the nearer endpoint of the original interval. Use the simpler
 all ties, within-target ranks and within-query label orderings. The term
 adds :math:`(\log 2)/400` native distance units per doubling of
 :math:`1+N_e`. Its value comes from the three-label assay replay.
+For numerical reproduction of the historical scores within :math:`10^{-5}`,
+round the historical coefficient to :math:`0.002832`. The largest observed
+score shift then is :math:`3.73\times10^{-6}` native distance units, with
+the same ties, ranks and assignments in all 3,654 slots. The smallest
+historical within-query label gap is :math:`0.00211` native distance units.
 
 The implementation uses ``log1p``. An exact tie or no finite maximum
 abstains. The comparison uses queries with finite scores for all three
