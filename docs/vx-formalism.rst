@@ -657,14 +657,44 @@ false-call control before claiming a performance advantage.
 Calibration from an ordered null sample
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For a single cutoff on a fixed whole-query score, choose the allowed
-calibration count before examining the null scores. Let :math:`B` be
-the number of independent draws from the declared null, :math:`k<B`
-the allowed count, and :math:`Z_{(B-k)}` the ascending order statistic
-of the calibration scores. Give abstentions score :math:`-\infty`.
-Call only when the new score is strictly above :math:`Z_{(B-k)}`.
-This excludes the boundary tie in full. If :math:`f` is the resulting
-population any-call probability and :math:`\alpha` its intended cap,
+Let :math:`Z(q)` be the score of the winning label after the fixed
+selection policy, or :math:`-\infty` when no label is eligible for
+a call. The default policy abstains on a tied maximum. A manifest-bound
+tie policy can instead resolve a tie before thresholding.
+For a bank :math:`\mathcal B_s` of :math:`B` draws from null source
+:math:`s`, the call indicator and bank rate at finite cutoff
+:math:`t` are
+
+.. math::
+
+   C_t(q)=\mathbf 1\{Z(q)\geq t\},
+   \qquad
+   \widehat f_s(t)=\frac{1}{B}\sum_{q\in\mathcal B_s}C_t(q).
+
+The bank retains all draws, including abstentions and repeated
+receptor sequences. For a finite score :math:`z`, the output
+uses the inclusive tail count :math:`j_s(z)` and reports
+
+.. math::
+
+   j_s(z)=\sum_{q\in\mathcal B_s}C_z(q),\qquad
+   E_s(z)=\frac{j_s(z)}{B}=\widehat f_s(z),\qquad
+   P_s(z)=\frac{j_s(z)+1}{B+1}.
+
+Here :math:`E_s` estimates false calls per query at threshold
+:math:`z`. The add-one tail :math:`P_s` is a rank P-value
+under exchangeability with the same complete score and selection
+pipeline. Rows without an eligible score report :math:`(E,P)=(0,1)`
+as placeholders and always abstain. A finite score above every null
+score has :math:`E_s=0` and :math:`P_s=1/(B+1)`.
+
+Ordered calibration uses one declared source and chooses its allowed
+count :math:`k<B` before examining the null scores. For independent
+draws from that source, put the boundary at
+:math:`z_\star=Z_{(B-k)}`, the ascending order statistic of the calibration
+scores. Call only when :math:`Z(q)>z_\star`, excluding the entire boundary
+tie. If :math:`f` is the resulting population any-call probability
+and :math:`\alpha` its intended cap,
 
 .. math::
 
@@ -691,23 +721,18 @@ uses an independent evaluation background after radius selection.
 
 Use ``vdjmatch calibrate-ordered-calls`` to fit this boundary and
 ``vdjmatch apply-call-calibration`` to apply the saved recipe.
-For a supported query with unique winning score :math:`z`, its
-empirical E-value is
-
-.. math::
-
-   E(z)=\frac{\#\{i:Z_i\geq z\}}{B}.
-
-The strict ordered cutoff is equivalent to accepting a supported
-query when :math:`E(z)\leq k/B`. A query at the boundary counts the
-entire tied block in its tail and is rejected. At the 100,000-query
-example this gives :math:`E\leq 0.00948` under a 1% population cap at
-95% confidence under the stated sampling assumptions. The E-value is
-expected false calls per query estimated on the calibration source.
-The binomial bound controls the probability of exceeding a population
-cap over calibration samples. Unsupported and ambiguous queries
-abstain regardless of the placeholder E-value. Ordinary calibration
-retains exact hits in both the query and null scoring pipelines.
+When :math:`k` exists and :math:`z=Z(q)` is finite,
+:math:`j_s(z)\leq k` exactly when :math:`z>z_\star`. At or below
+:math:`z_\star`, at least :math:`k+1` calibration scores count in the
+inclusive tail. Above it at most :math:`k` count. Thus the
+100,000-query example uses :math:`E_s\leq 0.00948` for eligible scores.
+The CLI represents a finite strict boundary by the next larger
+binary64 value with an inclusive comparison. When the order
+statistic is an abstention, all finite eligible scores pass.
+When no count qualifies, or no finite score can exceed the boundary,
+the recipe abstains everywhere. Ordinary calibration retains exact
+hits in both scoring pipelines. The score replay can also compare
+matching exact-excluded banks and queries for diagnostics.
 
 Assignment and complete-query calibration
 -----------------------------------------
@@ -1020,22 +1045,14 @@ weight on centered evidence were selected for the three-class recall
 tradeoff in this assay. This rule uses the fixed complete three-label assay,
 whose median and class fractions belong to that cohort. Exact ties abstain.
 
-For the generated-receptor study, search the declared compatible pMHC
-catalogue and use :math:`S`, including the search across competing targets.
-Let :math:`W(q)` be the unique finite winning score, undefined on ties and
-unsupported queries. At a higher-is-better cutoff :math:`t`, define
-:math:`C_t(q)=\mathbf{1}\{W(q)\text{ defined and }W(q)\ge t\}`. For null bank
-:math:`B_s` from source :math:`s`, the empirical false-positive rate is
-
-.. math::
-
-   \widehat f_s(t)=\frac{1}{|B_s|}\sum_{q\in B_s} C_t(q).
-
-The denominator includes ties, no-hits and unsupported queries. The cutoff
-fit uses the most permissive observed tied threshold at which all
-source-specific rates meet the cap, with an abstain-all option. The generated
-single-chain banks come from rearrangement models and the pair bank uses
-independent TRA and TRB draws.
+The archived generated-receptor study uses the default abstention policy
+and raw :math:`S` across the declared compatible pMHC catalogue. It
+chooses the most permissive inclusive score block whose empirical rate
+:math:`\widehat f_s(t)` meets the cap for every supplied source, with
+an abstain-all option. The ordered calibration above controls a population
+rate at a stated confidence under its sampling assumptions. The generated
+single-chain banks come from rearrangement models and the pair bank
+uses independent TRA and TRB draws.
 
 Recorded-target precision
 -------------------------
@@ -1059,21 +1076,25 @@ to the stated mixture and its conditional query populations.
 Expected counts and repertoire enrichment
 -----------------------------------------
 
-After winning-label selection, the empirical expected number of false calls
-per query at a cutoff is :math:`\max_s\widehat f_s(t)` over the supplied null
-sources. For :math:`Q` query opportunities at that cutoff it gives
-:math:`Q\max_s\widehat f_s(t)` expected false calls under the corresponding
-empirical null rate. This quantity has units of calls and uses the whole
-decision procedure. For a scored query the optional rank tail takes the
-maximum across sources of :math:`(1+j_s)/(1+|B_s|)`, with :math:`j_s` equal
-to the number of null final scores at least as strong as the query score.
-A query with no score has empirical expected calls zero and rank tail one.
-Rank-test validity requires exchangeability under the same final-score
-pipeline.
-For a hit at distance :math:`d`, let :math:`R_e` be the fixed set
-of eligible reference opportunities for target :math:`e`. With null
-receptor :math:`Q_0` drawn under the declared background law, the
-expected number of reference hits at least as close is
+For :math:`Q` null receptor opportunities from one source, the
+estimated expected number of false calls at a fixed cutoff is
+:math:`Q\,\widehat f_s(t)`. Linearity of expectation requires no
+independence between opportunities. With :math:`Q_s` opportunities
+from each known source, use :math:`\sum_s Q_s\widehat f_s(t)`.
+For an unknown mix of represented sources, :math:`Q\max_s\widehat f_s(t)`
+bounds that plug-in estimate. Its units are calls. The chance of at
+least one call depends on the joint distribution. For
+:math:`Q` independent opportunities with common call probability
+:math:`f_s(t)` it is :math:`1-(1-f_s(t))^Q`.
+
+Generic multisource reporting takes the maximum of the source-specific
+:math:`E_s(z)` and, separately, of the source-specific :math:`P_s(z)`
+for each finite score. The ordered CLI fits one source per recipe.
+For a hit at finite distance :math:`d`, let :math:`R_e` be the fixed
+reference keys for target :math:`e`. Draw receptor :math:`Q_0` under
+the declared background law and set :math:`D(Q_0,r)=+\infty` when
+key :math:`r` fails the hit rule for that draw. The expected number
+of reference hits at least as close is
 
 .. math::
 
@@ -1101,14 +1122,24 @@ tail and fold enrichment are
    \qquad
    F=\frac{T_0}{R^{-1}\sum_{j=1}^R T_j}.
 
-The ratio is undefined for a zero mock mean. The accepted yellow-fever
-curve-mean decision restricts the tail numerator and denominator to mocks
-with at least one matched source row, and leaves the tail undefined for a
-library with no matched source rows. A call requires a positive standardized
-excess and a BH-adjusted value below 0.10 within the declared target,
-donor, day and endpoint family. Observed-control mock draws use the
-declared Pgen strata. Apply the sample rule at the declared query depth
-and target breadth. A per-receptor threshold defines membership. The mock
-distribution calibrates the sample statistic.
+The ratio is undefined for a zero mock mean. For the accepted
+yellow-fever curve-mean decision, let :math:`J_+` contain the mock
+indices with at least one matched source row. Use the same add-one
+formula with :math:`j\in J_+` and denominator :math:`1+|J_+|`.
+For the curve mean, the standardized excess is
+:math:`(T_0-\bar T_+)/s_+`, where :math:`\bar T_+` and :math:`s_+`
+are the mean and sample standard deviation of those mocks. If the
+library has no matched source row, its conditional tail is undefined. If it has a hit
+but there are no positive mocks, the conditional tail is one and
+the standardized excess is undefined. With fewer than two positive
+mocks there is no sample standard deviation. With zero deviation,
+a nonzero excess has its signed infinite limit and zero excess
+has undefined effect. A call requires a positive
+standardized excess and BH-adjusted :math:`P<0.10` in the declared
+group and donor/day family, with each endpoint adjusted separately.
+Observed-control reference draws use the declared Pgen strata and
+hold the repertoire fixed. The resulting test concerns the sample
+statistic. A receptor-level threshold defines the membership rule
+used for both observed and mock panels.
 
 See :doc:`vx-structure` for structural degree, rarefaction and reciprocal k-NN.

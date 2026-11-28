@@ -49,11 +49,16 @@ The coefficient lies inside the verified three-class assignment plateau.
 The separate within-assay diagnostic uses
 `H=-log(pK)+(S-median_assay(S))/40+0.95*log(assay_class_fraction)`.
 The fixed size offset cancels when centering by target. Here `pK` is the
-inclusive add-one kernel tail. The generated
-null evaluates raw `S` after selection. Count all null queries in the FPR
-denominator. At a common cutoff, `Q*FPR` is the empirical expected number
-of false calls for `Q` query opportunities under that null. Sample
-enrichment uses the same endpoint in observed and Pgen-matched mock panels.
+inclusive add-one kernel tail. For ordinary vX, calibrate the final
+decision-eligible score with a matching bank. At a finite threshold `z`,
+count null scores at least `z` and divide by all null queries, including
+abstentions. This is the empirical E-value and the empirical FPR at
+that threshold. The ordered cutoff excludes its boundary tie.
+No-score rows always abstain, even when their placeholder E is zero.
+See the [ordered calibration formalism](https://docs.isalgo.dev/vdjmatch/vx-formalism.html#calibration-from-an-ordered-null-sample).
+At a common cutoff, `Q*FPR` estimates expected false calls for `Q`
+opportunities from the same null source. Sample enrichment uses the
+same endpoint in observed and Pgen-matched mock panels.
 The accepted yellow-fever curve-mean decision uses its positive-hit mock
 tail and donor/day correction.
 
