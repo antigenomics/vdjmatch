@@ -33,7 +33,6 @@ exact-hit exclusion masks hits and leaves the reference model fixed.
 Receptor distance
 -----------------
 
-
 For one chain, let :math:`B(a,b)` be the BLOSUM62 substitution score.
 The native comparison charges zero for identical residues. For distinct
 canonical residues it charges :math:`\delta(a,b)=\min(4,[4-B(a,b)]_+)`,
@@ -48,16 +47,24 @@ substitution and the cost of one gap residue both 12 native distance units.
 Let :math:`d=|\ell_q-\ell_r|` be the length difference of the full
 junctions, with lengths :math:`\ell_q` and :math:`\ell_r`, and
 :math:`\Pi(q,r)` the permitted alignments of their retained residues.
-The accepted vX geometry reproduces the comparator’s default junction
-cost on supported canonical inputs. At equal lengths there is one ungapped alignment. With
-unequal lengths, one block spans the full length difference. If
-the shorter full junction has :math:`s\geq 10` residues, the block
-can follow :math:`5,6,\ldots,s-5` residues counted from its N terminus,
-giving :math:`s-9` candidate sites. For example, a shorter junction of
-length 13 gives four sites. For shorter junctions, widen the initial
-interval symmetrically until it contains a site, then intersect it
-with legal boundaries of the trimmed core. The trim always removes
-three N-terminal and two C-terminal residues from the substitution sum.
+The accepted vX geometry reproduces the comparator's default junction
+cost on supported canonical inputs. At equal lengths there is one
+ungapped alignment. For unequal lengths, the block spans the whole
+length difference. Let :math:`s` be the shorter full junction length
+and :math:`j` the number of its residues before the gap.
+The legal placements are the integer boundaries satisfying
+
+.. math::
+
+   h=\min\{5,\lfloor s/2\rfloor\},\qquad
+   \max(3,h)\leq j\leq\min(s-2,s-h).
+
+The first interval :math:`[h,s-h]` is the result of symmetrically
+widening :math:`[5,s-5]` until it is nonempty. The second interval
+:math:`[3,s-2]` limits placements to the trimmed core and its ends.
+For example, :math:`s=13` gives four placements, after residues 5
+through 8. At the minimum supported frozen length :math:`s=5`,
+the trimmed core is empty and only boundary 3 is legal.
 A 3-N/3-C research variant trims one more C-terminal residue.
 
 The native comparator also allows a fixed position for the single gap and permits
@@ -193,8 +200,8 @@ separate 3-N/4-C flank split caused regressions in the organizer
 replay.
 
 The fraction :math:`1/512` was selected by matched benchmark replay.
-At :math:`1/256` the local variant lowered two fixed-reference paired
-fixed-reference human endpoints. The smaller local fraction improved five organizer
+At :math:`1/256` the local variant lowered two paired fixed-reference
+human endpoints. The smaller local fraction improved five organizer
 and four fixed-reference endpoints with zero losses, keeping all six
 measured NLV endpoints and all three LLL–LLW–ELA correct counts.
 This is an explicit human research component. Whole-search

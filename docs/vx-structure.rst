@@ -58,16 +58,43 @@ target-specific cutoffs. For an inclusive distance cutoff :math:`D\le r`,
 require :math:`P\subseteq Q` and
 :math:`\max_{u\in P}D(u)\le r<\min_{u\in Q\setminus P}D(u)`.
 
-Exact and Hamming matching are recovered in an idealized geometry with
-full junctions, no indels, a constant positive cost :math:`\lambda` per
-substitution and the same hard gene and target masks. On eligible
-comparisons, :math:`D(x,y)=\lambda H(x,y)`, so :math:`D\le\lambda h` is exactly
-:math:`H\le h`. Taking the minimum distance over eligible references preserves
-this equivalence for target membership, with an empty reference set
-giving infinite distance. For a paired-chain receptor with the same radius on both
-chains, take the maximum of the two chain distances before minimizing
-over paired-chain references. Summing the chain distances bounds the total
-substitution count. A two-substitution total admits two differences on
+To recover single-chain Hamming membership from the score, compare
+full junctions without indels, use a constant cost :math:`\lambda>0`
+per substitution, and apply the same hard eligibility mask. Set the
+loop, source, competition and second-hit contributions to zero. If
+:math:`R_e` is the eligible reference set for target :math:`e`, the
+score and membership rule then reduce to
+
+.. math::
+
+   S_e(q)=-\lambda\min_{r\in R_e}H(q,r),\qquad
+   S_e(q)\geq-\lambda h\ \Longleftrightarrow\
+   \min_{r\in R_e}H(q,r)\leq h.
+
+An empty reference set gives no hit. Apply the rule to each target
+independently to retain all supported labels. A winning-label policy
+can further reduce those labels.
+
+For a radius :math:`h` applied separately to each chain, let
+:math:`R_{\alpha\beta,e}` be the eligible linked keys and
+:math:`R_{\alpha,e},R_{\beta,e}` the eligible chain keys of target
+:math:`e`. The two matching rules use
+
+.. math::
+
+   \begin{aligned}
+   D_{\rm pair}(q,e)&=\min_{r\in R_{\alpha\beta,e}}
+      \max\{H(q_\alpha,r_\alpha),H(q_\beta,r_\beta)\},\\
+   D_{\rm int}(q,e)&=\max\left\{
+      \min_{r\in R_{\alpha,e}}H(q_\alpha,r),
+      \min_{r\in R_{\beta,e}}H(q_\beta,r)\right\}.
+   \end{aligned}
+
+Apply :math:`D\le h` to either distance. The minimum of an empty
+set is :math:`+\infty`. When the chain pools include the corresponding
+linked chains under the same masks, :math:`D_{\rm int}\le D_{\rm pair}`.
+Summing the chain distances sets a total
+substitution budget. A budget of two admits two differences on
 one chain, which the per-chain radius-one rule excludes.
 
 In the :doc:`vX research score <vx-formalism>` distance and score terms
@@ -498,7 +525,8 @@ Contact windows on an IMGT alignment
 ------------------------------------
 
 For a structural contact profile, let :math:`f_j` be the observed contact
-frequency at aligned column :math:`j`, with :math:`n_j` resolved strata.
+frequency at aligned column :math:`j`, with support :math:`n_j`
+measured in resolved strata.
 Report peptide and MHC contacts separately, and count a site once in their
 union. A support-weighted Gaussian with width :math:`h` in alignment columns
 gives
@@ -510,7 +538,8 @@ gives
             {\sum_k n_k\exp[-(j-k)^2/(2h^2)]}.
 
 Observed zeros contribute to the denominator. Unobserved columns have
-:math:`n_k=0`. A value there is an interpolation.
+:math:`n_k=0`. A value there is an interpolation. The smoothed frequency
+is undefined if there is no resolved support anywhere in the profile.
 Use valleys between stable peaks to locate contiguous windows. Retain
 all observed positive scoring sites in their windows.
 
@@ -523,7 +552,9 @@ costs :math:`\delta_j`, define
    M_R=\sum_{j\in R}f_j,\qquad
    K_R=\frac{M_R^2}{\sum_{j\in R}f_j^2}.
 
-The mean cost :math:`A_R/M_R` has the same mismatch scale for every window.
+For :math:`M_R>0`, the mean cost :math:`A_R/M_R` has the same
+mismatch scale for every window. An empty window has no region
+contribution to estimate.
 The contact mass :math:`A_R` also reflects the number and recurrence of
 contacting sites. The effective-width cost :math:`K_RA_R/M_R` has the
 units of a substitution sum. Equal site weights make :math:`K_R` the
@@ -550,8 +581,9 @@ and one paired-chain reference, the coupled contact cost is
             {4\sum_{i,j}p_{ij}}.
 
 The product is zero when either endpoint is unchanged. The divisor
-four is the maximum clipped single-site cost, so the coupled term has
-the same units and range as one site. It supplements the two chain
+four is the maximum clipped single-site cost, so
+:math:`0\le C_{\alpha\beta}\le 4` for positive total contact weight.
+The coupled term has the same units and range as one site. It supplements the two chain
 distances before the shared paired-chain hit list is ordered. This research
 term uses only verified canonical V-domain sites. Give missing
 templates the frozen target geometry and retain the hit-list exclusions.
@@ -569,8 +601,10 @@ distinct positive V pairs.
 Estimate the weights separately by species. The human paired benchmarks
 test the human template only.
 
-The human benchmarked extension adds :math:`C_{\alpha\beta}/32` to each
-paired-chain target distance. The two target hits are reordered after the
+The frozen distance has zero contact amplitude. The human benchmarked
+extension adds :math:`C_{\alpha\beta}/32` to each
+paired-chain target distance, at most :math:`1/8` distance unit per key.
+The two target hits are reordered after the
 correction. The competitor still uses the frozen native geometry. Of 16
 tested amplitudes, :math:`1/32` alone improved TCRvdb ranking while
 preserving all matched matrix and reference-depth endpoints. It retained

@@ -68,7 +68,11 @@ vdjtools subset-rarefaction APIs. The vX clustering benchmark uses reciprocal
 k-NN on weighted pairwise distances with all boundary ties retained. The vX
 target score instead uses the fixed target and competitor panels. A common
 vX cutoff reproduces exact or Hamming calls only when the score ordering
-strictly separates the two membership sets. See the
+strictly separates the two membership sets. Full ungapped junctions,
+uniform mismatch costs and disabled loop and evidence terms recover
+per-target Hamming membership. For a chain-specific radius on an
+observed pair use the maximum of its two chain distances before
+minimizing over paired-chain reference keys. See the
 [structure and rarefaction equations](https://docs.isalgo.dev/vdjmatch/vx-structure.html).
 
 For contact-derived geometry research, align native structural positions in
