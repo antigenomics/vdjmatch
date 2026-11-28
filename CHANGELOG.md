@@ -10,10 +10,16 @@
   reference, model, and exact-hit policy.
 - Add fixed-catalogue motif ranking and paired assay scoring commands for
   reproducible research comparisons.
-- Use vX for ordinary mouse paired-chain annotation invoked without a
-  score-model override. The previous scorer remains available as `--score-model kernel`.
-- Accept a matching null bank in `annotate --vx-null-dir` to report calibrated
-  paired mouse calls, E-values and null-tail counts.
+- Default ordinary human and mouse annotation to vX for single TRA,
+  single TRB, paired-chain and mixed inputs. Use `--score-model kernel`
+  for the previous scorer.
+- To report calibrated calls, E-values and null-tail counts, supply a
+  matching `--vx-null-dir` for every active primary locus. With no bank,
+  vX reports ranked evidence.
+- Report separate TRA and TRB evidence for paired queries, including
+  unlinked reference chains. The paired result determines the primary call.
+- Reduce catalogue preparation time by grouping reference rows before
+  checking peptide–MHC compatibility.
 
 - Report exact, finite-population rediscovery probabilities for V-conditioned
   motifs at user-specified TCR sampling depths in `reference-profiles`.
