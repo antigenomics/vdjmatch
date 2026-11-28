@@ -1296,8 +1296,8 @@ Input label columns, if present, remain metadata or candidate evidence; they are
 not accepted predictions when ``call_status`` is ``no_supported_match``.
 
 Add ``--null-cases calibration-input.tsv`` to report per-query ``p_null`` and
-``E_null`` from the frozen null scores. This must be the original combined
-``calibrate-calls`` input: its SHA-256 must match the saved recipe. Only rows
+``E_null`` from the frozen null scores. Supply the original input to
+``calibrate-calls`` or ``calibrate-ordered-calls`` so its SHA-256 matches the recipe. Only rows
 with ``outcome=null`` define tails. For each source, let N be all null queries
 (including no-hits), and k the number whose selected scores are at least as
 extreme as the query score (including ties). Then P=(k+1)/(N+1) and E=k/N.
@@ -1415,6 +1415,10 @@ cutoff at the adjacent binary64 value. Every tie at the boundary is
 rejected. An ``abstain_all`` recipe rejects every query if no allowance
 qualifies or no representable score clears the boundary. The recipe
 records the binomial bound separately from the observed call rate.
+It also records ``empirical_E_cutoff``, the allowance divided by the
+null sample size. When this cutoff exists, ``--null-cases`` reports
+``E_null`` and the accepted rows are exactly the supported queries
+whose ``E_null`` is at or below the cutoff.
 By default, higher scores pass. An unbound recipe can
 instead use ``--lower-is-better``. Use ``--input-manifest`` for supported
 producer binding. See :doc:`vx-formalism` for the order-statistic argument.

@@ -586,6 +586,23 @@ uses an independent evaluation background after radius selection.
 
 Use ``vdjmatch calibrate-ordered-calls`` to fit this boundary and
 ``vdjmatch apply-call-calibration`` to apply the saved recipe.
+For a supported query with unique winning score :math:`z`, its
+empirical E-value is
+
+.. math::
+
+   E(z)=\frac{\#\{i:Z_i\geq z\}}{B}.
+
+The strict ordered cutoff is equivalent to accepting a supported
+query when :math:`E(z)\leq k/B`. A query at the boundary counts the
+entire tied block in its tail and is rejected. At the 100,000-query
+example this gives :math:`E\leq 0.00948` under a 1% population cap at
+95% confidence under the stated sampling assumptions. The E-value is
+expected false calls per query estimated on the calibration source.
+The binomial bound controls the probability of exceeding a population
+cap over calibration samples. Unsupported and ambiguous queries
+abstain regardless of the placeholder E-value. Ordinary calibration
+retains exact hits in both the query and null scoring pipelines.
 
 Assignment and complete-query calibration
 -----------------------------------------

@@ -76,6 +76,7 @@ def fit_ordered_calls(frame, target_fpr, confidence, *, higher_is_better=True,
         strict_boundary=boundary, boundary_at_abstention=at_abstention,
         target_null_query_call_rate=target_fpr, confidence=confidence,
         allowed_calibration_calls=allowed,
+        empirical_E_cutoff=allowed / size if allowed is not None else None,
         binomial_violation_bound=(0.0 if allowed is None else
                                   float(binom.cdf(allowed, size, target_fpr))),
         binomial_confidence_bound=(1.0 if allowed is None else

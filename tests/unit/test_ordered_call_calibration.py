@@ -4,7 +4,7 @@ import sys
 import polars as pl
 import pytest
 
-from vdjmatch.cli.calibration import apply_calibration
+from vdjmatch.cli.calibration import apply_calibration, null_tail_probabilities
 from vdjmatch.cli.ordered_calls import fit_ordered_calls
 
 
@@ -18,12 +18,17 @@ def test_ordered_cutoff_excludes_boundary_ties_and_accepts_the_next_float(sign):
     }).with_columns(pl.col('score') * sign)
     recipe = fit_ordered_calls(nulls, .5, .75, higher_is_better=sign == 1)
     assert recipe['allowed_calibration_calls'] == 3
+    assert recipe['empirical_E_cutoff'] == .3
     assert recipe['binomial_violation_bound'] == pytest.approx(.171875)
     assert recipe['strict_boundary'] == sign * 8
     assert recipe['nulls'] == [{'source': 'generated', 'queries': 10, 'calls': 2, 'call_rate': .2}]
     adjacent = math.nextafter(sign * 8, sign * math.inf)
     queries = pl.DataFrame({'query_id': [0, 1, 2], 'score': [sign * 8.0, adjacent, None]})
-    assert apply_calibration(queries, recipe)['call_score'].to_list() == [None, adjacent, None]
+    applied = apply_calibration(queries, recipe)
+    assert applied['call_score'].to_list() == [None, adjacent, None]
+    tails, _ = null_tail_probabilities(queries, nulls, higher_is_better=sign == 1)
+    accepted_on_e = queries['score'].is_not_null() & (tails['E_null'] <= recipe['empirical_E_cutoff'])
+    assert accepted_on_e.to_list() == applied['call_score'].is_not_null().to_list()
 
 
 def test_ordered_abstention_boundaries_and_input_contract():
@@ -33,6 +38,7 @@ def test_ordered_abstention_boundaries_and_input_contract():
     })
     recipes = [fit_ordered_calls(nulls, .01, .95), fit_ordered_calls(nulls, .5, .95)]
     assert recipes[0]['allowed_calibration_calls'] is None
+    assert recipes[0]['empirical_E_cutoff'] is None
     assert recipes[0]['action'] == 'abstain_all'
     assert recipes[1]['allowed_calibration_calls'] == 0
     assert recipes[1]['boundary_at_abstention']
