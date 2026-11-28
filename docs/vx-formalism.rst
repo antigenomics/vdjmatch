@@ -50,6 +50,9 @@ kernel that accepts similarities can represent this cost as
 conversion :math:`s(a,a)+s(b,b)-2s(a,b)` yields :math:`2\delta(a,b)`.
 The frozen junction code divides out that factor before applying the
 junction weight of three. Gap costs must follow the same unit conversion.
+Unconstrained local alignment on nonpositive similarities can always
+choose the empty alignment at score zero. Use raw similarities for the
+local arm, or require residue coverage in a cost-minimizing alignment.
 
 The experimental Smith–Waterman and Needleman–Wunsch arms instead
 align using raw BLOSUM62 similarities and affine gap penalties. Let
@@ -70,6 +73,10 @@ objective and can select different alignments. Local and global modes also
 optimize different alignment sets. Treat the resulting distance as a
 dissimilarity unless its metric properties are established for the
 chosen mode. Apply segment weights after the conversion to distance.
+Align each contiguous framework segment independently. An isolated
+TRA–TRB contact joins positions on two chains and is evaluated as a
+pair of sites under the interface term. It does not define a continuous
+sequence segment for alignment.
 
 For target key :math:`r`, order hits by
 :math:`d(q,r;e)=D_w(q,r)-a\log_2\max(1,n_{er})`, where :math:`n_{er}` counts
