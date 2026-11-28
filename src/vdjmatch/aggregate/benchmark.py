@@ -22,14 +22,18 @@ def capped_query_indices(case_keys, annotations, targets, *, seed=20261128, cap=
     if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1:
         raise ValueError("cap must be a positive integer")
 
-    order = sorted(range(len(case_keys)), key=lambda i: json.dumps(case_keys[i]))
+    eligible_labels = [targets.intersection(labels) for labels in annotations]
+    order = sorted(
+        (i for i, labels in enumerate(eligible_labels) if labels),
+        key=lambda i: json.dumps(case_keys[i]),
+    )
     Random(seed).shuffle(order)
 
     occupancy = Counter()
     selected = []
     for i in order:
-        labels = targets.intersection(annotations[i])
-        if labels and all(occupancy[label] < cap for label in labels):
+        labels = eligible_labels[i]
+        if all(occupancy[label] < cap for label in labels):
             selected.append(i)
             occupancy.update(labels)
     return sorted(selected)

@@ -9,5 +9,6 @@ def test_cap_respects_all_target_memberships_and_order_permutation():
     first = capped_query_indices(cases, labels, targets, cap=1)
     second = capped_query_indices(cases[::-1], labels[::-1], targets, cap=1)
     assert {cases[i] for i in first} == {cases[::-1][i] for i in second}
+    assert first == capped_query_indices(cases[:3], labels[:3], targets, cap=1)
     assert 3 not in first
     assert all(sum(target in labels[i] for i in first) <= 1 for target in targets)
