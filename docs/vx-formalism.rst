@@ -317,6 +317,62 @@ For example, if a TRB target has only one hit, the repeated distance gives
 zero gap contribution. With an empty competitor panel, its score is
 then simply :math:`-d_1`.
 
+Paired-chain score and neighborhood decisions
+------------------------------------------------
+
+For a genuine paired-chain reference, first add the two chain distances.
+Let :math:`d_1,d_2` be the first two ordered distances to the same target
+and :math:`c_1` the nearest compatible native other-peptide distance.
+The paired score applies the competitive terms once to those joint
+distances:
+
+.. math::
+
+   S_{\alpha\beta}=-d_1-\frac{[d_1+12-c_1]_+}{40}
+     -\frac{\min\{48,[(d_1+d_2)/2-d_1]_+\}}{10}.
+
+The margin 12 is twice the fitted six units per chain. The cap 48
+is twice the single-chain cap. Separate best hits on the two chains
+cannot supply :math:`d_1`.
+
+On the paired organizer panel, the vX replay evaluates within-target
+neighborhood density.
+For a group of :math:`n` constructs, mask the query itself and any
+additional exact paired-junction hits specified by the protocol. Order
+the remaining distances :math:`d_{(1)}\leq\cdots\leq d_{(k)}` and use
+
+.. math::
+
+   S_{\text{assay}}=-\frac{\sum_{j=1}^k (k-j+1)^{7/3}d_{(j)}}
+                              {\sum_{j=1}^k(k-j+1)^{7/3}},\qquad
+   k=\max\{1,\lfloor 0.124(n-1)\rfloor\}.
+
+The decreasing rank weights emphasize the closest neighbors. The
+fraction and exponent were selected on the organizer assay. If fewer
+than :math:`k` distances are finite, the case is unscored. Equal distances
+at the boundary have equal effect on this distance average. This score
+operates within an already specified target group.
+
+For cross-target classification, a count-based neighborhood can instead
+use the same receptor distances with a radius :math:`r`. For the finite
+eligible reference set :math:`H(q)` and the labels :math:`L(h)` of reference
+key :math:`h`, define
+
+.. math::
+
+   V_e(q;r)=\sum_{h\in H(q)}
+     \mathbf{1}\{D(q,h)\leq r\}\mathbf{1}\{e\in L(h)\}.
+
+One fixed-radius rule chooses a unique maximum positive vote, subject to
+a declared minimum support. A kNN version sets :math:`r` to the
+:math:`k`-th finite distance, using the last distance if fewer than
+:math:`k` eligible hits exist. It includes all ties at the boundary.
+Count each distinct physical key once per supported label and
+abstain for no eligible hit, insufficient support, or tied target votes.
+This is a classification rule for evaluation. The accepted organizer
+density score and the fixed-reference evidence score above retain
+their respective definitions and cutoff scopes.
+
 Assignment and complete-query calibration
 -----------------------------------------
 
