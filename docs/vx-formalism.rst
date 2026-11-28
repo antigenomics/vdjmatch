@@ -573,6 +573,9 @@ the same argument when its call sets are nested and admit one scalar
 score. A family in which adding neighbors can create an abstention
 uses an independent evaluation background after radius selection.
 
+Use ``vdjmatch calibrate-ordered-calls`` to fit this boundary and
+``vdjmatch apply-call-calibration`` to apply the saved recipe.
+
 Assignment and complete-query calibration
 -----------------------------------------
 

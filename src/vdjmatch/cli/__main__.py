@@ -946,6 +946,8 @@ def main(argv: list[str] | None = None) -> int:
     register_pgen(sub)
     from .calibration import register as register_calibration
     register_calibration(sub)
+    from .ordered_calls import register as register_ordered_calls
+    register_ordered_calls(sub)
     from .reference_calls import register as register_reference_calls
     register_reference_calls(sub)
     from .reference_confusion import register as register_reference_confusion

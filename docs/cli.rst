@@ -1371,25 +1371,6 @@ null scores and leaves recall and precision unavailable. Including labelled
 queries adds their scores to the candidate cutoff grid. It can change the
 numeric cutoff while preserving the selected null calls.
 
-For one independent null bank, derive a call-count allowance :math:`k`
-from the planned population error cap and confidence, as described in
-:doc:`vx-formalism`. If the bank has :math:`B` queries, pass :math:`k/B`
-to this command as its empirical target. For example:
-
-.. code-block:: bash
-
-   vdjmatch calibrate-calls cases.tsv --target-fpr 0.00948 --output-prefix calibration
-   vdjmatch apply-call-calibration queries.tsv --calibration calibration.calibration.json --output calls.tsv
-
-Here :math:`B=100{,}000` and :math:`k=948` for a predeclared 1% cap at
-95% confidence. The higher-is-better recipe's inclusive observed cutoff
-is at least as strict as the ordered-null rule. Both rules select the
-same fitting queries. The observed cutoff can reject future scores
-between the two cutoffs. An ``abstain_all`` recipe rejects every score.
-The confidence calculation
-requires a frozen scoring pipeline and independent draws from the
-declared null population.
-
 This command computes an empirical recommendation candidate. The input hash
 is recorded; callers must also pin the producing scorer, geometry, reference,
 model/seed, identity exclusion and query populations before recommending it.
@@ -1413,6 +1394,34 @@ exact VDJdb hits; recommendations for nonexact extrapolated matches should not
 screen out that direct evidence. Exact sequence identity is certain. A shared
 single-chain sequence with multiple specificity labels still requires an
 ambiguous disposition rather than a unique antigen call from identity alone.
+
+vdjmatch calibrate-ordered-calls
+--------------------------------
+
+Fit a cutoff for a predeclared population any-call cap from one IID null
+sample. Supply one row per query, all with ``outcome=null`` and the same
+nonempty ``null_source``. The input score represents the final decision
+after label selection. Use a null score for an abstention or unsupported
+query, and keep those rows in the sample.
+
+.. code-block:: bash
+
+   vdjmatch calibrate-ordered-calls nulls.tsv --target-fpr 0.01 --confidence 0.95 --output calibration.json
+   vdjmatch apply-call-calibration queries.tsv --calibration calibration.json --output calls.tsv
+
+For 100,000 null queries this selects order-statistic allowance 948. The
+recipe records the strict score boundary and an equivalent inclusive
+cutoff at the adjacent binary64 value. Every tie at the boundary is
+rejected. An ``abstain_all`` recipe rejects every query if no allowance
+qualifies or no representable score clears the boundary. The recipe
+records the binomial bound separately from the observed call rate.
+By default, higher scores pass. An unbound recipe can
+instead use ``--lower-is-better``. Use ``--input-manifest`` for supported
+producer binding. See :doc:`vx-formalism` for the order-statistic argument.
+The guarantee requires independent draws from the declared null
+population and the complete scorer, reference and decision rule frozen
+before examining the null. Keep the recipe for these assumptions and
+the bound, which the generic apply command does not evaluate.
 
 vdjmatch reference-calls
 ------------------------
