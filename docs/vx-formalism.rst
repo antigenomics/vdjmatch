@@ -713,6 +713,25 @@ source-specific rates meet the cap, with an abstain-all option. The generated
 single-chain banks come from rearrangement models and the pair bank uses
 independent TRA and TRB draws.
 
+Recorded-target precision
+-------------------------
+
+Among catalogue positives, let :math:`r_t` be the fraction called
+with a recorded target and :math:`u_t` the fraction called with a
+different target at cutoff :math:`t`. For a mixture with positive
+fraction :math:`\pi` and generated background source :math:`s`, the
+fraction of all calls that recover a recorded target is
+
+.. math::
+
+   \operatorname{Precision}_{s,\pi}(t)=
+   \frac{\pi r_t}{\pi(r_t+u_t)+(1-\pi)\widehat f_s(t)}.
+
+Precision is undefined when the mixture produces no calls. Count
+other-target calls on positives in the denominator. They receive no
+credit under the recorded catalogue annotation. The estimates apply
+to the stated mixture and its conditional query populations.
+
 Expected counts and repertoire enrichment
 -----------------------------------------
 
