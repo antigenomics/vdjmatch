@@ -446,6 +446,39 @@ Another optional weight multiplies each edge's current weight by
 The base weight is one when local weighting is off. Both options
 use the reciprocal edge set.
 
+Radius graphs at the reciprocal edge budget
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Let :math:`B` be the number of reciprocal edges and let :math:`d_*`
+be the first observed distance at which the inclusive count of eligible
+unordered pairs exceeds :math:`B`. Write :math:`m` for the number of
+pairs closer than :math:`d_*` and :math:`t` for the number at that
+distance. The hard-radius graph keeps the :math:`m` closer pairs.
+For the fractional boundary graph, each eligible pair receives weight
+
+.. math::
+
+   w_{ij} =
+   \begin{cases}
+     1, & D_{ij}<d_*,\\
+     (B-m)/t, & D_{ij}=d_*,\\
+     0, & D_{ij}>d_*.
+   \end{cases}
+
+Thus all boundary ties have equal weight and the graph has total
+undirected edge weight :math:`B`. If every eligible pair fits, use
+unit weights on all of them. Apply weighted Louvain with the same seed
+and resolution. An isolate variant of the hard-radius graph adds the
+nearest tied reciprocal neighbors of vertices isolated by that radius.
+
+On the locked human and mouse single-chain cohorts, the hard-radius
+and fractional graphs raised adjusted Rand and V-measure over the
+original native reciprocal graph in all four lanes. Relative to the
+hard-radius vX graph, fractional boundary weights increased same-label
+pair recall in all four lanes. Comparisons against native geometry
+using the same graph rule showed a mix of gains and losses. These are
+clustering comparisons using the historical peptide labels.
+
 Contact windows on an IMGT alignment
 ------------------------------------
 
