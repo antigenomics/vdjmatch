@@ -1,8 +1,8 @@
 """Cohort rules for matched full-catalogue VDJdb benchmarks."""
 
 from collections import Counter
-from hashlib import sha256
 import json
+from random import Random
 
 
 def admitted_targets(source_counts):
@@ -22,13 +22,12 @@ def capped_query_indices(case_keys, annotations, targets, *, seed=20261128, cap=
     if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1:
         raise ValueError("cap must be a positive integer")
 
-    def order_key(i):
-        key = json.dumps([seed, *case_keys[i]], separators=(",", ":")).encode()
-        return sha256(key).digest(), key
+    order = sorted(range(len(case_keys)), key=lambda i: json.dumps(case_keys[i]))
+    Random(seed).shuffle(order)
 
     occupancy = Counter()
     selected = []
-    for i in sorted(range(len(case_keys)), key=order_key):
+    for i in order:
         labels = targets.intersection(annotations[i])
         if labels and all(occupancy[label] < cap for label in labels):
             selected.append(i)

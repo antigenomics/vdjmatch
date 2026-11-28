@@ -232,8 +232,8 @@ paired-chain lane count genuine paired observations. Count distinct
 physical query keys separately from source records and reference keys.
 
 Report both all eligible cases and a capped query view. To construct
-the capped view, sort unique physical query keys by SHA-256 of a
-compact JSON array containing seed 20261128 followed by the key fields.
+the capped view, put unique physical query keys in canonical order,
+then shuffle with Python's ``random.Random(20261128)``.
 Use junction and V call for one chain and both junctions and V calls
 for a pair. Keep a case only when each of its eligible annotations
 has fewer than 300 selected cases. Retain the case's complete label
@@ -241,6 +241,11 @@ set. Fix the reference catalogue in both views and apply exact
 exclusion only to the hit list. Keep unsupported cases in matched
 evaluation. Other target annotations in VDJdb provide comparison
 cases for this catalogue-recovery task.
+
+Apply this eligibility cutoff and cap only to full-VDJdb benchmarking.
+Use TCRvdb, NLV and the LLL–LLW–ELA assay as supplied. Epitope
+structure classification, motif counts, rarefaction, neighbourhood
+graphs and mismatch-aware functional diversity use the full depth.
 
 The original VDJdb paper describes sequence similarity networks.
 The subsequent VDJdb motif compendium used at least 30 distinct
