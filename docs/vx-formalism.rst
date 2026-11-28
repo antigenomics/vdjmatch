@@ -291,6 +291,42 @@ their anchors. The output retains all query–target scores and flags
 unique winners and tied maxima.
 Add ``--motif-length 4`` to replay the four-residue setting.
 
+Paired-chain motif refinement
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For each target, let :math:`S_e` be the base score and
+:math:`M_{\alpha e}, M_{\beta e}` the fixed reference motif enrichment
+on the two chains. Treat missing motif values as zero and let
+:math:`M_e=\min(M_{\alpha e},M_{\beta e})`. The selected mouse
+rule penalizes conflict only. For a supported target strictly below the
+query maximum :math:`S_*` and with more than two distinct reference
+keys, the refined score is
+
+.. math::
+
+   S'_e = \min\{S_e+4\min(M_e,0),\,\operatorname{pred}(S_*)\}.
+
+Here :math:`\operatorname{pred}(S_*)` is the greatest representable
+floating-point value below :math:`S_*`. The same cap applies with a
+zero motif adjustment to lower scores with at most two keys.
+Every maximal score and every unsupported target retains its base value.
+The weight four was selected on the mouse catalogue benchmark. On the
+matched class-I and class-II mouse paired catalogue it improved all 39
+ranking endpoints versus both frozen vX and native TCRdist3.
+
+For the same base scores and full target context, the maximum and the
+set of targets attaining it are exactly invariant. Consequently any final
+decision that uses only a unique maximum and a fixed cutoff has identical
+calls, including on null queries. This holds pointwise, so null call counts
+and the FPR curve are identical at every cutoff on a fixed null bank.
+The refinement provides no improvement to that detector's FPR. A change
+to the base geometry or any downstream decision based on lower ranks
+requires its own calibration check.
+
+Replay with ``vdjmatch paired-motif-rank`` using the complete target
+axis, aligned base and chain motif matrices, target key counts, and
+``--support-weight 0 --conflict-weight 4``.
+
 Competitive score diagnostics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
