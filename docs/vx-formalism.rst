@@ -19,6 +19,20 @@ The novel vX contribution is how distance and reference evidence
 are combined into a target score, together with the separately
 verified neighborhood rules.
 
+Benchmark provenance
+--------------------
+
+The measured NLV and ELA–LLW–LLL experiments are separate query
+cohorts. TCRvdb was compiled without those two experimental series.
+An NLV- or LLW-labelled target in TCRvdb denotes a target in that
+cohort. VDJdb is the reference catalogue and may contain records
+from the separate experiments. Cohort provenance and exposure to the
+reference or a rival's training data are separate checks. Benchmark
+exact-hit exclusion masks hits and leaves the reference model fixed.
+
+Receptor distance
+-----------------
+
 
 For one chain, let :math:`B(a,b)` be the BLOSUM62 substitution score.
 The native comparison charges zero for identical residues. For distinct
@@ -31,10 +45,11 @@ substitution sum. For junctions of different lengths, the native alignment
 places one contiguous gap block and charges four units per gap residue.
 The junction's weight of three makes the maximum cost of one core
 substitution and the cost of one gap residue both 12 native distance units.
-Let :math:`d` be the full junction length difference and
+Let :math:`d=|\ell_q-\ell_r|` be the length difference of the full
+junctions, with lengths :math:`\ell_q` and :math:`\ell_r`, and
 :math:`\Pi(q,r)` the permitted alignments of their retained residues.
 The accepted vX geometry reproduces the comparator’s default junction
-alignment. At equal lengths there is one ungapped alignment. With
+cost on supported canonical inputs. At equal lengths there is one ungapped alignment. With
 unequal lengths, one block spans the full length difference. If
 the shorter full junction has :math:`s\geq 10` residues, the block
 can follow :math:`5,6,\ldots,s-5` residues counted from its N terminus,
@@ -58,18 +73,21 @@ the aligned index pairs :math:`(i,j)\in\pi`, the junction cost is
    D_J(q,r)=4d+\min_{\pi\in\Pi(q,r)}
       \sum_{(i,j)\in\pi}\delta(q_i,r_j).
 
-Let :math:`D_1,D_2,D_{\rm FR3}` be the aligned costs for CDR1, CDR2 and
-the short FR3 segment historically indexed as CDR2.5. The frozen
-per-chain geometry is
+Let :math:`D_1,D_2,D_{\rm FR3}` be the costs for CDR1, CDR2 and
+the short FR3 segment historically indexed as CDR2.5. Each sums
+:math:`\delta` over corresponding columns in the bundled, aligned
+V-allele templates for that species and locus. A column contributes
+zero if either template lacks a canonical amino acid there.
+The native distance is :math:`D_0=3D_J+D_1+D_2+D_{\rm FR3}`.
+The frozen per-chain geometry is
 
 .. math::
 
    D_w = 3D_J + D_1 + \frac34 D_2 + \frac32 D_{\rm FR3}
              + \frac{D_1+D_2+D_{\rm FR3}}{256}.
 
-The frozen distance scores the selected FR3 segment and the two CDR loops. In
-code the native distance has unit loop weights, and vX adds the three
-weight differences to that native distance in the original order.
+The implementation starts from :math:`D_0` and adds the three loop
+weight corrections in the frozen binary64 order.
 The fractions encode the selected geometry exactly. The simpler base weights
 :math:`(1,3/4,3/2)` lowered 23 of the 72 frozen ranking endpoints on the matched comparison.
 
@@ -255,10 +273,12 @@ and :math:`(9,3)` give joint hit distances 12 and 16. Taking the minimum of
 each chain separately would give 5, a distance to neither paired-chain key.
 
 
-Let :math:`d_1\le d_2` be the two smallest target hit distances, including
-equal distances from distinct keys. A singleton repeats :math:`d_1`.
+Let :math:`d_1\le d_2` be the two smallest finite target hit distances,
+including equal distances from distinct keys. If only one hit is finite,
+repeat :math:`d_1`.
 Let :math:`c` be the :math:`k`-th smallest **native** distance in the pooled
-background of compatible other-peptide keys. Use the last position if the
+background of other-peptide keys with compatible MHC-A, MHC-B and
+MHC class. Count each distinct key in that union once. Use the last position if the
 fixed background has fewer than :math:`k` keys, and :math:`+\infty` for an
 empty background. Under benchmark exact exclusion, read masked hit distances
 as :math:`+\infty` without changing model counts or rank positions. The exact
@@ -280,15 +300,16 @@ from the generated-bank rate.
 Let :math:`L` count observed chains and let :math:`C=3\cdot4=12`
 be the maximum weighted junction cost of a single substitution or
 gap residue. Limit the total difference between the first and second
-hit distances to :math:`4LC`, equivalent to four maximum-cost residue
-edits per observed chain. The midpoint cap is :math:`g_\star=2LC`.
-In real arithmetic,
+hit distances to :math:`4LC`, the same cost as four maximum-cost
+junction edits per observed chain. This sets the scale of the cap
+and allows the hit distances to include loop costs. The midpoint cap
+is :math:`g_\star=2LC`. The implemented score is
 
 .. math::
 
    \begin{aligned}
    X &= [d_1+Lm-c]_+,\\
-   G &= \tfrac12\min\{d_2-d_1,4LC\},\\
+   G &= \min\{g_\star,[(d_1+d_2)/2-d_1]_+\},\\
    S(q,e) &= -d_1-\gamma X+bG.
    \end{aligned}
 
@@ -312,8 +333,8 @@ junction of length :math:`\ell` can contribute up to
 change the range further. In the matched fixed-reference human ranking queries
 (2,636 records per axis), median full junction lengths were 13 for TRA
 and 14 for TRB. Their median core lengths of eight and nine give loose
-substitution-only midpoint scales of 48 and 54 units. A length-based cap
-would set :math:`g_\star(q)=6\sum_i[\ell_i-5]_+`. Here :math:`\ell_i`
+substitution-only midpoint scales of 48 and 54 units. A tested length-based
+cap used :math:`g_\star(q)=6\sum_i[\ell_i-5]_+`. Here :math:`\ell_i`
 is the full junction length of observed chain :math:`i`. Neither this
 capacity nor the cost matrix determines how far apart the two best
 reference hits are in a real panel. The original support-gap sweep fixed the
@@ -325,11 +346,15 @@ changed 374 scores and lowered 32 of 78 endpoints.
 Doubling it or using the query-core capacity each changed 69 scores and
 lowered six endpoints. All cap options beat the native comparator on the 78
 endpoints. The frozen cap also preserved all frozen vX endpoints.
-Binary64 evaluation forms the midpoint before subtracting :math:`d_1`,
-then limits the result to :math:`[0,g_\star]`.
+In real arithmetic :math:`G=\min\{d_2-d_1,4LC\}/2`.
+Binary64 evaluation forms the midpoint before subtracting :math:`d_1`
+to preserve the frozen scores.
 
 An infinite :math:`c` gives :math:`X=0`, and a target with no finite hit has
-:math:`S=-\infty`. The nonnegative competitor penalty and capped midpoint
+:math:`S=-\infty`. A target with one finite hit and an infinite competitor
+distance gives :math:`S=-d_1`. For TRA and pairs, the nonnegative distance
+and two penalties imply :math:`S\leq 0`. For TRB, the source discount
+can make :math:`d_1` negative. The nonnegative competitor penalty and capped midpoint
 gap give the exact all-target search bound
 :math:`S\le -d_1+g_\star\max(b,0)`. A target can be skipped once its bound
 is strictly below the best score already found. Equality still needs to
@@ -465,6 +490,11 @@ fraction and observed enrichment ratio are
 
    f_e=x_e/m,\qquad \pi_e=N_e/N,\qquad R_e=f_e/\pi_e.
 
+Apply this rule to represented targets with :math:`N_e>0`. With
+:math:`m=0` the local fraction and enrichment are undefined, so the
+rule abstains. At :math:`m=N`, every represented target has
+:math:`x_e=N_e` and :math:`R_e=1`.
+
 For a neighborhood defined by distance alone, a finite-catalogue
 reference model draws :math:`m` keys without replacement under
 exchangeable target membership. Rank target support using the upper
@@ -474,6 +504,9 @@ hypergeometric tail
 
    p_e = \Pr\{X_e\geq x_e\},\qquad
    X_e\sim\operatorname{Hypergeom}(N,N_e,m).
+
+At full catalogue depth :math:`p_e=1` for every represented target.
+Enrichment distinguishes labels through their local representation.
 
 A binomial with parameters :math:`m,\pi_e` approximates this tail
 when the neighborhood is small relative to the catalogue. Exact-hit
@@ -496,7 +529,8 @@ defined for sparse counts.
 The :download:`comparison provenance notebook <../examples/comparison-provenance.ipynb>`
 identifies the native enrichment and radius workflows.
 
-The exchangeability model is a ranking reference. Study composition,
+The exchangeability model supplies a ranking reference, including after
+benchmark exact-hit masking. Study composition,
 HLA restriction and repeated biological observations can give targets
 different exposure to the same kinds of receptors. A stronger call
 procedure prespecifies the compatible catalogue and neighborhood
@@ -507,6 +541,8 @@ queries after rerunning the entire label search. If the rule searches
 several neighborhood sizes, the null replay repeats that search.
 Test generated and withheld-specificity nulls separately. The resulting
 empirical any-call rate applies to that decision and null population.
+This label-selection procedure is a proposed design. The ordered
+final-call calibration below is available through the CLI.
 
 Peptide and restriction ambiguity
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -178,12 +178,16 @@ over the full-graph degree histogram.
 
 For a fixed exact or Hamming rule, one can also rarefy reference keys.
 Let :math:`K_e(q)` of the :math:`N_e` target keys be eligible neighbors of
-query :math:`q`. A uniform sample of :math:`m` keys contains a hit with
+query :math:`q`. A uniform sample of :math:`m` keys, with
+:math:`0\leq m\leq N_e`, contains a hit with
 probability
 
 .. math::
 
    1-\frac{\binom{N_e-K_e(q)}{m}}{\binom{N_e}{m}}.
+
+The probability is zero at depth zero. At full depth it is one
+if at least one eligible key exists and zero otherwise.
 
 Use paired-chain receptors as the sampling units for a paired-chain rule. The expectation
 of the number of recovered queries sums the probabilities over fixed

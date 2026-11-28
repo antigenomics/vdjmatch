@@ -30,17 +30,22 @@ historical matcher. Mode availability is not evidence of improved accuracy.
 
 For the frozen **vX research score**, see the
 [score and decision equations](https://docs.isalgo.dev/vdjmatch/vx-formalism.html).
+Keep TCRvdb, measured NLV, and ELA–LLW–LLL as separate benchmark cohorts.
+TCRvdb was compiled without those two experimental series. Their records
+may be present in VDJdb, so verify reference and model exposure separately.
 Order target hits by the weighted vX distance, with the fixed TRB
 reference-ID discount applied before ordering. With first and second hits
-`d1,d2`, native competitor distance `c`, and `L` chains, use
-`X=max(d1+L*m-c,0)`, `G=min(24*L,max((d1+d2)/2-d1,0))`, and
+`d1,d2`, native competitor distance `c`, `L` observed chains and
+maximum weighted junction edit cost `C=12`, use
+`X=max(d1+L*m-c,0)`, `G=min(2*L*C,max((d1+d2)/2-d1,0))`, and
 `S=-d1-gamma*X+b*G`. Evaluate the midpoint before subtraction. The fixed cap bounds the second-hit effect. For paired-chain receptors, sum the two chain distances within each reference pair before ranking hits. Repeat
 a singleton hit, use zero penalty for an infinite background, and give
 unsupported targets negative infinity. Apply benchmark exact exclusion to
 hit lists with the model held fixed.
 
 For vX classification, require a unique finite winner. The score-only assay
-diagnostic adds `0.002832*log1p(N)` using fixed target-key counts. The coefficient is the rounded midpoint of the original three-class recall plateau.
+diagnostic adds `log1p(N_e)/400`, where `N_e` counts fixed target keys.
+The coefficient lies inside the verified three-class assignment plateau.
 The separate within-assay diagnostic uses
 `H=-log(pK)+(S-median_assay(S))/40+0.95*log(assay_class_fraction)`.
 The fixed size offset cancels when centering by target. Here `pK` is the
