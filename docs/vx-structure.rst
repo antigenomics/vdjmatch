@@ -221,6 +221,35 @@ under the declared key and eligibility rules. These votes define a
 classification rule. A cutoff calibrated for the competitive score
 cannot calibrate neighbor votes.
 
+Full-catalogue VDJdb benchmark cohorts
+---------------------------------------
+
+Build separate cohorts for human and mouse, TRA, TRB and paired-chain,
+and MHC class I and II. In each cohort a target is the full recorded
+peptide–MHC identity. Admit it when more than 30 valid source records
+support that target in the same lane, before query exclusion. In the
+paired-chain lane count genuine paired observations. Count distinct
+physical query keys separately from source records and reference keys.
+
+Report both all eligible cases and a capped query view. To construct
+the capped view, sort unique physical query keys by SHA-256 of a
+compact JSON array containing seed 20261128 followed by the key fields.
+Use junction and V call for one chain and both junctions and V calls
+for a pair. Keep a case only when each of its eligible annotations
+has fewer than 300 selected cases. Retain the case's complete label
+set. Fix the reference catalogue in both views and apply exact
+exclusion only to the hit list. Keep unsupported cases in matched
+evaluation. Other target annotations in VDJdb provide comparison
+cases for this catalogue-recovery task.
+
+The original VDJdb paper describes sequence similarity networks.
+The subsequent VDJdb motif compendium used at least 30 distinct
+amino acid sequences per epitope. The present benchmark uses a
+strict source-record gate per full pMHC and lane.
+
+* `Original VDJdb paper <https://pubmed.ncbi.nlm.nih.gov/28977646/>`__
+* `VDJdb motif compendium <https://pubmed.ncbi.nlm.nih.gov/31588507/>`__
+
 Ranking reactivity within an annotated assay
 --------------------------------------------
 
