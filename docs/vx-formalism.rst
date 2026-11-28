@@ -220,6 +220,17 @@ mask compares anchored junctions, requiring equality on both chains for a
 pair, and applies to target and background hits. The generated-null run
 retains exact hits.
 
+For peptide-withheld evaluation, remove each held-out peptide at every
+restriction before building the catalogue for that fold. Each retained
+target keeps its original target keys. Its competing background uses
+the remaining compatible other-peptide memberships, so a physical key
+with another retained compatible label can still supply a competitor.
+The paired background rank is one. Withholding competitors can
+therefore only increase :math:`c` for a retained target and can only
+raise its competitive score. Recompute the query winner and its ties
+over the retained targets. Keep this withheld-source call rate separate
+from the generated-bank rate.
+
 Let :math:`L` count observed chains and let :math:`C=3\cdot4=12`
 be the maximum weighted junction cost of a single substitution or
 gap residue. Limit the total difference between the first and second
