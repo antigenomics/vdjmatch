@@ -16,6 +16,7 @@ def _source(directory):
     from hashlib import sha256 as digest_bytes
     import json
     import polars as pl
+    from .paired_vx_base import LITERAL_MIN_SCORE
     from ..db.cache import sha256
 
     manifest_path = directory / "manifest.json"
@@ -34,6 +35,13 @@ def _source(directory):
         binding = {key: manifest[key] for key in keys}
         binding["locus"] = manifest.get("locus", "paired")
         binding["reference_population"] = manifest.get("reference_population", "curated-benchmark")
+        binding["tie_policy"] = manifest.get("tie_policy", "abstain")
+        binding["literal_tie_min_score"] = manifest.get("literal_tie_min_score")
+        if binding["tie_policy"] == "literal":
+            if binding["locus"] != "paired" or binding["literal_tie_min_score"] != LITERAL_MIN_SCORE:
+                raise ValueError("unknown literal tie gate for this vX locus")
+        elif binding["tie_policy"] != "abstain" or binding["literal_tie_min_score"] is not None:
+            raise ValueError("unknown vX tie policy")
         if binding["locus"] not in ("paired", "TRA", "TRB") or binding["reference_population"] not in (
                 "curated-benchmark", "all-valid"):
             raise ValueError("unknown vX locus or reference population")
@@ -51,6 +59,8 @@ def _source(directory):
         raise ValueError("paired-vx-base manifest must declare its exact-hit policy")
     columns = {"query_id": pl.String, "target": pl.String, "maximum": pl.Float64,
                "score": pl.Float64, "tied": pl.Boolean}
+    if binding["tie_policy"] == "literal":
+        columns.update(literal_target=pl.String, tie_resolved=pl.Boolean)
     frame = pl.read_csv(maxima_path, separator="\t", infer_schema_length=0, schema_overrides=columns)
     if set(columns) - set(frame.columns):
         raise ValueError("paired-vx-base maxima require the complete winner and tie columns")
@@ -58,7 +68,16 @@ def _source(directory):
         raise ValueError("maxima row count differs from its paired-vx-base manifest")
     score, maximum, tied = (frame[column] for column in ("score", "maximum", "tied"))
     supported = score.is_not_null()
-    if (tied.null_count() or (tied & supported).any()
+    if binding["tie_policy"] == "literal":
+        literal, resolved = frame["literal_target"], frame["tie_resolved"]
+        eligible_tie = literal.is_not_null()
+        expected = eligible_tie & maximum.ge(LITERAL_MIN_SCORE).fill_null(False)
+        if ((eligible_tie & ~tied).any() or not resolved.equals(expected)
+                or not frame["target"].filter(resolved).equals(literal.filter(resolved))):
+            raise ValueError("maxima do not match the literal tie policy")
+    else:
+        resolved = pl.Series([False] * frame.height, dtype=pl.Boolean)
+    if (tied.null_count() or not (tied & supported).equals(resolved)
             or not frame["target"].is_not_null().equals(supported)
             or not maximum.is_not_null().equals(tied | supported)
             or not maximum.drop_nulls().is_finite().all()
@@ -72,7 +91,7 @@ def _calibrate(queries, binding, nulls, null_binding, source, target_fpr, confid
     from .ordered_calls import fit_ordered_calls
 
     if binding != null_binding:
-        raise ValueError("query and null vX inputs must match in locus, reference, model, scorer and exact-hit policy")
+        raise ValueError("query and null vX inputs must match in locus, reference, model, scorer, tie and exact-hit policy")
     if not source or "null_source" not in nulls.columns or set(nulls["null_source"]) != {source}:
         raise ValueError("null population must match its paired-vx-base --null-source declaration")
     recipe = fit_ordered_calls(nulls, target_fpr, confidence)

@@ -193,6 +193,21 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
     assert mixed["selection"].filter(pl.col("locus") == "paired")["null_queries"].to_list() == [1] * 2
     assert mixed["selection"]["E_null"].sum() == 2.
 
+    broad = pl.read_csv(reference, separator="\t")
+    narrow = broad.with_columns(pl.lit(2).alias("complex_id"), pl.lit("H2-Kb:01").alias("mhc_a"))
+    literal_reference = tmp_path / "restriction-hierarchy.zip"
+    with ZipFile(literal_reference, "w") as archive:
+        archive.writestr("vdjdb.txt", pl.concat([broad, narrow], how="vertical_relaxed").write_csv(separator="\t"))
+    literal_null = tmp_path / "literal-null"
+    assert replay_paired(SimpleNamespace(queries=null_query, vdjdb=literal_reference, null_source="generated",
+                                        output_dir=literal_null, exclude_exact=False, withhold_peptides=None,
+                                        maxima_only=True, tie_policy="literal", threads=1)) == 0
+    out = annotate_repertoires(pairs, reference=literal_reference, species="mouse",
+                               vx_null_dir=literal_null, vx_tie_policy="literal",
+                               output_prefix=tmp_path / "literal")
+    assert out["selection"].select("tied", "tie_resolved", "selected_mhc_a", "E_null").rows() == [
+        (True, True, "H2-Kb:01", 1.), (False, False, None, 0.)]
+
     with pytest.raises(ValueError, match="ordinary annotation options"):
         annotate_repertoires(pairs, reference=reference, species="MusMusculus",
                              output_prefix=tmp_path / "modified", score_model="vx", distance_matrix="clipped")

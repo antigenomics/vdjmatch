@@ -73,3 +73,30 @@ def test_bound_evalue_rejects_tampered_export_and_fold_input(tmp_path):
     manifest.write_text(json.dumps(json.loads(manifest.read_text()) | {"withholding_folds": 1}))
     with pytest.raises(ValueError, match="ordinary score"):
         _source(source)
+
+
+def test_literal_tie_calibration_binds_the_complete_call_policy(tmp_path):
+    from vdjmatch.cli.paired_vx_evalue import _calibrate
+
+    null = tmp_path / "null"
+    strict = tmp_path / "strict"
+    score_directory(null, [-24, None, -21], null_source="generated")
+    score_directory(strict, [-24, None, -21], null_source="generated")
+    path = null / "maxima.tsv"
+    table = pl.read_csv(path, separator="\t").with_columns(
+        maximum=pl.Series([-24., -25., -21.]),
+        tied=pl.Series([True, True, False]),
+        tie_resolved=pl.Series([True, False, False]),
+        literal_target=pl.Series(["pMHC", "pMHC", None]),
+    )
+    table.write_csv(path, separator="\t")
+    manifest_path = null / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.update(tie_policy="literal", literal_tie_min_score=-24)
+    manifest["outputs_sha256"][path.name] = sha256(path)
+    manifest_path.write_text(json.dumps(manifest))
+    frame, binding, source, *_ = _source(null)
+    assert frame["score"].to_list() == [-24, None, -21] and binding["tie_policy"] == "literal"
+    _, strict_binding, *_ = _source(strict)
+    with pytest.raises(ValueError, match="tie and exact-hit policy"):
+        _calibrate(frame, binding, frame, strict_binding, source, .01, .95)

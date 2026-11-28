@@ -744,6 +744,20 @@ is strictly below that score. Equality stays eligible so that exact
 ties survive. This route processes query blocks and omits the
 per-target score matrix. Use the full output for motif re-ranking.
 
+The paired ``--maxima-only --tie-policy literal`` option evaluates a
+separate call rule. A tied target can be selected when its normalized
+peptide–MHC label refines every tied label and a reference key carrying
+the literal label attains the target's nearest corrected distance.
+MHC refinement uses allele field prefixes in both MHC fields within
+one peptide and class. The resolved tie retains the original score
+and enters the calling statistic only at :math:`S\geq -24`. The scale
+is two maximum-cost weighted junction substitutions. The gate acts
+on the complete evidence score, including loop costs and competition.
+The export preserves the original tie flag and identifies literal
+support and ties admitted by the gate. Calibrate the complete statistic
+with ``vx-evalue`` using a null export from the same tie policy. For
+ordinary annotation select the same rule with ``--vx-tie-policy literal``.
+
 Use ``vx-base --locus TRA`` or ``vx-base --locus TRB`` for single-chain
 replays. TRA keeps the same upper bound as the paired score. TRB allows
 the positive second-hit term, so the upper bound is

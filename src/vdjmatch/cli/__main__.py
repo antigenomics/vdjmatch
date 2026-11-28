@@ -85,7 +85,8 @@ def _cmd_index(a: argparse.Namespace) -> int:
 
 def _cmd_annotate(a: argparse.Namespace) -> int:
     if a.control and a.background == 'vdjdb-other':
-        if getattr(a, "score_model", "auto") == "vx" or getattr(a, "vx_null_dir", None):
+        if (getattr(a, "score_model", "auto") == "vx" or getattr(a, "vx_null_dir", None)
+                or getattr(a, "vx_tie_policy", "abstain") == "literal"):
             raise ValueError("vX annotation does not use the legacy --control kernel path")
         from .combined import main
         return main(a)
@@ -929,6 +930,8 @@ def main(argv: list[str] | None = None) -> int:
                             help="auto uses vX for ordinary paired mouse annotation; kernel selects the previous model")
     annotation.add_argument("--vx-null-dir", type=Path, action="append",
                             help="matched vx-base null directory for E-value calls, once per scored locus")
+    annotation.add_argument("--vx-tie-policy", choices=("abstain", "literal"), default="abstain",
+                            help="label selection for paired vX score ties")
     annotation.add_argument("--details", dest="selection_only", action="store_false",
                             help="also export per-target evidence and candidates; memory grows with queries × targets")
     annotation.add_argument('--mock-replicates', type=int, default=200,
@@ -941,7 +944,7 @@ def main(argv: list[str] | None = None) -> int:
     annotation._option_string_actions['--control'].help = 'one raw control repertoire; calibrate the complete combined score on demand'
     basic = {'help', 'vdjdb', 'locus', 'species', 'reference_population', 'epitope', 'mhc_a', 'mhc_b',
              'mhc_match', 'threads', 'verbose', 'control', 'exclude_exact', 'output_prefix', 'metadata',
-             'mock_replicates', 'seed', 'fpr', 'evidence_type', 'min_score', 'score_model', 'vx_null_dir'}
+             'mock_replicates', 'seed', 'fpr', 'evidence_type', 'min_score', 'score_model', 'vx_null_dir', 'vx_tie_policy'}
     advanced = annotation.add_argument_group('Advanced scorer diagnostics')
     for action in list(annotation._optionals._group_actions):
         if action.dest not in basic:

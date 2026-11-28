@@ -15,6 +15,8 @@ RULES = {
 }
 CHAINS = {"paired": "ab", "TRA": "a", "TRB": "b"}
 JUNCTION_COLUMNS = {"a": "junction_aa_alpha", "b": "junction_aa_beta"}
+# One maximum-cost weighted junction edit per chain in the paired score.
+LITERAL_MIN_SCORE = -(2 * 3 * 4)
 
 
 def register(subparsers):
@@ -31,13 +33,15 @@ def register(subparsers):
     parser.add_argument("--withhold-peptides", type=Path, help="TSV of query_id, epitope to withhold across restrictions")
     parser.add_argument("--maxima-only", action="store_true",
                         help="Export complete-query winner scores and ties without the per-target matrix")
+    parser.add_argument("--tie-policy", choices=("abstain", "literal"), default="abstain",
+                        help="Paired maxima only: resolve a sufficiently strong tie with a literal nearest hit")
     parser.add_argument("--threads", type=cpu_budget, default="0")
     parser.add_argument("--output-dir", type=Path, required=True, help="Fresh directory for paired motif rank inputs")
     parser.set_defaults(func=main)
 
 
 def _reference_catalogue(raw, model, *, species="mouse", locus="paired", background_memberships=False,
-                         allow_empty=False):
+                         allow_empty=False, literal_ties=False):
     import numpy as np
     import polars as pl
     from .historical import assayed_targets
@@ -66,6 +70,7 @@ def _reference_catalogue(raw, model, *, species="mouse", locus="paired", backgro
     if declared.is_empty() and not allow_empty:
         raise ValueError(f"{species} reference has no eligible {locus} pMHC targets")
     groups, backgrounds = [], []
+    literal_keys = [] if literal_ties else None
     sources = [] if locus == "TRB" else None
     for target, _, selected in assayed_targets(declared.select("query_id"), declared, rows, species):
         if sources is None:
@@ -82,11 +87,15 @@ def _reference_catalogue(raw, model, *, species="mouse", locus="paired", backgro
             & mhc_compatible("mhc_b", target["mhc_b"])
         )
         groups.append(members)
+        if literal_keys is not None:
+            literal_keys.append(selected.filter(
+                pl.col("mhc_a").eq(target["mhc_a"]), pl.col("mhc_b").eq(target["mhc_b"])
+            )["reference_key"].unique().to_numpy())
         if background_memberships:
             backgrounds.append((compatible["reference_key"].to_numpy(), compatible["epitope"].to_numpy()))
         else:
             backgrounds.append(compatible["reference_key"].unique().to_numpy())
-    return fixed, declared.select(PMHC), groups, backgrounds, sources
+    return fixed, declared.select(PMHC), groups, backgrounds, sources, literal_keys
 
 
 def _withholding_folds(path, query_ids, reference_peptides):
@@ -208,7 +217,7 @@ def _base_scores(queries, fixed, groups, backgrounds, context, *, threads, exclu
 
 
 def _competitive_winners(native, hits, members, starts, membership_groups, backgrounds, *,
-                         locus="paired", source_adjustment=None):
+                         locus="paired", source_adjustment=None, literal_labels=None, literal_keys=None):
     """Evaluate every target whose first hit can still match the incumbent."""
     import numpy as np
     from ..evalue.competitive import MAX_MIDPOINT_GAP_PER_CHAIN, reduced_hits
@@ -244,17 +253,49 @@ def _competitive_winners(native, hits, members, starts, membership_groups, backg
     for column in np.flatnonzero(possible.any(axis=0)):
         rows = np.flatnonzero(possible[:, column])
         values[rows, column] = score(rows, column)
-    return _winning_scores(values)
+    maximum, winners, tied = _winning_scores(values)
+    literal = None
+    if literal_keys is not None:
+        literal = np.full(len(hits), -1, dtype=np.intp)
+        for row in np.flatnonzero(tied):
+            top = np.flatnonzero(values[row] == maximum[row])
+            order = top[np.argsort(-upper[row, top], kind="stable")]
+            resolved = _most_specific(order, literal_labels)
+            if resolved is not None and np.any(hits[row, literal_keys[resolved]] == first[row, resolved]):
+                literal[row] = resolved
+    return maximum, winners, tied, literal
+
+
+def _most_specific(order, labels):
+    """Choose the unique normalized pMHC that refines every tied label."""
+    candidates = {}
+    for index in order:
+        candidates.setdefault(labels[index], index)
+    qualified = [index for (peptide, a, b, cls), index in candidates.items() if all(
+        peptide == other_peptide and cls == other_class
+        and (a == other_a or a.startswith(other_a + ":"))
+        and (b == other_b or b.startswith(other_b + ":"))
+        for other_peptide, other_a, other_b, other_class in candidates
+    )]
+    return qualified[0] if len(qualified) == 1 else None
 
 
 def _vx_maxima(queries, fixed, groups, backgrounds, context, labels, null_source, *, threads, exclude_exact,
-               locus="paired", sources=None):
+               locus="paired", sources=None, literal_keys=None):
     """Retain complete-query maxima without keeping a query-by-target table."""
     import numpy as np
+
+    from json import loads
 
     maximum = np.full(queries.height, -np.inf)
     winners = np.zeros(queries.height, dtype=np.intp)
     tied = np.zeros(queries.height, dtype=bool)
+    literal = None
+    literal_labels = None
+    if literal_keys is not None:
+        literal = np.full(queries.height, -1, dtype=np.intp)
+        literal_labels = [(p, a.strip().upper().removeprefix("HLA-"), b.strip().upper().removeprefix("HLA-"), c)
+                          for p, a, b, c in map(loads, labels)]
     if groups:
         sizes = np.fromiter(map(len, groups), dtype=np.intp)
         members = np.concatenate(groups)
@@ -264,10 +305,12 @@ def _vx_maxima(queries, fixed, groups, backgrounds, context, labels, null_source
         for rows, native, hits in _distance_blocks(queries, fixed, context, threads=threads,
                                                    exclude_exact=exclude_exact,
                                                    columns=max(fixed.height, len(members)), locus=locus):
-            maximum[rows], winners[rows], tied[rows] = _competitive_winners(
+            maximum[rows], winners[rows], tied[rows], resolved = _competitive_winners(
                 native, hits, members, starts, membership_groups, backgrounds,
-                locus=locus, source_adjustment=adjustment)
-    return _call_table(queries["query_id"], maximum, winners, tied, labels, null_source)
+                locus=locus, source_adjustment=adjustment, literal_labels=literal_labels, literal_keys=literal_keys)
+            if literal is not None:
+                literal[rows] = resolved
+    return _call_table(queries["query_id"], maximum, winners, tied, labels, null_source, literal)
 
 
 def _winning_scores(base):
@@ -283,20 +326,30 @@ def _maxima_table(query_ids, base, labels, null_source):
     return _call_table(query_ids, *_winning_scores(base), labels, null_source)
 
 
-def _call_table(query_ids, maximum, winners, tied, labels, null_source):
+def _call_table(query_ids, maximum, winners, tied, labels, null_source, literal=None):
     import numpy as np
     import polars as pl
 
     finite = np.isfinite(maximum)
-    unique = finite & ~tied
-    target = np.asarray(labels, dtype=object)[winners] if len(labels) else None
+    labels = np.asarray(labels, dtype=object)
+    supported = finite & ~tied
+    if literal is not None:
+        rescued = (literal >= 0) & (maximum >= LITERAL_MIN_SCORE)
+        supported |= rescued
+        winners = np.where(rescued, literal, winners)
+    target = labels[winners] if len(labels) else None
     table = pl.DataFrame({
         "query_id": query_ids,
-        "target": pl.Series(np.where(unique, target, None).tolist(), dtype=pl.String),
+        "target": pl.Series(np.where(supported, target, None).tolist(), dtype=pl.String),
         "maximum": pl.Series(np.where(finite, maximum, np.nan)).fill_nan(None),
-        "score": pl.Series(np.where(unique, maximum, np.nan)).fill_nan(None),
+        "score": pl.Series(np.where(supported, maximum, np.nan)).fill_nan(None),
         "tied": tied,
     })
+    if literal is not None:
+        candidates = labels[literal] if len(labels) else None
+        table = table.with_columns(
+            pl.Series("literal_target", np.where(literal >= 0, candidates, None).tolist(), dtype=pl.String),
+            pl.Series("tie_resolved", rescued))
     if null_source is not None:
         table = table.with_columns(pl.lit("null").alias("outcome"),
                                    pl.lit(null_source).alias("null_source"))
@@ -312,13 +365,15 @@ def _target_axis(targets):
 
 
 def _score_binding(reference_keys, exclude_exact, *, species="mouse", locus="paired",
-                   reference_population="curated-benchmark"):
+                   reference_population="curated-benchmark", tie_policy="abstain"):
     from importlib.metadata import version
     from importlib.resources import files
     from ..db.cache import sha256
 
     return {
         "species": species, "locus": locus, "reference_population": reference_population,
+        "tie_policy": tie_policy,
+        "literal_tie_min_score": LITERAL_MIN_SCORE if tie_policy == "literal" else None,
         "exact_hits_excluded": exclude_exact, "reference_keys": reference_keys,
         "software": {package: version(package) for package in ("vdjmatch", "seqtree", "vdjtools")},
         "v_loop_model_sha256": sha256(Path(str(files("vdjmatch.resources") / "vloops" / f"{species}_v_loops.tsv"))),
@@ -348,6 +403,9 @@ def main(args):
     chains = CHAINS[locus]
     reference_population = getattr(args, "reference_population", "curated-benchmark")
     maxima_only = getattr(args, "maxima_only", False)
+    tie_policy = getattr(args, "tie_policy", "abstain")
+    if tie_policy == "literal" and (locus != "paired" or not maxima_only):
+        raise ValueError("literal tie resolution requires paired --maxima-only scoring")
     if args.withhold_peptides is not None and (maxima_only or locus != "paired"):
         raise ValueError("peptide withholding requires the full paired target matrix")
     null_source = args.null_source.strip() if args.null_source is not None else None
@@ -363,9 +421,9 @@ def main(args):
     raw = db.load(args.vdjdb, species={"human": "HomoSapiens", "mouse": "MusMusculus"}[species])
     if reference_population == "all-valid":
         raw = _all_valid(raw)
-    fixed, targets, groups, backgrounds, sources = _reference_catalogue(
+    fixed, targets, groups, backgrounds, sources, literal_keys = _reference_catalogue(
         raw, context["model"], species=species, locus=locus,
-        background_memberships=args.withhold_peptides is not None)
+        background_memberships=args.withhold_peptides is not None, literal_ties=tie_policy == "literal")
     queries, ingestion = _queries(args.queries, locus, species, declared=False)
     if queries.is_empty() or queries.height * len(chains) != ingestion["output_rows"] or not queries.select(pl.all_horizontal(
         pl.col("cdr3" + chain).str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$").fill_null(False) for chain in chains
@@ -378,7 +436,8 @@ def main(args):
     labels = target_axis["target"].to_list()
     if maxima_only:
         maxima = _vx_maxima(queries, fixed, groups, backgrounds, context, labels, null_source,
-                            threads=args.threads, exclude_exact=args.exclude_exact, locus=locus, sources=sources)
+                            threads=args.threads, exclude_exact=args.exclude_exact, locus=locus, sources=sources,
+                            literal_keys=literal_keys)
     elif args.withhold_peptides is None:
         base = _base_scores(queries, fixed, groups, backgrounds, context,
                             threads=args.threads, exclude_exact=args.exclude_exact, locus=locus, sources=sources)
@@ -410,9 +469,11 @@ def main(args):
     maxima.write_csv(out / "maxima.tsv", separator="\t")
     (out / "manifest.json").write_text(json.dumps({
         "inputs_sha256": digests, **_score_binding(fixed.height, args.exclude_exact, species=species, locus=locus,
-                                                  reference_population=reference_population),
+                                                  reference_population=reference_population, tie_policy=tie_policy),
         "queries": queries.height, "targets": targets.height,
-        "supported_queries": maxima["maximum"].count(), "unique_winners": maxima["score"].count(),
+        "supported_queries": maxima["maximum"].count(),
+        "unique_winners": maxima.filter(~pl.col("tied"))["score"].count(),
+        "callable_queries": maxima["score"].count(),
         "top_ties": int(maxima["tied"].sum()), "null_source": null_source,
         **fold_status, "maxima_only": maxima_only,
         "threads": args.threads,

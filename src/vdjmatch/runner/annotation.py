@@ -153,7 +153,7 @@ def _restore(frame, mapping):
     return result
 
 
-def _vx_population(sample, part, reference, context, threads, reference_population, exclude_exact, locus):
+def _vx_population(sample, part, reference, context, threads, reference_population, exclude_exact, locus, tie_policy):
     """Score one receptor population and keep its service row axis."""
     import polars as pl
     from ..cli.neighbours import _paired_input
@@ -167,8 +167,9 @@ def _vx_population(sample, part, reference, context, threads, reference_populati
     reference = _select_reference(reference, species=organism)
     if reference_population == "all-valid":
         reference = _all_valid(reference)
-    fixed, targets, groups, backgrounds, sources = _reference_catalogue(
-        reference, context["model"], species=species, locus=locus, allow_empty=True)
+    fixed, targets, groups, backgrounds, sources, literal_keys = _reference_catalogue(
+        reference, context["model"], species=species, locus=locus, allow_empty=True,
+        literal_ties=tie_policy == "literal")
     if locus == "paired":
         pairs, _ = _paired_input(sample, part, context["model"], species, resolved_v_nearest=True)
         queries = _prepare(pairs.with_columns(pl.col("v_call_alpha").alias("va"),
@@ -191,12 +192,13 @@ def _vx_population(sample, part, reference, context, threads, reference_populati
     axis = _target_axis(targets)
     labels = axis["target"].to_list()
     maxima = _vx_maxima(queries, fixed, groups, backgrounds, context, labels, None,
-                        threads=threads, exclude_exact=exclude_exact, locus=locus, sources=sources)
+                        threads=threads, exclude_exact=exclude_exact, locus=locus, sources=sources,
+                        literal_keys=literal_keys)
     selected = targets.with_columns(axis["target"])
     selected = selected.rename({name: "selected_" + name for name in selected.columns if name != "target"})
     disposition = maxima.with_columns(
-        pl.when("tied").then(pl.lit("ambiguous")).when(pl.col("score").is_not_null())
-        .then(pl.lit("ranked_evidence")).otherwise(pl.lit("no_support")).alias("selection_status"),
+        pl.when(pl.col("score").is_not_null()).then(pl.lit("ranked_evidence"))
+        .when("tied").then(pl.lit("ambiguous")).otherwise(pl.lit("no_support")).alias("selection_status"),
         pl.lit("vx").alias("score_model"),
     )
     disposition = disposition.join(selected, on="target", how="left", validate="m:1", maintain_order="left")
@@ -209,12 +211,13 @@ def _vx_population(sample, part, reference, context, threads, reference_populati
         .otherwise(pl.lit("no_neighbours")).alias("status")
     ).drop("maximum")
     return query, disposition, _score_binding(
-        fixed.height, exclude_exact, species=species, locus=locus, reference_population=reference_population), axis
+        fixed.height, exclude_exact, species=species, locus=locus,
+        reference_population=reference_population, tie_policy=tie_policy), axis
 
 
 def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_prefix="annotation",
                          locus="auto", species="HomoSapiens", threads=0, selection_only=True,
-                         score_model="auto", vx_null_dir=None, vx_target_fpr=.01, **options):
+                         score_model="auto", vx_null_dir=None, vx_target_fpr=.01, vx_tie_policy="abstain", **options):
     """Annotate files, a directory, or path/sample_id metadata as population batches.
 
     Source rows are read once through shared ingestion. Query IDs are global numeric
@@ -234,6 +237,8 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         raise ValueError("locus must be auto, TRA, TRB or paired")
     if score_model not in {"auto", "vx", "kernel"}:
         raise ValueError("score_model must be auto, vx or kernel")
+    if vx_tie_policy not in {"abstain", "literal"}:
+        raise ValueError("vx_tie_policy must be abstain or literal")
     table_budget = os.environ.get("POLARS_MAX_THREADS")
     if table_budget is not None and (not table_budget.isdecimal() or int(table_budget) < 1):
         raise ValueError("POLARS_MAX_THREADS must be a positive integer before import")
@@ -327,6 +332,8 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
         raise ValueError("vX scoring requires ordinary annotation options")
     vx_enabled = vx_profile and (score_model == "vx" or
         (score_model == "auto" and organism == "mouse" and paired_rows.height == cohort.height))
+    if vx_tie_policy == "literal" and (not vx_enabled or paired_rows.is_empty()):
+        raise ValueError("literal tie resolution requires paired vX annotation")
     banks = {}
     if vx_null_dir is not None:
         if not vx_enabled:
@@ -347,6 +354,8 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
             if (lane not in active_lanes or binding["species"] != organism
                     or binding["reference_population"] != reference_population):
                 raise ValueError("vX null locus, species and reference population must match the annotation run")
+            if binding["tie_policy"] != (vx_tie_policy if lane == "paired" else "abstain"):
+                raise ValueError("vX null tie policy must match the annotation run")
             if lane in banks:
                 raise ValueError(f"more than one vX null directory for {lane}")
             _validate_output_paths(prefix, [null_directory, *input_paths])
@@ -401,7 +410,8 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
                     scoring_part.write_csv(sample, separator="\t")
                 query, selection, binding, axis = _vx_population(
                     sample, scoring_part, reference_loader(), v_loop_distances, threads,
-                    reference_population, options.get("exclude_exact", defaults.exclude_exact), population)
+                    reference_population, options.get("exclude_exact", defaults.exclude_exact), population,
+                    vx_tie_policy if population == "paired" else "abstain")
                 calibration = {}
                 if banks:
                     from hashlib import sha256 as digest_bytes
@@ -421,6 +431,7 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
                 for kind, table in (("queries", query), ("selection", selection)):
                     tables.setdefault(kind, []).append(_restore(table, mapping))
                 manifests.append({"score_model": "vx", "locus": population,
+                                  "tie_policy": binding["tie_policy"],
                                   "reference": db.provenance(reference),
                                   "reference_population": reference_population,
                                   "exact_hits_excluded": options.get("exclude_exact", defaults.exclude_exact),

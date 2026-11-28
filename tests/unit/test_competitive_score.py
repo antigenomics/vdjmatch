@@ -209,7 +209,7 @@ def test_paired_winner_bound_retains_exact_ties_and_checks_the_runner_up():
 
     native = np.array([[0, 0, 1, 100], [0, 1, 5, 100], [np.inf, np.inf, np.inf, np.inf]])
     hits = native.copy()
-    maximum, winner, tied = _competitive_winners(
+    maximum, winner, tied, _ = _competitive_winners(
         native, hits, np.arange(4), np.arange(4), np.arange(4), ([2], [2], [3], [0]))
     np.testing.assert_array_equal(maximum, [-11 * (1 / 40), -7 * (1 / 40), -np.inf])
     np.testing.assert_array_equal(winner[:2], [0, 0])
@@ -218,13 +218,13 @@ def test_paired_winner_bound_retains_exact_ties_and_checks_the_runner_up():
     # The closest hit loses to a hit with a slightly larger corrected distance
     # when the latter has no close other-peptide competitor.
     hits[1, 1] = .1
-    maximum, winner, tied = _competitive_winners(
+    maximum, winner, tied, _ = _competitive_winners(
         native, hits, np.arange(4), np.arange(4), np.arange(4), ([2], [3], [3], [0]))
     assert (maximum[1], winner[1], tied[1]) == (-.1, 1, False)
 
     # The first target has two distinct keys at the same nearest distance.
     # Both targets attain the incumbent exactly at their upper bound.
-    maximum, _, tied = _competitive_winners(
+    maximum, _, tied, _ = _competitive_winners(
         native[:1], hits[:1], [0, 1, 2, 0], [0, 3], [0, 0, 0, 1], ([3], [3]))
     assert (maximum[0], tied[0]) == (0., True)
 
@@ -234,7 +234,7 @@ def test_single_chain_bound_includes_trb_bonus_and_tra_uses_fixed_rank():
 
     native = np.array([[0, 1, 50, 100]])
     hits = np.array([[0., .4, 50., 100.]])
-    maximum, winner, tied = _competitive_winners(
+    maximum, winner, tied, _ = _competitive_winners(
         native, hits, [0, 1, 2], [0, 1], [0, 1, 1], ([3], [3]),
         locus="TRB", source_adjustment=np.array([0., 9 / 32, 0.])
     )
@@ -244,6 +244,31 @@ def test_single_chain_bound_includes_trb_bonus_and_tra_uses_fixed_rank():
     backgrounds = np.array([[2, 5, 4, 1, 3, 9, 7, np.inf, 6, np.inf]])
     np.testing.assert_array_equal(_competitor(backgrounds, 8), [9])
     np.testing.assert_array_equal(_competitor(backgrounds[:, :8], 8), [np.inf])
+
+
+def test_literal_tie_requires_the_specific_label_at_the_nearest_hit():
+    import json
+
+    from vdjmatch.cli.paired_vx_base import _call_table, _competitive_winners, _most_specific
+
+    broad = ("P", "A*02", "B2M", "MHCI")
+    specific = ("P", "A*02:01", "B2M", "MHCI")
+    sibling = ("P", "A*02:02", "B2M", "MHCI")
+    assert _most_specific([0, 1, 2], [broad, specific, sibling]) is None
+    assert _most_specific([2, 0, 1], [broad, specific, specific]) == 2
+
+    distances = np.array([[24., 24.], [25., 25.], [20., 21.]])
+    maxima, winners, tied, literal = _competitive_winners(
+        distances, distances, [0, 1, 0, 1], [0, 2], [0, 0, 1, 1], ([], []),
+        literal_labels=[broad, specific], literal_keys=([0], [1]))
+    assert tied.tolist() == [True, True, True]
+    assert literal.tolist() == [1, 1, -1]
+    # Pass by keyword so the output retains the raw tie and the gated status.
+    table = _call_table(["a", "b", "c"], maxima, winners, tied, list(map(json.dumps, [broad, specific])),
+                        None, literal=literal)
+    assert table["maximum"].to_list() == [-24., -25., -20.05]
+    assert table["score"].to_list() == [-24., None, None]
+    assert table["tie_resolved"].to_list() == [True, False, False]
 
 
 def test_paired_withholding_filters_target_labels_and_competitor_memberships(monkeypatch, tmp_path):
