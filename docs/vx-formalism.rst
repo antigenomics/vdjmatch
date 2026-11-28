@@ -436,6 +436,22 @@ several neighborhood sizes, the null replay repeats that search.
 Test generated and withheld-specificity nulls separately. The resulting
 empirical any-call rate applies to that decision and null population.
 
+Peptide and restriction ambiguity
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Keep all labels attaining the exact maximum when auditing an abstention.
+If several winning pMHC labels share one peptide, the peptide is resolved
+at the score maximum and the MHC restriction remains ambiguous.
+If the maxima span distinct peptides, peptide assignment also abstains.
+
+On the full paired TCRvdb catalogue replay, 1,360 of 1,404 tied maxima
+among resolved assay cases involved a single peptide. Reporting that
+peptide at a tie raises correct peptide calls from 376 to 1,040 among
+1,325 assay positives. It also raises calls of the assayed peptide
+from 48 to 291 among 1,032 assay negatives before a score cutoff.
+This is a peptide-level diagnostic. Applying it as a call rule
+requires calibrating its own decision, including the newly admitted ties.
+
 Assignment and complete-query calibration
 -----------------------------------------
 
