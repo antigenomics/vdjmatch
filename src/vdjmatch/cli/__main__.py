@@ -927,8 +927,8 @@ def main(argv: list[str] | None = None) -> int:
     annotation.add_argument("--metadata", help="TSV with path and optional sample_id; paths relative to this TSV")
     annotation.add_argument("--score-model", choices=("auto", "vx", "kernel"), default="auto",
                             help="auto uses vX for ordinary paired mouse annotation; kernel selects the previous model")
-    annotation.add_argument("--vx-null-dir", type=Path,
-                            help="matched paired-vx-base null directory for E-value calls")
+    annotation.add_argument("--vx-null-dir", type=Path, action="append",
+                            help="matched vx-base null directory for E-value calls, once per scored locus")
     annotation.add_argument("--details", dest="selection_only", action="store_false",
                             help="also export per-target evidence and candidates; memory grows with queries × targets")
     annotation.add_argument('--mock-replicates', type=int, default=200,
@@ -1022,7 +1022,7 @@ def main(argv: list[str] | None = None) -> int:
     native_threads = None
     evidence_commands = {"equal-tail", "motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     evidence_commands.add('paired-score')
-    evidence_commands.add('paired-vx-base')
+    evidence_commands.update({'vx-base', 'paired-vx-base'})
     evidence_commands.add('repertoire-exact')
     evidence_commands.add('graph-noise')
     evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment', 'repertoire-tcrnet'})

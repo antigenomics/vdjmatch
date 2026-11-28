@@ -744,12 +744,27 @@ is strictly below that score. Equality stays eligible so that exact
 ties survive. This route processes query blocks and omits the
 per-target score matrix. Use the full output for motif re-ranking.
 
+Use ``vx-base --locus TRA`` or ``vx-base --locus TRB`` for single-chain
+replays. TRA keeps the same upper bound as the paired score. TRB allows
+the positive second-hit term, so the upper bound is
+:math:`-d_1+24/160=-d_1+3/20`. The first distance includes the
+TRB reference-source correction in both scoring and pruning.
+Use ``--reference-population all-valid`` to reproduce the historical
+uncurated catalogue. For calibration, ``vx-evalue`` requires the
+same locus and reference population in both score exports.
+
 Ordinary mouse paired input to ``vdjmatch annotate`` uses this vX
 score by default, including when paired linkage is inferred. The
 ``selection.tsv`` output identifies the score model and retains ties
 as ambiguous evidence. Use ``--score-model kernel`` for the previous
 model. Varying advanced kernel-specific geometry options uses the
 kernel workflow in automatic mode.
+
+Select ``--score-model vx`` to exercise the same vX score on single-chain
+and mixed inputs during evaluation. Each population has its own pMHC
+search. For calibrated mixed input, repeat ``--vx-null-dir`` once per
+scored locus and match species and reference population. The ordered
+confidence bound applies to each locus separately.
 
 For calibrated calls, supply ``--vx-null-dir`` from a matched
 ``paired-vx-base --null-source`` run. Annotation verifies the scorer,

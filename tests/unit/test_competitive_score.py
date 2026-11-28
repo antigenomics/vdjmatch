@@ -187,8 +187,8 @@ def test_frozen_paired_base_masks_hits_in_both_lists_and_preserves_unsupported_r
                                              threads=1, exclude_exact=exclude_exact)
         np.testing.assert_allclose(actual[0], expected)
         np.testing.assert_array_equal(actual[1], [-np.inf, -np.inf])
-        maxima = paired_vx_base._paired_maxima(queries, fixed, groups, backgrounds, {}, ["A", "B"], None,
-                                               threads=1, exclude_exact=exclude_exact)
+        maxima = paired_vx_base._vx_maxima(queries, fixed, groups, backgrounds, {}, ["A", "B"], None,
+                                           threads=1, exclude_exact=exclude_exact)
         assert maxima.equals(paired_vx_base._maxima_table(queries["query_id"], actual, ["A", "B"], None))
 
 
@@ -227,6 +227,23 @@ def test_paired_winner_bound_retains_exact_ties_and_checks_the_runner_up():
     maximum, _, tied = _competitive_winners(
         native[:1], hits[:1], [0, 1, 2, 0], [0, 3], [0, 0, 0, 1], ([3], [3]))
     assert (maximum[0], tied[0]) == (0., True)
+
+
+def test_single_chain_bound_includes_trb_bonus_and_tra_uses_fixed_rank():
+    from vdjmatch.cli.paired_vx_base import _competitive_winners, _competitor
+
+    native = np.array([[0, 1, 50, 100]])
+    hits = np.array([[0., .4, 50., 100.]])
+    maximum, winner, tied = _competitive_winners(
+        native, hits, [0, 1, 2], [0, 1], [0, 1, 1], ([3], [3]),
+        locus="TRB", source_adjustment=np.array([0., 9 / 32, 0.])
+    )
+    assert winner.tolist() == [1] and tied.tolist() == [False]
+    np.testing.assert_allclose(maximum, [3 / 20 - (.4 - 9 / 32)])
+
+    backgrounds = np.array([[2, 5, 4, 1, 3, 9, 7, np.inf, 6, np.inf]])
+    np.testing.assert_array_equal(_competitor(backgrounds, 8), [9])
+    np.testing.assert_array_equal(_competitor(backgrounds[:, :8], 8), [np.inf])
 
 
 def test_paired_withholding_filters_target_labels_and_competitor_memberships(monkeypatch, tmp_path):

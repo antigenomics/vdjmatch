@@ -162,7 +162,38 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
         annotate_repertoires(pairs, reference=release, species="mouse", vx_null_dir=null_dir,
                              output_prefix=tmp_path / "collision")
 
-    with pytest.raises(ValueError, match="ordinary paired mouse"):
+    single = tmp_path / "single.tsv"
+    pl.DataFrame({"query_id": ["01", "02", "03"], "locus": ["TRA"] * 3,
+                  "junction_aa": [" casaaaaaff ", "ZZ", "CASAAAAAFF"], "v_call": [alpha] * 3,
+                  "species": ["mouse", "mouse", "human"]}).write_csv(single, separator="\t")
+    out = annotate_repertoires(single, reference=release, species="mouse", score_model="vx",
+                               output_prefix=tmp_path / "single-vx")
+    assert out["queries"]["status"].to_list() == ["matched", "invalid_query_or_gene", "unselected_species"]
+    assert out["selection"].select("source_query_id", "score", "selected_epitope").rows() == [
+        ("01", 0., "PEPTIDE"), ("02", None, None), ("03", None, None)]
+    with pytest.raises(ValueError, match="null locus"):
+        annotate_repertoires(single, reference=release, species="mouse", score_model="vx", vx_null_dir=null_dir,
+                             output_prefix=tmp_path / "wrong-locus")
+    single_null = tmp_path / "single-null.tsv"
+    first = pl.read_csv(single, separator="\t", schema_overrides={"query_id": pl.String}).head(1)
+    pl.concat([first, first.with_columns(pl.lit("04").alias("query_id"))]).write_csv(single_null, separator="\t")
+    single_null_dir = tmp_path / "single-null"
+    assert replay_paired(SimpleNamespace(queries=single_null, vdjdb=release, null_source="generated",
+                                        output_dir=single_null_dir, exclude_exact=False, withhold_peptides=None,
+                                        locus="TRA", threads=1)) == 0
+    with pytest.raises(ValueError, match="one matching null directory"):
+        annotate_repertoires([pairs, single], reference=release, species="mouse", score_model="vx",
+                             vx_null_dir=null_dir, output_prefix=tmp_path / "missing-bank")
+    mixed = annotate_repertoires([pairs, single], reference=release, species="mouse", score_model="vx",
+                                 vx_null_dir=[single_null_dir, null_dir],
+                                 output_prefix=tmp_path / "mixed-vx")
+    assert mixed["selection"]["query_id"].n_unique() == mixed["selection"].height == 5
+    assert set(mixed["selection"]["locus"]) == {"TRA", "paired"}
+    assert mixed["selection"].filter(pl.col("locus") == "TRA")["null_queries"].to_list() == [2] * 3
+    assert mixed["selection"].filter(pl.col("locus") == "paired")["null_queries"].to_list() == [1] * 2
+    assert mixed["selection"]["E_null"].sum() == 2.
+
+    with pytest.raises(ValueError, match="ordinary annotation options"):
         annotate_repertoires(pairs, reference=reference, species="MusMusculus",
                              output_prefix=tmp_path / "modified", score_model="vx", distance_matrix="clipped")
 

@@ -1,11 +1,11 @@
-"""Calibrate and annotate paired-chain vX calls with a matched null source."""
+"""Calibrate and annotate vX calls with a matched null source."""
 from pathlib import Path
 
 
 def register(subparsers):
-    parser = subparsers.add_parser("paired-vx-evalue", help=__doc__)
-    parser.add_argument("queries", type=Path, help="Ordinary paired-vx-base output directory")
-    parser.add_argument("--null-dir", type=Path, required=True, help="Matching paired-vx-base output with --null-source")
+    parser = subparsers.add_parser("vx-evalue", aliases=["paired-vx-evalue"], help=__doc__)
+    parser.add_argument("queries", type=Path, help="Ordinary vx-base output directory")
+    parser.add_argument("--null-dir", type=Path, required=True, help="Matching vx-base output with --null-source")
     parser.add_argument("--target-fpr", type=float, required=True)
     parser.add_argument("--confidence", type=float, required=True)
     parser.add_argument("--output-prefix", type=Path, required=True)
@@ -27,11 +27,16 @@ def _source(directory):
         raise ValueError("incomplete paired-vx-base manifest")
     if (manifest.get("species") not in ("mouse", "human") or "withholding_folds" in manifest
             or "withhold_peptides" in manifest.get("inputs_sha256", {})):
-        raise ValueError("ordered vX calibration requires ordinary paired score populations")
+        raise ValueError("ordered vX calibration requires ordinary score populations")
     try:
         keys = ("species", "exact_hits_excluded", "reference_keys", "region_weights", "competitive_rule",
                 "software", "v_loop_model_sha256", "source_sha256")
         binding = {key: manifest[key] for key in keys}
+        binding["locus"] = manifest.get("locus", "paired")
+        binding["reference_population"] = manifest.get("reference_population", "curated-benchmark")
+        if binding["locus"] not in ("paired", "TRA", "TRB") or binding["reference_population"] not in (
+                "curated-benchmark", "all-valid"):
+            raise ValueError("unknown vX locus or reference population")
         binding["reference_sha256"] = manifest["inputs_sha256"]["reference"]
         query_input_sha256 = manifest["inputs_sha256"]["queries"]
         signed = {manifest_path: digest_bytes(source).hexdigest()}
@@ -67,7 +72,7 @@ def _calibrate(queries, binding, nulls, null_binding, source, target_fpr, confid
     from .ordered_calls import fit_ordered_calls
 
     if binding != null_binding:
-        raise ValueError("query and null vX inputs must match in reference, model, scorer and exact-hit policy")
+        raise ValueError("query and null vX inputs must match in locus, reference, model, scorer and exact-hit policy")
     if not source or "null_source" not in nulls.columns or set(nulls["null_source"]) != {source}:
         raise ValueError("null population must match its paired-vx-base --null-source declaration")
     recipe = fit_ordered_calls(nulls, target_fpr, confidence)

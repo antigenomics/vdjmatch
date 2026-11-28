@@ -153,26 +153,45 @@ def _restore(frame, mapping):
     return result
 
 
-def _mouse_paired_vx(sample, part, reference, context, threads, reference_population, exclude_exact):
-    """Score the normal paired population and keep its service row axis."""
+def _vx_population(sample, part, reference, context, threads, reference_population, exclude_exact, locus):
+    """Score one receptor population and keep its service row axis."""
     import polars as pl
     from ..cli.neighbours import _paired_input
-    from ..cli.paired_vx_base import _paired_maxima, _reference_catalogue, _score_binding, _target_axis
+    from ..cli.paired_vx_base import CHAINS, _all_valid, _reference_catalogue, _score_binding, _target_axis, _vx_maxima
     from ..db.vdjdb import _select_reference
-    from ..evalue.equal_tail import _prepare
-    reference = _select_reference(reference, species="MusMusculus")
+    from ..evalue.equal_tail import _eligible, _prepare
+
+    species = context["species"]
+    organism = {"human": "HomoSapiens", "mouse": "MusMusculus"}[species]
+    chains = CHAINS[locus]
+    reference = _select_reference(reference, species=organism)
     if reference_population == "all-valid":
-        reference = reference.with_columns(
-            pl.col("cdr3").str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$").fill_null(False).alias("reference_valid"))
-    fixed, targets, groups, backgrounds = _reference_catalogue(reference, context["model"], allow_empty=True)
-    pairs, _ = _paired_input(sample, part, context["model"], "mouse", resolved_v_nearest=True)
-    source_alleles = pairs.with_columns(pl.col("v_call_alpha").alias("va"), pl.col("v_call_beta").alias("vb"))
-    pairs = _prepare(source_alleles, "ab", context["model"])
-    pairs = pairs.with_columns(pl.when("available").then(pl.col("nativea")).otherwise(None).alias("nativea"))
+        reference = _all_valid(reference)
+    fixed, targets, groups, backgrounds, sources = _reference_catalogue(
+        reference, context["model"], species=species, locus=locus, allow_empty=True)
+    if locus == "paired":
+        pairs, _ = _paired_input(sample, part, context["model"], species, resolved_v_nearest=True)
+        queries = _prepare(pairs.with_columns(pl.col("v_call_alpha").alias("va"),
+                                             pl.col("v_call_beta").alias("vb")), chains, context["model"])
+    else:
+        aliases = {"human": ["human", "homosapiens", "homo sapiens"],
+                   "mouse": ["mouse", "musmusculus", "mus musculus"]}
+        species_ok = (pl.col("species").str.strip_chars().str.to_lowercase().is_in(aliases[species]).fill_null(False)
+                      if "species" in part.columns else pl.lit(True))
+        queries = _prepare(part.with_columns(
+            pl.col("junction_aa").str.strip_chars().str.to_uppercase().alias("cdr3" + chains),
+            pl.col("v_call").alias("v" + chains)), chains, context["model"])
+        queries = queries.with_columns(
+            pl.when(~species_ok).then(pl.lit("unselected_species"))
+            .when((pl.col("locus") != locus) | ~_eligible(chains, "native", 5))
+            .then(pl.lit("invalid_query_or_gene")).otherwise(pl.lit("searched")).alias("status"))
+    first_chain = "native" + chains[0]
+    queries = queries.with_columns(
+        pl.when(pl.col("status") == "searched").then(pl.col(first_chain)).otherwise(None).alias(first_chain))
     axis = _target_axis(targets)
     labels = axis["target"].to_list()
-    maxima = _paired_maxima(pairs, fixed, groups, backgrounds, context, labels, None,
-                            threads=threads, exclude_exact=exclude_exact)
+    maxima = _vx_maxima(queries, fixed, groups, backgrounds, context, labels, None,
+                        threads=threads, exclude_exact=exclude_exact, locus=locus, sources=sources)
     selected = targets.with_columns(axis["target"])
     selected = selected.rename({name: "selected_" + name for name in selected.columns if name != "target"})
     disposition = maxima.with_columns(
@@ -181,7 +200,7 @@ def _mouse_paired_vx(sample, part, reference, context, threads, reference_popula
         pl.lit("vx").alias("score_model"),
     )
     disposition = disposition.join(selected, on="target", how="left", validate="m:1", maintain_order="left")
-    query = pairs.select("query_id", "status").join(
+    query = queries.select("query_id", "status").join(
         maxima.select("query_id", "maximum"), on="query_id", validate="1:1", maintain_order="left")
     query = query.with_columns(
         pl.when(pl.col("status") != "searched").then(pl.col("status"))
@@ -189,7 +208,8 @@ def _mouse_paired_vx(sample, part, reference, context, threads, reference_popula
         .when(pl.col("maximum").is_not_null()).then(pl.lit("matched"))
         .otherwise(pl.lit("no_neighbours")).alias("status")
     ).drop("maximum")
-    return query, disposition, _score_binding(fixed.height, exclude_exact), axis
+    return query, disposition, _score_binding(
+        fixed.height, exclude_exact, species=species, locus=locus, reference_population=reference_population), axis
 
 
 def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_prefix="annotation",
@@ -204,6 +224,7 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     ``threads=0`` uses all allocated physical cores; positive counts may use allocated logical CPUs.
     Outputs are ``<prefix>.queries.tsv``, ``.selection.tsv``, optional detail tables,
     and ``.manifest.json``. The result contains frames, manifest and output paths.
+    For calibrated vX calls, supply one null directory per scored locus.
     """
     if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
         raise ValueError("threads must be a nonnegative integer (0 selects allocated cores)")
@@ -299,32 +320,49 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
     tables, manifests, batches = {}, [], []
     paired_rows=cohort.filter(pl.col('_population')=='paired')
     from ..evalue.control import _organism
-    vx_profile = (selection_only and paired_rows.height == cohort.height and _organism(species) == "mouse"
-                  and all(value == original_defaults[name] for name, value in options.items()
-                          if name not in {"reference_population", "exclude_exact", "verbose"}))
+    organism = _organism(species)
+    vx_profile = selection_only and all(value == original_defaults[name] for name, value in options.items()
+                                        if name not in {"reference_population", "exclude_exact", "verbose"})
     if score_model == "vx" and not vx_profile:
-        raise ValueError("current vX annotation supports ordinary paired mouse scoring")
-    vx_paired = vx_profile and score_model != "kernel"
+        raise ValueError("vX scoring requires ordinary annotation options")
+    vx_enabled = vx_profile and (score_model == "vx" or
+        (score_model == "auto" and organism == "mouse" and paired_rows.height == cohort.height))
+    banks = {}
     if vx_null_dir is not None:
-        if not vx_paired or reference_population != "curated-benchmark":
-            raise ValueError("vX null calibration requires ordinary paired mouse scoring with a curated reference")
+        if not vx_enabled:
+            raise ValueError("vX null calibration requires the vX annotation score")
+        active_lanes = ([locus] if locus != "auto" else
+                        cohort.filter(pl.col("_population") == "single")["locus"].unique().to_list()
+                        + (["paired"] if paired_rows.height else []))
         archive = Path(reference)
         if not archive.is_file() or archive.suffix != ".zip":
             raise ValueError("vX null calibration requires the same VDJdb release ZIP used to score the null")
         from ..cli.paired_vx_evalue import _calibrate, _source
-        null_directory = Path(vx_null_dir).expanduser()
-        nulls, null_binding, source, null_input, null_paths = _source(null_directory)
-        _validate_output_paths(prefix, [null_directory, *null_paths])
+        directories = [vx_null_dir] if isinstance(vx_null_dir, (str, os.PathLike)) else vx_null_dir
+        for directory in directories:
+            null_directory = Path(directory).expanduser()
+            bank = _source(null_directory)
+            _, binding, _, _, input_paths = bank
+            lane = binding["locus"]
+            if (lane not in active_lanes or binding["species"] != organism
+                    or binding["reference_population"] != reference_population):
+                raise ValueError("vX null locus, species and reference population must match the annotation run")
+            if lane in banks:
+                raise ValueError(f"more than one vX null directory for {lane}")
+            _validate_output_paths(prefix, [null_directory, *input_paths])
+            banks[lane] = bank
+        if banks.keys() != set(active_lanes):
+            raise ValueError("vX annotation requires one matching null directory per scored locus")
         reference_digest = sha256(archive)
     mixed_union=(locus=='auto' and
-        not vx_paired and
+        not vx_enabled and
         options.get('neighbour_weighting',defaults.neighbour_weighting)=='kernel' and
         paired_rows.height>0 and cohort.filter(pl.col('_population')=='single').height>0)
     marginal_tables={};service_batches=[];detail_columns={}
     from ..match.geometry import precompute_v_loop_distances
     v_loop_distances = (
-        precompute_v_loop_distances(species="mouse") if vx_paired else
-        precompute_v_loop_distances(species=_organism(species),
+        precompute_v_loop_distances(species=organism) if vx_enabled else
+        precompute_v_loop_distances(species=organism,
             alphabet=options.get("alphabet", defaults.alphabet),
             matrix=options.get("distance_matrix", defaults.distance_matrix),
             v_regions=options.get("v_regions", defaults.v_regions))
@@ -358,27 +396,28 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
             scoring_part = service_part.drop("_population", *wide_sequences, *count_aliases).with_columns(
                 canonical_counts.gather(service_part["query_id"]).alias("count")
             )
-            scoring_part.write_csv(sample, separator="\t")
-            if population == "paired" and vx_paired:
-                query, selection, binding, axis = _mouse_paired_vx(
+            if vx_enabled:
+                if population == "paired":
+                    scoring_part.write_csv(sample, separator="\t")
+                query, selection, binding, axis = _vx_population(
                     sample, scoring_part, reference_loader(), v_loop_distances, threads,
-                    reference_population,
-                    options.get("exclude_exact", defaults.exclude_exact))
+                    reference_population, options.get("exclude_exact", defaults.exclude_exact), population)
                 calibration = {}
-                if vx_null_dir is not None:
+                if banks:
                     from hashlib import sha256 as digest_bytes
+                    nulls, null_binding, source, null_input, null_paths = banks[population]
                     binding["reference_sha256"] = reference_digest
                     binding["target_axis_sha256"] = digest_bytes(axis.write_csv(separator="\t").encode()).hexdigest()
                     selection, recipe = _calibrate(
                         selection, binding, nulls, null_binding, source, vx_target_fpr, .95)
-                    if (sha256(archive) != reference_digest
-                            or any(sha256(path) != digest for path, digest in null_paths.items())):
-                        raise ValueError("vX score inputs changed during calibration")
                     calibration = {"paired_vx_binding": binding, "calibration": recipe,
                                    "calibration_bank_replayed": any(report["source_sha256"] == null_input
                                                                     for report in reports),
                                    "null_inputs_sha256": {p.name: digest for p, digest in null_paths.items()}}
-                mapping = _pair_mapping(part, offset)
+                mapping = (_pair_mapping(part, offset) if population == "paired" else
+                           part.drop("_population").with_columns(
+                               pl.col("query_id").cast(pl.String).alias("_service_query_id"),
+                               pl.col("source_pair_id").alias("pair_id")))
                 for kind, table in (("queries", query), ("selection", selection)):
                     tables.setdefault(kind, []).append(_restore(table, mapping))
                 manifests.append({"score_model": "vx", "locus": population,
@@ -389,6 +428,7 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
                 batches.append({"locus": population, "query_chain_rows": part.height,
                                 "sample_count": part["sample_id"].n_unique()})
                 continue
+            scoring_part.write_csv(sample, separator="\t")
             args = _core_defaults(reference, local_prefix)
             vars(args).update(options)
             args.sample, args.locus, args.species = str(sample), population, species
@@ -427,6 +467,9 @@ def annotate_repertoires(inputs=None, *, metadata=None, reference=None, output_p
             if part.height:
                 batches.append({"locus": population, "query_chain_rows": part.height,
                                 "sample_count": part["sample_id"].n_unique()})
+    if banks and (sha256(archive) != reference_digest or any(
+            sha256(path) != digest for _, _, _, _, paths in banks.values() for path, digest in paths.items())):
+        raise ValueError("vX score inputs changed during calibration")
     outputs = {}
     result = {}
     if not tables:
