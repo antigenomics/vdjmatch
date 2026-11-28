@@ -694,6 +694,22 @@ contributes once per target membership. The command constructs both
 motif planes and derives the target key counts. The supplied base
 plane must already reflect the chosen hit-list policy.
 
+For the mouse benchmark, produce that plane and the three TSV files
+from a pinned VDJdb release ZIP and a paired query table:
+
+.. code-block:: bash
+
+   vdjmatch paired-vx-base paired-queries.tsv --vdjdb reference.zip \
+     --exclude-exact --output-dir mouse-base
+
+Pass the four files from ``mouse-base`` to ``paired-motif-rank``.
+Wide query tables use ``junction_aa_alpha/beta`` and ``v_alpha/beta``
+with a pair ID. The command retains the full compatible catalogue
+and scores genuine pairs. Exact-hit exclusion operates on both full
+junctions and applies only to the target and background hit lists.
+Omit ``--exclude-exact`` for ordinary exact-retained replay. This
+command uses the verified mouse frozen base before motif re-ranking.
+
 Competitive score diagnostics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

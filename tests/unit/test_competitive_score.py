@@ -161,6 +161,29 @@ def test_paired_motif_cli_rebuilds_fixed_class_memberships(tmp_path):
     np.testing.assert_array_equal(actual["score"].to_numpy().reshape(base.shape), scores)
 
 
+def test_frozen_paired_base_masks_hits_in_both_lists_and_preserves_unsupported_rows(monkeypatch):
+    import polars as pl
+
+    from vdjmatch.cli import paired_vx_base
+    from vdjmatch.match import geometry
+
+    fixed = pl.DataFrame({
+        "cdr3a": ["CASAAAFF"] * 3, "cdr3b": ["CASRRRFF", "CASAAAFF", "CASYYYFF"],
+        "nativea": ["a"] * 3, "nativeb": ["b"] * 3,
+    })
+    query = fixed.head(1)
+    queries = pl.concat([query, query.with_columns(pl.lit(None, dtype=pl.String).alias("nativea"))])
+    monkeypatch.setattr(geometry, "paired_distance_matrix", lambda *args, **kwargs: np.array([[0, 4, 9]]))
+    monkeypatch.setattr(paired_vx_base, "_regional_corrections", lambda _, locus: (
+        np.array(["a" if locus == "TRA" else "b"]), np.zeros((1, 1))))
+    groups, backgrounds = ([0, 1], [2]), ([2], [0, 1])
+    for exclude_exact, expected in ((False, [-.275, -9.525]), (True, [-4.175, -9.425])):
+        actual = paired_vx_base._base_scores(queries, fixed, groups, backgrounds, {},
+                                             threads=1, exclude_exact=exclude_exact)
+        np.testing.assert_allclose(actual[0], expected)
+        np.testing.assert_array_equal(actual[1], [-np.inf, -np.inf])
+
+
 def test_paired_motif_refinement_leaves_top_ties_and_unsupported_cells():
     frozen = [[-1, -1, -2, -np.inf], [-1, -2, -3, -4]]
     tra = [[4, -4, 5, 3], [0, -2, 4, 7]]

@@ -982,6 +982,8 @@ def main(argv: list[str] | None = None) -> int:
     register_motif_position(sub)
     from .competitive import register as register_competitive
     register_competitive(sub)
+    from .paired_vx_base import register as register_paired_vx_base
+    register_paired_vx_base(sub)
     from .reference_pairing import register as register_reference_pairing
     register_reference_pairing(sub)
     from .score_policy import register as register_score_policy
@@ -1010,6 +1012,7 @@ def main(argv: list[str] | None = None) -> int:
     native_threads = None
     evidence_commands = {"equal-tail", "motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     evidence_commands.add('paired-score')
+    evidence_commands.add('paired-vx-base')
     evidence_commands.add('repertoire-exact')
     evidence_commands.add('graph-noise')
     evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment', 'repertoire-tcrnet'})

@@ -1,0 +1,173 @@
+"""Replay the frozen mouse paired-chain base score from a VDJdb snapshot."""
+from pathlib import Path
+
+from . import cpu_budget
+
+
+REGION_WEIGHTS = {"cdr1": 1 + 1 / 256, "cdr2": 3 / 4 + 1 / 256, "cdr25": 3 / 2 + 1 / 256}
+PAIR_RULE = {"margin_per_chain": 6, "margin_penalty": 1 / 40, "second_hit_gap_weight": -1 / 10}
+CHAINS = ("junction_aa_alpha", "junction_aa_beta")
+
+
+def register(subparsers):
+    parser = subparsers.add_parser("paired-vx-base", help=__doc__)
+    parser.add_argument("queries", type=Path, help="Mouse paired AIRR query table")
+    parser.add_argument("--vdjdb", type=Path, required=True, help="Local VDJdb release ZIP")
+    parser.add_argument("--exclude-exact", action="store_true",
+                        help="Benchmark only: exclude matching paired junctions from the hit lists")
+    parser.add_argument("--threads", type=cpu_budget, default="0")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Fresh directory for paired motif rank inputs")
+    parser.set_defaults(func=main)
+
+
+def _reference_catalogue(raw, model):
+    import polars as pl
+    from .historical import assayed_targets
+    from ..aggregate.candidates import PMHC
+    from ..db.schema import mhc_compatible
+    from ..evalue.equal_tail import _eligible, _prepare
+    from ..evalue.paired import build_paired_ref
+
+    original = raw.columns[:raw.columns.index("complex_id")]
+    if "complex.id" in original:
+        raw = raw.unique(subset=original, maintain_order=True)
+    pairs = build_paired_ref(raw).rename(
+        {"alpha": "cdr3a", "beta": "cdr3b", "v_alpha": "va", "v_beta": "vb"})
+    pairs = _prepare(pairs, "ab", model).filter(_eligible("ab", "native", 5))
+    key = ["cdr3a", "cdr3b", "nativea", "nativeb"]
+    fixed = pairs.select(key).unique(maintain_order=True).with_row_index("reference_key")
+    pairs = pairs.join(fixed, on=key, validate="m:1", maintain_order="left")
+    declared = (pairs.select(PMHC).unique().drop_nulls()
+                .filter(pl.all_horizontal(pl.col(*PMHC).str.strip_chars() != ""))
+                .sort(PMHC).with_row_index("query_id").with_columns(pl.lit("mouse").alias("species")))
+    if declared.is_empty():
+        raise ValueError("mouse reference has no eligible paired pMHC targets")
+    groups, backgrounds = [], []
+    for target, _, selected in assayed_targets(declared.select("query_id"), declared, pairs, "mouse"):
+        members = selected["reference_key"].unique().sort().to_numpy()
+        compatible = pairs.filter(
+            (pl.col("epitope") != target["epitope"])
+            & (pl.col("mhc_class") == target["mhc_class"])
+            & mhc_compatible("mhc_a", target["mhc_a"])
+            & mhc_compatible("mhc_b", target["mhc_b"])
+        )["reference_key"].unique().to_numpy()
+        groups.append(members)
+        backgrounds.append(compatible)
+    return fixed, declared.select(PMHC), groups, backgrounds
+
+
+def _regional_corrections(context, locus):
+    from ..match.geometry import _v_loop_groups
+
+    alleles = context["tables"][locus][0]
+    correction = 0
+    for region, weight in REGION_WEIGHTS.items():
+        partial = {gene: {name: entry[name] if name == region else "" for name in REGION_WEIGHTS}
+                   for gene, entry in context["model"].items()}
+        distance, indices = _v_loop_groups(alleles.tolist(), partial, context["costs"])
+        correction = correction + (weight - 1) * distance[indices[:, None], indices]
+    return alleles, correction
+
+
+def _base_scores(queries, fixed, groups, backgrounds, context, *, threads, exclude_exact):
+    import numpy as np
+    from ..evalue.competitive import reduced_hits
+    from ..evalue.equal_tail import _eligible
+    from ..match.geometry import paired_distance_matrix
+
+    result = np.full((queries.height, len(groups)), -np.inf)
+    eligible = queries.with_row_index("_i").filter(_eligible("ab", "native", 5))
+    tables = [_regional_corrections(context, locus) for locus in ("TRA", "TRB")]
+    refs = [fixed["cdr3" + chain].to_list() for chain in "ab"]
+    ref_alleles = [fixed["native" + chain].to_list() for chain in "ab"]
+    ri = [np.searchsorted(axis, values) for (axis, _), values in zip(tables, ref_alleles, strict=True)]
+    for part in eligible.iter_slices(max(1, 4_000_000 // fixed.height)):
+        if not part.height:
+            continue
+        sequences = [part["cdr3" + chain].to_list() for chain in "ab"]
+        alleles = [part["native" + chain].to_list() for chain in "ab"]
+        native = paired_distance_matrix(*sequences, *refs, *alleles, *ref_alleles, species="mouse",
+                                        threads=threads, v_loop_distances=context, allow_short=True)
+        native = native.astype(float)
+        if exclude_exact:
+            exact = ((np.asarray(sequences[0])[:, None] == np.asarray(refs[0])[None, :])
+                     & (np.asarray(sequences[1])[:, None] == np.asarray(refs[1])[None, :]))
+            native[exact] = np.inf
+        correction = np.zeros(native.shape)
+        for (axis, table), values, j in zip(tables, alleles, ri, strict=True):
+            correction += table[np.ix_(np.searchsorted(axis, values), j)]
+        hits = native + correction
+        rows = part["_i"].to_numpy()
+        for column, (members, background) in enumerate(zip(groups, backgrounds, strict=True)):
+            competitor = native[:, background].min(axis=1) if len(background) else np.full(len(part), np.inf)
+            index = min(1, len(members) - 1)
+            top = np.partition(hits[:, members], index, axis=1)[:, :index + 1]
+            first = top[:, 0]
+            supported = np.isfinite(first)
+            second = top[:, 1] if index else first
+            second = np.where(np.isfinite(second), second, first)
+            result[rows[supported], column] = reduced_hits(
+                first[supported], second[supported], competitor[supported], PAIR_RULE, 2)
+    return result
+
+
+def main(args):
+    import json
+    from importlib.metadata import version
+    from importlib.resources import files
+
+    import numpy as np
+    import polars as pl
+    from .equal_tail import _queries
+    from .. import db
+    from ..db.cache import sha256
+    from ..evalue.equal_tail import _prepare
+    from ..match.geometry import precompute_v_loop_distances
+
+    out = args.output_dir
+    if out.exists() or out.is_symlink():
+        raise ValueError("paired-vx-base requires a fresh output directory")
+    if not args.vdjdb.is_file() or args.vdjdb.suffix != ".zip":
+        raise ValueError("paired-vx-base requires a local VDJdb release ZIP")
+    inputs = {"reference": args.vdjdb, "queries": args.queries}
+    digests = {name: sha256(path) for name, path in inputs.items()}
+    context = precompute_v_loop_distances(species="mouse")
+    raw = db.load(args.vdjdb, species="MusMusculus")
+    fixed, targets, groups, backgrounds = _reference_catalogue(raw, context["model"])
+    queries, ingestion = _queries(args.queries, "paired", "mouse", declared=False)
+    if queries.is_empty() or queries.height * 2 != ingestion["output_rows"] or not queries.select(pl.all_horizontal(
+        pl.col("cdr3" + chain).str.contains(r"^[ACDEFGHIKLMNPQRSTVWY]+$").fill_null(False) for chain in "ab"
+    ).all()).item():
+        raise ValueError("provide complete mouse pairs with both canonical junctions")
+    queries = _prepare(queries, "ab", context["model"])
+    base = _base_scores(queries, fixed, groups, backgrounds, context,
+                        threads=args.threads, exclude_exact=args.exclude_exact)
+    labels = [json.dumps(target, separators=(",", ":")) for target in targets.iter_rows()]
+    member_rows = pl.DataFrame({
+        "reference_key": np.concatenate(groups),
+        "target": np.repeat(labels, [len(group) for group in groups]),
+    }).join(fixed.select("reference_key", pl.col("cdr3a").alias(CHAINS[0]),
+                        pl.col("cdr3b").alias(CHAINS[1])), on="reference_key",
+            validate="m:1", maintain_order="left")
+    if digests != {name: sha256(path) for name, path in inputs.items()}:
+        raise ValueError("paired-vx-base inputs changed during replay")
+    out.mkdir(parents=True, exist_ok=False)
+    np.savez(out / "base.npz", base=base)
+    queries.select("query_id", pl.col("cdr3a").alias(CHAINS[0]),
+                   pl.col("cdr3b").alias(CHAINS[1])).write_csv(out / "queries.tsv", separator="\t")
+    pl.DataFrame({"target": labels, "mhc_class": targets["mhc_class"]}).write_csv(
+        out / "targets.tsv", separator="\t")
+    member_rows.write_csv(out / "memberships.tsv", separator="\t")
+    (out / "manifest.json").write_text(json.dumps({
+        "inputs_sha256": digests, "species": "mouse", "exact_hits_excluded": args.exclude_exact,
+        "queries": queries.height, "targets": targets.height, "reference_keys": fixed.height,
+        "supported_queries": int(np.isfinite(base).any(axis=1).sum()),
+        "motif_reference_keys": member_rows["reference_key"].n_unique(),
+        "threads": args.threads,
+        "software": {package: version(package) for package in ("vdjmatch", "seqtree", "vdjtools")},
+        "v_loop_model_sha256": sha256(Path(str(files("vdjmatch.resources") / "vloops" / "mouse_v_loops.tsv"))),
+        "source_sha256": sha256(Path(__file__)),
+        "region_weights": REGION_WEIGHTS, "competitive_rule": PAIR_RULE,
+        "outputs_sha256": {file.name: sha256(file) for file in sorted(out.iterdir())},
+    }, indent=2) + "\n")
+    return 0
