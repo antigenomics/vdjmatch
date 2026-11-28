@@ -6,7 +6,7 @@ import pytest
 
 from vdjmatch.evalue.competitive import (
     anchored_motif_scores, assay_local_score, assignment_score, paired_assay_local_score,
-    reduced_hits,
+    paired_motif_ranking_scores, reduced_hits,
 )
 
 
@@ -87,3 +87,13 @@ def test_research_score_cli_keeps_output_identity(tmp_path):
     assert main(["paired-assay-score", "--distances", str(distances), "--queries",
                  str(queries), "--output", str(output)]) == 0
     assert output.read_text() == "query_id\tscore\n01\t-3.0\n02\t-3.0\n"
+
+
+def test_paired_motif_refinement_leaves_top_ties_and_unsupported_cells():
+    frozen = [[-1, -1, -2, -np.inf], [-1, -2, -3, -4]]
+    tra = [[4, -4, 5, 3], [0, -2, 4, 7]]
+    trb = [[7, 7, 3, 0], [0, -1, 3, 6]]
+    actual = paired_motif_ranking_scores(frozen, tra, trb, [9, 8, 7, 2],
+                                         support_weight=1, conflict_weight=1/8)
+    cap = np.nextafter(-1., -np.inf)
+    np.testing.assert_array_equal(actual, [[-1, -1, cap, -np.inf], [-1, -2.25, cap, -4]])

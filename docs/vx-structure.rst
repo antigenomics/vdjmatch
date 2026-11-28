@@ -250,6 +250,27 @@ strict source-record gate per full pMHC and lane.
 * `Original VDJdb paper <https://pubmed.ncbi.nlm.nih.gov/28977646/>`__
 * `VDJdb motif compendium <https://pubmed.ncbi.nlm.nih.gov/31588507/>`__
 
+Paired motif ranking refinement
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Let :math:`S_e` be the paired-chain score in the full compatible target
+context and :math:`m_e` the smaller of the two fixed-catalogue chain motif
+enrichments. For targets with more than two reference keys, add
+
+.. math::
+
+   \lambda_+[m_e]_+-\lambda_-[-m_e]_+.
+
+The two reference keys in the gate correspond to the two pooled
+pseudocount observations in the motif score. Keep every target at
+the original maximum unchanged. Cap other scores strictly below that
+maximum, at its binary64 predecessor. This preserves the winning tier
+and any cutoff on the maximum score. It can change lower target ranks
+and per-target AP and AUROC. The caller supplies the species weights.
+Use ``vdjmatch.evalue.competitive.paired_motif_ranking_scores`` for
+retrospective ranking; benchmarking reuses the complete fixed motif
+model, including exact junctions in model counts.
+
 Ranking reactivity within an annotated assay
 --------------------------------------------
 

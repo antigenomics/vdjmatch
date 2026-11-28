@@ -110,3 +110,29 @@ def anchored_motif_scores(reference_keys, junctions, targets):
                 (observed + 2 * prior) / ((sizes[target] + 2) * prior)
             ).mean()
     return scores
+
+
+def paired_motif_ranking_scores(base, tra, trb, target_key_counts, *,
+                               support_weight, conflict_weight):
+    """Refine lower paired-chain ranks while keeping the frozen winning tier.
+
+    Inputs share the query-by-target axes. Use a complete compatible target
+    context here, then select any reporting labels from the resulting scores.
+    The weights are explicit inputs so species settings can be verified.
+    """
+    base = np.asarray(base, dtype=float)
+    tra, trb = np.asarray(tra, dtype=float), np.asarray(trb, dtype=float)
+    counts = np.asarray(target_key_counts)
+    if (base.ndim != 2 or not base.shape[1] or tra.shape != base.shape
+            or trb.shape != base.shape or counts.shape != (base.shape[1],)):
+        raise ValueError("expected aligned query-by-target scores and one count per target")
+    if np.isnan(base).any() or np.isposinf(base).any():
+        raise ValueError("base scores must be finite or negative infinity")
+    if (not np.isfinite([support_weight, conflict_weight]).all()
+            or min(support_weight, conflict_weight) < 0):
+        raise ValueError("motif weights must be finite and nonnegative")
+    motif = np.minimum(np.where(np.isfinite(tra), tra, 0), np.where(np.isfinite(trb), trb, 0))
+    correction = (support_weight * np.maximum(motif, 0) + conflict_weight * np.minimum(motif, 0))
+    maximum = base.max(axis=1, keepdims=True)
+    cap = np.nextafter(maximum, -np.inf)
+    return np.where(base == maximum, base, np.minimum(base + correction * (counts > 2), cap))
