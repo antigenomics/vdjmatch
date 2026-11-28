@@ -271,6 +271,13 @@ Use ``vdjmatch.evalue.competitive.paired_motif_ranking_scores`` for
 retrospective ranking; benchmarking reuses the complete fixed motif
 model, including exact junctions in model counts.
 
+On the capped mouse paired-chain cohorts, separately fitting the
+two MHC-class motif models and setting support weight to zero and
+conflict weight to four improved all 39 AP, AUROC and standardized
+partial AUROC endpoints against frozen vX and native TCRdist3.
+The setting was selected on the benchmark. The human class-I
+full-catalogue comparison is a separate evaluation.
+
 Ranking reactivity within an annotated assay
 --------------------------------------------
 
