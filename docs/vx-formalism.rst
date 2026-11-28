@@ -1186,7 +1186,7 @@ used for both observed and mock panels.
 See :doc:`vx-structure` for structural degree, rarefaction and reciprocal k-NN.
 
 Fixed-target and mock-panel replays
-----------------------------------
+-----------------------------------
 
 Use ``vx-fixed-target RECTANGLE.npz --locus TRA|TRB|paired --output-prefix OUT``
 to rank one declared target from native comparator distances. The NPZ stores
