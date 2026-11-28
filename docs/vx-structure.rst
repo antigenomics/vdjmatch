@@ -325,8 +325,12 @@ The NumPy archive contains the original paired scores ``base``,
 the two chain motif score matrices ``tra`` and ``trb``, and the
 one-dimensional ``target_key_counts`` array for the same whole
 context. The TSV columns ``query_id`` and ``target`` identify the
-matrix rows and columns. Use one species and one MHC class per
-benchmark run. Select reporting targets after refinement.
+matrix rows and columns. If the motif preparation has already taken
+the minimum across chains, pass that matrix in both chain slots.
+Keep all targets that compete for a call in the score matrix, then
+select reporting targets after refinement. The mouse ranking
+benchmark used one MHC class per run. A search across MHC classes
+uses the combined target axis to determine the winning tier.
 
 Optionally include a ``lower_tier_base`` matrix in the archive.
 It supplies the baseline for the lower ranks only. A missing entry
