@@ -1025,7 +1025,7 @@ def main(argv: list[str] | None = None) -> int:
     native_threads = None
     evidence_commands = {"equal-tail", "motif-evidence", "fit-evidence", "combine-evidence", "database-evidence"}
     evidence_commands.add('paired-score')
-    evidence_commands.update({'vx-base', 'paired-vx-base'})
+    evidence_commands.update({'vx-base', 'paired-vx-base', 'mouse-paired-rank'})
     evidence_commands.add('repertoire-exact')
     evidence_commands.add('graph-noise')
     evidence_commands.update({'reference-diagnostics', 'reference-profiles', 'reference-rule-scores', 'prepare-control', 'reference-density', 'score-policy', 'score-confusion', 'paired-labels', 'motif-position', 'index', 'update', 'repertoire-enrichment', 'repertoire-tcrnet'})

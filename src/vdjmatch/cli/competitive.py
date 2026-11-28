@@ -1,6 +1,8 @@
-"""Replay opt-in vX research scores on explicitly prepared inputs."""
+"""Replay vX research scores and fixed-reference rankings."""
 
 from pathlib import Path
+
+from . import cpu_budget
 
 
 def register(subparsers):
@@ -31,6 +33,55 @@ def register(subparsers):
     paired.add_argument("--conflict-weight", type=float, required=True)
     paired.add_argument("--output", type=Path, required=True)
     paired.set_defaults(func=paired_main)
+
+    mouse = subparsers.add_parser("mouse-paired-rank",
+                                  help="Rank paired mouse queries against a fixed VDJdb release")
+    mouse.add_argument("queries", type=Path, help="Paired AIRR query table")
+    mouse.add_argument("--vdjdb", type=Path, required=True, help="Local VDJdb release ZIP")
+    mouse.add_argument("--exclude-exact", action="store_true",
+                       help="Benchmark only: exclude matching paired junctions from score hit lists")
+    mouse.add_argument("--threads", type=cpu_budget, default="0")
+    mouse.add_argument("--output-dir", type=Path, required=True)
+    mouse.set_defaults(func=mouse_paired_main)
+
+
+def mouse_paired_main(args):
+    import json
+    from tempfile import TemporaryDirectory
+    from types import SimpleNamespace
+
+    from .paired_vx_base import main as score_base
+    from ..db.cache import sha256
+    from ..evalue import competitive as reducer
+
+    out = args.output_dir
+    if out.exists() or out.is_symlink():
+        raise ValueError("mouse-paired-rank requires a fresh output directory")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=out.parent, prefix=".mouse-paired-rank-") as temporary:
+        staged = Path(temporary) / "results"
+        score_base(SimpleNamespace(queries=args.queries, vdjdb=args.vdjdb, output_dir=staged,
+                                   exclude_exact=args.exclude_exact, null_source=None,
+                                   withhold_peptides=None, threads=args.threads, species="mouse",
+                                   locus="paired", reference_population="curated-benchmark",
+                                   maxima_only=False, tie_policy="abstain"))
+        rank_path = staged / "ranking.tsv"
+        weights = {"support_weight": 0, "conflict_weight": 4}
+        paired_main(SimpleNamespace(scores=staged / "base.npz", queries=staged / "queries.tsv",
+                                    targets=staged / "targets.tsv", reference=staged / "memberships.tsv",
+                                    output=rank_path, **weights))
+        (staged / "ranking.manifest.json").write_text(json.dumps({
+            "base_manifest_sha256": sha256(staged / "manifest.json"),
+            "ranking_sha256": sha256(rank_path),
+            "ranking_source_sha256": sha256(Path(__file__)),
+            "motif_reducer_source_sha256": sha256(Path(reducer.__file__)),
+            **weights,
+        }, indent=2) + "\n")
+        # Claim the destination exclusively and publish the signed manifests last.
+        out.mkdir()
+        for path in sorted(staged.iterdir(), key=lambda path: path.suffix == ".json"):
+            path.rename(out / path.name)
+    return 0
 
 
 def _read(path, columns):

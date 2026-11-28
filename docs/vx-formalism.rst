@@ -93,6 +93,13 @@ dissimilarity on the frozen resolved inputs. It fails two metric axioms.
   The residue table itself also violates the inequality:
   :math:`\delta(F,H)=4>\delta(F,Y)+\delta(Y,H)=1+2`.
 
+When zero must identify a full receptor key, a simple companion
+dissimilarity is :math:`D_w(q,r)+\mathbf{1}\{\operatorname{key}(q)\ne
+\operatorname{key}(r)\}`. For example, define the key by the full
+junction and resolved V allele on each chain. The extra unit preserves
+relative order among nonidentical keys. The triangle counterexample
+still gives :math:`73>13+13`.
+
 Exact and Hamming neighborhoods use full junction identities. Hamming
 distance is a metric within an equal-length stratum. For unequal lengths,
 global Levenshtein distance on complete junctions is a metric because
@@ -291,6 +298,12 @@ sets the cost of falling short. The order :math:`k` sets the background
 comparison rank. The gap weight :math:`b` penalizes separation for TRA and
 paired-chain receptors and rewards it slightly for TRB. All distance terms have native
 distance units. The weights :math:`\gamma,b` are dimensionless.
+The original BLOSUM62 entries are scaled substitution log odds. The
+clipped costs, the reference competition and the second-hit term
+define an evidence score in distance units without a likelihood-ratio
+interpretation. Displaying :math:`-S` as a lower-is-better evidence cost
+reverses the cutoff inequality. Its zero does not identify a receptor,
+and TRB source and gap terms can make that cost negative.
 
 The gap contribution is in :math:`[-2.4,0]` for TRA, :math:`[0,0.15]` for
 TRB and :math:`[-4.8,0]` for paired-chain receptors. An equal-length
@@ -757,22 +770,24 @@ contributes once per target membership. The command constructs both
 motif planes and derives the target key counts. The supplied base
 plane must already reflect the chosen hit-list policy.
 
-For the mouse benchmark, produce that plane and the three TSV files
-from a pinned VDJdb release ZIP and a paired query table:
+For the mouse benchmark, run both stages directly from a pinned VDJdb
+release ZIP and a paired query table:
 
 .. code-block:: bash
 
-   vdjmatch paired-vx-base paired-queries.tsv --vdjdb reference.zip \
-     --exclude-exact --output-dir mouse-base
+   vdjmatch mouse-paired-rank paired-queries.tsv --vdjdb reference.zip \
+     --exclude-exact --output-dir mouse-rank
 
-Pass the four files from ``mouse-base`` to ``paired-motif-rank``.
+The output includes ``ranking.tsv`` with the refined ranks and a separate
+ranking manifest. The base archive, maxima and their manifest use the
+same calibration contract as ``vx-base``.
 Wide query tables use ``junction_aa_alpha/beta`` and ``v_alpha/beta``
 with a pair ID. The command retains the full compatible catalogue
 and scores genuine pairs. Exact-hit exclusion operates on both full
 junctions and applies only to the target and background hit lists.
-Omit ``--exclude-exact`` for ordinary exact-retained replay. The default
-species is mouse. Use ``--species human`` to replay the same paired
-score against human VDJdb records with the human V-loop model.
+Omit ``--exclude-exact`` for ordinary exact-retained replay. For the
+base score alone use ``vx-base``, which supports both species and uses
+their respective V-loop models.
 
 For winner-only scoring use ``--maxima-only``. For a target with
 nearest corrected distance :math:`d_1`, the paired score satisfies

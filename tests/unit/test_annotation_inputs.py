@@ -150,6 +150,29 @@ def test_ordinary_paired_mouse_annotation_defaults_to_vx(tmp_path):
     assert replay_paired(SimpleNamespace(queries=null_query, vdjdb=release, null_source="generated",
                                         output_dir=null_dir, exclude_exact=False, withhold_peptides=None,
                                         threads=1)) == 0
+    import json
+
+    from vdjmatch.cli import competitive
+    from vdjmatch.cli.paired_vx_evalue import _source
+    from vdjmatch.db.cache import sha256
+    from vdjmatch.evalue import competitive as reducer
+
+    ranking_dir = tmp_path / "raw-ranking"
+    ranking_args = SimpleNamespace(queries=null_query, vdjdb=release, exclude_exact=False,
+                                   output_dir=ranking_dir, threads=1)
+    assert competitive.mouse_paired_main(ranking_args) == 0
+    with pytest.raises(ValueError, match="fresh output directory"):
+        competitive.mouse_paired_main(ranking_args)
+    _, binding, *_ = _source(ranking_dir)
+    _, null_binding, *_ = _source(null_dir)
+    assert binding == null_binding
+    ranks = pl.read_csv(ranking_dir / "ranking.tsv", separator="\t")
+    assert ranks.height == 1 and ranks["score"].item() == 0
+    rank_manifest = json.loads((ranking_dir / "ranking.manifest.json").read_text())
+    assert rank_manifest["ranking_sha256"] == sha256(ranking_dir / "ranking.tsv")
+    assert rank_manifest["base_manifest_sha256"] == sha256(ranking_dir / "manifest.json")
+    assert rank_manifest["motif_reducer_source_sha256"] == sha256(Path(reducer.__file__))
+
     out = annotate_repertoires(pairs, reference=release, species="mouse", vx_null_dir=null_dir,
                                output_prefix=tmp_path / "calibrated")
     assert out["selection"].select("score", "E_null", "null_tail_count", "call_status").rows() == [
