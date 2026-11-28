@@ -8,6 +8,18 @@ acid junction and mapped V allele. Search keys are distinct encodings. A
 key can have several source observations. Paired keys represent observed
 links and both chain distances are evaluated against the same key.
 
+The vX contribution is the receptor-to-database evidence score defined
+here. It combines a weighted receptor distance with a target's first
+two eligible hits and an explicit comparison against HLA-compatible
+other-peptide references. The same construction applies to single
+chains and genuine paired-chain keys, with chain-specific settings.
+TCRdist3 supplies the native distance baseline. Fixed-site gaps, movable
+single-block gaps and Smith–Waterman are existing alignment choices.
+The novel vX contribution is how distance and reference evidence
+are combined into a target score, together with the separately
+verified neighborhood rules.
+
+
 For one chain, let :math:`B(a,b)` be the BLOSUM62 substitution score.
 The native comparison charges zero for identical residues. For distinct
 canonical residues it charges :math:`\delta(a,b)=\min(4,[4-B(a,b)]_+)`,
@@ -123,6 +135,31 @@ and four fixed-reference endpoints with zero losses, keeping all six
 measured NLV endpoints and all three LLL–LLW–ELA correct counts.
 This is an explicit human research component. Whole-search
 calibration and broader verification remain pending.
+
+Expanded gap placement candidate
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The vX candidate expands the set of legal gap placements by one
+boundary at each end and keeps the gap length fixed at the
+difference in junction lengths. For a shorter junction of length 13,
+the native boundaries follow residues 5--8 and the expanded boundaries
+follow residues 4--9. Both sets are limited to legal boundaries in the
+trimmed core. Equal-length junctions retain their ungapped distance.
+
+Let :math:`D_J` be the native-window cost and :math:`D_J^+` the cost
+minimized over the expanded window, using the same residue and gap
+costs. The proposed CDR3 contribution per chain is
+
+.. math::
+
+   3\,\frac{511D_J+D_J^+}{512}.
+
+The expanded alignment can lower the cost only when a newly eligible
+placement scores better. The small fraction was selected on the
+exact-masked human paired organizer panel. It improved all three
+TTDPSFLGRY endpoints, with the other 21 unchanged. Transfer to the
+fixed-reference priority panels is required before using the change
+in the accepted scorer.
 
 Substitution matrix choice
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
