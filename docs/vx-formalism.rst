@@ -80,7 +80,9 @@ mask compares anchored junctions, requiring equality on both chains for a
 pair, and applies to target and background hits. The generated-null run
 retains exact hits.
 
-With :math:`L` observed chains and cap :math:`g_\star=24L`, define
+Let :math:`L` count observed chains and let :math:`C=3\cdot4=12`
+be the maximum weighted junction cost of a single substitution or
+gap residue. The gap cap is :math:`g_\star=2LC`. Define
 
 .. math::
 
@@ -100,8 +102,8 @@ distance units. The weights :math:`\gamma,b` are dimensionless.
 The gap contribution is in :math:`[-2.4,0]` for TRA, :math:`[0,0.15]` for
 TRB and :math:`[-4.8,0]` for paired-chain receptors. In real arithmetic the midpoint gap
 is half the separation :math:`d_2-d_1`, so saturation begins at
-:math:`d_2-d_1=48L`. This is four maximum-cost substitutions or gap residues
-per chain in distance units. It is a scale comparison. For example, an
+:math:`d_2-d_1=4LC`. The cap uses four maximum-cost substitutions or
+gap residues per chain as the separation scale. For example, an
 equal-length junction of length :math:`\ell` can contribute up to
 :math:`12[\ell-5]_+` before V-loop terms, and other terms or unequal lengths
 change the range further. In the matched catalogue ranking queries

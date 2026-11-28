@@ -4,6 +4,7 @@ from collections import Counter
 
 import numpy as np
 
+# Half the separation of four maximum-cost junction edits (12 units each).
 MAX_MIDPOINT_GAP_PER_CHAIN = 24
 ASSIGNMENT_SIZE_SLOPE = 1 / 400
 
