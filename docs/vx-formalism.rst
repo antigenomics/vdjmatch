@@ -222,13 +222,16 @@ retains exact hits.
 
 Let :math:`L` count observed chains and let :math:`C=3\cdot4=12`
 be the maximum weighted junction cost of a single substitution or
-gap residue. The gap cap is :math:`g_\star=2LC`. Define
+gap residue. Limit the total difference between the first and second
+hit distances to :math:`4LC`, equivalent to four maximum-cost residue
+edits per observed chain. The midpoint cap is :math:`g_\star=2LC`.
+In real arithmetic,
 
 .. math::
 
    \begin{aligned}
    X &= [d_1+Lm-c]_+,\\
-   G &= \min\{g_\star,[(d_1+d_2)/2-d_1]_+\},\\
+   G &= \tfrac12\min\{d_2-d_1,4LC\},\\
    S(q,e) &= -d_1-\gamma X+bG.
    \end{aligned}
 
@@ -240,13 +243,10 @@ paired-chain receptors and rewards it slightly for TRB. All distance terms have 
 distance units. The weights :math:`\gamma,b` are dimensionless.
 
 The gap contribution is in :math:`[-2.4,0]` for TRA, :math:`[0,0.15]` for
-TRB and :math:`[-4.8,0]` for paired-chain receptors. In real arithmetic the midpoint gap
-is half the separation :math:`d_2-d_1`, so saturation begins at
-:math:`d_2-d_1=4LC`. The cap uses four maximum-cost substitutions or
-gap residues per chain as the separation scale. For example, an
-equal-length junction of length :math:`\ell` can contribute up to
+TRB and :math:`[-4.8,0]` for paired-chain receptors. An equal-length
+junction of length :math:`\ell` can contribute up to
 :math:`12[\ell-5]_+` before V-loop terms, and other terms or unequal lengths
-change the range further. In the matched catalogue ranking queries
+change the range further. In the matched TCRvdb ranking queries
 (2,636 records per axis), median full junction lengths were 13 for TRA
 and 14 for TRB. Their median core lengths of eight and nine give loose
 substitution-only midpoint scales of 48 and 54 units. A length-based cap
@@ -255,11 +255,15 @@ is the full junction length of observed chain :math:`i`. Neither this
 capacity nor the cost matrix determines how far apart the two best
 reference hits are in a real panel. The original support-gap sweep fixed the
 cap across its variants.
-Its value remains a design choice. In a matched 78-endpoint ranking replay,
-halving the cap reduced 32 endpoints. Doubling it or using the query-core
-capacity each reduced six. The frozen cap preserved all 78 endpoints.
-Binary64 evaluation forms the midpoint
-before subtracting :math:`d_1`.
+Its value remains a design choice. In the matched ranking replay,
+the midpoint gap exceeded the frozen cap in 69 of 8,295 finite
+query–target scores across TCRvdb and measured NLV. Halving the cap
+changed 374 scores and lowered 32 of 78 endpoints.
+Doubling it or using the query-core capacity each changed 69 scores and
+lowered six endpoints. All cap options beat native TCRdist3 on the 78
+endpoints. The frozen cap also preserved all frozen vX endpoints.
+Binary64 evaluation forms the midpoint before subtracting :math:`d_1`,
+then limits the result to :math:`[0,g_\star]`.
 
 An infinite :math:`c` gives :math:`X=0`, and a target with no finite hit has
 :math:`S=-\infty`. The nonnegative competitor penalty and capped midpoint
