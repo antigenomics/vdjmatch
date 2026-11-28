@@ -965,8 +965,10 @@ older null export when its source digest differs.
 
 The output also includes ``maxima.tsv`` with one row for every query.
 The ``maximum`` column retains finite tied maxima for audit, whereas
-``score`` and ``target`` require a unique winning pMHC. Unsupported and
-tied queries stay in the input denominator. For a declared calibration
+``score`` and ``target`` require an eligible label. The default policy
+requires a unique maximum. The literal tie policy can populate these
+columns while retaining ``tied=true`` for audit. Unsupported and tied
+queries stay in the input denominator. For a declared calibration
 null, label the input with ``--null-source`` and pass this file directly
 to the ordered calibration command:
 

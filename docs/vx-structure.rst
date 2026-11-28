@@ -310,9 +310,10 @@ evaluation. Other target annotations in VDJdb provide comparison
 cases for this catalogue-recovery task.
 
 Apply this eligibility cutoff and cap only to full-VDJdb benchmarking.
-Use TCRvdb, NLV and the LLL–LLW–ELA assay as supplied. Epitope
-structure classification, motif counts, rarefaction, neighbourhood
-graphs and mismatch-aware functional diversity use the full depth.
+Use TCRvdb, NLV and the LLL–LLW–ELA assay as supplied. Descriptive
+epitope profiles, motif counts, rarefaction, structural graphs and
+mismatch-aware functional diversity use full depth. The separate
+reciprocal clustering benchmark uses its recorded capped cohort.
 
 The original VDJdb paper describes sequence similarity networks.
 The subsequent VDJdb motif compendium used at least 30 distinct
@@ -669,5 +670,7 @@ The same amplitude with the 31 mouse class-I contact weights was also
 tested on paired-chain mouse VDJdb. At 6,978 distinct receptor cases,
 the top labels and ties matched frozen vX, but 53 of 736 target AP and
 AUROC endpoints decreased. The mouse scorer therefore retains frozen vX.
-The mouse benchmark tests catalogue recovery. It has no matched mouse
-null calibration or experimental negative binding panel.
+The mouse contact experiment tests catalogue recovery without
+experimental negative binding labels. Its modified score has no
+matched generated-null calibration. The frozen mouse score has its
+own calibrated generated bank.
